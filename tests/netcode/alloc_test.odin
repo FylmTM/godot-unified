@@ -78,3 +78,20 @@ the_steady_state_allocates_nothing :: proc(t: ^testing.T) {
 		}
 	}
 }
+
+// A burst of queued messages (a large world's snapshot: thousands of chunks queued at once) grows the slot pool
+// geometrically: a few allocations, not one per slot (each copying every slot before it).
+@(test)
+the_slot_pool_grows_geometrically :: proc(t: ^testing.T) {
+	counting := Counting {
+		inner = context.allocator,
+	}
+	context.allocator = {counting_proc, &counting}
+	pool: netcode.Slot_Pool
+	defer netcode.pool_destroy(&pool)
+	bytes: [netcode.MAX_DATAGRAM]u8
+	for _ in 0 ..< 8000 {
+		netcode.pool_put(&pool, bytes[:])
+	}
+	testing.expectf(t, counting.allocs < 16, "%d allocations for 8000 slots", counting.allocs)
+}

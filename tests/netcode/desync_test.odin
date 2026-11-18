@@ -117,3 +117,84 @@ a_typed_report_waits_for_a_large_image :: proc(t: ^testing.T) {
 		detail,
 	)
 }
+
+// The typed report's setup up to the relay's request for the diverged slot's image (slot 1, a raw channel; slot 0
+// an honest client): returns the honest client and the tick of the desync.
+@(private = "file")
+diverged_image_asked :: proc(t: ^testing.T, session: ^Net, evil: ^Evil) -> (honest: ^Client, tick: u32, ok: bool) {
+	net_make_relay(session, 2, 0, desync_detail = true)
+	evil_seat(evil, session, 7, 1) // slot 1 loses the tie: the diverged one
+	evil.acking = true
+	honest = net_join(session, 0, .Ideal)
+	evil_run(evil, session, 1)
+	tick = (session.relay.finalized / netcode.CHECKSUM_EVERY) * netcode.CHECKSUM_EVERY
+	writer := evil_begin(evil, .Checksum)
+	wire.w_u32(writer, tick)
+	wire.w_u64(writer, 1) // not what the honest client computes
+	evil_send(evil, session)
+	request := evil_run(evil, session, 2, .Snap_Request)
+	ok = testing.expect(t, request != nil, "the relay asked the diverged slot for no image")
+	return
+}
+
+// An empty chunk is no progress: a slot that answers with a Snap_Begin and then only empty chunks (or Snap_Begins
+// again) holds the report IMAGE_WAIT_MS after its answer, not for as long as it keeps sending them.
+@(test)
+empty_chunks_do_not_hold_the_desync_report :: proc(t: ^testing.T) {
+	session: Net
+	evil: Evil
+	defer net_destroy(&session)
+	defer evil_destroy(&evil)
+	honest, tick, ok := diverged_image_asked(t, &session, &evil)
+	if !ok do return
+	for k in 0 ..< 6 {
+		writer := evil_begin(&evil, k % 3 == 0 ? .Snap_Begin : .Snap_Chunk)
+		wire.w_u8(writer, netcode.RELAY_TARGET)
+		if k % 3 == 0 {
+			wire.w_u32(writer, tick)
+			wire.w_u32(writer, 1 << 20)
+		} else {
+			wire.w_u32(writer, 0) // offset 0, no bytes
+		}
+		evil_send(&evil, &session)
+		evil_run(&evil, &session, 1)
+	}
+	testing.expect_value(t, session.relay.desyncs, 1)
+	testing.expectf(t, honest.stats.desyncs > 0, "6 s after the answer the honest client was told of no desync")
+	testing.expect_value(t, session.relay.first_desync.detail, "the snapshots of that tick were not available")
+}
+
+// The wait has an end: a slot that sends its image a byte at a time (each one progress) holds the report for
+// IMAGE_GIVE_UP_MS at most.
+@(test)
+a_dripping_image_holds_the_desync_report_until_the_wait_gives_up :: proc(t: ^testing.T) {
+	session: Net
+	evil: Evil
+	defer net_destroy(&session)
+	defer evil_destroy(&evil)
+	honest, tick, ok := diverged_image_asked(t, &session, &evil)
+	if !ok do return
+	asked := session.relay.pending_from
+	writer := evil_begin(&evil, .Snap_Begin)
+	wire.w_u8(writer, netcode.RELAY_TARGET)
+	wire.w_u32(writer, tick)
+	wire.w_u32(writer, 1 << 20)
+	evil_send(&evil, &session)
+	for offset: u32 = 0; honest.stats.desyncs == 0 && offset < 60; offset += 1 {
+		writer = evil_begin(&evil, .Snap_Chunk)
+		wire.w_u8(writer, netcode.RELAY_TARGET)
+		wire.w_u32(writer, offset)
+		wire.w_u8(writer, 0) // one byte
+		evil_send(&evil, &session)
+		evil_run(&evil, &session, 1)
+	}
+	waited_ms := (session.clock.now - asked) / 1000
+	testing.expectf(t, honest.stats.desyncs > 0, "the honest client was never told of the desync")
+	testing.expectf(
+		t,
+		waited_ms >= netcode.IMAGE_GIVE_UP_MS - 2000 && waited_ms <= netcode.IMAGE_GIVE_UP_MS + 2000,
+		"told %d ms after the relay asked for the images (gives up after %d)",
+		waited_ms,
+		netcode.IMAGE_GIVE_UP_MS,
+	)
+}

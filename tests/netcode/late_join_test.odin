@@ -459,3 +459,198 @@ a_snapshot_nobody_else_reports_is_let_in_unchecked :: proc(t: ^testing.T) {
 	testing.expect(t, joiner.verified > tick)
 	testing.expect_value(t, session.relay.unchecked_snapshots, 1)
 }
+
+// A joiner leaves and another takes its seat while the only provider's answer to the first (its Snap_Begin) is on
+// its way to the relay (the provider is behind `wan`): that answer is older than the new request allows, and is
+// dropped, not taken as the provider's answer to it. The provider's answer to the new request follows, and the
+// joiner plays.
+@(test)
+a_rejoin_while_the_providers_answer_is_on_its_way_gets_in :: proc(t: ^testing.T) {
+	for k in 0 ..< 8 {
+		session: Net
+		net_make_relay(&session, 1, 0)
+		net_join(&session, 0, .Wan)
+		net_run(&session, 2)
+		first := net_join(&session, -1, .Ideal)
+		net_run(&session, 0.56 + f64(k) * 0.01)
+		netcode.client_stop(first, session.clock.now)
+		net_run(&session, 0.005)
+		second := net_join(&session, -1, .Ideal)
+		net_run(&session, 2.5)
+		testing.expectf(
+			t,
+			second.status == .Connected,
+			"the first left %d ms after its Hello: the second joiner is %v (%s)",
+			560 + 10 * k,
+			second.status,
+			second.detail,
+		)
+		net_destroy(&session)
+	}
+}
+
+// The same with a large world's snapshot (8 MB) still on its way when the seat changes hands: the provider answers
+// the new request at once, behind the rest of the old snapshot (reliable, in order, at the reliable pace). Those
+// chunks are dropped but are a sign of life, so the provider is not replaced as stalled before its answer comes.
+@(test)
+a_rejoin_while_a_large_snapshot_is_on_its_way_gets_in :: proc(t: ^testing.T) {
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	evil: Evil
+	evil_seat(&evil, &session, 7, 0) // stands in for an honest provider: it queues a whole snapshot at once
+	defer evil_destroy(&evil)
+	evil.acking = true
+	evil_run(&evil, &session, 1)
+	first := net_join(&session, -1, .Ideal)
+	evil_run(&evil, &session, 0.1)
+	testing.expect_value(t, session.relay.seats[1].provider, 0)
+	tick := (session.relay.seats[1].snap_min + 15) / 16 * 16
+	for session.relay.finalized < tick do evil_run(&evil, &session, 0.01)
+	big := make([]u8, 8 << 20)
+	defer delete(big)
+	evil_snapshot(&evil, &session, 1, tick, big)
+	evil_run(&evil, &session, 1)
+	netcode.client_stop(first, session.clock.now)
+	evil_run(&evil, &session, 0.2)
+	testing.expect(t, !session.relay.seats[1].connected)
+	second := net_join(&session, -1, .Ideal)
+	evil_run(&evil, &session, 0.1)
+	testing.expect_value(t, session.relay.seats[1].provider, 0)
+	tick = (session.relay.seats[1].snap_min + 15) / 16 * 16
+	for session.relay.finalized < tick do evil_run(&evil, &session, 0.01)
+	simulation := sim.create(&toy.GAME, SEED)
+	defer sim.destroy(simulation)
+	for number in 1 ..= tick {
+		inputs := netcode.relay_tick(session.relay, number)^
+		sim.step(simulation, &inputs)
+	}
+	snapshot := sim.snapshot_encode(simulation, tick)
+	defer delete(snapshot)
+	evil_snapshot(&evil, &session, 1, tick, snapshot) // the answer to the new request, behind the old chunks
+	evil_run(&evil, &session, 14)
+	testing.expectf(
+		t,
+		second.status == .Connected,
+		"the second joiner is %v (%s); providers refused: %v",
+		second.status,
+		second.detail,
+		session.relay.seats[1].refused,
+	)
+}
+
+// A provider whose answer never comes, only stale chunks (as if of an earlier answer): they keep it asked only while
+// the ticks from the joiner's snap_min on are in the relay's ring; then it is replaced as stalled, and with nobody
+// else to ask the joiner is refused for want of a snapshot (none failed a check).
+@(test)
+stale_chunks_keep_a_provider_only_while_the_ring_holds_the_join :: proc(t: ^testing.T) {
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	evil: Evil
+	evil_seat(&evil, &session, 7, 0)
+	defer evil_destroy(&evil)
+	evil.acking = true
+	evil_run(&evil, &session, 1)
+	joiner := net_join(&session, -1, .Ideal)
+	evil_run(&evil, &session, 0.1)
+	testing.expect_value(t, session.relay.seats[1].provider, 0)
+	snap_min := session.relay.seats[1].snap_min
+	chunk := [64]u8{}
+	for session.relay.seats[1].connected && session.relay.finalized < snap_min + 2 * netcode.RELAY_RING {
+		writer := evil_begin(&evil, .Snap_Chunk)
+		wire.w_u8(writer, 1)
+		wire.w_u32(writer, 0)
+		wire.w_bytes(writer, chunk[:])
+		evil_send(&evil, &session)
+		evil_run(&evil, &session, 1)
+		if session.relay.finalized < snap_min + netcode.RELAY_RING - 64 {
+			testing.expect_value(t, session.relay.seats[1].provider, 0)
+		}
+	}
+	evil_run(&evil, &session, 1)
+	testing.expect_value(t, joiner.status, netcode.Status.Failed)
+	testing.expect_value(t, joiner.detail, "no player can send this player a snapshot")
+	testing.expectf(
+		t,
+		session.relay.finalized - snap_min < netcode.RELAY_RING + u32(f64(netcode.SNAP_STALL_US) / 1e6 + 2) * 64,
+		"refused %d ticks past its snap_min",
+		session.relay.finalized - snap_min,
+	)
+}
+
+// Joiners on `bad` links, a second joiner right behind the first, the first provider leaving mid-join in odd rounds:
+// every joiner ends Connected, close behind the relay, checked, with no desync.
+@(test)
+late_joins_on_bad_links_with_a_provider_leaving :: proc(t: ^testing.T) {
+	for k in 0 ..< 16 {
+		session: Net
+		net_make_relay(&session, 2, 0)
+		net_join(&session, 0, .Bad)
+		net_join(&session, 1, .Wan)
+		net_run(&session, 2 + f64(k) * 0.037)
+		first := net_join(&session, -1, .Bad)
+		net_run(&session, 0.15 + f64(k) * 0.04)
+		second := net_join(&session, -1, k % 4 < 2 ? .Bad : .Wan)
+		net_run(&session, 0.05 + f64(k % 5) * 0.1)
+		if k % 2 == 1 do netcode.client_stop(session.clients[0], session.clock.now)
+		net_run(&session, 14)
+		for joiner, i in ([]^Client{first, second}) {
+			testing.expectf(
+				t,
+				joiner.status == .Connected && session.relay.finalized - joiner.verified < 64,
+				"round %d joiner %d: %v (%s), verified %d of %d, snapshot of %d, first tick %d",
+				k,
+				i,
+				joiner.status,
+				joiner.detail,
+				joiner.verified,
+				session.relay.finalized,
+				joiner.snap_tick,
+				joiner.first_tick,
+			)
+		}
+		testing.expectf(t, session.relay.desyncs == 0, "round %d: %d desyncs", k, session.relay.desyncs)
+		testing.expectf(
+			t,
+			session.relay.unchecked_snapshots == 0,
+			"round %d: %d joiners let in unchecked",
+			k,
+			session.relay.unchecked_snapshots,
+		)
+		net_destroy(&session)
+	}
+}
+
+// One seat joined and left again and again at short intervals (before its snapshot, during it, after Connected),
+// then a last joiner that stays and plays.
+@(test)
+a_seat_joined_and_left_again_and_again :: proc(t: ^testing.T) {
+	for k in 0 ..< 8 {
+		session: Net
+		net_make_relay(&session, 2, 0)
+		net_join(&session, 0, .Wan)
+		net_join(&session, 1, .Bad)
+		net_run(&session, 2)
+		for round in 0 ..< 4 {
+			joiner := net_join(&session, -1, round % 2 == 0 ? .Wan : .Bad)
+			net_run(&session, 0.05 + f64((k * 7 + round * 13) % 23) * 0.04)
+			netcode.client_stop(joiner, session.clock.now)
+			net_run(&session, 0.02 + f64(k) * 0.03)
+		}
+		last := net_join(&session, -1, .Wan)
+		net_run(&session, 10)
+		testing.expectf(
+			t,
+			last.status == .Connected && session.relay.finalized - last.verified < 64,
+			"round %d: %v (%s), verified %d of %d",
+			k,
+			last.status,
+			last.detail,
+			last.verified,
+			session.relay.finalized,
+		)
+		testing.expectf(t, session.relay.desyncs == 0, "round %d: %d desyncs", k, session.relay.desyncs)
+		net_destroy(&session)
+	}
+}

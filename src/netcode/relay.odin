@@ -41,7 +41,10 @@ JOIN_LEAD_MS :: 500 // a joiner becomes present this long after the relay clock 
 START_LEAD_MS :: 500 // the clock starts (tick 0 is due) this long after Welcome, unless local_start
 BROADCAST_GAP :: 0.75 // ticks at least between two Finalized broadcasts that only carry new ticks (a heartbeat waits a tick)
 CHECK_WAIT_MS :: 1000 // a checksum tick is judged once every expected report is in, or this long after it is due
-IMAGE_WAIT_MS :: 3000 // how long a typed desync report waits for its two snapshots to make progress (asked, a part)
+IMAGE_WAIT_MS :: 3000 // how long a typed desync report waits for its two snapshots to make progress (asked, bytes)
+// The most a typed desync report waits for its snapshots in all (30 MB at REL_RATE): past it the queued reports go
+// out without the detail, so no client can hold the desync reports back by sending slowly.
+IMAGE_GIVE_UP_MS :: 30_000
 SNAP_STALL_US :: 5_000_000 // a joiner's snapshot provider that sends nothing this long is replaced by another
 IMAGE_MAX :: 256 << 20 // the largest snapshot the relay takes for a desync report
 NO_REPORTS :: max(u32) // Seat.report_from of a slot that sends no checksums yet
@@ -117,6 +120,7 @@ Seat :: struct($Input: typeid) {
 	snap_value:  u64, // the joiner's checksum of its restored snapshot
 	snap_have:   bool,
 	refused:     sim.Slots, // providers whose snapshot for this joiner failed the check, was unusable or never came
+	bad_check:   bool, // a snapshot for this joiner failed the check (refused: Bad_Snapshot, else No_Snapshot)
 }
 
 // The relay, generic over the game type G (only its Input, PLAYERS and tick rate matter).
@@ -147,7 +151,8 @@ Relay :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Ga
 	pending:             [2]Pending_Image, // the typed report's snapshots: a majority slot's, a diverged one's
 	pending_on:          bool,
 	pending_tick:        u32,
-	pending_us:          i64, // when the typed report last made progress (asked, a part of a snapshot came)
+	pending_us:          i64, // when the typed report last made progress (asked, an answer or bytes of one came)
+	pending_from:        i64, // when the typed report asked for its snapshots
 	detailed:            bool, // the session's first desync got its typed report (later ones are its consequences)
 	first_desync:        Desync_Report, // the first desync reported (its detail owned by the relay)
 	replaced:            int, // inputs that came too late, replaced by the slot's previous one
@@ -522,7 +527,7 @@ restart_snapshot :: proc(relay: ^Relay($G), joiner: int, why: string, now: i64) 
 		return
 	}
 	log.warnf("slot %d: %s, and nobody else can send a snapshot", joiner, why)
-	refuse_seat(relay, joiner, card(seat.refused) > 0 ? .Bad_Snapshot : .No_Snapshot, now)
+	refuse_seat(relay, joiner, seat.bad_check ? .Bad_Snapshot : .No_Snapshot, now)
 }
 
 @(private)
@@ -724,6 +729,7 @@ judge_snapshots :: proc(relay: ^Relay($G), now: i64) {
 		}
 		if seat.snap_value != majority {
 			seat.refused += {seat.snap_from}
+			seat.bad_check = true
 			restart_snapshot(
 				relay,
 				joiner,
@@ -771,6 +777,7 @@ report_desync :: proc(relay: ^Relay($G), tick: u32, diverged: sim.Slots, now: i6
 			relay.pending_on = true
 			relay.pending_tick = tick
 			relay.pending_us = now
+			relay.pending_from = now
 			for &pending, k in relay.pending {
 				clear(&pending.image)
 				pending.slot = k == 0 ? majority_slot : diverged_slot
@@ -792,7 +799,9 @@ report_desync :: proc(relay: ^Relay($G), tick: u32, diverged: sim.Slots, now: i6
 @(private)
 send_reports :: proc(relay: ^Relay($G), now: i64) {
 	if relay.pending_on {
-		if !(relay.pending[0].done && relay.pending[1].done) && now - relay.pending_us < IMAGE_WAIT_MS * 1000 {
+		if !(relay.pending[0].done && relay.pending[1].done) &&
+		   now - relay.pending_us < IMAGE_WAIT_MS * 1000 &&
+		   now - relay.pending_from < IMAGE_GIVE_UP_MS * 1000 {
 			return
 		}
 		detail := "the snapshots of that tick were not available"
@@ -843,13 +852,12 @@ take_image :: proc(relay: ^Relay($G), slot: int, kind: Msg, reader: ^wire.Reader
 		if kind == .Snap_Begin {
 			tick := wire.r_u32(reader)
 			total := wire.r_u32(reader)
-			if !reader.ok {
-				return
+			if !reader.ok || pending.total != 0 {
+				return // a slot answers once: another Snap_Begin restarts nothing
 			}
 			pending.total = tick == relay.pending_tick && total <= IMAGE_MAX ? total : 0
-			clear(&pending.image)
 			pending.done = pending.total == 0
-			relay.pending_us = now // progress: a large image arrives at the pace, however long it takes
+			relay.pending_us = now // the answer: a large image arrives at the pace, bytes at a time
 			return
 		}
 		offset := wire.r_u32(reader)
@@ -859,6 +867,9 @@ take_image :: proc(relay: ^Relay($G), slot: int, kind: Msg, reader: ^wire.Reader
 		   int(offset) != len(pending.image) ||
 		   u32(len(bytes)) > pending.total - offset {
 			return
+		}
+		if len(bytes) == 0 {
+			return // no progress
 		}
 		append(&pending.image, ..bytes)
 		pending.done = u32(len(pending.image)) == pending.total
@@ -1101,9 +1112,17 @@ forward_snapshot :: proc(relay: ^Relay($G), slot: int, kind: Msg, reader: ^wire.
 		return
 	}
 	seat := &relay.seats[joiner]
+	// Before its answer's Snap_Begin (snap_total 0), what the provider sends for this seat is the rest of its answer
+	// to an earlier request (the seat's previous occupant's, sent before this request reached it), queued ahead of
+	// this one: a snapshot older than this request allows, or chunks of one. Dropped, not held against the provider,
+	// and a sign of life while the answer behind it can still be streamed from the ring.
 	if kind == .Snap_Begin {
 		tick := wire.r_u32(reader)
 		total := wire.r_u32(reader)
+		if reader.ok && seat.snap_total == 0 && tick < seat.snap_min {
+			stale_snapshot_message(relay, seat, now)
+			return
+		}
 		// A snapshot of a checksum tick (the joiner's checksum of it is compared with the others'), still in the
 		// ring (the ticks after it are streamed from there).
 		if !reader.ok ||
@@ -1137,7 +1156,11 @@ forward_snapshot :: proc(relay: ^Relay($G), slot: int, kind: Msg, reader: ^wire.
 	} else {
 		offset := wire.r_u32(reader)
 		size := u32(len(reader.data) - reader.pos)
-		if !reader.ok || seat.snap_total == 0 || offset != seat.snap_sent || size > seat.snap_total - offset {
+		if reader.ok && seat.snap_total == 0 {
+			stale_snapshot_message(relay, seat, now)
+			return
+		}
+		if !reader.ok || offset != seat.snap_sent || size > seat.snap_total - offset {
 			return
 		}
 		seat.snap_sent += size
@@ -1149,6 +1172,16 @@ forward_snapshot :: proc(relay: ^Relay($G), slot: int, kind: Msg, reader: ^wire.
 		}
 	}
 	channel_send(relay.ch, seat.peer, data, .Reliable, now)
+}
+
+// A joiner's provider is still sending what it answered an earlier request with (forward_snapshot): it lives, while
+// the ticks from the joiner's snap_min on are in the ring (the snapshot it answers this request with is of one of
+// them). Past that it is replaced once SNAP_STALL_US pass, as if silent.
+@(private)
+stale_snapshot_message :: proc(relay: ^Relay($G), seat: ^Seat($Input), now: i64) {
+	if relay.finalized < seat.snap_min + RELAY_RING {
+		seat.snap_us = now
+	}
 }
 
 // One step of the relay: receive, advance the clock, finalize, broadcast, judge checksums, flush. Returns when it
