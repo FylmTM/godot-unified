@@ -227,17 +227,17 @@ a_provider_replaced_mid_transfer_leaves_no_gap :: proc(t: ^testing.T) {
 }
 
 // The honest restart after a failed check (player 0 has diverged; player 1 sends the next snapshot), at join moments
-// across a whole checksum period on `wan`: the joiner always plays, and keeps up.
+// two ticks apart across a whole checksum period on `wan`: the joiner always plays, and keeps up.
 @(test)
 a_restarted_snapshot_keeps_up_at_any_phase :: proc(t: ^testing.T) {
-	for k in 0 ..< 32 {
+	for k in 0 ..< netcode.CHECKSUM_EVERY / 2 {
 		session: Net
 		defer net_destroy(&session)
 		net_make_relay(&session, 3, 0)
 		net_join(&session, 0, game = diverging_game())
 		net_join(&session, 1)
 		net_join(&session, 2)
-		net_run(&session, 3 + f64(k) * 0.0083)
+		net_run(&session, 2 + f64(2 * k) / toy.HZ) // past tick 100, where player 0 parts
 		joiner := net_join(&session, 3)
 		net_run(&session, 6)
 		testing.expectf(
