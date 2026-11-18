@@ -1,4 +1,4 @@
-// The survivor's GDExtension (game/survivor.gdextension -> .out/bin/libsurvivor.*): the survivor sim run by
+// The survivor's GDExtension (game/g.gdextension -> .out/bin/libsurvivor.*): the survivor sim run by
 // unified:godot, plus the game's glue (games/survivor/SPEC.md "Client"): 3D scene and MultiMesh views in metres,
 // the player view's data, the HUD's session data (hud.odin), the constants, and how the InputMap becomes an Input.
 // Built by `uni build survivor`.
@@ -12,7 +12,7 @@ import "unified:godot"
 import "unified:physics"
 import "unified:sim"
 
-import "../survivor"
+import g "../survivor"
 
 
 @(export, link_name = "survivor_init")
@@ -22,7 +22,7 @@ survivor_init :: proc "c" (
 	init: ^godot.Initialization,
 ) -> godot.Init_Result {
 	// online play: EOS lobbies and P2P
-	return godot.init(&survivor.GAME, GLUE, gpa, lib, init, eos.lobby({}), constants = constants)
+	return godot.init(&g.GAME, GLUE, gpa, lib, init, eos.lobby({}), constants = constants)
 }
 
 // ---- the view contract
@@ -46,11 +46,11 @@ MultiView :: enum u8 {
 	Gem,
 }
 
-#assert(int(MultiView.Grunt) == int(survivor.Enemy_Kind.Grunt))
-#assert(int(MultiView.Runner) == int(survivor.Enemy_Kind.Runner))
-#assert(int(MultiView.Brute) == int(survivor.Enemy_Kind.Brute))
+#assert(int(MultiView.Grunt) == int(g.Enemy_Kind.Grunt))
+#assert(int(MultiView.Runner) == int(g.Enemy_Kind.Runner))
+#assert(int(MultiView.Brute) == int(g.Enemy_Kind.Brute))
 
-Frame :: godot.Frame(survivor.Game, View, MultiView)
+Frame :: godot.Frame(g.Game, View, MultiView)
 
 // The player view's data: set as its properties when it changes.
 Player_View :: struct {
@@ -60,7 +60,7 @@ Player_View :: struct {
 // Events reach views by the host's default routing: a player's events (`player`) its player view, a barrel's
 // explosion (`entity`: sim.entity of the item's index) the barrel's view (keyed by that index); enemies and gems are
 // MultiMesh instances, so their events (by handle) reach no view.
-GLUE := godot.Glue(survivor.Game, View, MultiView) {
+GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame   = fill_frame,
 	data         = Data,
@@ -69,11 +69,11 @@ GLUE := godot.Glue(survivor.Game, View, MultiView) {
 // ---- input (main thread, the one local player)
 
 // Movement and the dash from the InputMap. The level-up pick is a command: the HUD sends it (a Pick).
-sample_input :: proc(input: ^survivor.Input) {
+sample_input :: proc(input: ^g.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_forward", "move_back") // +y = move_back = +Z
 	input.move_x, input.move_z = dmath.axis_i8(move.x), dmath.axis_i8(move.y)
 	// the sim dashes on the press (sim.buttons); a tap shorter than a frame still counts
-	input.buttons = godot.buttons(survivor.Buttons, {.Dash = "dash"})
+	input.buttons = godot.buttons(g.Buttons, {.Dash = "dash"})
 }
 
 // ---- the frame (session thread)
@@ -90,7 +90,7 @@ fill_frame :: proc(f: ^Frame) {
 			pos    = sim.Position(character.pos),
 		}, Player_View{hp = max(character.hp, 0)})
 	}
-	for i in 0 ..< survivor.ITEM_COUNT {
+	for i in 0 ..< g.ITEM_COUNT {
 		item := &f.state.items[i]
 		if !item.alive do continue
 		godot.push_view(f, {
@@ -142,11 +142,11 @@ facing :: proc(dir: [2]f32) -> [4]f32 {
 // MultiMesh custom data (the game's shaders): r = hit flash 1 -> 0 over HIT_FLASH_S, g = age in seconds.
 hit_flash :: proc(tick, hit_tick: u32) -> f32 {
 	if hit_tick == 0 || tick < hit_tick do return 0
-	return max(0, 1 - sim.seconds(tick - hit_tick, survivor.TICK_HZ) / HIT_FLASH_S)
+	return max(0, 1 - sim.seconds(tick - hit_tick, g.TICK_HZ) / HIT_FLASH_S)
 }
 
 age_s :: proc(tick, spawn_tick: u32) -> f32 {
-	return tick > spawn_tick ? sim.seconds(tick - spawn_tick, survivor.TICK_HZ) : 0
+	return tick > spawn_tick ? sim.seconds(tick - spawn_tick, g.TICK_HZ) : 0
 }
 
 // ---- constants for the scripts (Unified.constants, class UnifiedConstants), from the sim's own definitions
@@ -156,47 +156,47 @@ Data_Constants :: struct {
 	over_hold_s:  f32,
 	arena_half:   f32,
 	start_radius: f32,
-	upgrades:     [len(survivor.Upgrade)]Upgrade_Card, // in survivor.Upgrade order: the HUD's cards
-	items:        [survivor.ITEM_COUNT]Item_Spot, // the item grid as the match starts (the menu backdrop shows it)
+	upgrades:     [len(g.Upgrade)]Upgrade_Card, // in g.Upgrade order: the HUD's cards
+	items:        [g.ITEM_COUNT]Item_Spot, // the item grid as the match starts (the menu backdrop shows it)
 }
 
 // A level-up card: its Pick's `upgrade` (an EnumUpgrade value), name and detail.
 Upgrade_Card :: struct {
-	upgrade: survivor.Upgrade,
+	upgrade: g.Upgrade,
 	name:    string,
 	detail:  string,
 }
 
 Item_Spot :: struct {
 	position: [3]f32, // the body's centre at spawn
-	kind:     survivor.Item_Kind, // an EnumItemKind value
+	kind:     g.Item_Kind, // an EnumItemKind value
 }
 
 // godot.init calls it once: the sizes, the cards (their details with the sim's numbers) and the item grid. Their
 // strings live as long as the process.
 constants :: proc() -> (constants: Data_Constants) {
 	constants = {
-		over_hold_s  = survivor.OVER_HOLD_S,
-		arena_half   = survivor.ARENA_HALF,
-		start_radius = survivor.START_RADIUS,
+		over_hold_s  = g.OVER_HOLD_S,
+		arena_half   = g.ARENA_HALF,
+		start_radius = g.START_RADIUS,
 		upgrades     = {
 			{upgrade = .Fire_Rate, name = "Fire rate", detail = "Shoot more often"},
 			{upgrade = .Damage, name = "Damage"},
 			{upgrade = .Move_Speed, name = "Move speed"},
 		},
 	}
-	constants.upgrades[survivor.Upgrade.Damage].detail = fmt.aprintf(
+	constants.upgrades[g.Upgrade.Damage].detail = fmt.aprintf(
 		"+%d damage per shot",
-		survivor.DAMAGE_LEVELUP,
+		g.DAMAGE_LEVELUP,
 		allocator = runtime.heap_allocator(),
 	)
-	constants.upgrades[survivor.Upgrade.Move_Speed].detail = fmt.aprintf(
+	constants.upgrades[g.Upgrade.Move_Speed].detail = fmt.aprintf(
 		"+%.1f m/s",
-		survivor.SPEED_LEVELUP,
+		g.SPEED_LEVELUP,
 		allocator = runtime.heap_allocator(),
 	)
 	for &spot, i in constants.items {
-		spot = {survivor.item_position(i), survivor.item_kind(i)}
+		spot = {g.item_position(i), g.item_kind(i)}
 	}
 	return
 }

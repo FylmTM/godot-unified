@@ -3,7 +3,7 @@ package test_survivor
 
 import "core:testing"
 
-import "../survivor"
+import g "../survivor"
 import "unified:sim"
 
 // Progress belongs to the person, not the slot: the first player levels up and leaves (their body goes); someone new
@@ -11,10 +11,10 @@ import "unified:sim"
 // that slot's start spot.
 @(test)
 progress_follows_the_player :: proc(t: ^testing.T) {
-	simulation := sim.create(&survivor.GAME, 3)
+	simulation := sim.create(&g.GAME, 3)
 	defer sim.destroy(simulation)
 	players := &simulation.state.players
-	inputs: survivor.Inputs
+	inputs: g.Inputs
 	sim.join(&inputs, 0, 1)
 	sim.step(simulation, &inputs)
 	first := sim.player_in_slot(simulation, 0)
@@ -38,8 +38,8 @@ progress_follows_the_player :: proc(t: ^testing.T) {
 	back := sim.player_data(players, first)
 	testing.expect_value(t, back.level, 4)
 	testing.expect_value(t, back.damage_bonus, 6)
-	testing.expect(t, back.alive && back.body != {} && back.hp == survivor.PLAYER_HP)
-	testing.expect_value(t, back.pos.x, survivor.PLAYER_START[1].x)
-	testing.expect_value(t, back.pos.z, survivor.PLAYER_START[1].z)
+	testing.expect(t, back.alive && back.body != {} && back.hp == g.PLAYER_HP)
+	testing.expect_value(t, back.pos.x, g.PLAYER_START[1].x)
+	testing.expect_value(t, back.pos.z, g.PLAYER_START[1].z)
 	testing.expect_value(t, sim.slot_data(simulation, 0).level, 1)
 }
