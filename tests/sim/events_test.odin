@@ -9,7 +9,10 @@ import "unified:sim"
 @(test)
 names_derive_from_the_types :: proc(t: ^testing.T) {
 	commands := sim.command_names(toy.Cmd, context.temp_allocator)
-	testing.expect(t, len(commands) == 2 && commands[0] == "bump" && commands[1] == "mark")
+	testing.expect(
+		t,
+		len(commands) == 3 && commands[0] == "bump" && commands[1] == "mark" && commands[2] == "clear_bumps",
+	)
 	events := sim.event_names(toy.Event, context.temp_allocator)
 	testing.expect(
 		t,
@@ -31,6 +34,13 @@ Plain :: struct {
 Prefixed_Events :: union {
 	Event_Rock_Hit,
 	Plain,
+}
+
+// A 2D game's point on the plane as an event's position (the toy's spawn uses it).
+@(test)
+a_position_from_a_point_on_the_plane :: proc(t: ^testing.T) {
+	testing.expect_value(t, sim.position({1.5, -2}), sim.Position{1.5, -2, 0})
+	testing.expect_value(t, sim.position({}), sim.Position{})
 }
 
 @(test)

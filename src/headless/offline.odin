@@ -14,7 +14,8 @@ Headless :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim
 	// Its scripted player (Game.scripted_input, scripted_commands) plays the runs, on its content (Game.content; the
 	// CLI's `--level FILE` runs a copy of the game with other content).
 	game:  ^G,
-	// The game's standard benchmark: what `bench` runs without arguments (`uni bench`).
+	// The game's standard benchmark: what `bench` runs without arguments (`uni bench`). None (zero): `bench` without
+	// arguments runs nothing, and `uni bench` has no row for the game.
 	bench: Bench,
 }
 

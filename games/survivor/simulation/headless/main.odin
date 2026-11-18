@@ -3,13 +3,13 @@
 // (eos-host, eos-client: two processes over EOS, src/eos/SPEC.md).
 package main
 
-import "../survivor"
+import g "../survivor"
 import "unified:eos"
 import "unified:headless/modes"
 
 main :: proc() {
 	modes.run(
-		&survivor.GAME_STRESS,
+		&g.GAME_STRESS,
 		{
 			bench = {
 				what     = "survivor (stress tuning) holding 1000 enemies",
@@ -17,7 +17,7 @@ main :: proc() {
 				ticks    = 600,
 			},
 		},
-		variants = {&survivor.GAME}, // --game survivor: the `play` tuning, as the game runs it
+		variants = {&g.GAME}, // --game survivor: the `play` tuning, as the game runs it
 		// Test runs: no keychain dialog, and no device ID left behind for the next build to trip on (macOS).
 		lobbies = {eos.lobby({no_keychain_prompts = true, forget_device = true})},
 	)

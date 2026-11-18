@@ -48,8 +48,7 @@ repo, `test`, `vet`, `fmt` and `verify` cover the game only, never the submodule
 `tools/main.odin` with `cli.configure` (`Project_Config`): this repo's test root (`tests/`, compiled with
 `-all-packages`; `uni` writes its `games.gen.odin`, git-ignored, importing every in-repo game's tests, so a new game
 edits no shared file), the toy game's headless binary and end-to-end suite, the Godot test extensions `vet` checks, the
-directories `fmt` formats, that its tests link Box3D, `vet`'s check of `uni init`'s template, and `bench`'s physics
-row. Its own test suites go in with `cli.add_suites`, its commands with `cli.run`. The public library knows nothing of
+directories `fmt` formats, that its tests link Box3D, and `bench`'s physics row. Its own test suites go in with `cli.add_suites`, its commands with `cli.run`. The public library knows nothing of
 this repo's layout but `init --in-repo`.
 
 ## Bootstrap and self-rebuild
@@ -156,10 +155,10 @@ for batch files); the config readers (`pins.cfg`, `.env`) accept either.
     offline headless binary's), `bake` (`--check`, the view index too), then the tool scripts `validate`, `walk`
     (`ui_walk.gd`: menus, flows and the game's own play smoke, `_walk_play()`). Its `prepare` makes current what the games share: Godot, the bindings, Box3D, the
     `session` step's release headless binaries. The tool scripts run without the EOS SDK, as on CI.
-- **Benchmarks:** a game's headless descriptor names its standard benchmark (`Headless.bench`: entities held,
-  rollback window (default: the netcode's prediction cap), ticks), which its `bench` mode runs: every tick a step, a
-  save, a checksum, then a rollback at the window and a re-sim (the worst case the netcode makes: a bound, not a
-  typical frame). The first window + 64 ticks run untimed. unified's target: a step, a restore, that re-sim and a
+- **Benchmarks:** a game's headless descriptor names its standard benchmark, if it has one (`Headless.bench`:
+  entities held, rollback window (default: the netcode's prediction cap), ticks), which its `bench` mode runs: every
+  tick a step, a save, a checksum, then a rollback at the window and a re-sim (the worst case the netcode makes: a
+  bound, not a typical frame). The first window + 64 ticks run untimed. unified's target: a step, a restore, that re-sim and a
   deep checksum within 6 ms at their p99. `bench` also runs each game's `session` on the virtual clock, 4 clients: on
   the game's own script for the bytes a session moves, under `bad` (the stress case) and under `wan` with the 4th
   connecting halfway and joining as a player does (the common case and a late join); then a shorter `bad` one whose
@@ -173,18 +172,17 @@ for batch files); the config readers (`pins.cfg`, `.env`) accept either.
 `init` adds unified as a git submodule at `unified/`, from `--unified` or this checkout's `origin`, a GitHub SSH URL
 rewritten to HTTPS (unified is public: anyone and any CI clones it without keys). It pins the source's default branch
 at its current commit, or `--ref` (a commit, tag or branch, fetched by name); a pushed commit, never a local one, so
-the game repo clones anywhere. Then it writes the template and the shims from that submodule, never from this
-checkout, so they always match the library they build against.
+the game repo clones anywhere. Then it writes the game and the shims from that submodule, never from this checkout,
+so they always match the library they build against.
 
-`init` writes `template/`: every file a `.tmpl` with `__GAME__` for the game's name (the directory's: lowercase
-letters, digits and `_`), LF whatever the checkout has. It is the most basic 3D game, each player a capsule moved by
-the arrow keys, with the core wiring only: its sim package, headless binary (with a standard benchmark), extension,
-main scene with a `UnifiedSession`, and tests (sync-test under rollback, a repeatable run, the determinism lint), so
-the new game passes its own `verify` at once. `template/repo/` is a game repo's own (a README, `.gitattributes`,
-`.gitignore`, `tools/main.odin`); `--in-repo` leaves it out. The Odin files are formatted after the name is put in,
-and the view index is written by the build's own code, so the first build rewrites nothing. This repo's `vet` writes
-the template's Odin files for a game named `template_game` into `.out/template/` and type-checks them, so a library
-API change that breaks a new game fails `verify`.
+The game is a copy of `games/minimal_3d` (its git-tracked files), `minimal_3d` replaced by the game's name (the
+directory's: lowercase letters, digits and `_`) in paths and text, LF whatever the checkout has. It leaves out the
+spec, the `.uid` files (Godot writes new ones) and the pinned reference run (`reference_test.odin`: a new game pins
+its own once its rules settle). So a new game is the game CI builds, tests and runs on every push, and passes its
+own `verify` at once. `template/repo/` is a game repo's own (a README, `.gitattributes`, `.gitignore`,
+`tools/main.odin`, each a `.tmpl` with `__GAME__` for the name); `--in-repo` leaves it out. The Odin files are
+formatted after the name is put in, and the view index is written by the build's own code, so the first build
+rewrites nothing.
 
 ## Dependencies
 

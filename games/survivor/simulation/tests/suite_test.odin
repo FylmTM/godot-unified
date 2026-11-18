@@ -6,11 +6,11 @@ package test_survivor
 
 import "core:testing"
 
-import "../survivor"
+import g "../survivor"
 import "unified:headless/scenarios"
 
-SUITE := scenarios.Suite(survivor.Game) {
-	game = &survivor.GAME_STRESS,
+SUITE := scenarios.Suite(g.Game) {
+	game = &g.GAME_STRESS,
 	players = 4,
 	seed = 42,
 	ticks = scenarios.LONG ? 3600 : 600,

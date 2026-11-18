@@ -276,6 +276,10 @@ mode_replay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 mode_bench :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	standard := headless.bench
+	if standard.ticks == 0 && len(args.opts) == 0 {
+		fmt.println(`{"mode":"bench","skipped":true}`) // no standard benchmark: `uni bench` leaves the game out
+		return true
+	}
 	if standard.ticks == 0 {
 		standard = {
 			what     = headless.game.name,

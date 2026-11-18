@@ -200,34 +200,6 @@ vet_packages :: proc() -> []Vet_Package {
 	return out[:]
 }
 
-// With Project_Config.vet_template (this repo), `uni init`'s template is type-checked too: its Odin files, written
-// for a game named template_game into .out/template/, as the packages a new game repo has (one target: what breaks
-// it is the library's API, which the other packages check on every target).
-vet_template :: proc() -> []Vet_Package {
-	if !state.config.vet_template {
-		return nil
-	}
-	dir := join(state.project.out, "template")
-	remove_tree(dir)
-	write_template(
-		join(state.project.unified, "src", "cli", "template"),
-		dir,
-		"template_game",
-		repo = true,
-		suffix = ".odin.tmpl",
-	)
-	simulation := join(dir, "simulation")
-	out: [dynamic]Vet_Package
-	append(
-		&out,
-		Vet_Package{pkg = join(simulation, "headless"), entry = true},
-		Vet_Package{pkg = join(simulation, "tests")},
-		Vet_Package{pkg = join(simulation, "extension"), ext = true},
-		Vet_Package{pkg = join(dir, "tools"), entry = true},
-	)
-	return out[:]
-}
-
 // The directories `fmt` formats in the project at `root` (default: this one): the project's own
 // (Project_Config.fmt), every game's simulation/ and tools/.
 fmt_dirs :: proc(root := "") -> []string {

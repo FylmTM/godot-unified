@@ -150,7 +150,8 @@ tick :: proc(t: ^Tick) {
 A one-shot action (pick an upgrade, start the match) is delivered exactly once, in order, per player.
 
 ```odin
-Cmd_Drop_Coin :: struct {value: u8}                 // any plain struct, 1..64 bytes
+Cmd_Drop_Coin :: struct {value: u8}                 // any plain struct, 0..64 bytes
+Cmd_Start :: struct {}                              // a command with nothing to say is empty
 Cmd :: union {Cmd_Drop_Coin, Cmd_Start}             // kind = variant index; name = type name without Cmd_, lowercased
 
 for sent in sim.commands(t, player) {               // this player's, in order, exactly once each
@@ -165,7 +166,7 @@ for sent in sim.commands(t, player) {               // this player's, in order, 
   size, data}`).
 - The harness decodes a tick's commands once, before `tick`. `commands(t, player)` never holds a nil entry: one whose
   bytes don't decode (an unknown kind, a wrong size from the network) is left out on every peer alike.
-- The union is checked like the block (plain, no padding, 1..64 bytes, at most 255 variants, names unique; not
+- The union is checked like the block (plain, no padding, 0..64 bytes, at most 255 variants, names unique; not
   `#no_nil` or `#shared_nil`). Decoding reads a command as it came from another machine: each bool as 0 or 1, each
   bit_set without the bits of no element, and a command whose enum field holds an undeclared value or whose float is
   not finite (a NaN, an infinity) is left out on every peer alike, as an undecodable one. Names: command types
@@ -180,14 +181,17 @@ for sent in sim.commands(t, player) {               // this player's, in order, 
 ## Events
 
 Events tell the view what happened (a shot, a pickup). They are not state: not in the block, not hashed. One struct
-per event (≤ 64 bytes) and a union of them; plain data like the block except that padding is allowed (events are
+per event (1..64 bytes) and a union of them; plain data like the block except that padding is allowed (events are
 never hashed or compared as bytes). An event never has a field named `tick`, `kind` or `id`: every event carries
 those already (`game_violation` refuses them).
 
 ```odin
 Event_Coin_Picked :: struct {coin: sim.Handle(Coin), player: sim.Player, position: sim.Position, value: u32}
-sim.emit(t, Event_Coin_Picked{coin = handle, player = player, position = {x, y, 0}, value = coin.value})
+sim.emit(t, Event_Coin_Picked{coin = handle, player = player, position = {x, y, z}, value = coin.value})
 ```
+
+A `Position` is a point in sim units, which the view maps to its own (`Glue.view_scale`); a 2D game's point on the
+plane is `position(point: [2]f32) -> Position` (z = 0).
 
 A thing that is not a table's item (a level marker, an item of a fixed array) is named in events by an `Entity`
 (`distinct u64`): `entity(index)`, `entity_index(e) -> (index, ok)`; its zero value is none, so index 0 is a thing.

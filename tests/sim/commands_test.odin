@@ -112,6 +112,37 @@ tick_reads_commands_by_type :: proc(t: ^testing.T) {
 	testing.expect(t, !made)
 }
 
+// A command without fields is zero bytes: made, sent in a tick's record, read back from the wire and applied in
+// order like any other.
+@(test)
+an_empty_command_is_zero_bytes :: proc(t: ^testing.T) {
+	clear_bumps := sim.command_make(toy.Cmd, toy.Cmd_Clear_Bumps{})
+	testing.expect(t, clear_bumps.size == 0 && clear_bumps.kind == 2)
+	_, made := sim.command_from_bytes(toy.Cmd, 2, {})
+	testing.expect(t, made)
+	_, made = sim.command_from_bytes(toy.Cmd, 2, {0})
+	testing.expect(t, !made, "an empty command of one byte")
+	_, is_clear := sim.command_value(&clear_bumps, toy.Cmd).(toy.Cmd_Clear_Bumps)
+	testing.expect(t, is_clear)
+
+	simulation := sim.create(&toy.GAME, 3)
+	defer sim.destroy(simulation)
+	inputs: toy.Inputs
+	sim.join(&inputs, 0, 1)
+	sim.add_command(&inputs, bump(0, 5))
+	sim.add_command(&inputs, 0, toy.Cmd_Clear_Bumps{}) // slot 0's second: the bump before it is cleared
+	sim.add_command(&inputs, bump(0, 7))
+	writer := wire.writer_make()
+	defer delete(writer.buf)
+	sim.inputs_write(&writer, &inputs)
+	back: toy.Inputs
+	reader := wire.reader_make(writer.buf[:])
+	testing.expect(t, sim.inputs_read(&reader, &back) && sim.inputs_same(&back, &inputs))
+	sim.step(simulation, &back)
+	data := toy.in_slot(&simulation.state, 0)
+	testing.expect(t, data.bumps == 1 && data.bump_sum == 7, "the clear came between the bumps")
+}
+
 @(test)
 inputs_differ_by_their_commands :: proc(t: ^testing.T) {
 	a, b: toy.Inputs

@@ -55,14 +55,13 @@ option_forms :: proc(forms: ..Form) -> []Form {
 // What a project's tools/ adds to the conventions (SPEC.md, Layout), set with `configure` before `run`. A game repo
 // needs none of it; this repo registers its test root, its toy game and its Godot test extensions.
 Project_Config :: struct {
-	tests:        string, // the odin suite's root, relative to the project, compiled with -all-packages ("": the game's simulation/tests)
-	headless:     []Extra_Headless, // headless binaries besides the games' (`headless`, `build`)
-	vet:          []string, // more packages `vet` checks (no entry point), relative to the project
-	fmt:          []string, // more directories `fmt` formats, relative to the project
-	uses_box3d:   bool, // something besides the games links Box3D (the tests root)
-	vet_template: bool, // `vet` also checks `uni init`'s template, written for a game named template_game
-	bench:        []Bench_Row, // more `bench` rows, after the games'
-	bake:         []Bake_Target, // more level scenes `bake` exports when run without a game
+	tests:      string, // the odin suite's root, relative to the project, compiled with -all-packages ("": the game's simulation/tests)
+	headless:   []Extra_Headless, // headless binaries besides the games' (`headless`, `build`)
+	vet:        []string, // more packages `vet` checks (no entry point), relative to the project
+	fmt:        []string, // more directories `fmt` formats, relative to the project
+	uses_box3d: bool, // something besides the games links Box3D (the tests root)
+	bench:      []Bench_Row, // more `bench` rows, after the games'
+	bake:       []Bake_Target, // more level scenes `bake` exports when run without a game
 }
 
 // Level scenes outside the games that `bake` exports (this repo: the 2D fixture tests/level reads).

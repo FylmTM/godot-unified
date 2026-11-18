@@ -247,6 +247,59 @@ a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t:
 	expect_agree(t, &session)
 }
 
+// A command without fields (zero bytes) crosses the relay like any other: a remote's bump, then its empty clear, then
+// another bump arrive once each, in order, on every peer and in the log.
+@(test)
+an_empty_command_crosses_the_relay :: proc(t: ^testing.T) {
+	session: Net
+	session.clock.now = 1_000_000
+	session.hub = netcode.hub_create(8)
+	session.host = netcode.host_create(&toy.GAME, {
+			seed      = SEED,
+			ticks     = 0,
+			recording = sim.log_sink_memory(&session.recording),
+		}, quiet_hooks(&session.watch[0]))
+	session.relay = session.host.relay
+	netcode.host_add_link(session.host, netcode.loopback_link(session.hub, 0))
+	defer net_destroy(&session)
+	// The remote, once in: a bump, an empty clear 10 ticks later, a bump 10 after that.
+	ticks_in: int
+	hooks := quiet_hooks(&session.watch[1])
+	hooks.user = &ticks_in
+	hooks.frame, hooks.verified, hooks.status = nil, nil, nil
+	hooks.commands = proc(user: rawptr, slot: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
+		ticks_in := (^int)(user)
+		if state == nil || toy.in_slot(state, slot) == nil do return
+		ticks_in^ += 1
+		switch ticks_in^ {
+		case 10:
+			sim.send_command(out, toy.Cmd_Bump{777})
+		case 20:
+			sim.send_command(out, toy.Cmd_Clear_Bumps{})
+		case 30:
+			sim.send_command(out, toy.Cmd_Bump{5})
+		}
+	}
+	client := netcode.client_create(&toy.GAME, {slot = -1}, netcode.loopback_link(session.hub, 1), hooks)
+	append(&session.clients, client)
+	net_run(&session, 2)
+	testing.expect_value(t, client.status, netcode.Status.Connected)
+	testing.expect(t, ticks_in > 30, "the remote sent all three")
+	sizes: [dynamic]u8
+	defer delete(sizes)
+	log := net_log(&session)
+	for k in 0 ..< len(log.ticks) {
+		for command in sim.log_commands(log, k) do append(&sizes, command.size)
+	}
+	testing.expect_value(t, len(sizes), 3)
+	if len(sizes) == 3 do testing.expect(t, sizes[0] == 4 && sizes[1] == 0 && sizes[2] == 4, "bump, clear, bump")
+	for peer in ([]^Client{client, session.host.client}) {
+		data := toy.in_slot(&peer.sim.state, client.slot)
+		testing.expect(t, data != nil && data.bumps == 1 && data.bump_sum == 5, "the clear came between the bumps")
+	}
+	expect_agree(t, &session)
+}
+
 // The host's own commands always arrive in time: each lands in the tick it was sent for, except that
 // a tick takes at most four of a player's (toy.burst_commands sends six at tick 250: two wait for 251).
 @(test)

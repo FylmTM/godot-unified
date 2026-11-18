@@ -158,7 +158,7 @@ Event_Ticked :: struct {
 	tick: u32, // every event carries its tick already (and its kind and id)
 }
 
-// What game_violation accepts and refuses: commands are plain data without padding, 1..COMMAND_MAX bytes, names
+// What game_violation accepts and refuses: commands are plain data without padding, 0..COMMAND_MAX bytes, names
 // unique; events may be padded but hold no pointer and no field named tick, kind or id; neither union is #no_nil;
 // the tick rate is a power of two, 32..128; the State is plain data.
 @(test)
@@ -193,8 +193,16 @@ declarations_are_checked :: proc(t: ^testing.T) {
 			declared(union {
 					struct{},
 				}, toy.Event),
+			"",
+		}, // an empty command: zero bytes
+		{
+			declared(toy.Cmd, union {
+					Joined,
+					Left,
+					struct{},
+				}),
 			"bytes",
-		},
+		}, // an event says something: 1..EVENT_MAX bytes
 		{
 			declared(union {
 					string,
@@ -342,12 +350,14 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 			compat_with(toy.State, toy.Input, toy.Event, union {
 					toy.Cmd_Mark,
 					toy.Cmd_Bump,
+					toy.Cmd_Clear_Bumps,
 				}),
 		},
 		{
 			"fewer commands",
 			compat_with(toy.State, toy.Input, toy.Event, union {
 					toy.Cmd_Bump,
+					toy.Cmd_Mark,
 				}),
 		},
 		{
@@ -355,6 +365,7 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 			compat_with(toy.State, toy.Input, toy.Event, union {
 					toy.Cmd_Bump,
 					Renamed,
+					toy.Cmd_Clear_Bumps,
 				}),
 		},
 		{"another Input of the same size", compat_with(Other_State, Other_Input, toy.Event, toy.Cmd)},
@@ -378,6 +389,7 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 	testing.expect_value(t, compat_with(toy.State, toy.Input, toy.Event, union {
 				toy.Cmd_Bump,
 				toy.Cmd_Mark,
+				toy.Cmd_Clear_Bumps,
 			}), compat)
 	testing.expect_value(t, sim.compat_of(&toy.GAME), compat) // stable
 	testing.expect_value(t, sim.content_hash(nil), 0)

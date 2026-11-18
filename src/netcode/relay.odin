@@ -577,7 +577,7 @@ on_inputs :: proc(relay: ^Relay($G), slot: int, reader: ^wire.Reader, now: i64) 
 		kind := wire.r_u8(reader)
 		size := int(wire.r_u8(reader))
 		bytes := wire.r_bytes(reader, size)
-		if !reader.ok || size > sim.COMMAND_MAX || size == 0 {
+		if !reader.ok || size > sim.COMMAND_MAX {
 			return
 		}
 		seq := first_seq + k

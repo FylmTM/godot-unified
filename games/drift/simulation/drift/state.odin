@@ -1,144 +1,34 @@
-// drift's state block, input, commands, events and constants (games/drift/SPEC.md). Metres and seconds; the
-// plane is XY in Godot's 2D axes (x right, y down); every time constant is in seconds, converted to whole ticks
-// at compile time.
 package drift
 
-import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
-TICK_HZ :: 64
-PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
-
-PLAYERS :: 4
-MAX_ROCKS :: 128
-MAX_BULLETS :: 256
-MAX_GEMS :: 64
-MAX_GATES :: 8
-MAX_SPAWNERS :: 16
-
-// ---- tuning (games/drift/SPEC.md "Rules")
-
-SHIP_RADIUS :: f32(0.5)
-SHIP_DENSITY :: f32(4)
-SHIP_DAMPING :: f32(1.4)
-THRUST_ACCEL :: f32(14) // m/s² at full stick (terminal speed THRUST_ACCEL / SHIP_DAMPING)
-TURN_GAIN :: f32(8)
-TURN_MAX :: f32(6) // rad/s
-BOOST_SPEED :: f32(8) // m/s added along the heading
-BOOST_COOLDOWN_S :: 1.5
-FIRE_EVERY_S :: 0.125
-BULLET_SPEED :: f32(18)
-BULLET_LIFE_S :: 0.875
-BULLET_PUSH :: f32(0.6) // N·s along the bullet on a hit
-
-STATION_RADIUS :: f32(2.5) // the hexagon's corners
-STATION_SPIN :: f32(0.25) // rad/s
-STATION_HP :: i32(100)
-
-ROCK_DEPTH :: f32(1)
-ROCK_SPLIT_SPEED :: f32(2.5)
-WAVE_EVERY_S :: 20
-ROCK_EVERY_S :: 1.5 // between a wave's rocks
-ROCK_SPEED :: f32(2)
-ROCK_SPEED_PER_WAVE :: f32(0.2)
-
-GATE_RADIUS :: f32(0.8)
-GATE_CHARGE_S :: 2
-
-GEM_PICK_RADIUS :: f32(1)
-GEM_LIFE_S :: 10
-GEM_REPAIR :: i32(2)
-GEM_DRAG :: f32(0.98) // per tick
-
-OVER_HOLD_S :: 5
-
-BOOST_COOLDOWN_TICKS :: u16(BOOST_COOLDOWN_S * TICK_HZ)
-FIRE_EVERY_TICKS :: u16(FIRE_EVERY_S * TICK_HZ)
-BULLET_LIFE_TICKS :: u16(BULLET_LIFE_S * TICK_HZ)
-WAVE_EVERY_TICKS :: u32(WAVE_EVERY_S * TICK_HZ)
-ROCK_EVERY_TICKS :: u32(ROCK_EVERY_S * TICK_HZ)
-GATE_CHARGE_TICKS :: u16(GATE_CHARGE_S * TICK_HZ)
-GEM_LIFE_TICKS :: u32(GEM_LIFE_S * TICK_HZ)
-OVER_HOLD_TICKS :: u32(OVER_HOLD_S * TICK_HZ)
-
-Rock_Size :: enum u8 {
-	Small,
-	Medium,
-	Large,
+// The whole simulation state: one pointer-free block (checked by sim.create). The bodies are Box3D's, which
+// physics.extra snapshots with it.
+State :: struct {
+	station:        physics.Body_Ref,
+	station_hp:     i32,
+	phase:          Phase,
+	_pad:           u8,
+	waves:          u16, // waves started this match
+	match_tick:     u32, // the tick the current match started
+	over_tick:      u32, // the tick it ended
+	next_wave_tick: u32,
+	next_rock_tick: u32,
+	rocks_left:     u32, // of the current wave
+	spawner:        u32, // the next rock_spawn marker, in turn
+	score:          u32, // gems picked this match
+	matches:        u32, // matches started since the session began
+	gems_dropped:   u32, // small rocks destroyed, for GEM_DROP_EVERY
+	players:        sim.Players(Ship, Input, PLAYERS),
+	gates:          [MAX_GATES]Gate,
+	rocks:          sim.Table(Rock, MAX_ROCKS),
+	bullets:        sim.Table(Bullet, MAX_BULLETS),
+	gems:           sim.Table(Gem, MAX_GEMS),
 }
 
-@(rodata)
-ROCK_RADIUS := [Rock_Size]f32 {
-	.Small  = 0.6,
-	.Medium = 1.0,
-	.Large  = 1.6,
-}
-
-@(rodata)
-ROCK_HP := [Rock_Size]u8 {
-	.Small  = 1,
-	.Medium = 3,
-	.Large  = 6,
-}
-
-@(rodata)
-ROCK_STATION_DAMAGE := [Rock_Size]i32 {
-	.Small  = 2,
-	.Medium = 5,
-	.Large  = 10,
-}
-
-ROCK_VARIANTS :: 4
-
-// The rock shapes: 8 corners at the 8 compass directions (dmath.DIR8), each at this fraction of the rock's
-// radius. The body is their convex hull (the view draws the same hull).
-@(rodata)
-ROCK_SHAPES := [ROCK_VARIANTS][8]f32 {
-	{1.0, 0.82, 0.95, 0.78, 1.0, 0.86, 0.92, 0.8},
-	{0.9, 1.0, 0.76, 0.94, 0.84, 1.0, 0.8, 0.9},
-	{0.8, 0.92, 1.0, 0.85, 0.78, 0.95, 1.0, 0.88},
-	{1.0, 0.78, 0.88, 1.0, 0.9, 0.76, 0.96, 0.84},
-}
-
-// ---- input
-
-// One slot's input for one tick, in world space (the plane's x right, y down): the move as a stick (−127..127 per
-// axis, dmath.stick), the aim as a direction (dmath.Dir2; none: keep the heading), the buttons held.
-Input :: struct {
-	move_x:  i8,
-	move_y:  i8,
-	aim:     dmath.Dir2,
-	buttons: Buttons,
-	_pad:    u8,
-}
-
-Button :: enum u8 {
-	Fire, // held: fires every FIRE_EVERY_S
-	Boost, // held: boosts whenever the cooldown allows
-}
-
-Buttons :: bit_set[Button;u8]
-
-Inputs :: sim.Inputs(Game)
-
-// Commands (src/sim/SPEC.md): one-shot actions, each delivered exactly once. A command's name is its type's
-// without `Cmd_`, lowercased ("start", "restart"): what GDScript's send_command uses.
-Cmd_Start :: struct {
-	_pad: u8,
-}
-
-Cmd_Restart :: struct {
-	_pad: u8,
-}
-
-Cmd :: union {
-	Cmd_Start,
-	Cmd_Restart,
-}
-
-// ---- state
-
+// lobby: ships fly, no rocks; `start` begins a match. match: waves of rocks. over: the station's HP reached 0; after
+// OVER_HOLD_TICKS, or on `restart`, the world resets and the lobby begins again.
 Phase :: enum u8 {
 	Lobby,
 	Match,
@@ -146,8 +36,8 @@ Phase :: enum u8 {
 }
 
 // A player's ship (their data in sim.Players): zeroed when someone new joins, kept while they are away. Its body
-// exists only while the player is present (destroyed when they leave, made again at their slot's spawn when they
-// come back).
+// exists only while the player is present (destroyed when they leave, made again at their slot's spawn when they come
+// back).
 Ship :: struct {
 	body:           physics.Body_Ref,
 	fire_cooldown:  u16, // ticks until the next shot
@@ -159,20 +49,28 @@ Ship :: struct {
 	gems:           u32,
 }
 
+Rock_Size :: enum u8 {
+	Small,
+	Medium,
+	Large,
+}
+
+// A rock's body is tagged with its handle's key, so a bullet's ray names it.
 Rock :: struct {
 	body:     physics.Body_Ref,
-	hit_tick: u32,
+	hit_tick: u32, // the last bullet hit (the view's flash)
 	size:     Rock_Size,
-	variant:  u8,
+	variant:  u8, // its shape, 0 ..< ROCK_VARIANTS
 	hp:       u8,
 	_pad:     u8,
 }
 
+// Bullets are no bodies: each tick casts a ray along its path.
 Bullet :: struct {
 	pos:   [2]f32,
 	vel:   [2]f32,
 	owner: sim.Player, // who fired it (their colour; whether present or not)
-	ttl:   u16,
+	ttl:   u16, // ticks left
 	_pad:  u16,
 }
 
@@ -182,131 +80,7 @@ Gem :: struct {
 	spawn_tick: u32,
 }
 
+// A gate's state (its place and pair are the level's: World.gates).
 Gate :: struct {
 	charge: u16, // ticks until it can warp again (0: ready)
-	_pad:   u16,
-}
-
-State :: struct {
-	station:        physics.Body_Ref,
-	station_hp:     i32,
-	phase:          Phase,
-	_pad0:          u8,
-	waves:          u16, // waves started this match
-	match_tick:     u32,
-	over_tick:      u32,
-	next_wave_tick: u32,
-	next_rock_tick: u32,
-	rocks_left:     u32, // of the current wave
-	spawner:        u32, // the next rock_spawn marker, in turn
-	score:          u32,
-	matches:        u32,
-	gems_dropped:   u32, // every other small rock drops a gem
-	players:        sim.Players(Ship, Input, PLAYERS),
-	gates:          [MAX_GATES]Gate,
-	rocks:          sim.Table(Rock, MAX_ROCKS),
-	bullets:        sim.Table(Bullet, MAX_BULLETS),
-	gems:           sim.Table(Gem, MAX_GEMS),
-}
-
-// ---- events
-
-// What a tick tells the view (src/sim/SPEC.md "Events"): one plain struct per event, named like the event
-// (type name lowercased: "rock_hit"). Positions are in metres on the plane (z = 0). Subjects: `player` (a
-// sim.Player), and the first handle (a rock's). A player's joins and leaves are the library's
-// (sim.Event_Player_Joined, sim.Event_Player_Left).
-
-// A player's ship appeared at their slot's spawn (they joined or came back).
-Event_Spawned :: struct {
-	position: sim.Position,
-	player:   sim.Player,
-}
-
-// A bullet left the ship's nose (`position`: the muzzle).
-Event_Fired :: struct {
-	position: sim.Position,
-	player:   sim.Player,
-}
-
-Event_Boosted :: struct {
-	position: sim.Position,
-	player:   sim.Player,
-}
-
-// A ship warped from gate `from_gate` to `to_gate` (`position`: where it came out).
-Event_Warped :: struct {
-	position:  sim.Position,
-	player:    sim.Player,
-	from_gate: u8,
-	to_gate:   u8,
-	_pad:      [2]u8,
-}
-
-// A bullet of `player` hit `rock` at `position` (the hit point).
-Event_Rock_Hit :: struct {
-	rock:     sim.Handle(Rock),
-	position: sim.Position,
-	player:   sim.Player,
-	size:     Rock_Size,
-	_pad:     [3]u8,
-}
-
-// `rock` (of `size`, gone now) broke into two of the next size.
-Event_Rock_Split :: struct {
-	rock:     sim.Handle(Rock),
-	position: sim.Position,
-	size:     Rock_Size,
-	_pad:     [3]u8,
-}
-
-// `rock` (a small one, gone now) was shot to pieces.
-Event_Rock_Destroyed :: struct {
-	rock:     sim.Handle(Rock),
-	position: sim.Position,
-	size:     Rock_Size,
-	_pad:     [3]u8,
-}
-
-// A rock of `size` hit the station at `position`: `damage` is what it costs the station's HP during a match.
-Event_Station_Hit :: struct {
-	position: sim.Position,
-	damage:   i32,
-	size:     Rock_Size,
-	_pad:     [3]u8,
-}
-
-Event_Gem_Picked :: struct {
-	position: sim.Position,
-	player:   sim.Player,
-}
-
-// Event_Wave `wave` (1..) started.
-Event_Wave :: struct {
-	wave: u16,
-}
-
-// `player` sent the `start` that began the match.
-Event_Match_Started :: struct {
-	player: sim.Player,
-}
-
-Event_Match_Over :: struct {
-	seconds_survived: f32,
-}
-
-Event :: union {
-	sim.Event_Player_Joined,
-	sim.Event_Player_Left,
-	Event_Spawned,
-	Event_Fired,
-	Event_Boosted,
-	Event_Warped,
-	Event_Rock_Hit,
-	Event_Rock_Split,
-	Event_Rock_Destroyed,
-	Event_Station_Hit,
-	Event_Gem_Picked,
-	Event_Wave,
-	Event_Match_Started,
-	Event_Match_Over,
 }

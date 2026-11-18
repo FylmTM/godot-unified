@@ -1,23 +1,23 @@
-// Level-up picks are a command (survivor.Cmd_Pick): delivered once, so a repeated or substituted input
+// Level-up picks are a command (g.Cmd_Pick): delivered once, so a repeated or substituted input
 // never picks again, and each pick takes one pending level-up.
 package test_survivor
 
 import "core:testing"
 
-import "../survivor"
+import g "../survivor"
 import "unified:sim"
 
-pick_inputs :: proc(upgrades: ..survivor.Upgrade) -> (inputs: survivor.Inputs) {
+pick_inputs :: proc(upgrades: ..g.Upgrade) -> (inputs: g.Inputs) {
 	inputs.present = {0}
 	for upgrade in upgrades {
-		sim.add_command(&inputs, 0, survivor.Cmd_Pick{upgrade})
+		sim.add_command(&inputs, 0, g.Cmd_Pick{upgrade})
 	}
 	return
 }
 
 @(test)
 a_pick_applies_once :: proc(t: ^testing.T) {
-	simulation := sim.create(&survivor.GAME, 5)
+	simulation := sim.create(&g.GAME, 5)
 	defer sim.destroy(simulation)
 	step_with(simulation, {0}, {})
 	character := sim.slot_data(simulation, 0)
@@ -44,14 +44,14 @@ a_pick_applies_once :: proc(t: ^testing.T) {
 	interval := character.fire_interval
 	sim.step(simulation, &inputs)
 	testing.expect_value(t, character.pending_levelups, 0)
-	testing.expect_value(t, character.speed, speed + survivor.SPEED_LEVELUP)
+	testing.expect_value(t, character.speed, speed + g.SPEED_LEVELUP)
 	testing.expect_value(t, character.damage_bonus, 6)
 	testing.expect_value(t, character.fire_interval, interval)
 }
 
 @(test)
 a_pick_that_is_not_an_option_is_ignored :: proc(t: ^testing.T) {
-	simulation := sim.create(&survivor.GAME, 5)
+	simulation := sim.create(&g.GAME, 5)
 	defer sim.destroy(simulation)
 	step_with(simulation, {0}, {})
 	sim.slot_data(simulation, 0).pending_levelups = 1

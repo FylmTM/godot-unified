@@ -1,130 +1,121 @@
-# drift: the 2D test game
+# drift
 
-Status: draft, pending #91; the concept signed off 2026-11-10.
+Status: draft, pending #327
 
-A top-down co-op ship arena where the players defend a station. Code: `games/drift/`, laid out like
-`games/survivor/`.
+A top-down co-op ship arena, unified's example of a 2D game: 1–4 players fly ships around a slowly turning station
+and defend it from rocks that drift in from the edges in waves. Big rocks split, the smallest drop gems that repair
+the station, and warp gates carry a ship across the arena. When the station's HP reaches 0 the match is over. Units:
+metres and seconds at **64 Hz**; the plane is XY in Godot's 2D axes (x right, y down), and the view draws 32 pixels
+per metre (`Glue.view_scale`; the level is baked at the same scale). Physics is Box3D locked to the plane
+(`src/physics/SPEC.md`, 2D). Every rule number is a named constant in `simulation/drift/tuning.odin`; this spec names
+them.
 
-1–4 players fly small ships in an arena drawn in Godot's 2D editor. Rocks drift in from the edges in waves toward a
-slowly turning station at the centre. The players shoot them (big rocks split, the smallest drop gems) and shove
-them aside. When the station's HP reaches 0 the match is over, and everyone goes back to the lobby. drift exists to
-prove `unified` for 2D games:
+## World
 
-- 2D views: rotating, smoothed Node2D scene views, MultiMesh views with rotation, per-axis scale, color and custom
-  data, physics bodies interpolated like plain state (the host remembers the poses).
-- Typed scene data and commands.
-- 2D physics locked to a plane (`src/physics/SPEC.md`, 2D).
-- A level drawn in Godot's 2D editor (`src/level/SPEC.md`, 2D levels).
-- Teleports (warp gates) against `teleport_dist`, mouse and stick aim in world units, and a Camera2D that follows the
-  local ship.
+The arena is a level drawn in Godot's 2D editor (`game/levels/arena.tscn`, baked to `arena.level`,
+`src/level/SPEC.md`, 2D levels): static walls and obstacles, then markers: a `spawn` per slot, the `station`, `gate`s
+(`pair`: the other gate) and `rock_spawn`s on the edges (`dir`: the drift direction).
 
-Units: metres, seconds, 64 Hz (`DT = 1/64`). The plane is XY in Godot's 2D axes (x right, y down). The view is in
-pixels, 32 per metre (`Glue.view_scale`: the host maps positions; the level is baked at the same scale).
-
-## World (created before tick 0, in this order)
-
-- The level (`game/levels/arena.level`): static walls and obstacles (`physics.create_static`), then markers in file
-  order. The marker kinds are `spawn` (×4, one per slot), `station` (×1), `gate` (pairs: `pair` = the other
-  gate), and `rock_spawn` (on the edges: `dir` = Vector2, the drift direction).
-- The station: a kinematic hexagon (radius 2.5 m) at the station marker, turning at 0.25 rad/s, with 100 HP.
-- Ships: dynamic circles (r 0.5 m, density 4, linear damping 1.4) locked to the plane, created when a player
-  joins or comes back, at the `spawn` marker of the slot they hold.
+- The station: a kinematic hexagon (`STATION_RADIUS`) at the station marker, with `STATION_HP`.
+- Ships: dynamic circles (`SHIP_RADIUS`, `SHIP_DENSITY`, `SHIP_DAMPING`), made when a player becomes present, at
+  their slot's spawn, nose up.
+- Rocks: convex 8-gons, one of `ROCK_VARIANTS` shapes (`ROCK_SHAPES`) scaled by their size's radius (`ROCK_STATS`:
+  radius, HP, station damage for small, medium and large), tagged with their handle's key.
+- Bullets and gems are no bodies.
 
 ## Input and commands
 
-- Per tick, per slot: `move_x, move_y` (a stick, `dmath.stick`) and `aim` (a `dmath.Dir2`; none keeps the heading),
-  in world space.
-- `buttons: bit_set[Button]`: `Fire` (held), `Boost` (held; it fires when ready).
-- Commands (`Cmd_Start`, `Cmd_Restart`, both empty): `start` (lobby → match, anyone may send it) and `restart`
-  (over → lobby at once).
+- `Input`: `move_x, move_y` (a stick, `dmath.stick`) and `aim` (a `dmath.Dir2`; none keeps the heading), in world
+  space, and `buttons`: `Fire` and `Boost`, both held.
+- Players are session members: a ship is its player's data (`sim.Players`). One who leaves loses the body and keeps
+  the rest (shots, gems, cooldowns) until the session forgets them; someone new starts with a zeroed ship.
+- `Cmd_Start` and `Cmd_Restart`, both empty: `start` (lobby → match; anyone may send it) and `restart` (over → lobby
+  at once). Each is ignored outside its phase.
 
-## Rules (each tick, in this order)
+## Phases
 
-1. Players (src/sim/SPEC.md, Players): a player is a session member (a `sim.Player`), and a ship is their data
-   in the State's `sim.Players` (`players`, remembering 2 × PLAYERS people). A player who joins (a
-   zeroed ship) or comes back (their ship as they left it: shots, gems, cooldowns) gets a body at their slot's spawn
-   marker (`spawned`). One who leaves loses the body, and keeps the rest until the session forgets them.
-2. Ships: thrust = `stick × 14 m/s²` (an impulse of mass × that × dt; terminal speed 14 / 1.4 = 10 m/s). Turning sets the angular velocity toward the aim:
-   `clamp(8 × cross(heading, aim), ±6 rad/s)`, or ±6 when the aim is behind (dot < 0). Boost: `heading × 8 m/s`
-   added (an impulse of mass × that), with a 1.5 s cooldown.
-3. Fire: every 0.125 s while held, a bullet from the nose with velocity `heading × 18 m/s + ship velocity`, which
-   lives 0.875 s. Bullets are sim-only (not bodies). Each tick a ray from the bullet's position to the next
-   position (`physics.world_cast_ray_closest`: rocks, the station and walls) ends it on a hit; the station takes no damage
-   from it. A rock hit costs it 1 HP and pushes it (an impulse of `dir × 0.6`).
-4. Rocks: sizes large/medium/small (radius 1.6/1.0/0.6 m, HP 6/3/1). Each is a convex 8-gon from one of 4 fixed
-   shape variants scaled to its size, locked to the plane. At 0 HP, a large or medium rock splits into 2 of the
-   next size. They move apart at ±2.5 m/s perpendicular to the parent's velocity, with half the parent's spin.
-   A small rock is destroyed, and every other one drops a gem.
-5. Station hits (Box3D hit events): a rock that touches the station costs it 10/5/2 HP by size and is destroyed.
-6. Gates: a ship whose centre comes within 0.8 m of a charged gate warps to its pair. It keeps its velocity, and
-   both gates recharge for 2 s.
-7. Gems: a ship within 1 m picks one up: +2 station HP (capped at 100) and +1 team score. A gem expires after 10 s.
-8. Phases:
-   - **lobby** (tick 0, and after a reset): no rocks.
-   - **match** (after `start`): wave `k = 0, 1, ...` every 20 s spawns `3 + 2k` large rocks, spread over the
-     wave, from the `rock_spawn` markers in turn. Each rock's velocity is `dir × (2 + 0.2k)`, its spin comes from the
-     state RNG, and so does its variant.
-   - **over** (the station's HP is 0): the station stops turning. After 5 s, or on `restart`, the world resets:
-     rocks, bullets and gems are cleared, the present ships go back to their slots' spawns, the station is repaired, and the phase is
-     lobby.
-   - With nobody present: reset.
+- **lobby** (tick 0, and after every reset): ships fly, no rocks.
+- **match** (after `start`): waves of rocks; the match is over when the station's HP is 0 (`match_over`).
+- **over**: the station stops turning and takes no hits. After `OVER_HOLD_TICKS`, or on `restart`, the world resets:
+  rocks, bullets and gems go, the present ships return to their slots' spawns at rest, the gates are charged, the
+  station is repaired, and the lobby begins again.
+- With nobody present: a reset.
 
-Events (one struct each, `Event` in `state.odin`; positions in metres, z = 0; `player` is a `sim.Player`, and a
-rock event's subject is the rock's handle):
+## Systems (`tick`, in this order)
 
-- The library's `player_joined {player, slot, returning}` and `player_left {player, slot}`.
-- `spawned {position, player}` (the slot's spawn), `fired {position, player}` (the muzzle),
-  `boosted {position, player}`, `warped {position, player, from_gate, to_gate}` (where the ship came out).
+1. `update_players`: a player who left loses their body; one who joined or came back gets one at their slot's spawn
+   (`spawned`).
+2. `apply_commands`: `start` and `restart`, in slot order.
+3. `fly_ships`: the cooldowns count down. Thrust: an impulse of the stick × `THRUST_ACCEL` × mass × dt. Turning sets
+   the angular velocity toward the aim: `TURN_GAIN × cross(heading, aim)` clamped to `TURN_MAX`, or `±TURN_MAX` when
+   the aim is behind. Boost: `heading × BOOST_SPEED` (an impulse of that × mass), then `BOOST_COOLDOWN_TICKS`. Fire:
+   every `FIRE_EVERY_TICKS` while held, a bullet from the nose with `heading × BULLET_SPEED` plus the ship's velocity
+   (`fired`).
+4. `turn_station`: `STATION_SPIN`, 0 while over.
+5. The physics step.
+6. `move_bullets`: a ray along each bullet's step (`physics.world_cast_ray_closest_2d`: the level, rocks, the
+   station) ends it on a hit. A rock hit costs it 1 HP and pushes it (`BULLET_PUSH` along the bullet, `rock_hit`);
+   the station takes no damage from bullets. A bullet expires after `BULLET_LIFE_TICKS`.
+7. `hit_station` (not while over): a rock within the station's corner circle is gone (`station_hit`) and, during a
+   match, costs the station its size's station damage.
+8. `break_rocks`: a rock at 0 HP, large or medium, splits into two of the next size, `ROCK_SPLIT_GAP` radii either
+   side of it across its velocity, moving apart at `ROCK_SPLIT_SPEED`, each with `ROCK_SPLIT_SPIN` of its spin, the
+   second the other way and the next shape (`rock_split`). A small one is destroyed (`rock_destroyed`), and one in
+   `GEM_DROP_EVERY` drops a gem at `GEM_THROW` of its velocity.
+9. `warp_ships`: the gates recharge; a ship whose centre is within `GATE_RADIUS` of a charged gate comes out of its
+   pair with its heading and velocity (`warped`); both gates and the ship wait `GATE_CHARGE_TICKS`.
+10. `collect_gems`: gems drift and slow (`GEM_DRAG`); the first present ship in slot order within `GEM_PICK_RADIUS`
+    picks one up (`gem_picked`): +1 score, `GEM_REPAIR` station HP up to `STATION_HP`. A gem expires after
+    `GEM_LIFE_TICKS`.
+11. `spawn_waves` (match only): wave `k = 0, 1, ...` every `WAVE_EVERY_TICKS` (`wave`) brings `WAVE_ROCKS +
+    WAVE_ROCKS_MORE · k` large rocks, one every `ROCK_EVERY_TICKS`, from the `rock_spawn` markers in turn, at
+    `ROCK_SPEED + ROCK_SPEED_PER_WAVE · k` along the marker's direction turned up to `ROCK_SPREAD`. The turn, the spin
+    (up to `ROCK_SPIN_MAX`) and the shape are keyed rolls (`sim.roll_f32`, `sim.roll_below`).
+12. `advance_phase`.
+
+## Events
+
+Positions are on the plane in metres (pixels in GDScript, like the views); `player` is a `sim.Player`, and a rock
+event's subject is the rock's handle.
+
+- `spawned {position, player}` (the slot's spawn), `fired {position, player}` (the muzzle), `boosted {position,
+  player}`, `warped {position, player, from_gate, to_gate}` (where the ship came out).
 - `rock_hit {rock, position, player, size}` (the hit point; `player` fired the bullet), `rock_split {rock, position,
-  size}` and `rock_destroyed {rock, position, size}` (the rock that is gone), `station_hit {position, damage, size}`
-  (`damage`: what the rock costs the station during a match).
+  size}` and `rock_destroyed {rock, position, size}` (the rock is gone), `station_hit {position, damage, size}`
+  (`damage`: what it costs during a match).
 - `gem_picked {position, player}`, `wave {wave}` (1..), `match_started {player}` (who sent `start`),
-  `match_over {seconds_survived}`.
+  `match_over {seconds_survived}`, and the library's joins and leaves.
 
-Random numbers: the waves draw from the state's stream (`rng`), in order; nothing else is random.
+## Scripted inputs
 
-## View (`simulation/extension`, `game/`)
+The game's scripted player (`script.odin`) is stateless: a hash of (seed, slot, 16-tick block) moves the ship in one
+of 8 directions (4 blocks in 5; else no move), aims it in one of 8, fires in 3 blocks in 4 and boosts in 1 in 6.
+Slot 0 sends `start` at tick 32 and `restart` at tick 160 of every 256, so scripted runs play whole matches; a
+session and an offline run agree.
 
-- Scene views (`View`, each scene a Node2D with a UnifiedView marker, in the view index; a key is unique within its
-  kind):
-  - `ship`: Ship_View `{boost_ready, thrust}`; key: its player's key (`sim.player_key`), so the view survives a
-    leave and comes back with the player in any slot; its colour and "P<n>" follow the slot they hold
+## View contract (`simulation/extension`)
+
+- Scene views (each a Node2D with a UnifiedView marker):
+  - `ship`: `Ship_View {boost_ready, thrust}`, keyed by its player (`sim.player_key`), so the view survives a leave
+    and comes back with the player in any slot; its colour and "P<n>" follow the slot they hold
     (`Game.player_slot`). When the player leaves, the ship shrinks away while the view lingers (`_sim_despawned`;
     `_sim_revived` undoes it).
-  - `station`: Station_View `{hp_frac}`; key 0.
-  - `gate`: Gate_View `{charge}`; key: the gate's index.
-- MultiMesh views (`MultiView`: MultiMeshInstance2D, TRANSFORM_2D, a UnifiedMultiView marker each; keys are the
-  handles; rotations are 2D quaternions):
-  - `rock_0..3`: one polygon mesh per shape variant, scaled per size, with the body's rotation and a hit flash in
-    custom data.
-  - `bullet`: a quad stretched along its velocity (per-axis scale), tinted with the colour of its owner's slot
-    (custom.x; -1, a pale grey, once the owner has left). A bullet is owned by its player, not the slot.
-  - `gem`: a spin and a pulse that squashes and stretches.
-- Session data `Data_Hud` (`Unified.data.hud`, pushed every frame): `players` by slot (`DataHudPlayer`: `shots`,
-  `gems`), `phase` (`EnumPhase`), `wave`, `station_hp`, `station_max`, `score`, `matches`,
-  `rocks`, `time_s` (the match time; over: survived), `next_wave_s`, `reset_in_s`.
-- Constants `Data_Constants` (`Unified.constants`, metres): `ship_radius`, `station_radius`, `gate_radius`,
-  `station_hp`, `over_hold_s`, `wave_every_s`, and `rock_shapes` (per variant the 8 corners at radius 1, Vector2s:
-  the rock meshes).
-- Enums in GDScript: `EnumPhase` (the HUD's phase) and `EnumRockSize` (the rock events' `size`).
-- Event positions arrive in pixels like the views (the host maps them: `Glue.view_scale`); sizes from the constants
-  are metres, drawn at `Unified.view_scale`.
-- Events go to the ship's view by `player` (the routing by subject) and `station_hit` to the station
-  (`Glue.event_key`). The arena plays rock effects when an event is emitted (a prediction shows them at once), and
-  everything else, like the HUD's banners, once it is confirmed. A shot a rollback cancels (a remote ship's
-  predicted trigger) loses its muzzle flash and sound (the ship view, by the event's `id`).
-- Camera2D follows the local ship, within the arena's limits. Aim comes from the mouse (the world position
-  relative to the ship) or the right stick: the arena sets the input value `aim`, which `sample_input` reads with
-  the movement, fire and boost actions.
-- HUD (`game/ui/hud.gd`, reading `Unified.data.hud`): phase, wave, station HP, score, time, the next wave in, and the
-  players by slot.
-
-## Tests (`simulation/tests`)
-
-The standard end-to-end suite with a reference run (scripted input: orbit the station, aim at the nearest rock,
-fire, and `start` at tick 32). The plane invariants hold exactly for every ship and rock over a whole match. A
-split inside a rollback window, a warp, and the station destroyed then reset are each covered, and so are
-owners following the person: a bullet stays its player's while they are away, someone new takes their slot with a
-zeroed ship, and they come back in another slot with their ship as they left it (`presence_churn` runs the same
-churn on scripted play under rollback). The determinism
-lint runs by layout.
+  - `station`: `Station_View {hp_frac}`, key 0.
+  - `gate`: `Gate_View {charge}`, keyed by the gate's index.
+- MultiMesh views (MultiMeshInstance2D, `TRANSFORM_2D`, keyed by handle):
+  - `rock_0..3`: a polygon mesh per shape variant at radius 1, scaled per axis by the rock's radius (squashed for a
+    moment when hit), custom data `{size, hit flash}`.
+  - `bullet`: a quad stretched along its velocity, tinted with the colour of its owner's slot (custom.x; -1, a pale
+    grey, once the owner has left).
+  - `gem`: a spin and a squash-and-stretch pulse, fading before it expires; custom.x its age in seconds.
+- Session data `Data_Hud` (`Unified.data.hud`): `players` by slot (`shots`, `gems`), `phase` (`EnumPhase`), `wave`,
+  `station_hp`, `station_max`, `score`, `matches`, `rocks`, `time_s` (the match time; over: survived),
+  `next_wave_s`, `reset_in_s`.
+- Constants (`Unified.constants`, metres): `ship_radius`, `station_radius`, `gate_radius`, `station_hp`,
+  `over_hold_s`, `wave_every_s`, and `rock_shapes` (per variant the 8 corners at radius 1, the rock meshes).
+- Events go to the ship's view by `player`, `station_hit` to the station (`Glue.event_key`). Rock effects play when
+  an event is emitted (a prediction shows them at once), the rest, like the HUD's banners, once confirmed; a shot a
+  rollback cancels loses its muzzle flash and sound (the ship view, by the event's `id`).
+- Input: the movement, fire and boost from the InputMap, and the aim the arena sets every frame (the input value
+  `aim`): the mouse's world position relative to the local ship, else the right stick. A Camera2D follows the local
+  ship within the arena. The HUD sends `start` (`CommandStart`) in the lobby and `restart` when the match is over.

@@ -12,13 +12,13 @@ Init_Opts :: struct {
 	ref:     string `usage:"the unified commit, tag or branch to pin (default: the source's default branch, main)"`,
 }
 
-// `init <dir>`: a new game from the template (template/, every file a .tmpl with __GAME__ for the game's name, the
-// directory's): a complete small game, each player moving a capsule: its sim, headless binary, extension, Godot
-// scenes and tests, and its view index.
+// `init <dir>`: a new game, a copy of unified's games/minimal_3d named after the directory (minimal_3d replaced by
+// the name in paths and text): its sim, headless binary, extension, Godot scenes and tests, and its view index.
 //
 // By default a new game repo: the game at the repo's root, plus template/repo/ (a README, .gitattributes, the repo's
-// .gitignore, tools/: the game's CLI), the shims, and unified as a git submodule at unified/. The template and the
-// shims come from the submodule, so they always match the library they build against.
+// .gitignore, tools/: the game's CLI; .tmpl files with __GAME__ for the name), the shims, and unified as a git
+// submodule at unified/. The game and the shims come from the submodule, so they always match the library they build
+// against.
 //
 // `--in-repo`: a game inside this unified checkout, at games/<name>: the game's files only (not template/repo/). Its
 // tests join the one test compile through tests/games.gen.odin, which uni writes.
@@ -122,11 +122,10 @@ init_game_repo :: proc(dir, name, typed_dir, source_arg, ref: string) -> Result 
 				capture = true,
 				quiet   = true,
 			}, "git rev-parse").stdout)
-	template := join(submodule, "src", "cli", "template")
-	if !os.is_directory(template) {
-		fatal("unified at %s has no src/cli/template: too old for this CLI's init", pinned)
+	if !os.is_directory(join(submodule, TEMPLATE_GAME)) {
+		fatal("unified at %s has no %s: too old for this CLI's init", pinned, TEMPLATE_GAME)
 	}
-	count := write_game(template, dir, name, repo = true)
+	count := write_game(submodule, dir, name, repo = true)
 	write_text(join(dir, "tools", ".gdignore"), "")
 	for shim in ([]string{"uni", "uni.cmd"}) {
 		copy_file(join(dir, shim), join(submodule, shim))
@@ -136,7 +135,7 @@ init_game_repo :: proc(dir, name, typed_dir, source_arg, ref: string) -> Result 
 	return {
 		ok      = true,
 		summary = aprintf(
-			"init: %s, a new game repo (%d files from the template; unified at unified/: %s at %s); next: cd %s && %s run",
+			"init: %s, a new game repo (%d files, a copy of minimal_3d; unified at unified/: %s at %s); next: cd %s && %s run",
 			name,
 			count,
 			source,
@@ -147,16 +146,16 @@ init_game_repo :: proc(dir, name, typed_dir, source_arg, ref: string) -> Result 
 	}
 }
 
-// A game inside this checkout at `dir` (games/<name>), from this checkout's template. Its tests join the one test
+// A game inside this checkout at `dir` (games/<name>), from this checkout's minimal_3d. Its tests join the one test
 // compile by themselves (uni writes tests/games.gen.odin): no shared file changes.
 @(private)
 init_in_repo :: proc(dir, name: string) -> Result {
-	count := write_game(join(state.project.root, "src", "cli", "template"), dir, name, repo = false)
+	count := write_game(state.project.root, dir, name, repo = false)
 	shim := ODIN_OS == .Windows ? "uni.cmd" : "./uni"
 	return {
 		ok      = true,
 		summary = aprintf(
-			"init: %s, a new game in games/%s (%d files from the template); next: %s run %s",
+			"init: %s, a new game in games/%s (%d files, a copy of minimal_3d); next: %s run %s",
 			name,
 			name,
 			count,
@@ -166,12 +165,36 @@ init_in_repo :: proc(dir, name: string) -> Result {
 	}
 }
 
-// Writes the template's game into `dir` (`repo`: and template/repo/, a game repo's own files, at its root), formats
-// its Odin files (the game's name changes line lengths) and writes its view index the way every build does, so the
-// new game passes fmt --check and its first build rewrites nothing. Returns how many files it wrote.
+// What a new game is a copy of, in unified's checkout: the smallest complete game.
+TEMPLATE_GAME :: "games/minimal_3d"
+// Its files a copy leaves out: its spec, the UIDs Godot writes anew, the view index (written below) and its pinned
+// reference run (a new game pins its own once its rules settle).
+TEMPLATE_SKIP :: []string{"SPEC.md", "unified_index.tres", "simulation/tests/reference_test.odin"}
+
+// Writes the game: unified's minimal_3d (at `unified`, a checkout) with `name` for minimal_3d in paths and text
+// (`repo`: and template/repo/, a game repo's own files, at its root), formats its Odin files (the name changes line
+// lengths) and writes its view index the way every build does, so the new game passes fmt --check and its first
+// build rewrites nothing. Returns how many files it wrote.
 @(private)
-write_game :: proc(template, dir, name: string, repo: bool) -> int {
-	count := write_template(template, dir, name, repo = repo)
+write_game :: proc(unified, dir, name: string, repo: bool) -> int {
+	source := join(unified, TEMPLATE_GAME)
+	listed := must_run(
+		{cmd = strs(git(), "-C", source, "ls-files"), capture = true, quiet = true},
+		aprintf("listing %s's files", TEMPLATE_GAME),
+	)
+	count := 0
+	for rel_path in strings.split_lines(strings.trim_space(listed.stdout)) {
+		if slice.contains(TEMPLATE_SKIP, rel_path) || strings.has_suffix(rel_path, ".uid") do continue
+		target, _ := strings.replace_all(rel_path, "minimal_3d", name)
+		text, _ := strings.replace_all(must_read(join(source, rel_path)), "minimal_3d", name)
+		text, _ = strings.replace_all(text, "\r\n", "\n")
+		path := join(dir, target)
+		if !os.exists(path) do count += 1
+		write_text(path, text)
+	}
+	if repo {
+		count += write_repo_files(join(unified, "src", "cli", "template", "repo"), dir, name)
+	}
 	odin_files: [dynamic]string
 	append(&odin_files, ..find_files(join(dir, "simulation"), ".odin"))
 	if repo {
@@ -198,41 +221,23 @@ public_url :: proc(url: string) -> string {
 	return aprintf("https://github.com/%s.git", path)
 }
 
-// Writes the template's files ending in `suffix` (every file by default) into `dir`, __GAME__ replaced by `name`, LF
-// line endings whatever the checkout has, and returns how many. template/repo/ (a game repo's own files) goes to
-// `dir`'s root when `repo`, else nowhere; its .gitignore replaces the game's. `vet` writes only the Odin ones, to
-// type-check them (vet_template).
-write_template :: proc(template, dir, name: string, repo: bool, suffix := ".tmpl") -> int {
-	REPO :: "repo"
+// Writes template/repo/ (a game repo's own files, every one a .tmpl with __GAME__ for `name`) at `dir`'s root, LF line
+// endings whatever the checkout has; its .gitignore replaces the game's. Returns how many files are new.
+write_repo_files :: proc(template, dir, name: string) -> int {
 	count := 0
-	files := find_files(template, suffix)
-	// the game's files first, then the repo's, which may replace them
-	slice.stable_sort_by(files, proc(a, b: string) -> bool {
-		return !is_repo_file(a) && is_repo_file(b)
-	})
-	for file in files {
+	for file in find_files(template, ".tmpl") {
 		rel_path := file[len(template) + 1:len(file) - len(".tmpl")]
 		rel_path, _ = strings.replace_all(rel_path, "\\", "/")
-		if strings.has_prefix(rel_path, REPO + "/") {
-			if !repo do continue
-			rel_path = rel_path[len(REPO) + 1:]
-		}
 		if rel_path == "gitignore" || rel_path == "gitattributes" {
 			rel_path = aprintf(".%s", rel_path)
 		}
-		target, _ := strings.replace_all(rel_path, "__GAME__", name)
 		text, _ := strings.replace_all(must_read(file), "__GAME__", name)
 		text, _ = strings.replace_all(text, "\r\n", "\n")
-		path := join(dir, target)
+		path := join(dir, rel_path)
 		if !os.exists(path) do count += 1
 		write_text(path, text)
 	}
 	return count
-}
-
-@(private = "file")
-is_repo_file :: proc(path: string) -> bool {
-	return strings.contains(path, "/template/repo/") || strings.contains(path, "\\template\\repo\\")
 }
 
 // Whether a name can be a game's (`init` takes it from the directory): lowercase letters, digits and _,

@@ -1,33 +1,10 @@
 # friendslop
 
-The co-op physics sandbox on `unified` (spec: [`SPEC.md`](SPEC.md)): a Godot project (this folder is `res://`).
-The deterministic sim, its headless binary and the GDExtension live in `simulation/` (Odin); everything Godot is in
-`game/`. Levels are Godot scenes (`game/levels/`), exported to `.level` files the sim loads (`src/level/SPEC.md`).
-
-## Run
-
-```
-uni build friendslop     # the game library -> .out/bin/; the game needs it
-uni run friendslop       # windowed
-```
-
-There is no GDScript mock session: without the library the game says how to build it.
-
-## Levels
-
-`game/levels/park.tscn` (instancing `parts/hub.tscn`) is the level. Geometry is Godot's own `StaticBody3D` +
-`CollisionShape3D`; sim objects are marker nodes (`game/levels/markers/`: `item.gd`, `platform.gd` with a `Path3D`
-child, `volumes.gd` for pads, plates, bells, switches, bumpers, checkpoints, start, finish and spawns). At runtime
-each sim view adopts its marker's visuals, so a level is authored once. After editing a level:
-
-```
-uni bake friendslop   # game/levels/*.tscn -> *.level (commit both); the godot suite checks it
-```
-
-## Checks
-
-`uni test --suite godot` runs every Godot check for every game, and `uni test` runs this game's end-to-end suite.
-Which check proves what, and the order to run them in: the `godot-game` skill (`.claude/skills/`).
+A third-person co-op physics sandbox on `unified`, its example of a physics-heavy game: up to four wobbly characters
+ride platforms, carry and throw things and each other, and take a trophy along a route of physics puzzles. A Godot
+project (this folder is `res://`): the sim, its tests, the headless binary and the GDExtension in `simulation/`
+(Odin), everything Godot in `game/`; the level is a Godot scene (`game/levels/park.tscn`). Spec:
+[`SPEC.md`](SPEC.md). `uni run friendslop` plays it.
 
 ## Controls
 

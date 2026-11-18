@@ -5,15 +5,15 @@ package test_survivor
 
 import "core:testing"
 
-import "../survivor"
+import g "../survivor"
 import "unified:headless"
 import "unified:headless/scenarios"
 import "unified:sim"
 
 BARRELS := [8]int{2, 7, 12, 17, 22, 27, 32, 37}
 
-// survivor.tick with forced events by tick number (deterministic: same ticks on every peer).
-scenario_tick :: proc(t: ^survivor.Tick) {
+// g.tick with forced events by tick number (deterministic: same ticks on every peer).
+scenario_tick :: proc(t: ^g.Tick) {
 	if t.state.phase == .Match {
 		if t.number % 23 == 0 {
 			item := &t.state.items[BARRELS[(t.number / 23) % 8]]
@@ -22,36 +22,36 @@ scenario_tick :: proc(t: ^survivor.Tick) {
 			}
 		}
 		if t.number % 37 == 0 {
-			slot := int(t.number / 37) % survivor.PLAYERS
-			survivor.damage_player(t, sim.player_in_slot(t, slot), 1000)
+			slot := int(t.number / 37) % g.PLAYERS
+			g.damage_player(t, sim.player_in_slot(t, slot), 1000)
 		}
 		if t.number % 500 == 0 {
-			for slot in 0 ..< survivor.PLAYERS {
+			for slot in 0 ..< g.PLAYERS {
 				// everyone: match over, then a reset
-				survivor.damage_player(t, sim.player_in_slot(t, slot), 1000)
+				g.damage_player(t, sim.player_in_slot(t, slot), 1000)
 			}
 		}
 	}
-	survivor.tick(t)
+	g.tick(t)
 }
 
-SCENARIO := survivor.Game {
+SCENARIO := g.Game {
 	name              = "survivor-scenario",
-	version           = survivor.VERSION,
-	tick_hz           = survivor.TICK_HZ,
+	version           = g.VERSION,
+	tick_hz           = g.TICK_HZ,
 	content           = #load("../../game/levels/arena.level"),
-	world_create      = survivor.world_create,
-	world_destroy     = survivor.world_destroy,
-	extra             = survivor.extra,
-	init              = survivor.init_stress, // the dense stress spawner
+	world_create      = g.world_create,
+	world_destroy     = g.world_destroy,
+	extra             = g.extra,
+	init              = g.init_stress, // the dense stress spawner
 	tick              = scenario_tick,
-	scripted_input    = survivor.scripted_input,
-	scripted_commands = survivor.scripted_commands,
+	scripted_input    = g.scripted_input,
+	scripted_commands = g.scripted_commands,
 }
 
-SCENARIO_SUITE := scenarios.Suite(survivor.Game) {
+SCENARIO_SUITE := scenarios.Suite(g.Game) {
 	game    = &SCENARIO,
-	players = survivor.PLAYERS,
+	players = g.PLAYERS,
 	seed    = 13,
 	ticks   = 900,
 }
@@ -62,13 +62,13 @@ scenario_synctest :: proc(t: ^testing.T) {
 	for window in ([]u32{8, 13}) {
 		run := headless.run_begin(&SCENARIO, 11, window = window)
 		defer headless.run_end(&run)
-		for _ in 1 ..= 1600 do headless.run_scripted(&run, survivor.PLAYERS)
+		for _ in 1 ..= 1600 do headless.run_scripted(&run, g.PLAYERS)
 		scenarios.expect_synced(t, &run)
-		explosions := headless.run_events(&run, survivor.Event_Barrel_Exploded)
-		deaths := headless.run_events(&run, survivor.Event_Player_Died)
-		respawns := headless.run_events(&run, survivor.Event_Player_Respawned)
-		overs := headless.run_events(&run, survivor.Event_Match_Over)
-		starts := headless.run_events(&run, survivor.Event_Match_Started)
+		explosions := headless.run_events(&run, g.Event_Barrel_Exploded)
+		deaths := headless.run_events(&run, g.Event_Player_Died)
+		respawns := headless.run_events(&run, g.Event_Player_Respawned)
+		overs := headless.run_events(&run, g.Event_Match_Over)
+		starts := headless.run_events(&run, g.Event_Match_Started)
 		testing.expectf(t, explosions >= 20, "window %d: explosions %d", window, explosions)
 		testing.expectf(
 			t,

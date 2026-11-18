@@ -7,7 +7,7 @@ package test_survivor
 @(require) import "core:testing"
 @(require) import "core:time"
 
-@(require) import "../survivor"
+@(require) import g "../survivor"
 import "unified:headless/scenarios"
 @(require) import "unified:physics"
 @(require) import "unified:sim"
@@ -34,38 +34,38 @@ when scenarios.LONG {
 
 	profile_spent: [System]time.Duration
 
-	// survivor.tick, each system timed.
-	profiled_tick :: proc(t: ^survivor.Tick) {
-		timed :: proc(system: System, run: proc(t: ^survivor.Tick), t: ^survivor.Tick) {
+	// g.tick, each system timed.
+	profiled_tick :: proc(t: ^g.Tick) {
+		timed :: proc(system: System, run: proc(t: ^g.Tick), t: ^g.Tick) {
 			start := time.tick_now()
 			run(t)
 			profile_spent[system] += time.tick_since(start)
 		}
-		timed(.Players, survivor.update_players, t)
-		timed(.Upgrades, survivor.pick_upgrades, t)
-		timed(.Spawn, survivor.spawn_waves, t)
-		timed(.Steer, survivor.steer_enemies, t)
-		timed(.Contact, survivor.hurt_players, t)
-		timed(.Fire, survivor.fire, t)
-		timed(.Projectiles, survivor.move_projectiles, t)
-		timed(.Barrels, survivor.explode_barrels, t)
-		timed(.Kills, survivor.kill_enemies, t)
-		timed(.Gems, survivor.collect_gems, t)
-		timed(.Level_Up, survivor.level_up, t)
-		timed(.Physics, proc(t: ^survivor.Tick) {physics.step(t.world.phys)}, t)
-		timed(.Read_Back, survivor.read_back, t)
-		timed(.Phase, survivor.advance_phase, t)
+		timed(.Players, g.update_players, t)
+		timed(.Upgrades, g.pick_upgrades, t)
+		timed(.Spawn, g.spawn_waves, t)
+		timed(.Steer, g.steer_enemies, t)
+		timed(.Contact, g.hurt_players, t)
+		timed(.Fire, g.fire, t)
+		timed(.Projectiles, g.move_projectiles, t)
+		timed(.Barrels, g.explode_barrels, t)
+		timed(.Kills, g.kill_enemies, t)
+		timed(.Gems, g.collect_gems, t)
+		timed(.Level_Up, g.level_up, t)
+		timed(.Physics, proc(t: ^g.Tick) {physics.step(t.world.phys)}, t)
+		timed(.Read_Back, g.read_back, t)
+		timed(.Phase, g.advance_phase, t)
 	}
 
 	@(test)
 	the_systems_profile :: proc(t: ^testing.T) {
-		game := survivor.GAME_STRESS
+		game := g.GAME_STRESS
 		game.tick = profiled_tick
 		simulation := sim.create(&game, 1)
 		defer sim.destroy(simulation)
-		survivor.bench_prepare(&simulation.state, simulation.world, 1000)
-		inputs: survivor.Inputs
-		for slot in 0 ..< survivor.PLAYERS do sim.seat(&inputs, simulation, slot, slot + 1)
+		g.bench_prepare(&simulation.state, simulation.world, 1000)
+		inputs: g.Inputs
+		for slot in 0 ..< g.PLAYERS do sim.seat(&inputs, simulation, slot, slot + 1)
 		sim.step(simulation, &inputs) // the joins
 		profile_spent = {}
 		for _ in 0 ..< PROFILE_TICKS {

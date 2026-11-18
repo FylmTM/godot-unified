@@ -57,9 +57,9 @@ event_names :: proc(events: typeid, allocator := context.allocator) -> []string 
 
 // Why a union can't be a command or event union ("" when it can, or when `type` is nil): a union
 // (not #no_nil, not #shared_nil), at most 255 variants, each plain data (plain_violation; events: padding allowed,
-// padded_violation) of 1..max_size bytes, names unique.
+// padded_violation) of min_size..max_size bytes (a command may be empty: `Cmd_Start :: struct {}`), names unique.
 @(private)
-union_violation :: proc(type: typeid, max_size: int, prefix: string, padding := false) -> string {
+union_violation :: proc(type: typeid, min_size, max_size: int, prefix: string, padding := false) -> string {
 	if type == nil do return ""
 	info, ok := runtime.type_info_base(type_info_of(type)).variant.(runtime.Type_Info_Union)
 	if !ok do return fmt.tprintf("%v is not a union", type)
@@ -71,8 +71,8 @@ union_violation :: proc(type: typeid, max_size: int, prefix: string, padding := 
 		if reason := check(variant, fmt.tprint(variant.id)); reason != "" {
 			return fmt.tprintf("%q: %s", name, reason)
 		}
-		if variant.size > max_size || variant.size == 0 {
-			return fmt.tprintf("%q: %d bytes (1..%d)", name, variant.size, max_size)
+		if variant.size > max_size || variant.size < min_size {
+			return fmt.tprintf("%q: %d bytes (%d..%d)", name, variant.size, min_size, max_size)
 		}
 		for j in 0 ..< i {
 			if variant_name(info.variants[j], prefix) == name {
@@ -95,7 +95,7 @@ union_value :: proc(kind: int, bytes: []u8, $U: typeid) -> (value: U) {
 		return
 	}
 	info := runtime.type_info_base(type_info_of(U)).variant.(runtime.Type_Info_Union)
-	runtime.mem_copy_non_overlapping(&value, raw_data(bytes), len(bytes))
+	if len(bytes) > 0 do runtime.mem_copy_non_overlapping(&value, raw_data(bytes), len(bytes)) // an empty command: none
 	if _, rejected := wire_fix(&value, variants[kind], .Command, apply = true); rejected {
 		return {}
 	}
