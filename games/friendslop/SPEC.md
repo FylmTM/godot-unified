@@ -24,7 +24,7 @@ No health, no fail state: getting hit or dropped costs time, not a life.
 **Players** are session members (`sim.Players` of `Character`): one who joins or comes back gets a fresh body at
 their respawn point; one who leaves lets go of what they hold and is let go of, and their body goes. Whatever names a
 player names the person (`sim.Player`), never the slot: who holds a grab point or a friend, an item's thrower,
-events and views. Spawn points are per slot.
+events and views. Spawn points are per slot: a `spawn` marker each.
 
 ## The route
 
@@ -76,6 +76,9 @@ Solo finishes every beat; co-op is faster or opens a shortcut.
 - **Triggers:** a plate is pressed while the summed mass in its sensor (up to `PLATE_REACH` above it) reaches its
   threshold (players count unless it is `items_only`); a bell rings on a hit of at least `BELL_SPEED`; a switch fires
   when a player enters it; a lock when the key enters it. Bells, switches and locks latch until the route resets.
+- **Sensor or point test:** a Box3D sensor where the rule needs who or what is in a volume (a plate's mass, a
+  switch's player, a lock's key); a point against a box where it asks whether one known body is (pads, bumpers,
+  checkpoints, the start and the finish).
 
 ## Systems (`tick`, in this order)
 
@@ -96,11 +99,11 @@ Solo finishes every beat; co-op is faster or opens a shortcut.
 
 Each names its subject: `player` (a `sim.Player`) when it is about a player, `entity` (`sim.entity` of the level
 marker index) when it is about an item, plate, bell, switch or lock, and `position` in metres. `spawned`, `jumped`,
-`broke_free`, `fell`, `respawned`, `run_started` (`position`, `player`); `hit` (+ `speed`); `checkpoint` (+ `index`);
-`launched` (a player, or an item's `entity`); `grabbed`, `dropped`, `thrown` (+ `speed`): `player` the holder,
-`entity` the item or `held_player` the friend; `run_finished` (the trophy's `entity`, `seconds`); `plate_on`,
-`plate_off` (+ `mass`), `bell_rung` (+ `speed`), `switch_on` (`player` for a switch, none for a lock); and the
-library's joins and leaves.
+`broke_free`, `fell`, `respawned`, `run_started` (`position`, `player`); `hit` (+ `speed`, `bumper`: a bumper, not an
+item); `checkpoint` (+ `index`); `launched` (a player, or an item's `entity`); `grabbed`, `dropped`, `thrown`
+(+ `speed`): `player` the holder, `entity` the item or `held_player` the friend; `run_finished` (the trophy's
+`entity`, `duration_s`); `plate_on`, `plate_off` (+ `mass`), `bell_rung` (+ `speed`), `switch_on` (`player` for a
+switch, none for a lock); and the library's joins and leaves.
 
 ## Input
 
@@ -115,16 +118,19 @@ One level, `game/levels/park.tscn` (the hub and the route are parts it instances
 crate, ball, cube, key, heavy, trophy), `platform` (with a path), `pad`, `bumper`, `plate`, `bell`, `switch`, `lock`,
 `checkpoint`, `spawn`, `start`, `finish`. At runtime each sim view adopts its marker's visuals.
 
+A marker property's default lives in its marker script (`game/levels/markers/`), never in the sim: the bake writes
+every exported property, so the sim reads them without defaults and asserts what its rules need (a volume's size, a
+plate's mass, a spawn per slot, an item kind or platform mode the sim knows).
+
 ## View contract (`simulation/extension`)
 
 - Scene views: `player` (keyed by `sim.player_key`; data `limp`, `holding`, `charge`) and `marker`, every sim object
   the level placed (items, platforms, bells, plates, switches, locks), keyed by its level marker index. An event about
   a player goes to that player's view, so grabbed, dropped and thrown stay with the holder; one about a marker alone
   goes to that marker's view.
-- Session data `Data_Hud` (`Unified.data.hud`): `phase`, the run's and best times, `runs`, `checkpoint`, the reset
-  countdown, the active triggers (a bit each), and per slot (`DataHudPlayer`) `holding` (an `EnumHeldKind`), `held`,
-  `stunned`, `fallen`, `charge`.
-- Constants (`Unified.constants`): the finish hold and respawn seconds, the player capsule (radius, half height,
-  feet) and each item kind's size (`item_sizes`; `validate` checks the level's item markers draw them so).
+- Session data `Data_Hud` (`Unified.data.hud`): `phase`, the run's and best times, `checkpoint`, the reset
+  countdown, and per slot (`DataHudPlayer`) `holding` (an `EnumHeldKind`), `held`, `stunned`, `fallen`, `charge`.
+- Constants (`Unified.constants`): the player capsule (radius, half height, feet), the heavy crate's
+  `handle_outset` and each item kind's size (`item_sizes`), which the item markers draw.
 - Input: the InputMap's move, jump, grab and throw, the stick turned by the camera rig's `look` and `right`
-  (`Unified.input`), the aim its look.
+  (`Unified.input`, set on `input_wanted`), the aim its look.

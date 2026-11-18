@@ -39,17 +39,16 @@ advance_phase :: proc(t: ^Tick) {
 		}
 		if t.world.finish.half == {} do return
 		for i in 0 ..< t.world.item_count {
-			if t.world.items[i].kind != .Trophy || !t.state.items[i].alive do continue
+			if t.world.items[i].kind != .Trophy do continue
 			if !in_volume(t.world.finish, physics.body_position(t.world.phys, t.state.items[i].body)) do continue
 			t.state.phase = .Finished
 			t.state.finish_tick = t.number
-			t.state.runs += 1
 			ticks := t.number - t.state.run_tick
 			if t.state.best_ticks == 0 || ticks < t.state.best_ticks do t.state.best_ticks = ticks
 			sim.emit(t, Event_Run_Finished {
-				entity   = sim.entity(t.world.items[i].marker),
-				position = sim.Position(t.world.finish.pos),
-				seconds  = sim.seconds(ticks, TICK_HZ),
+				entity     = sim.entity(t.world.items[i].marker),
+				position   = sim.Position(t.world.finish.pos),
+				duration_s = sim.seconds(ticks, TICK_HZ),
 			})
 			break
 		}

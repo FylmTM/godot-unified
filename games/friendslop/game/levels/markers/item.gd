@@ -35,7 +35,8 @@ func _build() -> void:
 	else:
 		Greybox.set_mesh(self, Greybox.box(size), c, Vector3.ZERO, 0.6 if kind in ["key", "trophy"] else 0.0)
 	if kind == "heavy":
+		var handle_x := size.x * 0.5 + Unified.constants.handle_outset  # where the sim puts the grab points
 		for i in 2:
 			var h := Greybox.set_mesh(self, Greybox.box(Vector3(0.1, 0.12, 0.5)), Color(0.25, 0.25, 0.3),
-				Vector3((size.x * 0.5 + 0.05) * (1 - 2 * i), 0, 0), 0.0, "GreyboxHandle%d" % i)
+				Vector3(handle_x * (1 - 2 * i), 0, 0), 0.0, "GreyboxHandle%d" % i)
 			h.name = "GreyboxHandle%d" % i

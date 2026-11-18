@@ -14,7 +14,7 @@ bump_players :: proc(t: ^Tick) {
 			if !in_volume(bumper.volume, pos) do continue
 			direction := dmath.normalize(pos.xz - bumper.volume.pos.xz)
 			if direction == {} do direction = -character.facing
-			knock(t, player, direction, bumper.strength)
+			knock(t, player, direction, bumper.strength, bumper = true)
 			break
 		}
 	}
@@ -46,7 +46,7 @@ hit_player :: proc(t: ^Tick, index: int, player: sim.Player, hit: ^physics.Conta
 	if own || (item.thrown_ticks == 0 && hit.speed < HIT_SPEED) do return
 	direction := dmath.normalize(physics.body_linear_velocity(t.world.phys, item.body).xz)
 	if direction == {} do direction = dmath.normalize(hit.normal.xz)
-	knock(t, player, direction, KNOCKBACK)
+	knock(t, player, direction, KNOCKBACK, bumper = false)
 }
 
 // A hit on trigger `index`: a bell rings when the hit is fast enough and it is not cooling down.
@@ -63,7 +63,8 @@ ring_bell :: proc(t: ^Tick, index: int, hit: ^physics.Contact_Event) {
 }
 
 // Knocks the player along `direction` (horizontal, unit) at `speed`, with a hop: stunned, drops what it holds.
-knock :: proc(t: ^Tick, player: sim.Player, direction: [2]f32, speed: f32) {
+// `bumper`: a bumper knocked them, not an item (Event_Hit says which).
+knock :: proc(t: ^Tick, player: sim.Player, direction: [2]f32, speed: f32, bumper: bool) {
 	character := sim.player_data(t, player)
 	if character.held_by != {} || character.respawn > 0 do return
 	if character.held_kind != .None do drop(t, player)
@@ -76,5 +77,8 @@ knock :: proc(t: ^Tick, player: sim.Player, direction: [2]f32, speed: f32) {
 		character.controller.body,
 		{direction.x * speed, KNOCKBACK_UP, direction.y * speed},
 	)
-	sim.emit(t, Event_Hit{position = sim.Position(player_pos(t, player)), speed = speed, player = player})
+	sim.emit(
+		t,
+		Event_Hit{position = sim.Position(player_pos(t, player)), speed = speed, player = player, bumper = bumper},
+	)
 }

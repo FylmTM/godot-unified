@@ -101,7 +101,7 @@ func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> voi
 		_banner.show_message("Checkpoint %d" % checkpoint.index)
 	elif event is EventRunFinished:
 		var finished := event as EventRunFinished
-		var seconds := finished.seconds
+		var seconds := finished.duration_s
 		_banner.show_message("Finished in %s" % UiTheme.clock(seconds), UiTheme.GOLD, 4.0)
 		var saved := Settings.best_time
 		if saved <= 0.0 or seconds < saved:
