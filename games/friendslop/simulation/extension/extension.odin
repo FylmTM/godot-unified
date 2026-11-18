@@ -13,7 +13,6 @@ import "unified:godot"
 import "unified:godot_eos"
 import "unified:physics"
 import "unified:sim"
-import "unified:view"
 
 import fs "../friendslop"
 
@@ -25,9 +24,7 @@ friendslop_init :: proc "c" (
 ) -> gdi.Bool {
 	context = runtime.default_context()
 	constants_fill()
-	godot.install(&fs.GAME, GLUE)
-	godot.set_transport(godot_eos.transport("friendslop")) // online play: EOS lobbies and P2P
-	return godot.entry(gpa, lib, init)
+	return godot.init(&fs.GAME, GLUE, gpa, lib, init, godot_eos.transport("friendslop")) // online play: EOS lobbies and P2P
 }
 
 /// ---- glue
@@ -60,22 +57,18 @@ Data :: union {
 	fs.Data_Hud,
 }
 
-player_view_key :: proc(player: sim.Player) -> view.Key {
-	return view.Key(sim.player_key(player))
-}
-
 // An event about a player goes to that player's view, else one about a level marker to the marker's view. So
 // grabbed, dropped and thrown stay with the holder's view, and a switch a player touched with the player's,
 // where the default routing would send them to the item's or the switch's view. The rest: by their subject.
-event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, route: godot.Event_Route) {
+event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: u64, route: godot.Event_Route) {
 	value := sim.event_value(event, fs.Event)
 	fields := any{&value, reflect.union_variant_typeid(value)}
 	if player, is_player := reflect.struct_field_value_by_name(fields, "player").(sim.Player);
 	   is_player && player != {} {
-		return .Player, player_view_key(player), .View
+		return .Player, sim.player_key(player), .View
 	}
 	if entity, is_entity := reflect.struct_field_value_by_name(fields, "entity").(u64); is_entity && entity != 0 {
-		return .Marker, view.Key(entity - 1), .View // the marker index
+		return .Marker, u64(entity - 1), .View // the marker index
 	}
 	return
 }
@@ -124,7 +117,6 @@ fill_frame :: proc(f: ^Frame) {
 	players := sim.iterate_present(&f.state.players)
 	for character, player in sim.next(&players) {
 		godot.push_view(f, {
-			key    = player_view_key(player),
 			kind   = .Player,
 			player = player,
 			pos    = physics.body_position(f.world.phys, character.controller.body),
@@ -139,7 +131,7 @@ fill_frame :: proc(f: ^Frame) {
 		if body.index1 == 0 do return
 		pos := physics.body_position(f.world.phys, body)
 		godot.push_view(f, {
-			key    = view.Key(marker),
+			key    = u64(marker),
 			kind   = .Marker,
 			entity = fs.marker_entity(marker),
 			pos    = {pos.x, pos.y, pos.z},
@@ -153,7 +145,7 @@ fill_frame :: proc(f: ^Frame) {
 	for i in 0 ..< f.world.trigger_count {
 		marker := f.world.triggers[i].marker
 		godot.push_view(f, {
-			key    = view.Key(marker),
+			key    = u64(marker),
 			kind   = .Marker,
 			entity = fs.marker_entity(marker),
 			pos    = f.world.triggers[i].volume.pos,

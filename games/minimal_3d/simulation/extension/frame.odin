@@ -3,7 +3,6 @@ package extension
 import gd "unified:gdext"
 import "unified:godot"
 import "unified:sim"
-import "unified:view"
 
 import g "../minimal_3d"
 
@@ -51,7 +50,6 @@ fill_frame_players :: proc(f: ^Frame) {
 	for data, player in sim.next(&players) {
 		slot := sim.player_slot(&f.state.players, player)
 		item := godot.View_Item(View) {
-			key    = view.Key(sim.player_key(player)),
 			kind   = .Player,
 			player = player,
 			pos    = {data.position.x, 0, data.position.y},

@@ -25,14 +25,28 @@ import "unified:gdext/gdi"
 
 BUILD_TAG :: #config(UNIFIED_BUILD_TAG, "dev")
 
-// The GDExtension entry for a game: call from the exported entry symbol after `install`.
+// A game's GDExtension entry point in one call: installs the game and its Glue, registers the online transport
+// (nil: LAN and single player only) and hands Godot the extension's callbacks.
 //
 //   @(export, link_name = "survivor_init")
-//   survivor_init :: proc "c" (get_proc_address: gdi.InterfaceGetProcAddress, library: gdi.ClassLibraryPtr, init: ^gdi.Initialization) -> gdi.Bool {
+//   survivor_init :: proc "c" (get_proc_address: gdi.InterfaceGetProcAddress, library: gdi.ClassLibraryPtr, initialization: ^gdi.Initialization) -> gdi.Bool {
 //       context = runtime.default_context()
-//       godot.install(&survivor.GAME, GLUE)
-//       return godot.entry(get_proc_address, library, init)
+//       return godot.init(&survivor.GAME, GLUE, get_proc_address, library, initialization, godot_eos.transport("survivor"))
 //   }
+init :: proc(
+	game: ^$G,
+	glue: Glue(G, $View, $MultiView),
+	get_proc_address: gdi.InterfaceGetProcAddress,
+	library: gdi.ClassLibraryPtr,
+	initialization: ^gdi.Initialization,
+	online: ^Transport = nil,
+) -> gdi.Bool {
+	install(game, glue)
+	set_transport(online)
+	return entry(get_proc_address, library, initialization)
+}
+
+// The extension's callbacks for Godot (init's last step; after `install`, which tests call alone).
 entry :: proc(
 	get_proc_address: gdi.InterfaceGetProcAddress,
 	library: gdi.ClassLibraryPtr,

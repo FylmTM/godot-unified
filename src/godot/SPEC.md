@@ -38,7 +38,7 @@ sample_input :: proc(input: ^g.Input) {
 fill_frame :: proc(f: ^Frame) {
 	players := sim.iterate_present(&f.state.players)
 	for data, player in sim.next(&players) {
-		godot.push_view(f, {key = view.Key(sim.player_key(player)), kind = .Player, player = player, pos = ...})
+		godot.push_view(f, {kind = .Player, player = player, pos = ...}) // key 0 with a player: the player's key
 	}
 	godot.push_multi_view(f, {key = sim.handle_key(ball), kind = .Ball, pos = ..., rot = ...})
 	godot.push_data(f, Data_Hud{balls = u32(f.state.balls.count)})
@@ -47,9 +47,8 @@ fill_frame :: proc(f: ^Frame) {
 @(export, link_name = "<game>_init")
 <game>_init :: proc "c" (gpa: gdi.InterfaceGetProcAddress, lib: gdi.ClassLibraryPtr, init: ^gdi.Initialization) -> gdi.Bool {
 	context = runtime.default_context()
-	godot.install(&g.GAME, GLUE)
-	godot.set_transport(godot_eos.transport("<game>"))  // optional: EOS online play (src/godot_eos/SPEC.md)
-	return godot.entry(gpa, lib, init)
+	// the transport is optional: EOS online play (src/godot_eos/SPEC.md)
+	return godot.init(&g.GAME, GLUE, gpa, lib, init, godot_eos.transport("<game>"))
 }
 ```
 
@@ -61,7 +60,9 @@ binds what the library uses: src/gdext/SPEC.md).
 events)` and `open_join(user, code, compat, events)` return the link and get the session's build id (`compat`: the
 glue's, else `sim.compat_of(game, level)`), so a transport that lists games can publish it and tell a joiner on
 another build before it joins; `pump`, `close`, and the optional `account`, `main_frame` and `shutdown`.
-`unified:godot` never imports a transport: EOS is `unified:godot_eos`, one line in the game's init.
+`unified:godot` never imports a transport: EOS is `unified:godot_eos`, the last argument of `godot.init`.
+`godot.init` is `install` (the game and its Glue; tests call it alone), `set_transport` and `entry` (the extension's
+callbacks for Godot), in their one valid order.
 
 **`install` never stops the load.** The editor loads the extension too, so a problem is reported, not a panic:
 `install` collects every one (no `sample_input` or `fill_frame`, a View / MultiView enum that doesn't count up from
@@ -125,9 +126,10 @@ would be off by its transform). A 2D level is baked at the same scale (`src/leve
 `f.local_slot` (the slot the relay gave it; -1 before). It pushes:
 
 - `push_view(f, View_Item{key, kind, player, entity, pos, rot})` and `push_view(f, item, data)`: a scene view. A
-  view is identified by its **kind and key**: a key is unique within its kind only (0 is fine; the same key in
-  another kind is another view), and a new key is a new view: a player's view keyed by `sim.player_key` survives a
-  slot change and a rejoin, a table thing's by `sim.handle_key`, a fixed thing's by its index. `player` is the
+  view is identified by its **kind and key** (a `u64`, as a MultiMesh instance's): a key is unique within its kind only
+  (0 is fine; the same key in another kind is another view), and a new key is a new view: a player's view keyed by
+  `sim.player_key` survives a slot change and a rejoin (key 0 with `player` set means that key), a table thing's by
+  `sim.handle_key`, a fixed thing's by its index. `player` is the
   `sim.Player` it shows (`{}`: none) and `entity` the u64 its events carry (0: the key): both route events to it.
   `pos` and `rot` (a unit quaternion; zero is the identity; `view.quat_yaw`, `view.quat_angle2d`) are in the units
   the views use. `data` is any plain struct, converted like an event field (below: an enum is an int, an array of

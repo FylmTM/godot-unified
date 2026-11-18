@@ -19,7 +19,9 @@ DEFAULT_VIEW_DATA_BYTES :: 16384
 // A scene view this tick (fill_frame: push_view). Its scene is the one the view index maps `kind` to. A view is
 // identified by its kind and key.
 View_Item :: struct($View: typeid) {
-	key:    view.Key, // unique within its kind (a handle's or a player's key, an index; 0 too): a new key = a new view
+	// Unique within its kind (a handle's or a player's key, an index; 0 too): a new key = a new view. 0 with `player`
+	// set: the player's key (sim.player_key).
+	key:    u64,
 	kind:   View,
 	player: sim.Player, // the player it shows ({}: none): events whose subject is this player come here
 	entity: u64, // the id the game's events carry in a u64 `entity` field (0: the key): those events come here
@@ -162,7 +164,7 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	// `.Subject` (the zero value: a bare `return`): the routing by its subject (a handle field: the views with that
 	// key; an `entity` field: the views whose entity equals it; else its first sim.Player field: that player's
 	// views). So a game handles only its special events. sim.event_value(event, Game_Event) reads it.
-	event_key:       proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, route: Event_Route),
+	event_key:       proc(event: ^sim.Raw_Event) -> (kind: View, key: u64, route: Event_Route),
 	compat:          u64, // build/game id the relay checks (0: derived from the game and level, sim.compat_of)
 	// Optional: the level file (src/level/SPEC.md), e.g. "res://game/levels/park.level". Read with Godot's
 	// FileAccess when a session starts (it lives in the PCK in exported builds) and handed to the sim as
@@ -351,7 +353,7 @@ push_view_out :: proc(
 	view_out := &out.views[out.n_views]
 	out.n_views += 1
 	view_out^ = {
-		key         = item.key,
+		key         = view.Key(item.key if item.key != 0 || item.player == {} else sim.player_key(item.player)),
 		kind        = kind,
 		player      = sim.player_key(item.player),
 		entity      = item.entity != 0 ? item.entity : u64(item.key),

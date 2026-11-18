@@ -24,9 +24,7 @@ drift_init :: proc "c" (
 ) -> gdi.Bool {
 	context = runtime.default_context()
 	constants_init()
-	godot.install(&dr.GAME, GLUE)
-	godot.set_transport(godot_eos.transport("drift")) // online play: EOS lobbies and P2P
-	return godot.entry(gpa, lib, init)
+	return godot.init(&dr.GAME, GLUE, gpa, lib, init, godot_eos.transport("drift")) // online play: EOS lobbies and P2P
 }
 
 /// ---- the view contract
@@ -65,7 +63,7 @@ Gate_View :: struct {
 	charge: f32, // 0 ready .. 1 just used
 }
 
-// Keys (unique within a kind): a ship its player's key (ship_key: sim.player_key, the same while they are in the
+// Keys (unique within a kind): a ship its player's key (a zero key with `player` set: the same while they are in the
 // session, so their ship's view survives a rejoin), the station 0, a gate its index.
 
 GLUE := godot.Glue(dr.Game, View, MultiView) {
@@ -81,17 +79,12 @@ GLUE := godot.Glue(dr.Game, View, MultiView) {
 
 // Station hits go to the station's view (they have no subject); the rest by their subject: a player's events to
 // their ship (keyed by their player key), a rock's to its shooter's ship (no scene view has a rock's key).
-event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, route: godot.Event_Route) {
+event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: u64, route: godot.Event_Route) {
 	#partial switch _ in sim.event_value(event, dr.Event) {
 	case dr.Event_Station_Hit:
 		return .Station, 0, .View
 	}
 	return
-}
-
-// A player's ship view's key (0 for nobody: no view).
-ship_key :: proc(player: sim.Player) -> view.Key {
-	return view.Key(sim.player_key(player))
 }
 
 // ---- input (main thread, the one local player)
@@ -120,7 +113,6 @@ fill_frame :: proc(f: ^Frame) {
 		pos := physics.body_position_2d(f.world.phys, ship.body)
 		rotation := physics.body_rotation_2d(f.world.phys, ship.body)
 		godot.push_view(f, {
-			key    = ship_key(player),
 			kind   = .Ship,
 			player = player,
 			pos    = plane(pos),
@@ -138,7 +130,7 @@ fill_frame :: proc(f: ^Frame) {
 	}
 	for gate in 0 ..< f.world.gate_count {
 		godot.push_view(f, {
-			key  = view.Key(gate),
+			key  = u64(gate),
 			kind = .Gate,
 			pos  = plane(f.world.gates[gate].pos),
 		}, Gate_View{charge = f32(f.state.gates[gate].charge) / f32(dr.GATE_CHARGE_TICKS)})

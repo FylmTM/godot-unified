@@ -19,6 +19,5 @@ minimal_3d_init :: proc "c" (
 	initialization: ^gdi.Initialization,
 ) -> gdi.Bool {
 	context = runtime.default_context()
-	godot.install(&g.GAME, GLUE)
-	return godot.entry(get_proc_address, library, initialization)
+	return godot.init(&g.GAME, GLUE, get_proc_address, library, initialization)
 }
