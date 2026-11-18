@@ -31,7 +31,7 @@ Api :: struct {
 	commands_type:   typeid, // the union itself
 	data:            []Data_Layout, // the game's session data types (Glue.data), by kind
 	constants:       Data_Layout, // the constants' type (type nil: none)
-	constants_bytes: []u8, // Glue.constants' value
+	constants_bytes: []u8, // the constants' value (install's)
 	input_values:    Data_Layout, // Glue.input_values (type nil: none)
 	enum_types:      []^runtime.Type_Info, // the enums the event, command, data, constants and input types use
 	sample_input:    proc(), // main thread: the game's sample_input into the host's sample
@@ -56,7 +56,6 @@ Api :: struct {
 	// The session's recording so far, appended to `snapshot` and `log` (dev UI builds; false: none yet).
 	recording:       proc(snapshot, log: ^[dynamic]u8) -> (info: Recording_Info, ok: bool),
 	event_key:       proc(event: ^sim.Raw_Event, subject: Subject) -> (kind: u8, key: u64, route: Event_Route), // Glue.event_key (nil: by subject)
-	level:           string, // Glue.level
 	result:          proc() -> string, // the finished session's result JSON (after a Result message)
 	send:            proc(command: sim.Raw_Command) -> bool, // queue a command for the running session (false: full)
 }
@@ -154,7 +153,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	published: u64,
 	scratch:   [dynamic]Tick_Event,
 	result:    string,
-	bench:     G, // the game with Glue.bench after init (req.bench > 0)
+	bench:     G, // the game with Game.bench_prepare after init (req.bench > 0)
 	alloc:     runtime.Allocator, // the starter's allocator: the session thread allocates what wait frees
 	nets:      [dynamic]^netcode.Net_Sim, // the remote links' live netsims (owned by the channel)
 	net_gen:   u32,
@@ -245,10 +244,12 @@ g_driver: rawptr
 @(private)
 g_bench_count: int
 
-// Installs the game: call once, before godot.entry. It never stops the load: a game with problems (a bad Glue, a
-// sim that fails the game checks, a data type that clashes) is reported with print_error when the extension loads
-// and nothing of it is registered, so the editor still opens and a session fails with the reason.
-install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
+// Installs the game: call once, before godot.entry. `constants`: the game's fixed values for its scripts
+// (Unified.constants, a plain `Data_` struct, strings allowed), copied here (nil: none). It never stops the load: a
+// game with problems (a bad Glue, a sim that fails the game checks, a data type that clashes) is reported with
+// print_error when the extension loads and nothing of it is registered, so the editor still opens and a session fails
+// with the reason.
+install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = nil) {
 	State :: sim.part(G, sim.GAME_STATE)
 	Input :: sim.part(G, sim.GAME_INPUT)
 	Event :: sim.part(G, sim.GAME_EVENT)
@@ -275,8 +276,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 	if reason := sim.game_violation(game); reason != "" {
 		append(&problems, strings.clone(reason))
 	}
-	data_problems(glue.data, glue.constants.id, glue.input_values, &problems)
-	if glue.constants.id != nil && glue.constants.data == nil do append(&problems, "Glue.constants holds no value")
+	data_problems(glue.data, constants.id, glue.input_values, &problems)
 	if len(problems) > 0 {
 		api = {
 			game_name = game.name,
@@ -300,13 +300,12 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 		events        = event_layouts(Event),
 		commands      = command_layouts(Cmd),
 		commands_type = Cmd,
-		level         = glue.level,
 	}
 	for variant in sim.union_variants(glue.data) do append_elem(&kept_data, data_layout(variant))
 	api.data = kept_data[:]
-	if glue.constants.id != nil {
-		api.constants = data_layout(type_info_of(glue.constants.id))
-		api.constants_bytes = slice.clone(([^]u8)(glue.constants.data)[:type_info_of(glue.constants.id).size])
+	if constants.id != nil {
+		api.constants = data_layout(type_info_of(constants.id))
+		api.constants_bytes = slice.clone(([^]u8)(constants.data)[:type_info_of(constants.id).size])
 	}
 	if glue.input_values != nil do api.input_values = data_layout(type_info_of(glue.input_values))
 	enum_sources: [dynamic]^runtime.Type_Info
@@ -320,7 +319,8 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 	api.enum_types = enums[:]
 	if glue.event_key != nil {
 		api.event_key = proc(event: ^sim.Raw_Event, subject: Subject) -> (u8, u64, Event_Route) {
-			kind, key, route := (^This_Glue)(g_glue).event_key(event, subject)
+			event_value := sim.event_value(event, sim.part(G, sim.GAME_EVENT))
+			kind, key, route := (^This_Glue)(g_glue).event_key(event_value, subject)
 			return u8(kind), key, route
 		}
 	}
@@ -344,7 +344,6 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 		driver.req = request
 		driver.req.arg = strings.clone(request.arg)
 		driver.req.name = strings.clone(request.name)
-		driver.req.content = slice.clone(request.content)
 		triple_init(&driver.frames)
 		for &frame in driver.frames.slots {
 			frame.alloc = context.allocator
@@ -396,7 +395,6 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 		delete(driver.scratch)
 		delete(driver.req.arg)
 		delete(driver.req.name)
-		delete(driver.req.content)
 		delete(driver.result)
 		delete(driver.nets)
 		free(driver)
@@ -799,25 +797,22 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 		player_name   = request.name,
 		seed          = request.seed,
 		ticks         = request.ticks,
-		content       = request.content,
 	}
 	client_config := netcode.Client_Config {
 		player_name = request.name,
 		slot        = -1,
 		token       = request.token,
-		content     = request.content,
 	}
 	switch request.mode {
 	case .Single:
-		if request.bench > 0 && driver.glue.bench != nil {
+		if request.bench > 0 && game.bench_prepare != nil {
 			// The same game, with the benchmark state prepared after init (this process is the only peer).
 			g_bench_count = request.bench
 			driver.bench = game^
 			driver.bench.init = proc(t: ^sim.Tick(G)) {
 				game := (^G)(g_game)
-				glue := (^Glue(G, View, MultiView))(g_glue)
 				if game.init != nil do game.init(t)
-				glue.bench(t.state, t.world, g_bench_count)
+				game.bench_prepare(t.state, t.world, g_bench_count)
 			}
 			driver.host = netcode.host_create(&driver.bench, host_config, hooks)
 		} else {
@@ -894,7 +889,7 @@ lobby_build :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Lobby_Bui
 // The session's build id as the relay computes it: from the game and the level.
 @(private)
 driver_compat :: proc(driver: ^Driver($G, $View, $MultiView)) -> u64 {
-	return sim.compat_of(driver.game, driver.req.content)
+	return sim.compat_of(driver.game)
 }
 
 // Pumps the lobby (session thread): its code goes to the main thread once, a failure ends the session with its

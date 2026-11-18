@@ -9,11 +9,8 @@ import "core:testing"
 import dr "../drift"
 import "unified:headless/scenarios"
 
-ARENA :: #load("../../game/levels/arena.level")
-
 SUITE := scenarios.Suite(dr.Game) {
 	game = &dr.GAME,
-	content = ARENA,
 	players = 4,
 	seed = 42,
 	ticks = scenarios.LONG ? 3600 : 600,

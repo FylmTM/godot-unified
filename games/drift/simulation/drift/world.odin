@@ -44,6 +44,7 @@ GAME := Game {
 	name = "drift",
 	version = "3", // 3: keyed rolls for the rocks (#252)
 	tick_hz = TICK_HZ,
+	content = #load("../../game/levels/arena.level"), // the committed export of game/levels/arena.tscn (uni bake)
 	world_create = world_create,
 	world_destroy = world_destroy,
 	extra = proc(world: ^World) -> sim.Extra {return physics.extra(world.phys, State)},

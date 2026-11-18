@@ -218,7 +218,7 @@ snap_extra :: proc(reader: ^wire.Reader) -> (image: []u8, ok: bool) {
 
 // Builds a new Sim from a portable snapshot, or says why the bytes are not a valid snapshot for
 // this game build and content (the Sim is nil then): snap_read's errors, then Content_Differs, then
-// Build_Differs. `content` is borrowed like create's.
+// Build_Differs. `content` is borrowed like create's (nil: the game's own, Game.content).
 from_snapshot :: proc(
 	game: ^$G,
 	data: []u8,
@@ -228,18 +228,19 @@ from_snapshot :: proc(
 	Snap_Error,
 ) where intrinsics.type_is_specialization_of(G, Game) {
 	State :: part(G, GAME_STATE)
+	level := game_content(game, content)
 	layout := layout_hash(State)
 	header, block, reader, err := snap_read(data, size_of(State), layout)
 	if err != .None {
 		return nil, err
 	}
-	if header.content != content_hash(content) {
+	if header.content != content_hash(level) {
 		return nil, .Content_Differs
 	}
-	if header.compat != compat_with(game, layout, content, {}) {
+	if header.compat != compat_with(game, layout, level, {}) {
 		return nil, .Build_Differs
 	}
-	simulation := create(game, header.seed, content)
+	simulation := create(game, header.seed, level)
 	intrinsics.mem_copy_non_overlapping(&simulation.state, raw_data(block), size_of(State))
 	simulation.tick = header.tick
 	image, image_ok := snap_extra(&reader)

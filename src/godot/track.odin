@@ -190,7 +190,7 @@ nlerp :: proc(a, b: [4]f32, t: f32) -> [4]f32 {
 }
 
 // Rotation about +Y by `yaw` radians (Godot's up axis).
-quat_yaw :: proc(yaw: f32) -> [4]f32 {
+quat_yaw_angle :: proc(yaw: f32) -> [4]f32 {
 	return {0, math.sin(yaw * 0.5), 0, math.cos(yaw * 0.5)}
 }
 

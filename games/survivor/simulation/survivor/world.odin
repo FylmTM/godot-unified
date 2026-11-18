@@ -42,9 +42,9 @@ Event_Enemy_Died :: struct {
 	_pad:       [3]u8,
 }
 
-// Items are a fixed array, not a table: the subject is the item's view key, `entity` = item index + 1.
+// Items are a fixed array, not a table: the subject is the item, sim.entity(index) (its view is keyed by the index).
 Event_Barrel_Exploded :: struct {
-	entity:   u64,
+	entity:   sim.Entity,
 	position: sim.Position,
 	_pad:     u32,
 }
@@ -102,6 +102,7 @@ GAME := Game {
 	tick = tick,
 	scripted_input = scripted_input,
 	scripted_commands = scripted_commands,
+	bench_prepare = bench_prepare,
 }
 
 // The same game with the `stress` tuning: what the headless binary, the end-to-end suite and the bench run.
@@ -120,6 +121,7 @@ GAME_STRESS := Game {
 	tick = tick,
 	scripted_input = scripted_input,
 	scripted_commands = scripted_commands,
+	bench_prepare = bench_prepare,
 }
 
 // Start spots by slot, inside the start circle.

@@ -1,7 +1,7 @@
 class_name LevelMarkers
 ## The level's markers in the order the exporter writes them (src/godot/tools/level_export.gd): depth-first,
 ## parents before children, every node that declares a unified kind. Marker index i here = marker i in the
-## level file, so a sim view with entity i + 1 finds its marker's node (and adopts its visuals).
+## level file, so the marker view keyed i finds its marker's node (and adopts its visuals).
 
 
 static func collect(root: Node) -> Array[Node]:

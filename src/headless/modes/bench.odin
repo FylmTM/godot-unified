@@ -82,10 +82,10 @@ run_bench :: proc(
 	Input :: sim.part(G, sim.GAME_INPUT)
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	assert(window >= 1 && int(window) <= uheadless.max_window(headless.game))
-	simulation := sim.create(headless.game, seed, headless.content)
+	simulation := sim.create(headless.game, seed)
 	defer sim.destroy(simulation)
-	if headless.bench_prepare != nil {
-		headless.bench_prepare(&simulation.state, simulation.world, entities)
+	if headless.game.bench_prepare != nil {
+		headless.game.bench_prepare(&simulation.state, simulation.world, entities)
 		sim.save(simulation)
 	}
 	for k in 0 ..< sim.KEEP_SLOTS {

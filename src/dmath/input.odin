@@ -16,7 +16,7 @@ axis :: #force_inline proc "contextless" (x: i8) -> f32 {
 
 // Two i8 axes as a stick: each −1..1, the length at most 1 (a corner (127, 127) from a modified client moves no
 // faster than a full stick).
-stick :: proc "contextless" (x, y: i8) -> Vec2 {
+stick :: proc "contextless" (x, y: i8) -> [2]f32 {
 	return clamp_length2({axis(x), axis(y)}, 1)
 }
 
@@ -26,7 +26,7 @@ Dir2 :: distinct u16
 
 // The direction of `dir` (any length; zero, or NaN: none). Client side; plain arithmetic, so a script or bot can use
 // it too.
-dir2 :: proc "contextless" (dir: Vec2) -> Dir2 {
+dir2 :: proc "contextless" (dir: [2]f32) -> Dir2 {
 	l1 := abs(dir.x) + abs(dir.y)
 	if !(l1 > 0.000001) do return 0
 	x := dir.x / l1
@@ -36,7 +36,7 @@ dir2 :: proc "contextless" (dir: Vec2) -> Dir2 {
 }
 
 // The unit vector a Dir2 holds ({}: none).
-dir2_vec :: proc "contextless" (dir: Dir2) -> Vec2 {
+dir2_vec :: proc "contextless" (dir: Dir2) -> [2]f32 {
 	if dir == 0 do return {}
 	s := f32(i32(dir) - 32768) / 32767
 	x := 1 - 2 * abs(s)
@@ -50,10 +50,10 @@ Dir3 :: struct {
 }
 
 // The direction of `dir` (any length; zero, or NaN: none).
-dir3 :: proc "contextless" (dir: Vec3) -> Dir3 {
+dir3 :: proc "contextless" (dir: [3]f32) -> Dir3 {
 	l1 := abs(dir.x) + abs(dir.y) + abs(dir.z)
 	if !(l1 > 0.000001) do return {}
-	p := Vec2{dir.x / l1, dir.y / l1}
+	p := [2]f32{dir.x / l1, dir.y / l1}
 	if dir.z < 0 { 	// the lower half folds out over the corners
 		p = {(1 - abs(p.y)) * sign_of(p.x), (1 - abs(p.x)) * sign_of(p.y)}
 	}
@@ -61,7 +61,7 @@ dir3 :: proc "contextless" (dir: Vec3) -> Dir3 {
 }
 
 // The unit vector a Dir3 holds ({}: none).
-dir3_vec :: proc "contextless" (dir: Dir3) -> Vec3 {
+dir3_vec :: proc "contextless" (dir: Dir3) -> [3]f32 {
 	if dir == {} do return {}
 	x := f32(i32(dir.u) - 32768) / 32767
 	y := f32(i32(dir.v) - 32768) / 32767

@@ -4,11 +4,9 @@
 // and the aim become an Input. Built by `uni build drift`.
 package drift_extension
 
-import "base:runtime"
 import "core:math"
 import "unified:dmath"
 import "unified:eos"
-import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:physics"
 import "unified:sim"
@@ -17,13 +15,12 @@ import dr "../drift"
 
 @(export, link_name = "drift_init")
 drift_init :: proc "c" (
-	gpa: gdi.InterfaceGetProcAddress,
-	lib: gdi.ClassLibraryPtr,
-	init: ^gdi.Initialization,
-) -> gdi.Bool {
-	context = runtime.default_context()
-	constants_init()
-	return godot.init(&dr.GAME, GLUE, gpa, lib, init, eos.lobby({})) // online play: EOS lobbies and P2P
+	gpa: godot.Get_Proc_Address,
+	lib: godot.Class_Library,
+	init: ^godot.Initialization,
+) -> godot.Init_Result {
+	// online play: EOS lobbies and P2P
+	return godot.init(&dr.GAME, GLUE, gpa, lib, init, eos.lobby({}), constants = constants)
 }
 
 /// ---- the view contract
@@ -69,18 +66,16 @@ GLUE := godot.Glue(dr.Game, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame   = fill_frame,
 	data         = Data,
-	constants    = CONSTANTS,
 	is_2d        = true,
 	view_scale   = 32, // pixels per metre: the scale the art and the level are drawn at (the host maps positions)
 	event_key    = event_key,
 	input_values = Input_Values,
-	level        = "res://game/levels/arena.level",
 }
 
 // Station hits go to the station's view (they have no subject); the rest by their subject: a player's events to
 // their ship (keyed by their player key), a rock's to its shooter's ship (no scene view has a rock's key).
-event_key :: proc(event: ^sim.Raw_Event, _: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
-	#partial switch _ in sim.event_value(event, dr.Event) {
+event_key :: proc(event: dr.Event, _: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
+	#partial switch _ in event {
 	case dr.Event_Station_Hit:
 		return .Station, 0, .View
 	}
@@ -106,7 +101,7 @@ sample_input :: proc(input: ^dr.Input) {
 // ---- the frame (session thread): everything in metres (the host maps positions to pixels: Glue.view_scale)
 
 // A point on the plane.
-plane :: #force_inline proc(point: [2]f32) -> [3]f32 {
+plane :: #force_inline proc(point: [2]f32) -> sim.Position {
 	return {point.x, point.y, 0}
 }
 
@@ -233,8 +228,7 @@ hud_of :: proc(state: ^dr.State, tick: u32) -> (hud: Data_Hud) {
 		hud.reset_in_s = end > tick ? f32(end - tick) / dr.TICK_HZ : 0
 	}
 	for slot in 0 ..< dr.PLAYERS {
-		player := sim.player_in_slot(&state.players, slot)
-		ship := sim.player_data(&state.players, player)
+		ship := sim.slot_data(&state.players, slot)
 		if ship == nil do continue
 		hud.players[slot] = {
 			shots = ship.shots,
@@ -257,20 +251,20 @@ Data_Constants :: struct {
 	rock_shapes:    [dr.ROCK_VARIANTS][8][2]f32, // per variant the 8 corners at radius 1 (an Array of Vector2s)
 }
 
-// Copied at install; constants_init fills the rock shapes first (dr.rock_points is a proc).
-CONSTANTS := Data_Constants {
-	ship_radius    = dr.SHIP_RADIUS,
-	station_radius = dr.STATION_RADIUS,
-	gate_radius    = dr.GATE_RADIUS,
-	station_hp     = dr.STATION_HP,
-	over_hold_s    = dr.OVER_HOLD_S,
-	wave_every_s   = dr.WAVE_EVERY_S,
-}
-
-// The rock shapes the sim builds its bodies from (their convex hull, scaled by the rock's radius), at radius 1.
-constants_init :: proc() {
+// godot.init calls it once. The rock shapes are the ones the sim builds its bodies from (their convex hull, scaled by
+// the rock's radius), at radius 1.
+constants :: proc() -> Data_Constants {
+	constants := Data_Constants {
+		ship_radius    = dr.SHIP_RADIUS,
+		station_radius = dr.STATION_RADIUS,
+		gate_radius    = dr.GATE_RADIUS,
+		station_hp     = dr.STATION_HP,
+		over_hold_s    = dr.OVER_HOLD_S,
+		wave_every_s   = dr.WAVE_EVERY_S,
+	}
 	small := dr.ROCK_RADIUS[.Small]
 	for variant in 0 ..< dr.ROCK_VARIANTS {
-		for corner, k in dr.rock_points(variant, .Small) do CONSTANTS.rock_shapes[variant][k] = corner / small
+		for corner, k in dr.rock_points(variant, .Small) do constants.rock_shapes[variant][k] = corner / small
 	}
+	return constants
 }

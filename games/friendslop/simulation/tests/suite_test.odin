@@ -11,7 +11,6 @@ import "unified:headless/scenarios"
 
 SUITE := scenarios.Suite(fs.Game) {
 	game = &fs.GAME,
-	content = PARK,
 	players = 4,
 	seed = 42,
 	ticks = scenarios.LONG ? 3600 : 600,

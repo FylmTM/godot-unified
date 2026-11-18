@@ -28,13 +28,13 @@ FRAME_DATA_LIMIT :: 1 << 26
 // identified by its kind and key.
 View_Item :: struct($View: typeid) {
 	// Unique within its kind (a handle's or a player's key, an index; 0 too): a new key = a new view. 0 with `player`
-	// set: the player's key (sim.player_key).
+	// set: the player's key (sim.player_key). Events whose subject is this key come here: a handle with this key, a
+	// sim.Entity whose index it is (sim.entity(i): the view keyed i).
 	key:    u64,
 	kind:   View,
 	player: sim.Player, // the player it shows ({}: none): events whose subject is this player come here
-	entity: u64, // the id the game's events carry in a u64 `entity` field (0: the key): those events come here
-	pos:    [3]f32, // sim units (the host applies Glue.view_scale); 2D: pos.xy (Godot 2D: x right, y down)
-	rot:    [4]f32, // unit quaternion (x, y, z, w); quat_yaw, quat_angle2d (2D); zero = identity
+	pos:    sim.Position, // sim units (the host applies Glue.view_scale); 2D: pos.xy (Godot 2D: x right, y down)
+	rot:    [4]f32, // unit quaternion (x, y, z, w); dmath.quat_yaw, quat_angle2d (2D); zero = identity
 }
 
 // One MultiMesh instance this tick (fill_frame: push_multi_view). Position and rotation interpolate from the
@@ -42,7 +42,7 @@ View_Item :: struct($View: typeid) {
 Multi_View_Item :: struct($MultiView: typeid) {
 	key:    u64, // identifies the instance across ticks, per kind (a handle's sim.handle_key); 0: not interpolated
 	kind:   MultiView,
-	pos:    [3]f32,
+	pos:    sim.Position, // like View_Item's
 	rot:    [4]f32, // unit quaternion like View_Item's (2D: quat_angle2d); zero = identity
 	scale:  [3]f32, // per local axis (2D: x, y); zero = {1, 1, 1}
 	color:  Color, // the instance color (use_colors), RGBA; zero = white
@@ -65,7 +65,6 @@ View_Out :: struct {
 	kind:        u8,
 	has_prev:    bool,
 	player:      u64, // the player's key (sim.player_key; 0: none)
-	entity:      u64,
 	pos:         [3]f32,
 	rot:         [4]f32,
 	prev_pos:    [3]f32,
@@ -129,9 +128,6 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	fill_frame:   proc(frame: ^Frame(G, View, MultiView)),
 	// Optional: the game's session data types, a union of `Data_` structs (Unified.<name>, push_data).
 	data:         typeid,
-	// Optional: the game's fixed values for its scripts (Unified.constants): a package variable holding a plain
-	// `Data_` struct (strings allowed), copied at install. Not a literal: `any` keeps its address.
-	constants:    any,
 	// Optional: what only scripts know for sample_input (a camera's look direction), a plain struct: scripts set its
 	// fields on Unified.input, sample_input reads them with input_values(T).
 	input_values: typeid,
@@ -144,27 +140,26 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	// script set (a command's). Scripts scale sizes with Unified.view_scale.
 	view_scale:   f32,
 
-	// Optional, dev: prepare a single-player benchmark state after the game's init (`-- --bench N`: hold N
-	// entities). Single player only: it changes the initial state, which every peer would have to share.
-	bench:        proc(state: ^sim.part(G, sim.GAME_STATE), world: ^sim.part(G, sim.GAME_WORLD), count: int),
-	// Main thread, optional: where an event goes. `.View`: the scene view of that kind and key; `.No_View`: none;
-	// `.Subject` (the zero value: a bare `return`): the routing by its subject (a handle field: the views with that
-	// key; an `entity` field: the views whose entity equals it; else its first sim.Player field: that player's
-	// views). So a game handles only its special events, from the subject the host read (sim.event_value(event,
-	// Game_Event) reads the rest).
-	event_key:    proc(event: ^sim.Raw_Event, subject: Subject) -> (kind: View, key: u64, route: Event_Route),
-	// Optional: the level file (src/level/SPEC.md), e.g. "res://game/levels/park.level". Read with Godot's
-	// FileAccess when a session starts (it lives in the PCK in exported builds) and handed to the sim as
-	// its content; every peer must have the same file.
-	level:        string,
+	// Main thread, optional: where an event (the game's union) goes. `.View`: the scene view of that kind and key;
+	// `.No_View`: none; `.Subject` (the zero value: a bare `return`): the routing by its subject (its first handle or
+	// sim.Entity field: the views keyed by it, of any kind; else, or when none is, its first sim.Player field: that
+	// player's views). So a game handles only its special events.
+	event_key:    proc(
+		event: sim.part(G, sim.GAME_EVENT),
+		subject: Subject,
+	) -> (
+		kind: View,
+		key: u64,
+		route: Event_Route,
+	),
 }
 
-// An event's subject as the host reads it (Glue.event_key): its first sim.Player field, and its first handle (as
-// sim.handle_key, is_handle) or u64 `entity` field ({}, 0: none).
+// An event's subject as the host reads it (Glue.event_key): its first sim.Player field, and its first handle or
+// sim.Entity field ({}, 0: none).
 Subject :: struct {
-	player:    sim.Player,
-	entity:    u64,
-	is_handle: bool,
+	player: sim.Player,
+	handle: u64, // the handle's key (sim.handle_key)
+	entity: sim.Entity,
 }
 
 // An RGBA colour in sim-facing data (view and session data, events, commands, constants): a Color in GDScript. A
@@ -200,8 +195,7 @@ Start :: struct {
 	seed:     u64,
 	ticks:    u32, // 0: endless
 	scripted: bool, // scripted input instead of the InputMap (headless checks)
-	bench:    int, // Single only: Glue.bench(count) after the game's init (dev benchmarks)
-	content:  []u8, // the level's bytes (Glue.level), copied by start
+	bench:    int, // Single only: Game.bench_prepare(count) after the game's init (dev benchmarks)
 	token:    netcode.Token, // what the relay knows this player by when they come back over LAN (user://)
 }
 
@@ -328,8 +322,7 @@ push_view_out :: proc(
 		key         = u64(item.key if item.key != 0 || item.player == {} else sim.player_key(item.player)),
 		kind        = kind,
 		player      = sim.player_key(item.player),
-		entity      = item.entity != 0 ? item.entity : u64(item.key),
-		pos         = item.pos,
+		pos         = ([3]f32)(item.pos),
 		rot         = item.rot == {} ? IDENTITY : item.rot,
 		data_type   = data_type,
 		data_offset = u32(out.n_data),
@@ -354,7 +347,7 @@ push_multi_view :: proc(
 	multi_out^ = {
 		kind   = u8(item.kind),
 		key    = item.key,
-		pos    = item.pos,
+		pos    = ([3]f32)(item.pos),
 		rot    = item.rot == {} ? IDENTITY : item.rot,
 		scale  = item.scale,
 		color  = ([4]f32)(item.color),
@@ -367,7 +360,7 @@ push_multi_view :: proc(
 			u8(item.kind),
 			item.key,
 			frame.tick,
-			item.pos,
+			multi_out.pos,
 			multi_out.rot,
 		)
 		if found do multi_out.has_prev, multi_out.prev_pos, multi_out.prev_rot = true, previous.pos, previous.rot

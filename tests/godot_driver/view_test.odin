@@ -150,12 +150,12 @@ track_teleports_snap :: proc(t: ^testing.T) {
 track_rotation_interpolates_and_smooths :: proc(t: ^testing.T) {
 	smoothing := godot.SMOOTHING_DEFAULT
 	track: godot.Track
-	godot.track_push(&track, 1, {{}, godot.quat_yaw(0)}, smoothing)
-	godot.track_push(&track, 2, {{}, godot.quat_yaw(1)}, smoothing)
+	godot.track_push(&track, 1, {{}, godot.quat_yaw_angle(0)}, smoothing)
+	godot.track_push(&track, 2, {{}, godot.quat_yaw_angle(1)}, smoothing)
 	pose := godot.track_sample(&track, 2, 0.5, 0, smoothing)
 	testing.expectf(t, abs(godot.yaw_of(pose.rot) - 0.5) < 1e-3, "yaw %v", godot.yaw_of(pose.rot))
 	_ = godot.track_sample(&track, 2, 1, 0, smoothing)
-	godot.track_push(&track, 2, {{}, godot.quat_yaw(0.5)}, smoothing)
+	godot.track_push(&track, 2, {{}, godot.quat_yaw_angle(0.5)}, smoothing)
 	pose = godot.track_sample(&track, 2, 1, 0, smoothing)
 	testing.expectf(t, abs(godot.yaw_of(pose.rot) - 1) < 1e-3, "no rotation jump: %v", godot.yaw_of(pose.rot))
 	for _ in 0 ..< 120 do pose = godot.track_sample(&track, 2, 1, 1.0 / 60, smoothing)

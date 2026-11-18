@@ -60,11 +60,11 @@ func _run() -> void:
 	expect(peak >= 4.0, "the jump pad launches the player (peak %.1f m)" % peak)
 
 
-## Marker views' positions by entity.
+## Marker views' positions by key (marker index).
 func _marker_positions() -> Dictionary[int, Vector3]:
 	var out: Dictionary[int, Vector3] = {}
 	for v: Node in views(&"marker"):
-		out[_entity(v)] = (v as Node3D).global_position
+		out[_key(v)] = (v as Node3D).global_position
 	return out
 
 
@@ -88,9 +88,9 @@ func _holding() -> int:
 	return me.holding if me != null else EnumHeldKind.NONE
 
 
-## A view's entity, from its UnifiedView marker.
-static func _entity(v: Node) -> int:
-	return (v.get_node(^"UnifiedView") as UnifiedView).entity
+## A view's key, from its UnifiedView marker.
+static func _key(v: Node) -> int:
+	return (v.get_node(^"UnifiedView") as UnifiedView).key
 
 
 ## A level marker's position by its node name.

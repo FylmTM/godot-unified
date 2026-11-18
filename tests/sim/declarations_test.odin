@@ -103,6 +103,18 @@ inputs_compare_as_bytes :: proc(t: ^testing.T) {
 	testing.expect(t, !sim.inputs_same(&a, &b))
 }
 
+// An Extra that steps at another rate than the game (physics.Settings.tick_hz) is refused; one with none is not.
+@(test)
+extra_rate_check :: proc(t: ^testing.T) {
+	testing.expect_value(t, sim.extra_violation(&toy.GAME, {tick_hz = toy.HZ}), "")
+	testing.expect_value(t, sim.extra_violation(&toy.GAME, {}), "")
+	testing.expect_value(
+		t,
+		sim.extra_violation(&toy.GAME, {tick_hz = toy.HZ / 2}),
+		"toy: its Extra steps at 32 Hz, the game at 64 Hz (physics.Settings.tick_hz must be Game.tick_hz)",
+	)
+}
+
 // sim.game_violation of a toy with these unions and this tick rate.
 declared :: proc($Cmd, $Event: typeid, tick_hz := 64) -> string {
 	game := sim.Game(toy.State, toy.Input, toy.World, Event, Cmd, toy.PLAYERS) {

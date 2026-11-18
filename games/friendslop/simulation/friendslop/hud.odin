@@ -48,8 +48,7 @@ hud :: proc(state: ^State, tick: u32) -> (result: Data_Hud) {
 		if trigger.active do result.triggers |= 1 << u32(i)
 	}
 	for slot in 0 ..< PLAYERS {
-		player := sim.player_in_slot(&state.players, slot)
-		character := sim.player_data(&state.players, player)
+		character := sim.slot_data(&state.players, slot)
 		if character == nil do continue
 		result.players[slot] = {
 			holding = character.held_kind,

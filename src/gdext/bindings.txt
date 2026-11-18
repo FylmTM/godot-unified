@@ -10,7 +10,6 @@ OS
 Engine
 ProjectSettings
 Time
-FileAccess
 # scene tree
 SceneTree
 Window
@@ -61,7 +60,6 @@ SystemFont
 [builtins]
 Array
 Dictionary
-PackedByteArray
 PackedInt32Array
 PackedFloat32Array
 PackedStringArray

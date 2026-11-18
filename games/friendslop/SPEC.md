@@ -104,16 +104,15 @@ holding.
 phases and events (`Event` in `state.odin`: the library's player joined and left, spawned, jumped, launched,
 grabbed, dropped, thrown, hit, broke free, fell, respawned, checkpoint, run started and finished, plate on and off,
 bell rung, switch on). Each event is its own struct: `player` (a `sim.Player`, GDScript gets its key) when it is
-about a player, `entity` (the level marker index + 1) when it is
-about an item, plate, bell, switch or lock, `position` in metres, and its own values (speed, mass, seconds).
+about a player, `entity` (a `sim.Entity`: `sim.entity` of the level marker index) when it is about an item, plate,
+bell, switch or lock, `position` in metres, and its own values (speed, mass, seconds).
 
 **What the view gets** (`simulation/extension`):
 
 - Scene views: `player` (keyed by `sim.player_key`; data `limp`, `holding`, `charge`) and `marker`, every sim object
-  the level placed (items, platforms, bells, plates, switches), keyed by its level marker index with `entity` = that
-  index + 1 (its events' `entity`); the view adopts its marker's visuals. An event about a player goes to that
-  player's view, else one with an `entity` to that marker's view (`event_key`): grabbed, dropped and thrown stay with
-  the holder.
+  the level placed (items, platforms, bells, plates, switches), keyed by its level marker index; the view adopts its
+  marker's visuals. An event about a player goes to that player's view (`event_key`): grabbed, dropped and thrown stay
+  with the holder; one about a marker alone goes to that marker's view (the host routes its `entity` by default).
 - Session data `Data_Hud` (`Unified.data.hud`, `hud.odin`, from the state alone): `phase`, the run's and best
   times, `runs`, `checkpoint`, the reset countdown, the active triggers (a bit each), and per slot (`DataHudPlayer`)
   `holding`, `held`, `stunned`, `fallen`, `charge`.
@@ -144,8 +143,8 @@ One level per session: `game/levels/park.tscn` instances `hub.tscn` and `route.t
 StaticBody3D/CollisionShape3D for geometry and marker nodes for the rest
 (`src/level/SPEC.md`): `platform` (+ Path3D; gates and bridges are platforms that follow a trigger), `pad`, `plate`,
 `item` (kind: crate, ball, cube, key, heavy, trophy), `spawn`, `checkpoint`, `bell`, `switch`, `lock`, `bumper`,
-`start`, `finish`. At runtime each sim view adopts its marker's visuals. Exported to a level file the sim loads at
-runtime; the default levels are embedded too, so headless runs need no path.
+`start`, `finish`. At runtime each sim view adopts its marker's visuals. Exported to a level file the game embeds
+(`GAME.content`): Godot, headless runs and tests all play it; `--level FILE` gives a headless run another.
 
 ## Art
 

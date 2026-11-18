@@ -148,7 +148,7 @@ guards the targets over 8 seeds (each first level-up in 10-45 s; on average surv
    - Every enemy within 5 m takes 25 damage.
    - Every player within 3 m takes 15.
    - The barrel's body is destroyed.
-   - `barrel_exploded` (entity = item index + 1).
+   - `barrel_exploded` (entity = `sim.entity` of the item index).
    - 10 s later a new barrel spawns at its original grid spot, which is physics churn inside rollback windows.
 9. **Deaths and XP:**
    - An enemy at HP ≤ 0 is removed (swap-remove is **not** allowed, because it reorders; use a free list with stable
@@ -176,7 +176,7 @@ and gems. `player` is a `sim.Player` (GDScript: the player's key).
 | `level_up` | `position`, `level` (the new level), `player` |
 | `enemy_died` | `enemy: Handle(Enemy)`, `position`, `enemy_kind: Enemy_Kind` |
 | `gem_collected` | `gem: Handle(Gem)`, `position`, `xp`, `player` (who collected it) |
-| `barrel_exploded` | `entity` (the item's view key: item index + 1), `position` |
+| `barrel_exploded` | `entity` (`sim.entity` of the item index, its view's key), `position` |
 
 Enemies keep `spawn_tick` and `hit_tick`, gems `spawn_tick`, for view effects.
 
@@ -249,7 +249,7 @@ reloads between matches.
   child of its root (`kind` = the member lowercased, `unique_name_in_owner`), found through the view index. The
   roots are Node3Ds; the player view reads `player` from its marker. Keys (unique within a kind): a player's
   `sim.player_key` (`player` set; the view lives while the player is present, dead too, and its colour is its
-  slot's), an item's index (`entity` = index + 1, `barrel_exploded`'s; a destroyed barrel's view goes, the respawned
+  slot's), an item's index (`barrel_exploded`'s `entity` names it; a destroyed barrel's view goes, the respawned
   one is new). Each frame the host sets `position` (the body centre; crates and barrels also their physics rotation,
   which player views reset) before the view's own `_process`; `_sim_despawned()` plays the exit
   animation during the linger (the host no longer moves the view) and `_sim_revived()` undoes it.

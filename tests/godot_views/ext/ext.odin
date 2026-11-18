@@ -5,9 +5,7 @@
 // data, constants, enum, event and command classes, the view lifecycle and the input sample.
 package views_test_ext
 
-import "base:runtime"
 import "core:math"
-import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:sim"
 
@@ -74,7 +72,7 @@ Data_Toy :: struct {
 	cell:        [2]i32, // a Vector2i
 }
 
-// The constants (Unified.constants), copied at install.
+// The constants (Unified.constants): what `constants` returns, copied at install.
 Data_Constants :: struct {
 	speed:    f32,
 	name:     string,
@@ -89,22 +87,24 @@ Limits :: struct {
 	low, high: i32,
 }
 
-CONSTANTS := Data_Constants {
-	speed = 4.5,
-	name = "toy",
-	favorite = .Ring,
-	sizes = {1, 2, 3, 4, 5},
-	limits = {low = -1, high = 9},
-	ranges = {{low = 0, high = 1}, {low = 2, high = 3}},
-	by_shape = {.Dot = 0.5, .Ring = 1, .Star = 2},
+constants :: proc() -> Data_Constants {
+	return {
+		speed = 4.5,
+		name = "toy",
+		favorite = .Ring,
+		sizes = {1, 2, 3, 4, 5},
+		limits = {low = -1, high = 9},
+		ranges = {{low = 0, high = 1}, {low = 2, high = 3}},
+		by_shape = {.Dot = 0.5, .Ring = 1, .Star = 2},
+	}
 }
 
 // Fixed poses: every tick the same, so the interpolated pose is exact at any alpha. In view units (what test.gd
 // expects): fill_frame pushes them in sim units (/ VIEW_SCALE) and the host maps them back.
 VIEW_SCALE :: 10
-POS_2D :: [3]f32{120, 80, 5} // pos.z is unused in 2D
+POS_2D :: sim.Position{120, 80, 5} // pos.z is unused in 2D
 ANGLE_2D :: 0.5
-POS_3D :: [3]f32{1, 2, 3}
+POS_3D :: sim.Position{1, 2, 3}
 YAW_3D :: 0.75
 TUMBLE_3D :: 0.3 // a MultiMesh instance's rotation about +X after the yaw: a full rotation, not a yaw only
 BLINK_FROM :: 20 // the blink view (plain2d key 5) exists for ticks BLINK_FROM ..< BLINK_TO
@@ -114,13 +114,14 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame   = fill_frame,
 	data         = Data,
-	constants    = CONSTANTS,
 	is_2d        = true,
 	view_scale   = VIEW_SCALE,
 	event_key    = event_key,
 	input_values = Input_Values,
-	bench        = bench_prepare,
 }
+
+// The toy with the view benchmark's hook (sim.Game.bench_prepare), set by the entry point.
+GAME: toy.Game
 
 // The view-sync benchmark (view_bench.gd, `uni view-bench`): `-- --bench N` makes every frame N moving Multi3D
 // instances and BENCH_SCENE_VIEWS moving plain3d views instead of the fixed items. Set on the session thread before
@@ -129,6 +130,7 @@ BENCH_SCENE_VIEWS :: 64
 BENCH_STATIC_VIEWS :: 64 // and as many at rest (a level's markers, a crate on the floor)
 bench_instances: int
 
+// Holds no sim state: the count only drives the views (bench_frame).
 bench_prepare :: proc(state: ^toy.State, world: ^toy.World, count: int) {
 	bench_instances = count
 }
@@ -144,7 +146,7 @@ bench_frame :: proc(f: ^Frame) {
 			key  = u64(100 + i),
 			kind = .Plain3D,
 			pos  = {math.cos(angle), 0, math.sin(angle)},
-			rot  = godot.quat_yaw(angle),
+			rot  = godot.quat_yaw_angle(angle),
 		})
 	}
 	for i in 0 ..< BENCH_STATIC_VIEWS {
@@ -157,7 +159,7 @@ bench_frame :: proc(f: ^Frame) {
 			key    = u64(i + 1),
 			kind   = .Multi3D,
 			pos    = {f32(i % side) * 0.2, 0.1 * math.sin(phase), f32(i / side) * 0.2},
-			rot    = godot.quat_yaw(phase),
+			rot    = godot.quat_yaw_angle(phase),
 			custom = {phase, 0, 0, 0},
 		})
 	}
@@ -185,7 +187,7 @@ fill_frame :: proc(f: ^Frame) {
 		return
 	}
 	q2 := godot.quat_angle2d(ANGLE_2D)
-	q3 := godot.quat_yaw(YAW_3D)
+	q3 := godot.quat_yaw_angle(YAW_3D)
 	godot.push_view(f, {
 		key    = 1,
 		kind   = .Typed2D,
@@ -202,13 +204,12 @@ fill_frame :: proc(f: ^Frame) {
 		tint   = {1, 0.5, 0.25, 1},
 	})
 	godot.push_view(f, {
-		key    = 2,
-		kind   = .Plain2D,
-		entity = 7,
-		pos    = (POS_2D + {10, 0, 0}) / VIEW_SCALE,
-		rot    = q2,
+		key  = 2,
+		kind = .Plain2D,
+		pos  = (POS_2D + {10, 0, 0}) / VIEW_SCALE,
+		rot  = q2,
 	})
-	// the same key in another kind: another view; its entity is its key
+	// the same key in another kind: another view
 	godot.push_view(f, {
 		key  = 2,
 		kind = .Plain3D,
@@ -271,8 +272,8 @@ fill_frame :: proc(f: ^Frame) {
 
 // Expired to the plain2d view keyed 2 (by its subject, a thing, it would reach no view), Joined to none (by its
 // subject: the player's view), the rest by their subject (Spawned: the player's view, its thing having none).
-event_key :: proc(event: ^sim.Raw_Event, subject: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
-	#partial switch _ in sim.event_value(event, toy.Event) {
+event_key :: proc(event: toy.Event, subject: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
+	#partial switch _ in event {
 	case toy.Event_Expired:
 		return .Plain2D, 2, .View
 	case sim.Event_Player_Joined:
@@ -283,10 +284,11 @@ event_key :: proc(event: ^sim.Raw_Event, subject: godot.Subject) -> (kind: View,
 
 @(export, link_name = "views_test_init")
 views_test_init :: proc "c" (
-	get_proc_address: gdi.InterfaceGetProcAddress,
-	library: gdi.ClassLibraryPtr,
-	init: ^gdi.Initialization,
-) -> gdi.Bool {
-	context = runtime.default_context()
-	return godot.init(&toy.GAME, GLUE, get_proc_address, library, init)
+	get_proc_address: godot.Get_Proc_Address,
+	library: godot.Class_Library,
+	init: ^godot.Initialization,
+) -> godot.Init_Result {
+	GAME = toy.GAME
+	GAME.bench_prepare = bench_prepare
+	return godot.init(&GAME, GLUE, get_proc_address, library, init, constants = constants)
 }

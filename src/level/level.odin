@@ -13,6 +13,7 @@
 //            string u32 | ref i32: marker index, -1 none), then path point count u16, points 3f32 (world)
 package level
 
+import "base:intrinsics"
 import "base:runtime"
 
 import "unified:wire"
@@ -362,6 +363,31 @@ prop_vec2 :: proc(marker: ^Marker, key: string, default := [2]f32{}) -> [2]f32 {
 // A String property (pointing into the file bytes), or `default` when it is missing or of another type.
 prop_string :: proc(marker: ^Marker, key: string, default := "") -> string {
 	return prop_value(marker, key, default)
+}
+
+// A String property naming a member of the enum E (`@export_enum("crate", "ball")` in the marker's script): the member
+// whose name, lowercased, is the string (`Item_Kind.Crate` for "crate", `.Ping_Pong` for "ping_pong"); `default` when
+// it is missing, of another type or no member's: `level.prop_enum(&marker, "kind", Item_Kind.Crate)`.
+prop_enum :: proc(marker: ^Marker, key: string, default: $E) -> E where intrinsics.type_is_enum(E) {
+	name := prop_string(marker, key)
+	if name == "" do return default
+	info := runtime.type_info_base(type_info_of(E)).variant.(runtime.Type_Info_Enum)
+	for member, i in info.names {
+		if lower_equal(member, name) do return E(info.values[i])
+	}
+	return default
+}
+
+// Whether `name` is `lowercase` with its ASCII letters lowercased (no allocation).
+@(private)
+lower_equal :: proc(name, lowercase: string) -> bool {
+	if len(name) != len(lowercase) do return false
+	for i in 0 ..< len(name) {
+		char := name[i]
+		if char >= 'A' && char <= 'Z' do char += 'a' - 'A'
+		if char != lowercase[i] do return false
+	}
+	return true
 }
 
 // A NodePath property pointing at another marker: its index, or -1.

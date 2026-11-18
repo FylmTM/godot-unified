@@ -17,10 +17,9 @@ func _ready() -> void:
 	Game.session.sim_event.connect(_on_sim_event)
 
 
-## The marker node for a sim view's entity (marker index + 1), or null.
-func marker(entity: int) -> Node3D:
-	var i := entity - 1
-	return markers[i] as Node3D if i >= 0 and i < markers.size() else null
+## The marker node for a marker view's key (its marker index), or null.
+func marker(index: int) -> Node3D:
+	return markers[index] as Node3D if index >= 0 and index < markers.size() else null
 
 
 ## Verified events only (predictions are the views' business).

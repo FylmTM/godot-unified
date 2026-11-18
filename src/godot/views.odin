@@ -39,7 +39,7 @@ Scene_View :: struct {
 	marker_id:   u64,
 	kind:        u8,
 	player:      u64, // the player's key (sim.player_key; 0: none)
-	entity:      u64,
+	key:         u64, // its key (View_Item.key as published)
 	linger_s:    f64, // its marker's
 	spawn_tick:  u32, // the tick it first appeared at
 	verified:    bool, // its spawn tick has been verified: from then on it can't be a cancelled spawn
@@ -145,7 +145,7 @@ Sync_Stats :: struct {
 Unified_View_Node :: struct {
 	using hdr: gd.Instance_Header,
 	kind:      string,
-	entity:    i64,
+	key:       i64,
 	player:    i64,
 	linger_s:  f64,
 }
@@ -177,7 +177,7 @@ register_classes :: proc() {
 		parent = "Node",
 		size = size_of(Unified_View_Node),
 		doc_brief = "Marks a scene as the view of one kind of the game's scene views.",
-		doc = "A direct child of the scene's root. [code]uni bake[/code] indexes the scenes by it; the host keeps [member entity] and [member player] current. The root may be a Node3D (position and quaternion), a Node2D (position and rotation) or anything else (data only), posed before any other node's [code]_process[/code]; its script may define [code]_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState)[/code], properties named after the fields of the view's data, and the lifecycle callbacks [code]_sim_despawned()[/code] (its key is gone: it lingers [member linger_s], no longer posed, then is freed), [code]_sim_revived()[/code] (a rollback brought it back while it lingered) and [code]_sim_cancelled()[/code] (a rollback removed it before its spawn tick was verified: freed at once).",
+		doc = "A direct child of the scene's root. [code]uni bake[/code] indexes the scenes by it; the host sets [member key] and keeps [member player] current. The root may be a Node3D (position and quaternion), a Node2D (position and rotation) or anything else (data only), posed before any other node's [code]_process[/code]; its script may define [code]_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState)[/code], properties named after the fields of the view's data, and the lifecycle callbacks [code]_sim_despawned()[/code] (its key is gone: it lingers [member linger_s], no longer posed, then is freed), [code]_sim_revived()[/code] (a rollback brought it back while it lingered) and [code]_sim_cancelled()[/code] (a rollback removed it before its spawn tick was verified: freed at once).",
 		init = proc(instance: rawptr) {(^Unified_View_Node)(instance).linger_s = LINGER_S},
 		fini = proc(instance: rawptr) {delete((^Unified_View_Node)(instance).kind)},
 	}
@@ -195,10 +195,10 @@ register_classes :: proc() {
 	)
 	gd.bind_property(
 		class,
-		"entity",
-		proc(node: ^Unified_View_Node) -> i64 {return node.entity},
-		proc(node: ^Unified_View_Node, entity: i64) {node.entity = entity},
-		doc = "The id the game's events carry for this view (unset in the game: its key).",
+		"key",
+		proc(node: ^Unified_View_Node) -> i64 {return node.key},
+		proc(node: ^Unified_View_Node, key: i64) {node.key = key},
+		doc = "The view's key within its kind, as fill_frame pushed it (a handle's or a player's key, an index): the host sets it.",
 	)
 	gd.bind_property(
 		class,
@@ -368,7 +368,7 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 	}
 	kind := api.view_names[item.kind]
 	scene_view.id = gdi.object_get_instance_id(node.ptr)
-	scene_view.kind, scene_view.player, scene_view.entity = item.kind, item.player, item.entity
+	scene_view.kind, scene_view.player, scene_view.key = item.kind, item.player, item.key
 	scene_view.linger_s = LINGER_S
 	scene_view.spawn_tick = frame.tick
 	scene_view.marker = find_marker(node)
@@ -393,7 +393,7 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 				),
 			)
 		}
-		marker.entity, marker.player = i64(item.entity), i64(item.player) // the player's key (0: none)
+		marker.key, marker.player = i64(item.key), i64(item.player) // the player's key (0: none)
 		scene_view.linger_s = marker.linger_s
 	}
 	hooks, known := V.hooks[item.kind]
@@ -494,11 +494,11 @@ view_callback :: proc(scene_view: ^Scene_View, callback: View_Callback) {
 	gd.variant_destroy(&result)
 }
 
-// Keeps the marker's entity and player current (they may change after the spawn).
+// Keeps the marker's player current (it may change after the spawn).
 marker_update :: proc(scene_view: ^Scene_View) {
 	if !alive(scene_view.marker_id) do return
 	marker := (^Unified_View_Node)(gd.instance_of(scene_view.marker, &unified_view_class))
-	if marker != nil do marker.entity, marker.player = i64(scene_view.entity), i64(scene_view.player)
+	if marker != nil do marker.player = i64(scene_view.player)
 }
 
 // Frees every scene view and MultiMesh binding and forgets the loaded scenes and the view index (main thread),
@@ -591,8 +591,8 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 				scene_view.gone = false
 				view_callback(scene_view, .Revived)
 			}
-			if scene_view.entity != item.entity || scene_view.player != item.player {
-				scene_view.entity, scene_view.player = item.entity, item.player
+			if scene_view.player != item.player {
+				scene_view.player = item.player
 				marker_update(scene_view)
 			}
 			if !spawned && alive(scene_view.id) && item.data_type != nil {
@@ -702,13 +702,22 @@ views_of_kind :: proc(kind_name: string) -> gd.Array {
 }
 
 // An event to its subject's scene views (_sim_event(event, state) on the root's script): the view Glue.event_key
-// names (or none); else the views keyed by the event's handle field (of any kind, in kind order), else the views
-// whose entity is the event's `entity` field (a view's entity defaults to its key), else its player's views. A view
-// named or keyed is found by its id; only the entity and player routes walk the views.
+// names (or none); else the views keyed by the event's subject (of any kind, in kind order): a handle field's key, a
+// sim.Entity field's index; else (no such view, or no such field) its player's views. A view named or keyed is found
+// by its id; only the player route walks the views.
 views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, event: gd.Variant) {
-	player, entity := event_subject(layout, raw.data[:raw.size])
+	player, subject_key := event_subject(layout, raw.data[:raw.size])
+	view_key, keyed_subject := subject_key, subject_key != 0
+	if layout.subject >= 0 && !layout.subject_is_handle {
+		index, ok := sim.entity_index(sim.Entity(subject_key))
+		view_key, keyed_subject = u64(index), ok
+	}
 	if api.event_key != nil {
-		subject := Subject{sim.player_of_key(player), entity, layout.subject_is_handle}
+		subject := Subject {
+			player = sim.player_of_key(player),
+			handle = layout.subject_is_handle ? subject_key : 0,
+			entity = layout.subject_is_handle ? 0 : sim.Entity(subject_key),
+		}
 		kind, key, event_route := api.event_key(raw, subject)
 		switch event_route {
 		case .Subject:
@@ -719,22 +728,20 @@ views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, even
 			return
 		}
 	}
-	if layout.subject_is_handle && entity != 0 {
-		keyed := false // a view has the handle's key (whether or not it takes events): the event goes to those only
+	if keyed_subject {
+		keyed := false // a view has the subject's key (whether or not it takes events): the event goes to those only
 		for kind in 0 ..< len(api.view_names) {
-			entry := set_get(&V.set, View_Id{u8(kind), entity})
+			entry := set_get(&V.set, View_Id{u8(kind), view_key})
 			if entry == nil || entry.view == nil do continue
 			keyed = true
 			call_sim_event(entry.view, event, state)
 		}
 		if keyed do return
 	}
-	by_entity := layout.subject >= 0 && !layout.subject_is_handle && entity != 0
-	if !by_entity && player == 0 do return
+	if player == 0 do return
 	for _, &entry in V.set.entries {
 		scene_view := entry.view
-		if scene_view == nil do continue
-		if by_entity ? scene_view.entity == entity : scene_view.player == player do call_sim_event(scene_view, event, state)
+		if scene_view != nil && scene_view.player == player do call_sim_event(scene_view, event, state)
 	}
 }
 

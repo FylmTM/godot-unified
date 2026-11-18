@@ -17,33 +17,35 @@ MultiView :: enum u8 {Ball}         // MultiMesh view kinds
 Data :: union {Data_Hud}            // session data types: Unified.data.hud
 Frame :: godot.Frame(g.Game, View, MultiView)
 
-CONSTANTS := Data_Constants{speed = g.SPEED, ...} // Unified.constants: a package variable, copied at install
-
 GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,     // main thread, every frame: Godot's input -> the local player's Input
 	fill_frame   = fill_frame,       // session thread, every published tick: State -> views and session data
 	// optional
-	data = Data, constants = CONSTANTS, input_values = Input_Values,
-	bench, event_key, level,
+	data = Data, input_values = Input_Values, event_key,
 	is_2d,                           // the sim's XY plane is Godot 2D: a sim.Position is a Vector2 (else Vector3)
 	view_scale,                      // view units per sim unit (zero: 1), e.g. 32 px per metre (View space)
 }
 
 @(export, link_name = "<game>_init")
-<game>_init :: proc "c" (gpa: gdi.InterfaceGetProcAddress, lib: gdi.ClassLibraryPtr, init: ^gdi.Initialization) -> gdi.Bool {
-	context = runtime.default_context()
-	return godot.init(&g.GAME, GLUE, gpa, lib, init, eos.lobby({})) // the lobby is optional: EOS online play
+<game>_init :: proc "c" (gpa: godot.Get_Proc_Address, lib: godot.Class_Library, init: ^godot.Initialization) -> godot.Init_Result {
+	// optional: the lobby (EOS online play) and the constants
+	return godot.init(&g.GAME, GLUE, gpa, lib, init, eos.lobby({}), constants = constants)
 }
+
+constants :: proc() -> Data_Constants {return {speed = g.SPEED, ...}} // Unified.constants: init calls it once
 ```
 
-Glue procs are named procs, never inline lambdas. A game's extension fills frames; its Godot calls go in GDScript or
-through `unified:godot` helpers, so it never imports `unified:gdext`.
+Glue procs are named procs, never inline lambdas. `godot.init` is a `proc "c"` that sets the Odin context itself,
+so the entry point is one call; the constants are a proc it calls once the context is set (they may format strings
+or compute shapes), its value copied. A game's extension fills frames; its Godot calls go in GDScript or through
+`unified:godot` helpers, so it never imports `unified:gdext` (`godot` names the entry point's types). The level the
+session plays is the game's (`sim.Game.content`, embedded in the extension).
 
 **Online play** goes through the `netcode.Lobby` the game passes to `godot.init` (`unified:godot` never imports a
-platform SDK). The session opens it with a `Lobby_Build` (the game's name, the build id `sim.compat_of(game,
-level)`, the project's stamped version, the player count), so a joiner on another build is told
-before it joins. `godot.init` is `install` (the game and its Glue; tests call it alone), the lobby and `entry` (the
-extension's callbacks for Godot), in their one valid order.
+platform SDK). The session opens it with a `Lobby_Build` (the game's name, the build id `sim.compat_of(game)`, its
+level included, the project's stamped version, the player count), so a joiner on another build is told
+before it joins. `godot.init` is `install` (the game, its Glue and its constants; tests call it alone), the lobby and
+`entry` (the extension's callbacks for Godot), in their one valid order.
 
 **`install` never stops the load.** The editor loads the extension too, so a problem is reported, not a panic:
 `install` collects every one (no `sample_input` or `fill_frame`, a View / MultiView enum that doesn't count up from
@@ -90,11 +92,12 @@ scales a sim size with `Unified.view_scale`. View space is `view_root`'s local s
 `fill_frame(f)` runs on the session thread for every published tick, with `f.state`, `f.world`, `f.tick` and
 `f.local_player` (the `sim.Player` this client plays then; `{}` before its join tick). It pushes:
 
-- `push_view(f, View_Item{key, kind, player, entity, pos, rot})` and `push_view(f, item, data)`: a scene view,
-  identified by its **kind and key** (a `u64`, unique within its kind; a new key is a new view). A player's view keyed
-  by `sim.player_key` survives a slot change and a rejoin (key 0 with `player` set means that key), a table thing's by
-  `sim.handle_key`, a fixed thing's by its index. `player` and `entity` (0: the key) route events to it. `rot` is a
-  unit quaternion (zero: identity; `godot.quat_yaw`, `godot.quat_angle2d`). `data` is a plain struct set as the view's
+- `push_view(f, View_Item{key, kind, player, pos, rot})` and `push_view(f, item, data)`: a scene view, identified by
+  its **kind and key** (a `u64`, unique within its kind; a new key is a new view). A player's view keyed by
+  `sim.player_key` survives a slot change and a rejoin (key 0 with `player` set means that key), a table thing's by
+  `sim.handle_key`, a fixed thing's by its index (its events carry `sim.entity(index)`). The key and `player` route
+  events to it (Events, below). `pos` is a `sim.Position` in sim units (2D: x, y). `rot` is a
+  unit quaternion (zero: identity; `dmath.quat_yaw` from a facing, `godot.quat_angle2d`). `data` is a plain struct set as the view's
   properties of the same names, converted like any sim-facing field (Data and classes, below), on spawn and whenever
   its bytes change; one kind always pushes one data type.
 - `push_multi_view(f, Multi_View_Item{key, kind, pos, rot, scale, color, custom})`: one MultiMesh instance. `key`
@@ -113,8 +116,8 @@ correction glides over `tau`, it never pops.
 ### Data and classes
 
 **Session data** (values that belong to no entity: a HUD's score, the wave) are the types of `Glue.data`, a union of
-plain `Data_*` structs, each pushed with `push_data`. **Constants** (`Glue.constants`, a package variable of a plain
-`Data_*` struct, strings allowed) are copied at install. **Input values** (`Glue.input_values`) are set by scripts.
+plain `Data_*` structs, each pushed with `push_data`. **Constants** (what `godot.init`'s `constants` proc returns, a
+plain `Data_*` struct, strings allowed) are copied at install. **Input values** (`Glue.input_values`) are set by scripts.
 
 The host registers a class per such type at load, plus one per **nested struct** any of them or the event and command
 unions hold (`Hud_Player` -> `DataHudPlayer`, a RefCounted value: each read is a new one, its fields settable, so a
@@ -167,7 +170,7 @@ is kept in `user://unified_token_<n>`: each running copy of the game claims its 
 process's life, so a restarted one takes its token back.
 
 **`UnifiedView`** (Node): the marker a scene view's scene holds as a direct child of its root, `kind` set in the
-scene. The root can be any node: a Node3D gets position and quaternion, a Node2D position and rotation, anything else
+scene; the host sets its `key` and keeps its `player` (the key of the player it shows; 0: none) current. The root can be any node: a Node3D gets position and quaternion, a Node2D position and rotation, anything else
 only data, all before any other node's `_process` (the session runs at priority −1000), so a view's own `_process`
 sees the frame's pose. Its script may define `_sim_event(event, state)`, `_sim_despawned()` (its key is gone: it
 lingers `linger_s`, no longer posed, then is freed), `_sim_revived()` (a rollback brought it back while it lingered)
@@ -183,7 +186,7 @@ AABB by every instance).
 ## Events
 
 `install` reads the game's event union by RTTI once: each kind's player (its first `sim.Player` field) and subject (its
-first `sim.Handle(T)` field, else a u64 field named `entity`).
+first `sim.Handle(T)` or `sim.Entity` field), found by type, whatever the fields are named.
 
 - **States.** Every event is **Emitted** exactly once, the first time any simulation of its tick produces it, then
   exactly once either **Confirmed** (its tick is verified) or **Cancelled** (a re-simulation no longer produces it).
@@ -193,10 +196,11 @@ first `sim.Handle(T)` field, else a u64 field named `entity`).
 - **Identity.** Each state arrives as a new object; its `id` is the same in an event's EMITTED and its CONFIRMED or
   CANCELLED, and never repeats in the process. A re-simulation may change an event's fields but not its id. Events
   still pending when a session ends get no final state.
-- **Where.** Each event, in each state, goes first to its subject's views: those keyed by its handle (of any kind),
-  else those whose `entity` is its `entity` field, else its player's views; then to the `sim_event` signal.
-  `Glue.event_key(event, subject)` reroutes a game's special events from the subject the host read: `.View` (the view
-  of the kind and key it returns), `.No_View`, or `.Subject` (the zero value: a bare `return`).
+- **Where.** Each event, in each state, goes first to its subject's views: those keyed by its handle's key or its
+  `Entity`'s index (of any kind), else (none has that key, or it has no such field) its player's views; then to the
+  `sim_event` signal. `Glue.event_key(event, subject)` gets the event as the game's union and the `Subject{player,
+  handle, entity}` the host read, and reroutes a game's special events: `.View` (the view of the kind and key it
+  returns), `.No_View`, or `.Subject` (the zero value: a bare `return`).
 - **When.** An event is delivered once the Frame of its tick is shown, so an event about a view spawned at its tick
   finds the view. A tick's events arrive in emission order; cancels and confirmations of several ticks in tick order.
 

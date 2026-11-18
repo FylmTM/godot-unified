@@ -5,9 +5,6 @@ package dmath
 
 import "base:intrinsics"
 
-Vec2 :: [2]f32
-Vec3 :: [3]f32
-
 // The hardware square root: IEEE 754 rounds it exactly, so it gives the same bits on every platform. The one
 // sqrt sim code uses.
 sqrt :: #force_inline proc "contextless" (x: f32) -> f32 {
@@ -39,35 +36,74 @@ length :: proc {
 	length3,
 }
 
-length2 :: #force_inline proc "contextless" (vec: Vec2) -> f32 {
+length2 :: #force_inline proc "contextless" (vec: [2]f32) -> f32 {
 	return sqrt(vec.x * vec.x + vec.y * vec.y)
 }
 
-// The length of a 3D vector.
-length3 :: #force_inline proc "contextless" (vec: Vec3) -> f32 {
+length3 :: #force_inline proc "contextless" (vec: [3]f32) -> f32 {
 	return sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z)
 }
 
-// The squared distance between two 2D points; range checks compare it to a squared radius to skip the sqrt.
-dist_sq2 :: #force_inline proc "contextless" (a, b: Vec2) -> f32 {
+// A vector's squared length, 2D or 3D (x² + y² (+ z²), in that order): compare it to a squared bound to skip the sqrt.
+length_sq :: proc {
+	length_sq2,
+	length_sq3,
+}
+
+length_sq2 :: #force_inline proc "contextless" (vec: [2]f32) -> f32 {
+	return vec.x * vec.x + vec.y * vec.y
+}
+
+length_sq3 :: #force_inline proc "contextless" (vec: [3]f32) -> f32 {
+	return vec.x * vec.x + vec.y * vec.y + vec.z * vec.z
+}
+
+// The squared distance between two points, 2D or 3D (length_sq(a - b)): range checks compare it to a squared radius.
+dist_sq :: proc {
+	dist_sq2,
+	dist_sq3,
+}
+
+dist_sq2 :: #force_inline proc "contextless" (a, b: [2]f32) -> f32 {
 	dx := a.x - b.x
 	dy := a.y - b.y
 	return dx * dx + dy * dy
 }
 
-// The dot product a · b.
-dot3 :: #force_inline proc "contextless" (a, b: Vec3) -> f32 {
+dist_sq3 :: #force_inline proc "contextless" (a, b: [3]f32) -> f32 {
+	dx := a.x - b.x
+	dy := a.y - b.y
+	dz := a.z - b.z
+	return dx * dx + dy * dy + dz * dz
+}
+
+// The dot product a · b, 2D or 3D (a.x * b.x + a.y * b.y (+ a.z * b.z), in that order).
+dot :: proc {
+	dot2,
+	dot3,
+}
+
+dot2 :: #force_inline proc "contextless" (a, b: [2]f32) -> f32 {
+	return a.x * b.x + a.y * b.y
+}
+
+dot3 :: #force_inline proc "contextless" (a, b: [3]f32) -> f32 {
 	return a.x * b.x + a.y * b.y + a.z * b.z
 }
 
-// v / |v|, or zero when |v| <= eps.
-// A vector scaled to length 1 (2D or 3D; zero below `eps`).
+// The 2D cross product a.x * b.y - a.y * b.x: the sine of the angle from a to b times both lengths (positive: b is
+// counter-clockwise of a in a y-up plane, clockwise in Godot's y-down 2D).
+cross2 :: #force_inline proc "contextless" (a, b: [2]f32) -> f32 {
+	return a.x * b.y - a.y * b.x
+}
+
+// A vector scaled to length 1 (2D or 3D; zero when |v| <= eps).
 normalize :: proc {
 	normalize2,
 	normalize3,
 }
 
-normalize2 :: proc "contextless" (vec: Vec2, eps: f32 = 0.0001) -> Vec2 {
+normalize2 :: proc "contextless" (vec: [2]f32, eps: f32 = 0.0001) -> [2]f32 {
 	length := length2(vec)
 	if length <= eps {
 		return {}
@@ -75,8 +111,7 @@ normalize2 :: proc "contextless" (vec: Vec2, eps: f32 = 0.0001) -> Vec2 {
 	return {vec.x / length, vec.y / length}
 }
 
-// v / |v|, or zero when |v| <= eps (the 3D form of normalize2).
-normalize3 :: proc "contextless" (vec: Vec3, eps: f32 = 0.0001) -> Vec3 {
+normalize3 :: proc "contextless" (vec: [3]f32, eps: f32 = 0.0001) -> [3]f32 {
 	length := length3(vec)
 	if length <= eps {
 		return {}
@@ -84,8 +119,13 @@ normalize3 :: proc "contextless" (vec: Vec3, eps: f32 = 0.0001) -> Vec3 {
 	return {vec.x / length, vec.y / length, vec.z / length}
 }
 
-// v scaled down to length `max_len` when it is longer.
-clamp_length2 :: proc "contextless" (vec: Vec2, max_len: f32) -> Vec2 {
+// A vector scaled down to length `max_len` when it is longer, 2D or 3D.
+clamp_length :: proc {
+	clamp_length2,
+	clamp_length3,
+}
+
+clamp_length2 :: proc "contextless" (vec: [2]f32, max_len: f32) -> [2]f32 {
 	length_sq := vec.x * vec.x + vec.y * vec.y
 	if length_sq <= max_len * max_len {
 		return vec
@@ -94,9 +134,30 @@ clamp_length2 :: proc "contextless" (vec: Vec2, max_len: f32) -> Vec2 {
 	return {vec.x * scale, vec.y * scale}
 }
 
+clamp_length3 :: proc "contextless" (vec: [3]f32, max_len: f32) -> [3]f32 {
+	length_sq := vec.x * vec.x + vec.y * vec.y + vec.z * vec.z
+	if length_sq <= max_len * max_len {
+		return vec
+	}
+	scale := max_len / sqrt(length_sq)
+	return {vec.x * scale, vec.y * scale, vec.z * scale}
+}
+
+// The rotation about +Y that turns +Z toward a unit floor direction `facing` (x, z), as a unit quaternion (x, y, z,
+// w): the half angle from the cosine, sqrt only, so a tick may use it (a character's facing; the 3D counterpart of
+// physics.quat_2d). `facing` must be unit length (dmath.normalize).
+quat_yaw :: proc "contextless" (facing: [2]f32) -> [4]f32 {
+	cos_half_sq, sin_half_sq := (1 + facing.y) * 0.5, (1 - facing.y) * 0.5
+	if 0 > cos_half_sq do cos_half_sq = 0 // max(0, x): x itself on a tie or a NaN
+	if 0 > sin_half_sq do sin_half_sq = 0
+	cos_half, sin_half := sqrt(cos_half_sq), sqrt(sin_half_sq)
+	if facing.x < 0 do sin_half = -sin_half
+	return {0, sin_half, 0, cos_half}
+}
+
 // Rotates vec by the unit quaternion quat (x, y, z, w), u = (x, y, z): vec + 2w(u×vec) + 2u×(u×vec), each term
 // written out.
-quat_rotate :: proc "contextless" (quat: [4]f32, vec: Vec3) -> Vec3 {
+quat_rotate :: proc "contextless" (quat: [4]f32, vec: [3]f32) -> [3]f32 {
 	quat_vec := [3]f32{quat.x, quat.y, quat.z}
 	cross := [3]f32 {
 		2 * (quat_vec.y * vec.z - quat_vec.z * vec.y),
@@ -131,7 +192,7 @@ to_i32_clamped :: proc "contextless" (x: f32, lo, hi: i32) -> i32 {
 
 // The 8 compass directions k·45° as unit vectors {cos, sin}, exact table values (no trig).
 @(rodata)
-DIR8 := [8]Vec2 {
+DIR8 := [8][2]f32 {
 	{1, 0},
 	{0.70710677, 0.70710677},
 	{0, 1},

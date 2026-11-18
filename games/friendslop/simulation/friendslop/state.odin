@@ -170,7 +170,7 @@ State :: struct {
 
 // Events (src/sim/SPEC.md "Events"): one plain struct per event, named as GDScript matches them (the type
 // name lowercased). `player` is the player the event is about (only events about a player have it; sim.Player{}:
-// none), `entity` the level marker index + 1 of an item, plate, bell, switch or lock (0: none), `position` where it
+// none), `entity` the level marker (sim.entity of its index) of an item, plate, bell, switch or lock (0: none), `position` where it
 // happened (metres). Joins and leaves are the library's (sim.Event_Player_Joined, sim.Event_Player_Left).
 
 // A player's body appeared (they joined or came back).
@@ -186,14 +186,14 @@ Event_Jumped :: struct {
 
 // A jump pad launched a player (entity 0) or an item (player {}).
 Event_Launched :: struct {
-	entity:   u64,
+	entity:   sim.Entity,
 	position: sim.Position, // the pad's
 	player:   sim.Player,
 }
 
 // `player` grabbed an item (entity) or another player (held_player).
 Event_Grabbed :: struct {
-	entity:      u64, // the item (0: a player)
+	entity:      sim.Entity, // the item (0: a player)
 	position:    sim.Position, // the holder's
 	player:      sim.Player, // the holder
 	held_player: sim.Player, // the held player ({}: an item)
@@ -203,7 +203,7 @@ Event_Grabbed :: struct {
 
 // `player` let go of what it held (also before a throw).
 Event_Dropped :: struct {
-	entity:      u64, // the item (0: a player)
+	entity:      sim.Entity, // the item (0: a player)
 	position:    sim.Position, // the holder's
 	player:      sim.Player, // the holder
 	held_player: sim.Player, // the dropped player ({}: an item)
@@ -212,7 +212,7 @@ Event_Dropped :: struct {
 }
 
 Event_Thrown :: struct {
-	entity:      u64, // the item (0: a player)
+	entity:      sim.Entity, // the item (0: a player)
 	position:    sim.Position, // the thrower's
 	speed:       f32, // m/s along the aim
 	player:      sim.Player, // the thrower
@@ -258,32 +258,32 @@ Event_Run_Started :: struct {
 
 // The trophy (entity) reached the pedestal.
 Event_Run_Finished :: struct {
-	entity:   u64,
+	entity:   sim.Entity,
 	position: sim.Position, // the finish volume's
 	seconds:  f32, // the run's time
 }
 
 Event_Plate_On :: struct {
-	entity:   u64,
+	entity:   sim.Entity,
 	position: sim.Position,
 	mass:     f32, // kg on the plate
 }
 
 Event_Plate_Off :: struct {
-	entity:   u64,
+	entity:   sim.Entity,
 	position: sim.Position,
 	mass:     f32,
 }
 
 Event_Bell_Rung :: struct {
-	entity:   u64,
+	entity:   sim.Entity,
 	position: sim.Position, // where it was hit
 	speed:    f32, // the hit's approach speed
 }
 
 // A switch (touched by `player`) or a lock (opened by a key: player {}) fired.
 Event_Switch_On :: struct {
-	entity:   u64,
+	entity:   sim.Entity,
 	position: sim.Position,
 	player:   sim.Player,
 }

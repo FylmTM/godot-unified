@@ -122,6 +122,18 @@ round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, level.prop_f32(marker, "count"), -3) // ints read as floats too
 	testing.expect(t, level.prop_vec3(marker, "push") == {1, 2, 3})
 	testing.expect_value(t, level.prop_string(marker, "label"), "lift")
+	Label :: enum u8 {
+		Ferry,
+		Lift,
+		Big_Lift,
+	}
+	testing.expect_value(t, level.prop_enum(marker, "label", Label.Ferry), Label.Lift) // "lift": the lowercased name
+	testing.expect_value(t, level.prop_enum(marker, "count", Label.Big_Lift), Label.Big_Lift) // not a string
+	testing.expect_value(t, level.prop_enum(marker, "nope", Label.Big_Lift), Label.Big_Lift)
+	Other :: enum {
+		Crate,
+	}
+	testing.expect_value(t, level.prop_enum(marker, "label", Other.Crate), Other.Crate) // no such member
 	testing.expect_value(t, level.prop_ref(marker, "gate"), 1)
 	testing.expect_value(t, level.prop_ref(marker, "nope"), -1)
 	testing.expect_value(t, level.prop_f32(marker, "nope", 9), 9)

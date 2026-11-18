@@ -11,7 +11,6 @@ main :: proc() {
 	modes.run(
 		&survivor.GAME_STRESS,
 		{
-			bench_prepare = survivor.bench_prepare,
 			bench = {
 				what     = "survivor (stress tuning) holding 1000 enemies",
 				entities = 1000,

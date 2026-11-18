@@ -13,7 +13,7 @@ import "unified:sim"
 
 // World options. Results are bit-identical for any worker count (unified-box3d tests it).
 Settings :: struct {
-	tick_hz:             int, // the game's (Game.tick_hz): a step is 1 / tick_hz seconds; required
+	tick_hz:             int, // the game's (Game.tick_hz; sim.create refuses another): a step is 1 / tick_hz seconds; required
 	substeps:            int, // solver substeps per step; 0: 4
 	// Threads for Box3D's built-in scheduler; 0 or 1: none, the step runs on the caller's thread.
 	workers:             i32,
@@ -152,6 +152,7 @@ extra :: proc(world: ^World, $State: typeid) -> sim.Extra {
 	world.sealed = true
 	return {
 		data = world,
+		tick_hz = world.tick_hz,
 		save = proc(data: rawptr, slot: int) {
 			world := (^World)(data)
 			box3d.World_SaveSnapshot(world.id, &world.ring[slot])

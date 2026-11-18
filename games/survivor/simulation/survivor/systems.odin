@@ -54,7 +54,7 @@ tick :: proc(t: ^Tick) {
 @(private)
 sys_phase :: proc(t: ^Tick) {
 	present, alive := 0, 0
-	players := sim.iterate_present(&t.state.players)
+	players := sim.iterate_present(t)
 	for character in sim.next(&players) {
 		present += 1
 		alive += int(character.alive)
@@ -62,10 +62,10 @@ sys_phase :: proc(t: ^Tick) {
 	switch t.state.phase {
 	case .Lobby:
 		radius2 := t.state.circle_radius * t.state.circle_radius
-		players = sim.iterate_present(&t.state.players)
+		players = sim.iterate_present(t)
 		for character, player in sim.next(&players) {
 			pos := character.pos
-			if character.alive && pos.x * pos.x + pos.z * pos.z > radius2 {
+			if character.alive && dmath.length_sq(pos.xz) > radius2 {
 				t.state.phase = .Match
 				t.state.match_tick = t.number
 				t.state.over_tick = 0
@@ -99,7 +99,7 @@ reset_world :: proc(t: ^Tick) {
 	for &item in t.state.items {
 		destroy_body(t.world, &item.body)
 	}
-	known := sim.iterate_known(&t.state.players)
+	known := sim.iterate_known(t)
 	for character in sim.next(&known) {
 		destroy_body(t.world, &character.body)
 		character_reset(character)
@@ -136,7 +136,7 @@ sys_players :: proc(t: ^Tick) {
 	for player in t.player_changes.arrived {
 		character_spawn(t.world, sim.player_data(t, player), sim.player_slot(t, player)) // one back keeps their progress
 	}
-	players := sim.iterate_present(&t.state.players)
+	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
 		if character.alive && character.hp <= 0 {
 			player_dies(t, character, player) // set from outside a tick (a test): damage_player kills at once
@@ -178,7 +178,7 @@ sys_players :: proc(t: ^Tick) {
 // 2. Level-up picks (Cmd_Pick commands, each delivered once): each takes one pending level-up.
 @(private)
 sys_levelup :: proc(t: ^Tick) {
-	players := sim.iterate_present(&t.state.players)
+	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
 		for sent in sim.commands(t, player) {
 			switch command in sent {
@@ -618,7 +618,7 @@ sys_barrels :: proc(t: ^Tick) {
 			}
 			explosion_impulse(t.world, center, other.body)
 		}
-		players := sim.iterate_present(&t.state.players)
+		players := sim.iterate_present(t)
 		for character in sim.next(&players) {
 			if character.alive {
 				explosion_impulse(t.world, center, character.body)
@@ -633,7 +633,7 @@ sys_barrels :: proc(t: ^Tick) {
 				enemy.hit_tick = t.number
 			}
 		}
-		players = sim.iterate_present(&t.state.players)
+		players = sim.iterate_present(t)
 		for character, player in sim.next(&players) {
 			if !character.alive {
 				continue
@@ -645,7 +645,7 @@ sys_barrels :: proc(t: ^Tick) {
 			}
 		}
 		destroy_body(t.world, &item.body)
-		sim.emit(t, Event_Barrel_Exploded{entity = u64(i + 1), position = sim.Position(center)}) // item keys are index + 1
+		sim.emit(t, Event_Barrel_Exploded{entity = sim.entity(i), position = sim.Position(center)})
 		item.alive = false
 		item.respawn_tick = t.number + BARREL_RESPAWN_TICKS
 		t.state.explosions += 1
@@ -726,7 +726,7 @@ sys_deaths :: proc(t: ^Tick) {
 			}
 		}
 	}
-	players := sim.iterate_present(&t.state.players)
+	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
 		for character.xp >= xp_next(t.state, character.level) {
 			character.xp -= xp_next(t.state, character.level)

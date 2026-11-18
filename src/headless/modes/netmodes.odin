@@ -182,7 +182,7 @@ mode_relay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	}
 	relay := netcode.relay_create(
 		headless.game,
-		{seed = 1, ticks = ticks, start_players = players, content = headless.content, recording = log_opt(args)},
+		{seed = 1, ticks = ticks, start_players = players, recording = log_opt(args)},
 	)
 	defer netcode.relay_destroy(relay)
 	netcode.relay_add_link(relay, link)
@@ -222,12 +222,7 @@ mode_client :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 		headless = headless,
 		seed     = 1,
 	}
-	client := netcode.client_create(
-		headless.game,
-		{slot = slot, content = headless.content},
-		link,
-		uheadless.scripted_hooks(&scripted),
-	)
+	client := netcode.client_create(headless.game, {slot = slot}, link, uheadless.scripted_hooks(&scripted))
 	defer netcode.client_destroy(client)
 	ok := uheadless.run_client(client, uheadless.session_timeout_s(ticks, headless.game.tick_hz))
 	if client.ticks != 0 && client.ticks != ticks {
@@ -243,7 +238,7 @@ mode_client :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 lobby_build :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> netcode.Lobby_Build {
 	return {
 		game    = opt_str(args, "bucket", headless.game.name),
-		compat  = sim.compat_of(headless.game, headless.content),
+		compat  = sim.compat_of(headless.game),
 		version = "headless", // the readable version a joiner on another build is shown
 		players = sim.part(G, sim.GAME_PLAYERS),
 	}
@@ -319,7 +314,7 @@ mode_lobby_host :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool 
 	}
 	host := netcode.host_create(
 		headless.game,
-		{seed = 1, ticks = ticks, content = headless.content, recording = log_opt(args)},
+		{seed = 1, ticks = ticks, recording = log_opt(args)},
 		uheadless.scripted_hooks(&scripted),
 	)
 	defer netcode.host_destroy(host)
@@ -383,12 +378,7 @@ mode_lobby_client :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> boo
 		headless = headless,
 		seed     = 1,
 	}
-	client := netcode.client_create(
-		headless.game,
-		{slot = -1, content = headless.content},
-		link,
-		uheadless.scripted_hooks(&scripted),
-	)
+	client := netcode.client_create(headless.game, {slot = -1}, link, uheadless.scripted_hooks(&scripted))
 	link_ours = false
 	defer netcode.client_destroy(client)
 	ok = uheadless.run_client(client, uheadless.session_timeout_s(ticks, headless.game.tick_hz))

@@ -153,6 +153,33 @@ player_in_slot_of_sim :: proc(simulation: ^Sim($G), slot: int) -> Player {
 	return player_in_slot_of_players(&simulation.state.players, slot)
 }
 
+// The data of whoever holds `slot` (nil: nobody): a HUD's row, a test's look at a slot; of the tick being computed, a
+// State's Players or a simulation's current state.
+slot_data :: proc {
+	slot_data_of_players,
+	slot_data_of_tick,
+	slot_data_of_sim,
+}
+
+slot_data_of_players :: proc(players: ^Players($T, $Input, $PLAYERS), slot: int) -> ^T {
+	return player_data_of_players(players, player_in_slot_of_players(players, slot))
+}
+
+// The result is the T of the State's `players: sim.Players(T, Input, PLAYERS)`.
+slot_data_of_tick :: proc(
+	tick: ^Tick($G),
+	slot: int,
+) -> ^part(intrinsics.type_field_type(part(G, GAME_STATE), "players"), 0) {
+	return slot_data_of_players(&tick.state.players, slot)
+}
+
+slot_data_of_sim :: proc(
+	simulation: ^Sim($G),
+	slot: int,
+) -> ^part(intrinsics.type_field_type(part(G, GAME_STATE), "players"), 0) {
+	return slot_data_of_players(&simulation.state.players, slot)
+}
+
 // How many players hold a slot this tick.
 present_count :: proc {
 	present_count_of_players,
@@ -170,9 +197,10 @@ present_count_of_tick :: proc(tick: ^Tick($G)) -> int {
 	return present_count_of_players(&tick.state.players)
 }
 
-// Walks the players with their data (iterate_present or iterate_known, then next):
+// Walks the players with their data (iterate_present or iterate_known, then next), of the tick being computed or a
+// State's Players:
 //
-//   players := sim.iterate_present(&t.state.players)
+//   players := sim.iterate_present(t)
 //   for data, player in sim.next(&players) { ... }
 //
 // iterate_present: the present players in slot order; iterate_known: every remembered member, present or absent, in
@@ -183,13 +211,52 @@ Players_Iterator :: struct($T: typeid, $Input: typeid, $PLAYERS: int) {
 	known:   bool,
 }
 
-iterate_present :: #force_inline proc(players: ^Players($T, $Input, $PLAYERS)) -> Players_Iterator(T, Input, PLAYERS) {
+iterate_present :: proc {
+	iterate_present_of_players,
+	iterate_present_of_tick,
+}
+
+iterate_known :: proc {
+	iterate_known_of_players,
+	iterate_known_of_tick,
+}
+
+iterate_present_of_players :: #force_inline proc(
+	players: ^Players($T, $Input, $PLAYERS),
+) -> Players_Iterator(T, Input, PLAYERS) {
 	return {players = players}
 }
 
-iterate_known :: #force_inline proc(players: ^Players($T, $Input, $PLAYERS)) -> Players_Iterator(T, Input, PLAYERS) {
+// The pinned odinfmt puts a comma after a multi-line return type, which does not parse.
+// odinfmt: disable
+iterate_present_of_tick :: #force_inline proc(
+	tick: ^Tick($G),
+) -> Players_Iterator(
+		part(intrinsics.type_field_type(part(G, GAME_STATE), "players"), 0),
+		part(G, GAME_INPUT),
+		part(G, GAME_PLAYERS),
+	) {
+	return {players = &tick.state.players}
+}
+// odinfmt: enable
+
+iterate_known_of_players :: #force_inline proc(
+	players: ^Players($T, $Input, $PLAYERS),
+) -> Players_Iterator(T, Input, PLAYERS) {
 	return {players = players, known = true}
 }
+
+// odinfmt: disable
+iterate_known_of_tick :: #force_inline proc(
+	tick: ^Tick($G),
+) -> Players_Iterator(
+		part(intrinsics.type_field_type(part(G, GAME_STATE), "players"), 0),
+		part(G, GAME_INPUT),
+		part(G, GAME_PLAYERS),
+	) {
+	return {players = &tick.state.players, known = true}
+}
+// odinfmt: enable
 
 players_next :: #force_inline proc(
 	iterator: ^Players_Iterator($T, $Input, $PLAYERS),
@@ -250,6 +317,27 @@ join :: proc(inputs: ^Inputs($G), slot: int, member: int) {
 	assert(slot >= 0 && slot < part(G, GAME_PLAYERS) && member >= 1 && member <= 0xFFFF)
 	inputs.present += {slot}
 	inputs.joins[slot] = u16(member)
+}
+
+// `member` holds `slot` in the tick `inputs` is for (tests, tools and bots that keep members seated tick after tick):
+// the slot is present, with a join record only when someone else holds it in the state the tick steps from (a
+// simulation's current one, or a State's Players). Present without a join record, a slot nobody holds stays empty:
+// seat is the way that can't happen.
+seat :: proc {
+	seat_of_players,
+	seat_of_sim,
+}
+
+seat_of_players :: proc(inputs: ^Inputs($G), players: ^Players($T, $Input, $PLAYERS), slot: int, member: int) {
+	if int(player_in_slot_of_players(players, slot).id) != member {
+		join(inputs, slot, member)
+	} else {
+		inputs.present += {slot}
+	}
+}
+
+seat_of_sim :: proc(inputs: ^Inputs($G), simulation: ^Sim(G), slot: int, member: int) {
+	seat_of_players(inputs, &simulation.state.players, slot, member)
 }
 
 // The changes of a tick's presence, for Tick.player_changes.

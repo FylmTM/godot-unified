@@ -116,7 +116,7 @@ func _initialize() -> void:
 		if blink == null:
 			for child in views.get_children():
 				var view_marker := child.get_node_or_null(^"UnifiedView") as UnifiedView
-				if view_marker != null and view_marker.kind == "plain2d" and view_marker.entity == 5:
+				if view_marker != null and view_marker.kind == "plain2d" and view_marker.key == 5:
 					blink = child as Node2D
 		elif is_instance_valid(blink) and blink.get("despawns") == 1:
 			blink_despawned = true
@@ -145,17 +145,17 @@ func _initialize() -> void:
 	var me := session.local_player
 	check("status and tick properties", session.status == UnifiedSession.STATUS_CONNECTED and session.running \
 		and session.tick > 0, [session.status, session.tick])
-	check("the marker: kind from the scene, player (its key) and entity (unset: the key) from the host", me != 0 \
-		and marker.player == me and marker.kind == "typed2d" and marker.entity == 1,
-		[me, marker.player, marker.kind, marker.entity])
+	check("the marker: kind from the scene, player and key from the host", me != 0 \
+		and marker.player == me and marker.kind == "typed2d" and marker.key == 1,
+		[me, marker.player, marker.kind, marker.key])
 	var plain := child_of_kind(views, "plain2d")
-	check("plain Node2D view", plain != null and (plain.get("marker") as UnifiedView).entity == 7 \
+	check("plain Node2D view", plain != null and (plain.get("marker") as UnifiedView).key == 2 \
 		and plain.get("updates") > 0 and (plain as Node2D).position.is_equal_approx(POS_2D + Vector2(10, 0)), plain)
 	var p3 := child_of_kind(views, "plain3d") as Node3D
 	check("3D view under a 2D root", p3 != null and p3.position.is_equal_approx(POS_3D) \
 		and near(p3.rotation.y, YAW_3D) and near(p3.get("last_yaw"), YAW_3D), [p3.position, p3.rotation] if p3 else null)
-	check("the same key in another kind is another view, its entity the key", plain != null and p3 != null \
-		and (p3.get("marker") as UnifiedView).entity == 2, (p3.get("marker") as UnifiedView).entity if p3 else null)
+	check("the same key in another kind is another view", plain != null and p3 != null \
+		and (p3.get("marker") as UnifiedView).key == 2, (p3.get("marker") as UnifiedView).key if p3 else null)
 	check("a view that leaves gets _sim_despawned once and is no longer posed while it lingers, then is freed",
 		blink_despawned and blink_kept and not is_instance_valid(blink), [blink_despawned, blink_kept])
 	check("session data on Unified: typed, changed when it changes", toy.x > 0 and toy_changes[0] > 2,

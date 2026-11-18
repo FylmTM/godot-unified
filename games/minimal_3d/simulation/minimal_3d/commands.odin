@@ -11,7 +11,7 @@ Cmd_Ball_Drop :: struct {
 }
 
 apply_commands :: proc(t: ^Tick) {
-	players := sim.iterate_present(&t.state.players)
+	players := sim.iterate_present(t)
 	for _, player in sim.next(&players) {
 		for sent in sim.commands(t, player) {
 			switch command in sent {

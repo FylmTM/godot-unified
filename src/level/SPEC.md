@@ -57,12 +57,14 @@ m.path                                        // a Path3D/Path2D child's points,
 m.props: []Prop                               // Prop{key, value: union {bool, i32, f32, [3]f32, string, Marker_Ref}}
 level.prop_f32(&m, "speed", default), prop_int, prop_bool, prop_vec3, prop_vec2, prop_string // default: missing or another type
 level.prop_ref(&m, "target") -> int           // a NodePath to another marker: its index (-1: none)
+level.prop_enum(&m, "kind", Item_Kind.Crate)  // a String naming an enum member, lowercased ("crate"); else the default
 ```
 
 `physics.create_static` builds a level's static bodies (`src/physics/SPEC.md`). A level's identity is
 `sim.content_hash(bytes)`: the log, the snapshot and the netcode's compat carry it, so a replay or a peer with another
-level is refused (`src/sim/SPEC.md`). A game's World gets the bytes from `world_create(seed, content)`; Godot reads
-`Glue.level`'s file, headless takes a level file or embeds a default (`#load`).
+level is refused (`src/sim/SPEC.md`). A game embeds the level it ships with once, `sim.Game.content =
+#load(...)`, which every host, run and suite plays; a headless run takes another with `--level FILE`. A game's World
+gets the bytes from `world_create(seed, content)`.
 
 ## Baking
 

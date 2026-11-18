@@ -10,7 +10,7 @@ import "unified:sim"
 pick_inputs :: proc(upgrades: ..survivor.Upgrade) -> (inputs: survivor.Inputs) {
 	inputs.present = {0}
 	for upgrade in upgrades {
-		sim.add_command(&inputs, sim.command_make(survivor.Cmd, survivor.Cmd_Pick{upgrade}))
+		sim.add_command(&inputs, 0, survivor.Cmd_Pick{upgrade})
 	}
 	return
 }
@@ -20,7 +20,7 @@ a_pick_applies_once :: proc(t: ^testing.T) {
 	simulation := sim.create(&survivor.GAME, 5)
 	defer sim.destroy(simulation)
 	step_with(simulation, {0}, {})
-	character := in_slot(simulation, 0)
+	character := sim.slot_data(simulation, 0)
 	character.pending_levelups = 3
 
 	inputs := pick_inputs(.Damage)
@@ -54,9 +54,9 @@ a_pick_that_is_not_an_option_is_ignored :: proc(t: ^testing.T) {
 	simulation := sim.create(&survivor.GAME, 5)
 	defer sim.destroy(simulation)
 	step_with(simulation, {0}, {})
-	in_slot(simulation, 0).pending_levelups = 1
+	sim.slot_data(simulation, 0).pending_levelups = 1
 	inputs := pick_inputs(.Damage)
 	inputs.commands[0].data[0] = 7 // not an Upgrade (bytes from the network)
 	sim.step(simulation, &inputs)
-	testing.expect_value(t, in_slot(simulation, 0).pending_levelups, 1)
+	testing.expect_value(t, sim.slot_data(simulation, 0).pending_levelups, 1)
 }

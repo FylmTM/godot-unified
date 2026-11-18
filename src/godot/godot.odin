@@ -24,33 +24,59 @@ import "unified:netcode"
 @(private)
 BUILD_TAG :: #config(UNIFIED_BUILD_TAG, "dev")
 
-// A game's GDExtension entry point in one call: installs the game and its Glue, takes its lobby service for online
-// play (nil: LAN and single player only; eos.lobby links the EOS SDK) and hands Godot the extension's callbacks.
+// What Godot hands a GDExtension's entry point, and what it returns (a game's extension names them here, so it never
+// imports unified:gdext).
+Get_Proc_Address :: gdi.InterfaceGetProcAddress
+Class_Library :: gdi.ClassLibraryPtr
+Initialization :: gdi.Initialization
+Init_Result :: gdi.Bool
+
+// A game's GDExtension entry point in one call (it sets the context itself): installs the game and its Glue, takes
+// its lobby service for online play (nil: LAN and single player only; eos.lobby links the EOS SDK) and its constants
+// (Unified.constants: a proc init calls once, returning the plain `Data_` struct), and hands Godot the extension's
+// callbacks.
 //
 //   @(export, link_name = "survivor_init")
-//   survivor_init :: proc "c" (get_proc_address: gdi.InterfaceGetProcAddress, library: gdi.ClassLibraryPtr, initialization: ^gdi.Initialization) -> gdi.Bool {
-//       context = runtime.default_context()
-//       return godot.init(&survivor.GAME, GLUE, get_proc_address, library, initialization, eos.lobby({}))
+//   survivor_init :: proc "c" (gpa: godot.Get_Proc_Address, lib: godot.Class_Library, init: ^godot.Initialization) -> godot.Init_Result {
+//       return godot.init(&survivor.GAME, GLUE, gpa, lib, init, eos.lobby({}), constants = constants)
 //   }
-init :: proc(
+init :: proc {
+	init_with_constants,
+	init_without_constants,
+}
+
+init_with_constants :: proc "c" (
 	game: ^$G,
 	glue: Glue(G, $View, $MultiView),
-	get_proc_address: gdi.InterfaceGetProcAddress,
-	library: gdi.ClassLibraryPtr,
-	initialization: ^gdi.Initialization,
+	get_proc_address: Get_Proc_Address,
+	library: Class_Library,
+	initialization: ^Initialization,
 	online: ^netcode.Lobby = nil,
-) -> gdi.Bool {
+	constants: proc() -> $Constants,
+) -> Init_Result {
+	context = runtime.default_context()
+	value := constants()
+	install(game, glue, value)
+	lobby = online
+	return entry(get_proc_address, library, initialization)
+}
+
+init_without_constants :: proc "c" (
+	game: ^$G,
+	glue: Glue(G, $View, $MultiView),
+	get_proc_address: Get_Proc_Address,
+	library: Class_Library,
+	initialization: ^Initialization,
+	online: ^netcode.Lobby = nil,
+) -> Init_Result {
+	context = runtime.default_context()
 	install(game, glue)
 	lobby = online
 	return entry(get_proc_address, library, initialization)
 }
 
 // The extension's callbacks for Godot (init's last step; after `install`, which tests call alone).
-entry :: proc(
-	get_proc_address: gdi.InterfaceGetProcAddress,
-	library: gdi.ClassLibraryPtr,
-	init: ^gdi.Initialization,
-) -> gdi.Bool {
+entry :: proc(get_proc_address: Get_Proc_Address, library: Class_Library, init: ^Initialization) -> Init_Result {
 	gd.init(get_proc_address, library)
 	// Before Godot shuts its scripting down: the objects scripts connect to (Unified's data) go first, so a lambda
 	// connected to one is never destroyed after GDScript is gone.

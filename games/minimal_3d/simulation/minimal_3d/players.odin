@@ -14,7 +14,7 @@ on_player_join :: proc(t: ^Tick) {
 }
 
 move_players :: proc(t: ^Tick) {
-	players := sim.iterate_present(&t.state.players)
+	players := sim.iterate_present(t)
 	for data, player in sim.next(&players) {
 		input := sim.input(t, player)
 
