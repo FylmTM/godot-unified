@@ -385,7 +385,9 @@ on_welcome :: proc(client: ^Client($G), reader: ^wire.Reader) {
 	reserve(&client.checksums, ticks != 0 ? int(ticks / CHECKSUM_EVERY) + 1 : CHECKSUMS_KEPT)
 	if first == 1 {
 		client.sim = usim.create(client.game, seed, client.cfg.content)
-		set_status(client, .Connected, "")
+		if !client.leaving {
+			set_status(client, .Connected, "") // a client that left before its Welcome stays leaving ("left")
+		}
 	}
 }
 
@@ -602,7 +604,9 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 		tick := wire.r_u32(&reader)
 		if reader.ok && client.checking && client.sim != nil && tick == client.sim.tick {
 			client.checking = false
-			set_status(client, .Connected, "")
+			if !client.leaving {
+				set_status(client, .Connected, "")
+			}
 		}
 	case .Desync:
 		on_desync(client, &reader)

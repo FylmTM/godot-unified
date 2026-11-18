@@ -91,7 +91,7 @@ an_unsaved_step_takes_the_slot_over :: proc(t: ^testing.T) {
 // re-simulate to the same checksum, one more is gone.
 @(test)
 ring_follows_the_tick_rate :: proc(t: ^testing.T) {
-	testing.expect_value(t, sim.ring_size(32), 8)
+	testing.expect_value(t, sim.ring_size(32), 10) // the floor: a cap of 250 ms, as at the other rates
 	testing.expect_value(t, sim.ring_size(64), 16)
 	testing.expect_value(t, sim.ring_size(128), 32)
 	for hz in ([]int{32, 64, 128}) {
