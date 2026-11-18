@@ -184,6 +184,11 @@ Client :: struct($G: typeid) {
 	own:            [OWN_RING]usim.part(G, usim.GAME_INPUT),
 	own_last:       u32,
 	own_acked:      u32,
+	own_sent:       u32, // the newest own input a packet carried
+	// A burst of own inputs (send_inputs): burst_first..burst_last ride in messages of their own, burst_sends more times
+	burst_first:    u32,
+	burst_last:     u32,
+	burst_sends:    u32,
 	// own commands: sent (until acked) and predicted until a verified tick carries them
 	own_cmds:       [dynamic]Own_Command, // seq order
 	cmd_seq:        u32, // the last seq given
@@ -638,6 +643,7 @@ load_snapshot :: proc(client: ^Client($G), now: i64) {
 	client.verified = client.sim.tick
 	client.predicted = client.verified
 	client.own_last = max(client.own_last, client.verified)
+	client.own_sent = max(client.own_sent, client.verified) // finalized: no burst to send
 	client.checking = true
 	tick := client.sim.tick
 	value := usim.checksum(client.sim)
@@ -987,16 +993,46 @@ generate_inputs :: proc(client: ^Client($G)) {
 @(private)
 send_inputs :: proc(client: ^Client($G), now: i64) {
 	Input :: usim.part(G, usim.GAME_INPUT)
-	writer := msg_begin(&client.w, .Inputs)
-	wire.w_u32(writer, min(client.fin_upto, fin_base(client) + FIN_RING - 64))
+	window := inputs_window(Input)
 	// The newest unacked inputs, up to the window: each rides in that many consecutive packets whatever the round
 	// trip. From the oldest, a round trip longer than the window would hold the newest back until acks move, past
 	// their ticks.
 	first := max(client.own_acked + 1, client.first_tick)
-	if client.own_last >= first + inputs_window(Input) {
-		first = client.own_last + 1 - inputs_window(Input)
+	if client.own_last >= first + window {
+		newest := client.own_last + 1 - window
+		// A step that generated more inputs than the window (the clock's first step samples the input delay's ticks
+		// at once; a jump of the delay or the clock): the oldest of them would ride in no packet, the rest in fewer
+		// than the window. The burst rides in messages of its own beside this one, in this send and the next ones,
+		// as many as the window: unacked inputs that can still be in time, the main message carrying the rest.
+		unsent := max(first, client.own_sent + 1)
+		if reach := client.tm.max_delay + client.tm.tolerance; newest > reach {
+			unsent = max(unsent, newest - reach)
+		}
+		if unsent < newest {
+			client.burst_first = client.burst_sends > 0 ? min(client.burst_first, unsent) : unsent
+			client.burst_last = client.own_last - 1
+			client.burst_sends = window
+		}
+		first = newest
 	}
-	last := client.own_last
+	if client.burst_sends > 0 {
+		client.burst_sends -= 1
+		last := min(client.burst_last, first - 1)
+		for from := max(client.burst_first, client.own_acked + 1); from <= last; from += window {
+			inputs_message(client, from, min(from + window - 1, last), false, now)
+		}
+	}
+	inputs_message(client, first, client.own_last, true, now)
+	client.own_sent = max(client.own_sent, client.own_last)
+	client.last_send_us = now
+}
+
+// One Inputs message: own inputs first..last (none when last < first), and with `commands` the unacked commands.
+@(private)
+inputs_message :: proc(client: ^Client($G), first, last: u32, commands: bool, now: i64) {
+	Input :: usim.part(G, usim.GAME_INPUT)
+	writer := msg_begin(&client.w, .Inputs)
+	wire.w_u32(writer, min(client.fin_upto, fin_base(client) + FIN_RING - 64))
 	wire.w_u32(writer, first)
 	count := last >= first ? last - first + 1 : 0
 	assert(len(writer.buf) + 1 == INPUTS_HEAD)
@@ -1015,7 +1051,7 @@ send_inputs :: proc(client: ^Client($G), now: i64) {
 	command_count_at := len(writer.buf)
 	wire.w_u8(writer, 0)
 	command_count := 0
-	for ; k < len(client.own_cmds) && command_count < 255; k += 1 {
+	for ; commands && k < len(client.own_cmds) && command_count < 255; k += 1 {
 		own_command := &client.own_cmds[k]
 		if len(writer.buf) + COMMAND_SEND_HEAD + int(own_command.cmd.size) > MAX_MESSAGE {
 			break
@@ -1028,7 +1064,6 @@ send_inputs :: proc(client: ^Client($G), now: i64) {
 	}
 	writer.buf[command_count_at] = u8(command_count)
 	csend(client, writer, .Unreliable, now)
-	client.last_send_us = now
 }
 
 @(private)

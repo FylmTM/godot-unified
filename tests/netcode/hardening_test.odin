@@ -317,7 +317,7 @@ udp_endpoints_are_reused :: proc(t: ^testing.T) {
 		}
 		testing.expectf(t, got >= 0, "client %d never got through", i)
 		if got >= 0 {
-			netcode.channel_drop(server, got)
+			netcode.channel_drop(server, got, netcode.now_us())
 		}
 		netcode.channel_destroy(client)
 	}

@@ -93,7 +93,22 @@ Channel :: struct {
 	tx:     wire.Writer,
 	epochs: u32, // seeds the epoch of each connection this channel opens
 	pool:   Slot_Pool, // the queued messages' and early reliable messages' bytes
+	ended:  Ended_Epochs,
 }
+
+// The peers' epochs of the last ENDED_EPOCHS connections dropped (channel_drop): a connection that said goodbye
+// never comes back. A datagram of one is never read, so a Hello it resent before its Leave, arriving after it, seats
+// nobody.
+@(private)
+Ended_Epochs :: struct {
+	conns: [ENDED_EPOCHS]struct {
+		link:  int,
+		epoch: u32, // 0: none
+	},
+	next:  int,
+}
+
+ENDED_EPOCHS :: 64 // twice MAX_PEERS: a whole session leaving at once, and its stragglers
 
 Channel_Stats :: struct {
 	datagrams_sent, datagrams_recv, bytes_sent, bytes_recv, resends: int,
@@ -235,11 +250,38 @@ channel_connected :: proc(channel: ^Channel, peer: Peer) -> bool {
 	return int(peer) >= 0 && int(peer) < MAX_PEERS && channel.conns[peer].active
 }
 
-// Forgets a peer at once (no Disconnected event): after it said goodbye.
-channel_drop :: proc(channel: ^Channel, peer: Peer) {
-	if int(peer) >= 0 && int(peer) < MAX_PEERS {
-		conn_release(channel, peer)
+// Forgets a peer at once (no Disconnected event): after it said goodbye, or when a newer connection replaced it. Its
+// last datagram acks what arrived (the goodbye), so a leaving peer finishes at once. The connection never comes
+// back: a datagram of it arriving later (a resend, a duplicate, a reordered one) is never read, and opens a new
+// connection only to tell the peer this one ended (it echoes ours, so the peer heard from us).
+channel_drop :: proc(channel: ^Channel, peer: Peer, now: i64) {
+	if int(peer) < 0 || int(peer) >= MAX_PEERS {
+		return
 	}
+	if conn := &channel.conns[peer]; conn.active {
+		builder := Packet_Builder {
+			w = channel.tx,
+		}
+		begin_packet(&builder, conn, now)
+		end_packet(channel, &builder, conn, peer, now)
+		channel.tx = builder.w
+		if conn.peer_epoch != 0 {
+			channel.ended.conns[channel.ended.next] = {conn.link, conn.peer_epoch}
+			channel.ended.next = (channel.ended.next + 1) % ENDED_EPOCHS
+		}
+	}
+	conn_release(channel, peer)
+}
+
+// Whether `epoch` is a peer's on `link` whose connection was dropped (channel_drop).
+@(private)
+epoch_ended :: proc(channel: ^Channel, link: int, epoch: u32) -> bool {
+	for ended in channel.ended.conns {
+		if ended.epoch == epoch && ended.link == link && epoch != 0 {
+			return true
+		}
+	}
+	return false
 }
 
 // Ends a connection and frees its mapping, telling the link it may reuse the peer number.
@@ -407,6 +449,19 @@ channel_poll :: proc(channel: ^Channel, now: i64) -> []Event {
 					link_forget(&link, from)
 				}
 				continue
+			}
+			if epoch_ended(channel, link_index, header.epoch) {
+				// Of a connection that said goodbye. One that echoes our epoch still talks to it: a new connection
+				// (unread, in accept_epoch) tells it the old one ended. Anything else is dropped unread: one that
+				// echoes none was sent before the peer heard from us (its Hello again), and a connection open on
+				// this address is a newer one, which it must not end.
+				known := channel_find(channel, link_index, from)
+				if header.echo == 0 || (known >= 0 && channel.conns[known].active) {
+					if known < 0 {
+						link_forget(&link, from)
+					}
+					continue
+				}
 			}
 			peer := channel_peer(channel, link_index, from)
 			if peer < 0 {
