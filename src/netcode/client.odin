@@ -989,8 +989,14 @@ send_inputs :: proc(client: ^Client($G), now: i64) {
 	Input :: usim.part(G, usim.GAME_INPUT)
 	writer := msg_begin(&client.w, .Inputs)
 	wire.w_u32(writer, min(client.fin_upto, fin_base(client) + FIN_RING - 64))
+	// The newest unacked inputs, up to the window: each rides in that many consecutive packets whatever the round
+	// trip. From the oldest, a round trip longer than the window would hold the newest back until acks move, past
+	// their ticks.
 	first := max(client.own_acked + 1, client.first_tick)
-	last := min(client.own_last, first + inputs_window(Input) - 1)
+	if client.own_last >= first + inputs_window(Input) {
+		first = client.own_last + 1 - inputs_window(Input)
+	}
+	last := client.own_last
 	wire.w_u32(writer, first)
 	count := last >= first ? last - first + 1 : 0
 	assert(len(writer.buf) + 1 == INPUTS_HEAD)
@@ -1221,8 +1227,8 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 		}
 	}
 	wake_us = now + client.poll_us
-	if client.started {
-		wake_us = min(wake_us, i64(client.next_tick_us) + 1)
+	if client.started && !client.leaving {
+		wake_us = min(wake_us, i64(client.next_tick_us) + 1) // a leaving client's clock stopped: it only lingers
 	}
 	return
 }

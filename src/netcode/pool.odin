@@ -30,6 +30,9 @@ pool_put :: proc(pool: ^Slot_Pool, bytes: []u8) -> Pooled {
 		resize(&pool.free, count - 1)
 	} else {
 		slot = i32(len(pool.slots))
+		if len(pool.slots) == cap(pool.slots) {
+			reserve(&pool.slots, 2 * cap(pool.slots) + 64) // append_nothing grows to the length: a copy per slot
+		}
 		append_nothing(&pool.slots)
 	}
 	copy(pool.slots[slot][:], bytes)

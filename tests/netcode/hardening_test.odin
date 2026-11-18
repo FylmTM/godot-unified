@@ -699,7 +699,7 @@ silent_or_unusable_snapshot_provider_is_replaced :: proc(t: ^testing.T) {
 		if unusable {
 			writer := evil_begin(&evil, .Snap_Begin)
 			wire.w_u8(writer, 2)
-			wire.w_u32(writer, session.relay.finalized - 1) // not a checksum tick
+			wire.w_u32(writer, (session.relay.seats[2].snap_min + 15) / 16 * 16 + 1) // not a checksum tick
 			wire.w_u32(writer, 100)
 			evil_send(&evil, &session)
 			evil_run(&evil, &session, 0.1)
@@ -958,4 +958,25 @@ a_relay_time_far_off_costs_a_ring_of_inputs :: proc(t: ^testing.T) {
 	testing.expect(t, client.local > 1 << 30, "the clock followed the relay time")
 	testing.expectf(t, samples <= 2 * netcode.OWN_RING, "%d inputs sampled", samples)
 	testing.expect_value(t, client.status, netcode.Status.Connected)
+}
+
+// A leaving client lingers until its Leave is acked (2 s at most) without asking to be woken at once: its clock
+// stopped with it, so its next tick's deadline is in the past. (A loop sleeping until the wake time spun meanwhile.)
+@(test)
+a_leaving_client_does_not_spin :: proc(t: ^testing.T) {
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	client := net_join(&session, 0, .Ideal)
+	net_run(&session, 1)
+	testing.expect_value(t, client.status, netcode.Status.Connected)
+	netcode.client_stop(client, session.clock.now)
+	now := session.clock.now
+	steps := 0
+	for !netcode.client_finished(client) && steps < 100_000 {
+		now = max(netcode.client_step(client, now), now + 1) // the relay is not stepped: the Leave stays unacked
+		steps += 1
+	}
+	testing.expect(t, netcode.client_finished(client))
+	testing.expectf(t, steps < 3000, "%d steps to linger %d ms", steps, (now - session.clock.now) / 1000)
 }

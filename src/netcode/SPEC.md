@@ -122,7 +122,8 @@ instead of sitting half-open. A datagram that doesn't validate never gets a conn
   records (per tick, never carried over). A tick like the one before, without commands or joins, is one byte. Every
   packet decodes on its own, so losing one costs nothing more (the next repeats what wasn't acked). A tick's commands
   are budgeted so it fits a packet alone however much it changed (`window_tick_max_bytes`). A client's Inputs writes
-  its own unacked inputs the same way, each from the one before.
+  its newest unacked inputs the same way, each from the one before, as many as fit beside a command with every byte
+  changed (`inputs_window`): each input rides in that many consecutive packets, whatever the round trip.
 - **Recording**: `Relay_Config.recording` (a `sim.Log_Sink`) gets the session's input log (`src/sim/SPEC.md`) as ticks
   are finalized: the header with a tick count of 0, each tick, the count when it ends (`relay_end_recording`, or
   `relay_destroy`); a recording that never ended still reads to its last tick. A shipped game leaves it off, or
@@ -174,7 +175,8 @@ A player is a session **member**, the person, not a slot (the sim's side: `src/s
   trip (measured from the Hello's ack on), so a joiner's inputs for its join tick arrive in time. Own inputs are
   sampled for L + k on every clock tick, also while the sim is held back: they count, and the view hitches.
 - **Cap** `sim.ring_size(tick_hz) − 2`: the most the ring allows (a rollback target is always in it). Past the
-  round-trip ceiling (depth > cap with k at k_max) the sim stalls a tick at a time; inputs still arrive in time.
+  round-trip ceiling (depth > cap with k at k_max) the sim stalls a tick at a time; inputs still arrive in time
+  (sent on the clock, each in a window of packets).
 
 ## Client
 
@@ -226,11 +228,13 @@ The types and how `tick` reads them: `src/sim/SPEC.md`. Each player's commands a
 - The joiner's join tick J = max(asked, clock + `JOIN_LEAD_MS`, finalized + 2). The lowest connected player that can
   (and didn't send it a bad one) is asked for a snapshot of the first checksum tick S ≥ J − 1 it verifies. It goes
   through the relay in reliable chunks, only from the player asked; the finalized ticks from S on are streamed to the
-  joiner. A provider that leaves, sends nothing for `SNAP_STALL_US`, or sends a snapshot the relay can't use is
-  replaced by another, asked for a snapshot no older than the one begun (the joiner keeps the finalized ticks it
-  holds from it on, and acks of them may reach the relay after the new Snap_Begin). Until it plays the joiner holds finalized ticks only up to `FIN_RING − 64` past S, so it is
-  refused as too far behind when it isn't in within that plus `RELAY_RING` ticks of S (64 s at 64 Hz): the time a
-  large world's snapshot has to arrive.
+  joiner. A provider that leaves, sends nothing for `SNAP_STALL_US`, or sends a snapshot the relay can't use is replaced
+  by another, asked for a snapshot no older than the one begun (the joiner keeps the finalized ticks it holds from it
+  on, and acks of them may reach the relay after the new Snap_Begin). A provider asked again for a seat may still be
+  sending its answer to the seat's previous occupant: what it sends before its new answer's Snap_Begin is dropped, not
+  held against it (a sign of life while the ticks from the new request's on are in the ring). Until it plays the joiner
+  holds finalized ticks only up to `FIN_RING − 64` past S, so it is refused as too far behind when it isn't in within
+  that plus `RELAY_RING` ticks of S (64 s at 64 Hz): the time a large world's snapshot has to arrive.
 - **The check**: the joiner restores and sends its checksum of S; the relay compares it with the majority of the
   other players' checksums of S and answers `Snap_Ok` (the joiner plays) or asks another player. With nobody left to
   ask the joiner is refused: `Bad_Snapshot` after a failed check, `No_Snapshot` when nobody could send one. There is
@@ -261,4 +265,6 @@ The types and how `tick` reads them: `src/sim/SPEC.md`. Each player's commands a
   next to nothing unless a desync happens and stays on in every build; on the session's first desync the relay asks
   a majority player and a diverged one for theirs and diffs them (`sim.snapshot_diff`:
   table by table, field by field, then each extra's image): "tick 4160: enemies[12].pos.x 3.25 vs 3.5". Later
-  desyncs are its consequences and carry no detail.
+  desyncs are its consequences and carry no detail. Every desync report waits for the two snapshots while their bytes
+  keep coming, `IMAGE_GIVE_UP_MS` at most; then they go out without the detail, so a slow or crafted client can't
+  keep the others from being told.
