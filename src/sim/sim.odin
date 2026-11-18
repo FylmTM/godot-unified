@@ -256,25 +256,25 @@ Ring_Slot :: struct($State: typeid) {
 }
 
 Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
-	game:          ^G,
-	seed:          u64,
-	content:       []u8, // what it plays (create's, or Game.content); borrowed: the caller of create keeps it alive
-	content_hash:  u64, // content_hash(content): recorded in input logs and snapshots
-	compat:        u64, // compat_of(game, content): recorded in snapshots
-	layout:        u64, // layout_hash(State): recorded in snapshots (a constant of the type, derived once)
-	tick:          u32,
-	state:         part(G, GAME_STATE),
-	world:         ^part(G, GAME_WORLD),
-	extra:         Extra, // the game's (Game.extra; zero: none)
-	ring:          []Ring_Slot(part(G, GAME_STATE)), // ring_size(game.tick_hz) slots, allocated at create
-	changes:       Changes_Buffer(part(G, GAME_PLAYERS)), // the step's joins and leaves (Tick.player_changes)
-	commands:      Commands(part(G, GAME_CMD)), // the step's commands, decoded (Tick.commands)
-	input_fixable: bool, // the Input holds an enum or a bit_set: step reads each slot's through wire_fix
-	read_inputs:   Inputs(G), // a step's inputs as read when one slot's Input needed it (inputs_as_read)
+	game:         ^G,
+	seed:         u64,
+	content:      []u8, // what it plays (create's, or Game.content); borrowed: the caller of create keeps it alive
+	content_hash: u64, // content_hash(content): recorded in input logs and snapshots
+	compat:       u64, // compat_of(game, content): recorded in snapshots
+	layout:       u64, // layout_hash(State): recorded in snapshots (a constant of the type, derived once)
+	tick:         u32,
+	state:        part(G, GAME_STATE),
+	world:        ^part(G, GAME_WORLD),
+	extra:        Extra, // the game's (Game.extra; zero: none)
+	ring:         []Ring_Slot(part(G, GAME_STATE)), // ring_size(game.tick_hz) slots, allocated at create
+	changes:      Changes_Buffer(part(G, GAME_PLAYERS)), // the step's joins and leaves (Tick.player_changes)
+	commands:     Commands(part(G, GAME_CMD)), // the step's commands, decoded (Tick.commands)
+	input_check:  Wire_Check, // the Input's wire rules, compiled: step checks each slot's with it (inputs_as_read)
+	read_inputs:  Inputs(G), // a step's inputs as read when one slot's Input needed it (inputs_as_read)
 	// Checksum input: tick, block bytes, then each Extra's bytes. Hashed one-shot, because
 	// core:hash/xxhash's streaming XXH3 (dev-2026-11) returns wrong digests for some lengths.
-	hash_buf:      [dynamic]u8,
-	kept:          []Kept_Tick(part(G, GAME_STATE)), // KEEP_SLOTS, allocated by the first snapshot_keep
+	hash_buf:     [dynamic]u8,
+	kept:         []Kept_Tick(part(G, GAME_STATE)), // KEEP_SLOTS, allocated by the first snapshot_keep
 }
 
 // XXH3-64 (seed 0), one-shot.
@@ -451,7 +451,7 @@ create :: proc(
 	simulation.content_hash = content_hash(level)
 	simulation.layout = layout_hash(State)
 	simulation.compat = compat_with(game, simulation.layout, level, {})
-	simulation.input_fixable = wire_fixable(type_info_of(Input))
+	simulation.input_check = wire_check_make(type_info_of(Input))
 	simulation.ring = make([]Ring_Slot(State), ring_size(game.tick_hz))
 	for &slot in simulation.ring {
 		// Grows under create's allocator, whatever is active then; room for a usual tick's events up front, so the
@@ -486,6 +486,7 @@ destroy :: proc(simulation: ^Sim($G)) {
 	}
 	delete(simulation.ring)
 	delete(simulation.hash_buf)
+	wire_check_destroy(&simulation.input_check)
 	for &kept in simulation.kept {
 		delete(kept.image)
 	}
@@ -539,9 +540,9 @@ step :: proc(simulation: ^Sim($G), inputs: ^Inputs(G), save := true) {
 @(private)
 inputs_as_read :: proc(simulation: ^Sim($G), inputs: ^Inputs(G)) -> ^Inputs(G) {
 	Input :: part(G, GAME_INPUT)
-	if !simulation.input_fixable do return inputs
+	if !simulation.input_check.any do return inputs
 	for &input in inputs.input {
-		if changed, _ := wire_fix(&input, type_info_of(Input), .Input, apply = false); changed {
+		if !wire_reads_as_sent(&simulation.input_check, &input) {
 			simulation.read_inputs = inputs^
 			for &fixed in simulation.read_inputs.input {
 				wire_fix(&fixed, type_info_of(Input), .Input, apply = true)

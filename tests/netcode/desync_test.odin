@@ -83,3 +83,37 @@ a_checksum_tie_goes_to_the_lowest_slot :: proc(t: ^testing.T) {
 		testing.expect_value(t, session.relay.first_desync.diverged, sim.Slots{1})
 	}
 }
+
+// A typed report waits for its snapshots while they make progress, not a fixed time from asking: the diverged
+// player's image is 4 MB, which takes ~4 s at the reliable pace (past IMAGE_WAIT_MS), and the report still diffs it.
+@(test)
+a_typed_report_waits_for_a_large_image :: proc(t: ^testing.T) {
+	session: Net
+	net_make_relay(&session, 2, 0, desync_detail = true)
+	defer net_destroy(&session)
+	evil: Evil
+	evil_seat(&evil, &session, 7, 1) // slot 1 loses the tie: the diverged one
+	defer evil_destroy(&evil)
+	evil.acking = true
+	net_join(&session, 0, .Ideal)
+	evil_run(&evil, &session, 1)
+	tick := (session.relay.finalized / netcode.CHECKSUM_EVERY) * netcode.CHECKSUM_EVERY
+	writer := evil_begin(&evil, .Checksum)
+	wire.w_u32(writer, tick)
+	wire.w_u64(writer, 1) // not what the honest client computes
+	evil_send(&evil, &session)
+	request := evil_run(&evil, &session, 2, .Snap_Request)
+	if !testing.expect(t, request != nil, "the relay asked the diverged slot for no image") do return
+	image := make([]u8, 4 << 20)
+	defer delete(image)
+	evil_snapshot(&evil, &session, netcode.RELAY_TARGET, tick, image)
+	evil_run(&evil, &session, 10)
+	testing.expect_value(t, session.relay.desyncs, 1)
+	detail := session.relay.first_desync.detail
+	testing.expectf(
+		t,
+		detail != "" && detail != "the snapshots of that tick were not available",
+		"the report says %q",
+		detail,
+	)
+}

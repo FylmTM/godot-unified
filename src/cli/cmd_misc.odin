@@ -25,12 +25,13 @@ bench_details :: proc() -> string {
 		"A game's benchmark (its headless `bench` mode) steps its standard setup and, every tick, rolls back to the\n" +
 		"prediction cap and re-simulates (the worst case the netcode makes: a bound, not a typical frame); the first\n" +
 		"window + 64 ticks run untimed. The target: a step, a restore, that re-sim and a deep checksum within %.0f ms at\n" +
-		"their p99. A re-sim whose checksum differs fails the run. Then its `session` twice on the virtual clock, 4\n" +
-		"clients whose inputs change every tick (--script churn: rollbacks on most ticks, a bound from above): under\n" +
-		"`bad` (the stress case), and under `wan` (the common case) with the 4th connecting halfway and\n" +
-		"joining as a player does (the join: Hello to playing, the bytes it took, the snapshot's transfer and the\n" +
-		"joiner's catch-up step). Each session row times every client step that stepped the sim (p99, worst): the\n" +
-		"measure the target models. Then the project's own rows. Reported in .out/bench.json, not gated by time.",
+		"their p99. A re-sim whose checksum differs fails the run. Then its `session` on the virtual clock, 4 clients:\n" +
+		"on the game's own script for the bytes a session moves, under `bad` (the stress case) and under `wan` (the\n" +
+		"common case) with the 4th connecting halfway and joining as a player does (the join: Hello to playing, the\n" +
+		"bytes it took, the snapshot's transfer and the joiner's catch-up step); then a shorter one under `bad` whose\n" +
+		"inputs change every tick (--script churn: rollbacks on most ticks, a bound from above) for the rollbacks, the\n" +
+		"stalls and every client step that stepped the sim (p99, worst): the measure the target models. Then the\n" +
+		"project's own rows. Reported in .out/bench.json, not gated by time.",
 		BENCH_TARGET_US / 1000,
 	)
 }
@@ -90,11 +91,17 @@ Net_Report :: struct {
 	join_step_max_us:    f64, // the joiner's worst client step (its catch-up after the check)
 }
 
-// A game's two sessions: the stress case and the common one with a late joiner.
+// A game's sessions: on its own script the stress case and the common one with a late joiner (their bytes, the join),
+// and a shorter stress case whose inputs change every tick (its rollbacks, stalls and client steps).
 Net_Rows :: struct {
-	bad: Net_Report,
-	wan: Net_Report,
+	bad:   Net_Report,
+	wan:   Net_Report,
+	churn: Net_Report,
 }
+
+// The churn session's length: its rollbacks, stalls and client steps settle well within it.
+@(private)
+BENCH_CHURN_TICKS :: "600"
 
 // .out/bench.json.
 Bench_Summary :: struct {
@@ -170,13 +177,14 @@ cmd_bench :: proc(args: []string) -> Result {
 			append(&failed, game.name) // a re-sim that disagrees is a bug, whatever the timing
 		}
 		rows: Net_Rows
-		sessions := [2]struct {
+		sessions := [3]struct {
 			name: string,
 			args: []string,
 			out:  ^Net_Report,
 		} {
-			{"bad", {"session", "--profile", "bad", "--script", "churn"}, &rows.bad},
-			{"wan", {"session", "--profile", "wan", "--script", "churn", "--late-join", "3@600"}, &rows.wan},
+			{"bad", {"session", "--profile", "bad"}, &rows.bad},
+			{"wan", {"session", "--profile", "wan", "--late-join", "3@600"}, &rows.wan},
+			{"churn", {"session", "--profile", "bad", "--script", "churn", "--ticks", BENCH_CHURN_TICKS}, &rows.churn},
 		}
 		net_ok := true
 		for session in sessions {
@@ -192,6 +200,22 @@ cmd_bench :: proc(args: []string) -> Result {
 				continue
 			}
 			net := session.out^
+			if session.out == &rows.churn {
+				log(
+					"%-12s churn (%d clients, bad, %s ticks, every input changing every tick) %.0f ms: client step p99 %.0f us, worst %.2f ms; %d rollbacks (depth %.1f, re-sim %.0f ms), %d stalls",
+					"",
+					net.clients,
+					BENCH_CHURN_TICKS,
+					net.wall_ms,
+					net.client_step_us.p99,
+					net.client_step_us.max / 1000,
+					net.rollbacks,
+					net.rollback_depth_avg,
+					f64(net.step_us.resim) / 1000,
+					net.stall_ticks,
+				)
+				continue
+			}
 			join_text := ""
 			if net.late_join != 0 {
 				join_text = aprintf(
@@ -206,21 +230,15 @@ cmd_bench :: proc(args: []string) -> Result {
 				)
 			}
 			log(
-				"%-12s session (%d clients, %s, virtual clock) %.0f ms: client step p99 %.0f us, worst %.2f ms; %d rollbacks (depth %.1f, re-sim %.0f ms), %d stalls, %d inputs replaced; relay %.1f kB/s, client %.1f kB/s, %d resends%s",
+				"%-12s session (%d clients, %s, the game's script) %.0f ms: relay %.1f kB/s, client %.1f kB/s, %d resends, %d inputs replaced%s",
 				"",
 				net.clients,
 				session.name,
 				net.wall_ms,
-				net.client_step_us.p99,
-				net.client_step_us.max / 1000,
-				net.rollbacks,
-				net.rollback_depth_avg,
-				f64(net.step_us.resim) / 1000,
-				net.stall_ticks,
-				net.replaced_inputs,
 				net.relay_bytes_per_s / 1000,
 				net.client_bytes_per_s / 1000,
 				net.resends,
+				net.replaced_inputs,
 				join_text,
 			)
 		}

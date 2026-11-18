@@ -140,10 +140,7 @@ wire_fix :: proc(data: rawptr, type: ^runtime.Type_Info, kind: Wire_Kind, apply:
 		bits := (^u32)(data)^ // f32 only (plain_violation)
 		rejected = bits & 0x7F80_0000 == 0x7F80_0000 // an infinity or a NaN
 	case runtime.Type_Info_Enum:
-		value := read_integer(data, info.base)
-		declared := false
-		for allowed in info.values do declared ||= i64(allowed) == value
-		if !declared {
+		if !enum_declares(info, read_integer(data, info.base)) {
 			changed = true
 			if kind == .Command do rejected = true
 			else if apply do runtime.mem_zero(data, type.size)
@@ -185,6 +182,13 @@ bit_set_holds :: proc(info: runtime.Type_Info_Bit_Set, element: i64) -> bool {
 	return true
 }
 
+// Whether `value` is one of an enum's declared values.
+@(private)
+enum_declares :: proc(info: runtime.Type_Info_Enum, value: i64) -> bool {
+	for declared in info.values do if i64(declared) == value do return true
+	return false
+}
+
 // An integer of `type` (a sized integer: plain_violation) at `data`, as i64.
 @(private)
 read_integer :: proc(data: rawptr, type: ^runtime.Type_Info) -> i64 {
@@ -200,23 +204,89 @@ read_integer :: proc(data: rawptr, type: ^runtime.Type_Info) -> i64 {
 	return (^i64)(data)^
 }
 
-// Whether a value of `type` holds anything wire_fix may change in an Input: an enum or a bit_set (step reads every
-// slot's Input through it only then).
+// An Input's wire rules (wire_fix's for an Input) compiled once at create: the bits each byte may hold and the enum
+// fields, so a step checks a slot with a mask and a compare per enum instead of walking the type info.
 @(private)
-wire_fixable :: proc(type: ^runtime.Type_Info) -> bool {
+Wire_Check :: struct {
+	allowed: []u8, // per byte of the Input: the bits a value may set (a bit_set's elements', a bool's low bit; any)
+	enums:   [dynamic]Wire_Enum,
+	any:     bool, // there is something to check: an enum, or a bit a value may not set
+}
+
+// An enum field of an Input, by its offset.
+@(private)
+Wire_Enum :: struct {
+	offset:    int,
+	base:      ^runtime.Type_Info, // its backing integer
+	info:      runtime.Type_Info_Enum,
+	low, high: i64, // its least and greatest declared values
+	dense:     bool, // every value from low to high is declared: a range check
+}
+
+// The Wire_Check of `type` (delete with wire_check_destroy).
+@(private)
+wire_check_make :: proc(type: ^runtime.Type_Info) -> (check: Wire_Check) {
+	check.allowed = make([]u8, type.size)
+	for &bits in check.allowed do bits = 0xFF
+	wire_compile(&check, type, 0)
+	for bits in check.allowed do check.any ||= bits != 0xFF
+	check.any ||= len(check.enums) > 0
+	return
+}
+
+@(private)
+wire_check_destroy :: proc(check: ^Wire_Check) {
+	delete(check.allowed)
+	delete(check.enums)
+}
+
+@(private)
+wire_compile :: proc(check: ^Wire_Check, type: ^runtime.Type_Info, offset: int) {
 	#partial switch info in runtime.type_info_base(type).variant {
-	case runtime.Type_Info_Enum, runtime.Type_Info_Bit_Set, runtime.Type_Info_Boolean:
-		return true
-	case runtime.Type_Info_Array:
-		return wire_fixable(info.elem)
-	case runtime.Type_Info_Enumerated_Array:
-		return wire_fixable(info.elem)
-	case runtime.Type_Info_Struct:
-		for i in 0 ..< int(info.field_count) {
-			if wire_fixable(info.types[i]) do return true
+	case runtime.Type_Info_Boolean:
+		for i in 0 ..< type.size do check.allowed[offset + i] = 1 if i == 0 else 0 // little-endian: the low byte holds 1
+	case runtime.Type_Info_Enum:
+		field := Wire_Enum {
+			offset = offset,
+			base   = info.base,
+			info   = info,
+			low    = max(i64),
+			high   = min(i64),
 		}
+		for value in info.values {
+			if i64(value) < field.low do field.low = i64(value)
+			if i64(value) > field.high do field.high = i64(value)
+		}
+		field.dense = len(info.values) > 0 && field.high - field.low < 256
+		for value := field.low; field.dense && value <= field.high; value += 1 {
+			field.dense = enum_declares(info, value)
+		}
+		append(&check.enums, field)
+	case runtime.Type_Info_Bit_Set:
+		for i in 0 ..< type.size * 8 {
+			if !bit_set_holds(info, info.lower + i64(i)) do check.allowed[offset + i / 8] &~= 1 << uint(i % 8)
+		}
+	case runtime.Type_Info_Array:
+		for i in 0 ..< info.count do wire_compile(check, info.elem, offset + i * info.elem_size)
+	case runtime.Type_Info_Enumerated_Array:
+		for i in 0 ..< info.count do wire_compile(check, info.elem, offset + i * info.elem_size)
+	case runtime.Type_Info_Struct:
+		for i in 0 ..< int(info.field_count) do wire_compile(check, info.types[i], offset + int(info.offsets[i]))
 	}
-	return false
+}
+
+// Whether an Input reads as it was sent: what wire_fix(.Input, apply = false) says when it changes nothing.
+@(private)
+wire_reads_as_sent :: #force_inline proc(check: ^Wire_Check, data: rawptr) -> bool {
+	bytes := ([^]u8)(data)
+	stray: u8
+	for allowed, i in check.allowed do stray |= bytes[i] &~ allowed
+	if stray != 0 do return false
+	for &field in check.enums {
+		value := read_integer(rawptr(uintptr(data) + uintptr(field.offset)), field.base)
+		if field.dense ? value < field.low || value > field.high : !enum_declares(field.info, value) do return false
+	}
+	return true
 }
 
 // The XXH3 of a union's variants (names and layouts), for compat_of (0 for nil).

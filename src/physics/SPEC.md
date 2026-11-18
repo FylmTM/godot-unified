@@ -29,7 +29,8 @@ tick (`keep`) is the slot's Box3D snapshot bytes and body table copied aside; `i
 
 **Capacity.** A rollback at the prediction cap re-steps the whole world, so physics bounds what a tick may hold: on
 one worker, about 200 awake bodies in dense contact (a pile) fit a step plus that rollback in the frame budget;
-`uni bench`'s physics row times it on 1 and 4 workers. One worker is the default, since more take CPU from Godot and
+`uni bench`'s physics row times it on a smaller pile, on 1 and 4 workers, and says how many bodies fit (the cost per
+body is about flat). One worker is the default, since more take CPU from Godot and
 the netcode and help only worlds several times that size: a physics-heavy game measures 2 to 4.
 
 ## The boundary

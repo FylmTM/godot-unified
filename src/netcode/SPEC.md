@@ -186,7 +186,7 @@ A player is a session **member**, the person, not a slot (the sim's side: `src/s
 - `client_stats` (`Client_Stats`, copied whole: the dev UI takes differences of the counters): rollbacks and their
   depth, stall and re-simulated ticks, ticks stepped and the time stepping them by `Step_Kind`, own inputs replaced,
   desync reports, when the relay's last message arrived; `client_steps`, how long each `client_step` that stepped
-  the sim took (a `Durations`: fixed buckets, `durations_percentile`, `durations_merge`), the time the frame budget is
+  the sim, restored a snapshot or encoded a kept tick took, its receiving included (a `Durations`: fixed buckets, `durations_percentile`, `durations_merge`), the time the frame budget is
   about; a joiner's snapshot (bytes, Snap_Begin to its last chunk); and the round trip, the input delay and the
   channel's bytes. `client_inputs(tick)`: a tick's finalized inputs, else its predicted ones. `client_result` (the
   headless JSON, the Godot result line): `ok` = didn't fail, no desync, and a fixed-length session's every tick
