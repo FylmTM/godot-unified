@@ -18,10 +18,13 @@ Input :: struct {
 	move_x:  i8,
 	move_z:  i8,
 	buttons: Buttons,
-	_spare:  u8,
+	_pad:    u8,
 	aim:     dmath.Dir3,
 }
 #assert(size_of(Input) == 8)
 
 // The game has no commands (sim.Game's Cmd).
 Cmd :: sim.No_Commands
+
+// A tick's inputs and commands, by slot.
+Inputs :: sim.Inputs(Game)

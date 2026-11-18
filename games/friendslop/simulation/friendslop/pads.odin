@@ -23,7 +23,7 @@ launch_from_pads :: proc(t: ^Tick) {
 	for i in 0 ..< t.world.item_count {
 		item := &t.state.items[i]
 		if item.pad_cooldown > 0 do item.pad_cooldown -= 1
-		if !item.alive || item.holders != {} || item.pad_cooldown > 0 do continue
+		if item.holders != {} || item.pad_cooldown > 0 do continue
 		bottom :=
 			physics.body_position(t.world.phys, item.body) -
 			{0, ITEM_SPECS[t.world.items[i].kind].radius * PAD_ITEM_PROBE, 0}

@@ -26,7 +26,6 @@ start_match :: proc(t: ^Tick, player: sim.Player) {
 	t.state.waves = 0
 	t.state.rocks_left = 0
 	t.state.score = 0
-	t.state.matches += 1
 	sim.emit(t, Event_Match_Started{player = player})
 }
 
@@ -43,7 +42,7 @@ advance_phase :: proc(t: ^Tick) {
 		if t.state.station_hp <= 0 {
 			t.state.phase = .Over
 			t.state.over_tick = t.number
-			sim.emit(t, Event_Match_Over{seconds_survived = sim.seconds(t.number - t.state.match_tick, TICK_HZ)})
+			sim.emit(t, Event_Match_Over{duration_s = sim.seconds(t.number - t.state.match_tick, TICK_HZ)})
 		}
 	case .Over:
 		if t.number - t.state.over_tick >= OVER_HOLD_TICKS do reset_world(t)
@@ -58,9 +57,7 @@ reset_world :: proc(t: ^Tick) {
 	sim.despawn_all(&t.state.gems)
 	ships := sim.iterate_present(t)
 	for ship, player in sim.next(&ships) {
-		physics.body_set_transform_2d(t.world.phys, ship.body, t.world.spawns[sim.player_slot(t, player)], UP)
-		physics.body_set_linear_velocity_2d(t.world.phys, ship.body, {})
-		physics.body_set_angular_velocity_2d(t.world.phys, ship.body, 0)
+		physics.body_teleport_2d(t.world.phys, ship.body, t.world.spawns[sim.player_slot(t, player)], UP)
 		ship.fire_cooldown, ship.boost_cooldown, ship.gate_cooldown = 0, 0, 0
 	}
 	t.state.gates = {}

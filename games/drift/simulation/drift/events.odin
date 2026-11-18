@@ -77,7 +77,7 @@ Event_Match_Started :: struct {
 }
 
 Event_Match_Over :: struct {
-	seconds_survived: f32,
+	duration_s: f32, // the match's length in seconds
 }
 
 Event :: union {

@@ -142,6 +142,6 @@ func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> voi
 			_banner.show_message("Wave %d" % wave)
 	elif event is EventMatchOver:
 		_banner.show_message("Station lost", UiTheme.TEXT, 2.5)
-		var survived := (event as EventMatchOver).seconds_survived
+		var survived := (event as EventMatchOver).duration_s
 		if survived > Settings.best_time:
 			Settings.best_time = survived

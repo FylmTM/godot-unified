@@ -84,7 +84,7 @@ event's subject is the rock's handle.
   size}` and `rock_destroyed {rock, position, size}` (the rock is gone), `station_hit {position, damage, size}`
   (`damage`: what it costs during a match).
 - `gem_picked {position, player}`, `wave {wave}` (1..), `match_started {player}` (who sent `start`),
-  `match_over {seconds_survived}`, and the library's joins and leaves.
+  `match_over {duration_s}`, and the library's joins and leaves.
 
 ## Scripted inputs
 
@@ -98,7 +98,7 @@ session and an offline run agree.
 - Scene views (each a Node2D with a UnifiedView marker):
   - `ship`: `Ship_View {boost_ready, thrust}`, keyed by its player (`sim.player_key`), so the view survives a leave
     and comes back with the player in any slot; its colour and "P<n>" follow the slot they hold
-    (`Game.player_slot`). When the player leaves, the ship shrinks away while the view lingers (`_sim_despawned`;
+    (`Unified.session.get_player_slot`). When the player leaves, the ship shrinks away while the view lingers (`_sim_despawned`;
     `_sim_revived` undoes it).
   - `station`: `Station_View {hp_frac}`, key 0.
   - `gate`: `Gate_View {charge}`, keyed by the gate's index.
@@ -111,10 +111,11 @@ session and an offline run agree.
 - Session data `Data_Hud` (`Unified.data.hud`): `players` by slot (`shots`, `gems`), `phase` (`EnumPhase`), `wave`,
   `station_hp`, `score`, `rocks`, `time_s` (the match time; over: survived), `next_wave_s`, `reset_in_s`.
 - Constants (`Unified.constants`, metres): `ship_radius`, `station_radius`, `gate_radius`, `station_hp` (full),
-  `station_spin` (the menu's station), and `rock_shapes` (per variant the 8 corners at radius 1, the rock meshes).
+  `station_spin` (the menu's station), `station_shape` (the hexagon's 6 corners at radius 1, the station view) and
+  `rock_shapes` (per variant the 8 corners at radius 1, the rock meshes).
 - Events go to the ship's view by `player`, `station_hit` to the station (`Glue.event_key`). Rock effects play when
   an event is emitted (a prediction shows them at once), the rest, like the HUD's banners, once confirmed; a shot a
   rollback cancels loses its muzzle flash and sound (the ship view, by the event's `id`).
-- Input: the movement, fire and boost from the InputMap, and the aim the arena sets every frame (the input value
-  `aim`): the mouse's world position relative to the local ship, else the right stick. A Camera2D follows the local
+- Input: the movement, fire and boost from the InputMap, and the aim the arena sets on every sample
+  (`input_wanted`, the input value `aim`): the mouse's world position relative to the local ship, else the right stick. A Camera2D follows the local
   ship within the arena. The HUD sends `start` (`CommandStart`) in the lobby and `restart` when the match is over.

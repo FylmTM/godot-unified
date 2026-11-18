@@ -45,8 +45,7 @@ send_item_home :: proc(t: ^Tick, index: int) {
 // Items that fell below KILL_Y go home.
 return_fallen_items :: proc(t: ^Tick) {
 	for i in 0 ..< t.world.item_count {
-		item := &t.state.items[i]
-		if item.alive && physics.body_position(t.world.phys, item.body).y < KILL_Y do send_item_home(t, i)
+		if physics.body_position(t.world.phys, t.state.items[i].body).y < KILL_Y do send_item_home(t, i)
 	}
 }
 

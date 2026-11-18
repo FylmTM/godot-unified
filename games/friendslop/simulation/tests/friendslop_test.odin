@@ -17,28 +17,11 @@ import g "../friendslop"
 // A sync-tested run on the park (g.GAME's level).
 Run :: headless.Run(g.Game)
 
-// A run with `players` slots present from the first tick (slot i is member i + 1).
-start :: proc(players: int) -> (run: Run) {
-	run = headless.run_begin(&g.GAME, 1)
-	for slot in 0 ..< players do headless.run_seat(&run, slot, slot + 1)
-	step(&run, {}) // players join on the first tick: their bodies exist from here on
-	return
-}
-
-finish :: proc(run: ^Run) {
-	headless.run_end(run)
-}
-
 // One sync-tested tick of the seated members (headless.run_seat) with these inputs (by slot).
 step :: proc(run: ^Run, inputs_by_slot: [g.PLAYERS]g.Input) {
 	inputs := headless.run_inputs(run)
 	inputs.input = inputs_by_slot
 	headless.run_step(run, &inputs)
-}
-
-// How many events of type E the forward ticks emitted.
-event_count :: proc(run: ^Run, $E: typeid) -> int {
-	return headless.run_events(run, E)
 }
 
 player_pos :: proc(run: ^Run, slot: int) -> [3]f32 {
@@ -91,8 +74,8 @@ expect_clean :: proc(t: ^testing.T, run: ^Run, loc := #caller_location) {
 
 @(test)
 level_loads :: proc(t: ^testing.T) {
-	run := start(1)
-	defer finish(&run)
+	run := headless.run_begin(&g.GAME, 1, seated = 1)
+	defer headless.run_end(&run)
 	idle(&run, 64)
 	// Players stand on the floor: centre at FEET above it.
 	testing.expectf(t, abs(player_pos(&run, 0).y - g.FEET) < 0.05, "standing at %v", player_pos(&run, 0))
@@ -103,8 +86,8 @@ level_loads :: proc(t: ^testing.T) {
 // Two players lift the heavy crate together; one alone can only drag it.
 @(test)
 heavy_needs_two :: proc(t: ^testing.T) {
-	run := start(2)
-	defer finish(&run)
+	run := headless.run_begin(&g.GAME, 1, seated = 2)
+	defer headless.run_end(&run)
 	heavy := item_of(&run, .Heavy)
 	heavy_pos := item_pos(&run, heavy)
 	rest_y := heavy_pos.y
@@ -155,8 +138,8 @@ heavy_needs_two :: proc(t: ^testing.T) {
 // A charged throw of a crate at a friend knocks them over; they get up again.
 @(test)
 throw_hits_friend :: proc(t: ^testing.T) {
-	run := start(2)
-	defer finish(&run)
+	run := headless.run_begin(&g.GAME, 1, seated = 2)
+	defer headless.run_end(&run)
 	crate := item_of(&run, .Crate)
 	crate_pos := item_pos(&run, crate)
 	stand := crate_pos + {-1.3, 0, 0}
@@ -170,14 +153,19 @@ throw_hits_friend :: proc(t: ^testing.T) {
 		step(&run, {aim_at(&run, 0, player_pos(&run, 1) + {0, 0.6, 0}, {buttons = {.Throw}}), {}, {}, {}})
 	}
 	step(&run, {aim_at(&run, 0, player_pos(&run, 1) + {0, 0.6, 0}, {}), {}, {}, {}}) // release: throw
-	testing.expect_value(t, event_count(&run, g.Event_Thrown), 1)
+	testing.expect_value(t, headless.run_events(&run, g.Event_Thrown), 1)
 	stunned := false
 	for _ in 0 ..< 96 {
 		step(&run, {})
 		stunned ||= sim.slot_data(run.simulation, 1).stun > 0
 	}
 	testing.expect(t, stunned)
-	testing.expectf(t, event_count(&run, g.Event_Hit) >= 1, "no hit (thrown %d)", event_count(&run, g.Event_Thrown))
+	testing.expectf(
+		t,
+		headless.run_events(&run, g.Event_Hit) >= 1,
+		"no hit (thrown %d)",
+		headless.run_events(&run, g.Event_Thrown),
+	)
 	idle(&run, 96)
 	testing.expect_value(t, sim.slot_data(run.simulation, 1).stun, 0)
 	testing.expect(t, .Limp not_in sim.slot_data(run.simulation, 1).controller.flags)
@@ -187,8 +175,8 @@ throw_hits_friend :: proc(t: ^testing.T) {
 // Ride the lift up and step off onto the ledge; ride the ferry sideways.
 @(test)
 platforms_carry_players :: proc(t: ^testing.T) {
-	run := start(2)
-	defer finish(&run)
+	run := headless.run_begin(&g.GAME, 1, seated = 2)
+	defer headless.run_end(&run)
 	world := run.simulation.world
 	lift, ferry := platform_at_marker(&run, "Lift"), platform_at_marker(&run, "Ferry")
 	testing.expect(t, lift >= 0 && ferry >= 0)
@@ -221,16 +209,16 @@ platforms_carry_players :: proc(t: ^testing.T) {
 // The jump pad launches a player onto the high ledge.
 @(test)
 pad_launches_player :: proc(t: ^testing.T) {
-	run := start(1)
-	defer finish(&run)
+	run := headless.run_begin(&g.GAME, 1, seated = 1)
+	defer headless.run_end(&run)
 	pad := run.simulation.world.pads[0].volume.pos
 	peak: f32 = 0
 	for _ in 0 ..< 200 {
 		step(&run, {walk(&run, 0, pad, 0.05), {}, {}, {}})
 		peak = max(peak, player_pos(&run, 0).y)
-		if event_count(&run, g.Event_Launched) > 0 do break
+		if headless.run_events(&run, g.Event_Launched) > 0 do break
 	}
-	testing.expect(t, event_count(&run, g.Event_Launched) >= 1)
+	testing.expect(t, headless.run_events(&run, g.Event_Launched) >= 1)
 	for _ in 0 ..< 160 {
 		step(&run, {})
 		peak = max(peak, player_pos(&run, 0).y)
@@ -243,8 +231,8 @@ pad_launches_player :: proc(t: ^testing.T) {
 // Grab a friend, carry them, they mash jump and break free; grab again and throw them.
 @(test)
 hold_and_throw_friend :: proc(t: ^testing.T) {
-	run := start(2)
-	defer finish(&run)
+	run := headless.run_begin(&g.GAME, 1, seated = 2)
+	defer headless.run_end(&run)
 	idle(&run, 32)
 	for _ in 0 ..< 64 {
 		step(&run, {walk(&run, 0, player_pos(&run, 1) + {-1.2, 0, 0}, 0.1, player_pos(&run, 1)), {}, {}, {}})
@@ -270,7 +258,7 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 			{},
 		})
 	}
-	testing.expect_value(t, event_count(&run, g.Event_Broke_Free), 1)
+	testing.expect_value(t, headless.run_events(&run, g.Event_Broke_Free), 1)
 	testing.expect_value(t, sim.slot_data(run.simulation, 1).held_by, sim.Player{})
 	idle(&run, 96)
 	// Grab again and throw.
@@ -291,7 +279,7 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 		{},
 		{},
 	})
-	testing.expect_value(t, event_count(&run, g.Event_Thrown), 1)
+	testing.expect_value(t, headless.run_events(&run, g.Event_Thrown), 1)
 	testing.expect(t, sim.slot_data(run.simulation, 1).thrown)
 	idle(&run, 160)
 	testing.expect(t, !sim.slot_data(run.simulation, 1).thrown)
@@ -302,7 +290,7 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 		sim.slot_data(run.simulation, 1).controller.flags,
 		player_pos(&run, 1),
 	)
-	testing.expect_value(t, event_count(&run, g.Event_Fell), 0)
+	testing.expect_value(t, headless.run_events(&run, g.Event_Fell), 0)
 	expect_clean(t, &run)
 }
 
@@ -311,8 +299,8 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 // (the crate is still the thrower's), and the thrower comes back in another slot as the same player.
 @(test)
 owners_follow_the_person :: proc(t: ^testing.T) {
-	run := start(2)
-	defer finish(&run)
+	run := headless.run_begin(&g.GAME, 1, seated = 2)
+	defer headless.run_end(&run)
 	items := &run.simulation.state.items
 	crate := item_of(&run, .Crate)
 	crate_pos := item_pos(&run, crate)
@@ -322,7 +310,7 @@ owners_follow_the_person :: proc(t: ^testing.T) {
 	thrower := sim.player_in_slot(run.simulation, 0)
 	for _ in 0 ..< 8 do step(&run, {{aim = dmath.dir3({0, 40, -100}), buttons = {.Throw}}, {}, {}, {}})
 	step(&run, {{aim = dmath.dir3({0, 40, -100})}, {}, {}, {}}) // release: throw
-	testing.expect_value(t, event_count(&run, g.Event_Thrown), 1)
+	testing.expect_value(t, headless.run_events(&run, g.Event_Thrown), 1)
 	testing.expect_value(t, items[crate].thrown_by, thrower)
 	// The thrower leaves; someone new (member 100) takes slot 0.
 	headless.run_seat(&run, 0, 0)
@@ -335,6 +323,6 @@ owners_follow_the_person :: proc(t: ^testing.T) {
 	step(&run, {})
 	testing.expect_value(t, items[crate].thrown_by, thrower)
 	testing.expect(t, items[crate].thrown_ticks > 0)
-	testing.expect_value(t, event_count(&run, g.Event_Spawned), 4) // two at the start, the newcomer, the return
+	testing.expect_value(t, headless.run_events(&run, g.Event_Spawned), 4) // two at the start, the newcomer, the return
 	expect_clean(t, &run)
 }
