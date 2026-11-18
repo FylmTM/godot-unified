@@ -2,7 +2,7 @@ extends CanvasLayer
 ## In-game HUD, built in code: the phase and wave, the match time, the station's HP bar, the score; the lobby's
 ## start prompt (Enter or the Start button: the `start` command) and the restart prompt when the match is over
 ## (`restart`); banners for waves and the match's start and end; the session panel (code + players) and the
-## controls list (games/shared).
+## controls list.
 
 ## The prompt's button (Start in the lobby, Restart when over); the tour clicks it.
 var start_button: Button
@@ -113,7 +113,7 @@ func _process(delta: float) -> void:
 	var sb := _hp.get_theme_stylebox(&"fill") as StyleBoxFlat
 	if sb != null and sb.bg_color != fill:
 		_hp.add_theme_stylebox_override(&"fill", UiTheme.box(fill, 6, 0))
-	var best: float = Settings.get_value(&"best_time")
+	var best := Settings.best_time
 	_score.text = "score %d  ·  rocks %d%s" % [h.score, h.rocks,
 		("  ·  best %s" % _time_text(best)) if best > 0.0 else ""]
 
@@ -129,9 +129,9 @@ func _process(delta: float) -> void:
 		start_button.text = "Restart"
 
 	var rows: Array[Dictionary] = []
-	for player in Game.present_players():
-		var info := Game.player_info(player) as DataHudPlayer
-		rows.append({"player": player, "name": Game.player_name(player), "status": "%d gems" % info.gems})
+	for player in Unified.session.get_players():
+		var info := Unified.data.hud.players[Unified.session.get_player_slot(player)] as DataHudPlayer
+		rows.append({"player": player, "name": Unified.session.get_player_name(player), "status": "%d gems" % info.gems})
 	_session.refresh(rows, phase == EnumPhase.LOBBY, "Press %s or click Start when everyone is in." % keys)
 	var kb := [["WASD", "Move"], ["Mouse", "Aim"], ["LMB / Space", "Fire"], ["RMB / Shift", "Boost"]]
 	var pad := [["Left stick", "Move"], ["Right stick", "Aim"], ["RT", "Fire"], ["LT / A", "Boost"]]
@@ -160,10 +160,10 @@ func _start_or_restart() -> void:
 	match Unified.data.hud.phase:
 		EnumPhase.LOBBY:
 			Sfx.play(&"click")
-			Game.send_command(CommandStart.new())
+			Unified.session.send_command(CommandStart.new())
 		EnumPhase.OVER:
 			Sfx.play(&"click")
-			Game.send_command(CommandRestart.new())
+			Unified.session.send_command(CommandRestart.new())
 
 
 func _show_banner(text: String, seconds := 2.0) -> void:
@@ -184,9 +184,9 @@ func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> voi
 	elif event is EventMatchOver:
 		_show_banner("Station lost", 3.0)
 		var survived := (event as EventMatchOver).seconds_survived
-		var best: float = Settings.get_value(&"best_time")
+		var best := Settings.best_time
 		if survived > best:
-			Settings.set_value(&"best_time", survived)
+			Settings.best_time = survived
 
 
 static func _label(parent: Control, variation: StringName, align: HorizontalAlignment) -> Label:

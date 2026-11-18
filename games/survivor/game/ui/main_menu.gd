@@ -1,6 +1,6 @@
 extends Node
 ## The main menu's backdrop: the arena with crates and barrels where the sim places them (`Unified.constants.items`),
-## resting on the floor (visual only, nothing simulates them here). The menu itself is the games' shared one.
+## resting on the floor (visual only, nothing simulates them here). The menu itself is menu.tscn.
 
 ## A body's centre at rest by item kind: a 1 m box, a 0.4 m capsule with a 0.3 m half-height.
 const REST_Y := {EnumItemKind.CRATE: 0.5, EnumItemKind.BARREL: 0.7}

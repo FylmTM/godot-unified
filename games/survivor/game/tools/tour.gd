@@ -100,7 +100,7 @@ func _run() -> void:
 
 ## The local player's HUD row (null until the session assigns one).
 func _me() -> DataHudPlayer:
-	return game.local_player_info() as DataHudPlayer
+	return local_row()
 
 
 func _release_all() -> void:

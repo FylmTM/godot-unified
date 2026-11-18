@@ -84,7 +84,7 @@ func _me() -> Node3D:
 
 ## What the local player holds (NONE while they hold no slot).
 func _holding() -> int:
-	var me := game.local_player_info() as DataHudPlayer
+	var me := local_row()
 	return me.holding if me != null else EnumHeldKind.NONE
 
 

@@ -5,9 +5,14 @@ description: Building, running and checking a Godot game under games/<game> (sur
 
 # Working on a Godot game
 
-A game is a Godot project in `games/<game>/` (`res://`): Odin in `simulation/`, everything Godot in `game/`.
-`games/shared` (its SPEC.md) is mirrored into each game's `addons/shared/` before every run. Every command builds a
-stale extension and re-imports changed files first: there is no separate build or import step.
+A game is a Godot project in `games/<game>/` (`res://`): Odin in `simulation/`, everything Godot in `game/`, the
+library's tool scripts mirrored into `addons/unified/` before every run. Every command builds a stale extension and
+re-imports changed files first: there is no separate build or import step.
+
+survivor, friendslop and drift each own a copy of the same app layer: `game/app/` (the `Game`, `Settings`, `Sfx` and
+`LibraryCheck` autoloads), the menus and HUD panels in `game/ui/`, `game/tools/menu_tool.gd` and `ui_walk.gd`. **A
+change to the app layer lands in every game in the same PR**, unless a game differs on purpose. Nothing compares
+them.
 
 ## The loop, cheapest first
 

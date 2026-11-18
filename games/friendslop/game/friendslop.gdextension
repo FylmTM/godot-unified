@@ -1,6 +1,6 @@
 ; The game's GDExtension: the friendslop sim + unified (godot, view, netcode, devui), built from
 ; simulation/extension into the hidden artifacts folder (git-ignored). Without it the game shows a fatal "game
-; library failed to load" screen (games/shared LibraryCheck).
+; library failed to load" screen (game/app/library_check.gd).
 [configuration]
 
 entry_symbol = "friendslop_init"

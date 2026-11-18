@@ -118,13 +118,12 @@ for batch files); the config readers (`pins.cfg`, `.env`) accept either.
 
 ## Test suites and tool scripts
 
-- **Shared Godot code**: a project's `games/shared` (this repo: the demo games' code) is mirrored into a game that
-  uses it (its `project.godot` names `res://addons/shared/`) as `addons/shared/` before every Godot run (git-ignored
-  there; a copy edited in place stops the run; a `.uid` Godot writes for a new shared script is copied back).
-  unified's `src/godot/tools` (`UnifiedTool`, `UnifiedValidate`, `UnifiedCoop`, the level exporter) is mirrored the same way into
-  every Godot project the CLI runs Godot on, as `addons/unified/`. `bake` without a game also exports the project's
+- **The tools mirror**: unified's `src/godot/tools` (`UnifiedTool`, `UnifiedValidate`, `UnifiedCoop`, the level
+  exporter) is mirrored into every Godot project the CLI runs Godot on, as `addons/unified/`, before every Godot run
+  (git-ignored there; a copy edited in place stops the run; a `.uid` Godot writes for a new tool script is copied
+  back). A game's own Godot code is all in the game: nothing else is mirrored. `bake` without a game also exports the project's
   own level scenes (`Project_Config.bake`; this repo: the 2D fixture `tests/level` reads).
-- **Tool scripts** are a game's `game/tools/<name>.gd`, else `games/shared/tools/<name>.gd`, else unified's
+- **Tool scripts** are a game's `game/tools/<name>.gd`, else unified's
   `src/godot/tools/<name>.gd`; run with Godot's `-s`. Each prints one `UNIFIED_RESULT {json}` line (`ok`, `errors`,
   its own data). Headless runs have the debugger on (`-d`, which prints GDScript warnings); a child's stdin holds
   `quit`, so a run stopped at the debugger prompt quits at once. A run killed at its timeout is killed with what it

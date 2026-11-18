@@ -53,10 +53,10 @@ func _process(delta: float) -> void:
 	_ready_pulse = maxf(_ready_pulse - delta * 3.0, 0.0)
 	_leaving = move_toward(_leaving, 1.0 if _gone else 0.0, delta * 4.0)
 	_follow_slot()
-	var local := view.player == Game.local_player()
+	var local := view.player == Unified.session.local_player
 	_tag.visible = not local and _leaving < 0.5
 	if _tag.visible:
-		var tag := Game.player_name(view.player)  # the synced name, else "P<slot + 1>"
+		var tag := Unified.session.get_player_name(view.player)  # the synced name, else "P<slot + 1>"
 		if _tag.text != tag:
 			_tag.text = tag
 		_tag.global_position = global_position + Vector2(-80, -_r - 26)
@@ -115,7 +115,7 @@ func _sim_revived() -> void:
 ## Effects play once, when an event is first shown (predicted, or confirmed when nothing predicted it). A cancelled
 ## shot is undone (its flash and sound: by its event id); the other effects are short and left as they played.
 func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
-	var local := view.player == Game.local_player()
+	var local := view.player == Unified.session.local_player
 	if event is EventFired:  # predicted (a remote ship's trigger): a rollback may cancel it; undo the flash and sound
 		match state:
 			UnifiedSession.EVENT_EMITTED:
@@ -148,7 +148,7 @@ func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 
 ## The hull and tag in the colour of the slot the player holds (kept while they are away: the view lingers).
 func _follow_slot() -> void:
-	var slot := Game.player_slot(view.player)
+	var slot := Unified.session.get_player_slot(view.player)
 	if slot < 0 or slot == _slot:
 		return
 	_slot = slot

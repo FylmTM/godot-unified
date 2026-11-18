@@ -1,6 +1,6 @@
 extends CanvasLayer
 ## The in-game HUD, driven by `Unified.data.hud` (the session data, simulation/extension/hud.odin) every frame: the local
-## player card (HP, XP, level), wave, time and enemies, the shared session panel and controls list, the start hint,
+## player card (HP, XP, level), wave, time and enemies, the session panel and controls list, the start hint,
 ## banners, the level-up choice and the match-over panel.
 ## In-game buttons never take focus: Space and pad A are the dash, not "press the focused button".
 
@@ -86,7 +86,7 @@ func _process(delta: float) -> void:
 func _refresh(delta: float) -> void:
 	var hud := Unified.data.hud
 	var phase := hud.phase
-	var me := Game.local_player_info() as DataHudPlayer
+	var me := _local_row()
 	var lobby := phase == EnumPhase.LOBBY
 	var wave := hud.wave
 	var alive := me != null and me.alive
@@ -98,9 +98,9 @@ func _refresh(delta: float) -> void:
 
 	# Local player card.
 	if me != null:
-		var player := Game.local_player()
-		_card_name.text = Game.player_name(player)
-		_card_name.add_theme_color_override(&"font_color", UiTheme.player_color(Game.player_slot(player)))
+		var player := Unified.session.local_player
+		_card_name.text = Unified.session.get_player_name(player)
+		_card_name.add_theme_color_override(&"font_color", UiTheme.player_color(Unified.session.get_player_slot(player)))
 		_card_level.text = "LV %d" % level
 		_hp.max_value = hp_max
 		_hp.value = hp
@@ -189,10 +189,10 @@ func _on_match_over(time_s: float, wave: int, level: int, enemies: int) -> void:
 	_over_title.text = "GAME OVER"
 	_over_survived.text = "You survived %s" % _clock(time_s)
 	_over_stats.text = "Wave %d  ·  level %d  ·  %d enemies left" % [wave, level, enemies]
-	var best: float = Settings.get_value(&"best_time")
+	var best := Settings.best_time
 	_new_best = time_s > best + 0.01
 	if _new_best:
-		Settings.set_value(&"best_time", time_s)
+		Settings.best_time = time_s
 	_over_best.text = "New best!" if _new_best else "Best: %s" % _clock(best)
 	_over_best.add_theme_color_override(&"font_color", UiTheme.GOLD if _new_best else UiTheme.TEXT_DIM)
 	_over_panel.pivot_offset = _over_panel.size / 2.0
@@ -237,13 +237,13 @@ func _update_controls(choosing: bool) -> void:
 ## The session panel's rows: everyone present, with their level and HP in a match.
 func _session_rows(lobby: bool) -> Array[Dictionary]:
 	var rows: Array[Dictionary] = []
-	for player in Game.present_players():
-		var info := Game.player_info(player) as DataHudPlayer
+	for player in Unified.session.get_players():
+		var info := Unified.data.hud.players[Unified.session.get_player_slot(player)] as DataHudPlayer
 		var status := "ready"
 		if not lobby:
 			status = "down %.0fs" % ceilf(info.respawn_s) if not info.alive else "LV %d" % info.level
 		var bar := -1.0 if lobby else float(info.hp) / maxf(info.hp_max, 1.0)
-		rows.append({"player": player, "name": Game.player_name(player), "status": status, "bar": bar})
+		rows.append({"player": player, "name": Unified.session.get_player_name(player), "status": status, "bar": bar})
 	return rows
 
 
@@ -251,7 +251,7 @@ func _session_rows(lobby: bool) -> Array[Dictionary]:
 func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
-	var local := Game.local_player()
+	var local := Unified.session.local_player
 	if event is EventMatchStarted:
 		_show_banner("SURVIVE!", UiTheme.ACCENT)
 		_flash.color.a = 0.12
@@ -296,7 +296,7 @@ func _choose(option: int) -> void:
 	var card: DataUpgradeCard = cards[option - 1]
 	var pick := CommandPick.new()
 	pick.upgrade = card.upgrade
-	Game.send_command(pick)
+	Unified.session.send_command(pick)
 
 
 ## A player's name for a banner: the session's (it still knows a player who left), else "P<slot + 1>".
@@ -308,3 +308,9 @@ func _name_of(player: int, slot: int) -> String:
 static func _clock(seconds: float) -> String:
 	var s := int(seconds)
 	return "%02d:%02d" % [floori(s / 60.0), s % 60]
+
+
+## The local player's row of the HUD data (null until they hold a slot).
+func _local_row() -> DataHudPlayer:
+	var slot := Unified.session.get_player_slot(Unified.session.local_player)
+	return Unified.data.hud.players[slot] as DataHudPlayer if slot >= 0 else null

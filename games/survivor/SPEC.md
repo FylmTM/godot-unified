@@ -222,23 +222,21 @@ project.godot          Forward+, 1280x720, canvas_items stretch, InputMap, autol
 export_presets.cfg     "macOS" (universal, thinned by `uni release`) and "Windows Desktop"; library from .out/bin/;
                        the tool scripts are excluded
 unified_index.tres     the view index (`uni bake survivor`): each scene view kind's scene
-addons/shared/         games/shared, mirrored by uni (git-ignored): flow, settings, menus, HUD panels, tools
 addons/unified/        src/godot/tools, mirrored by uni (git-ignored): UnifiedTool, UnifiedValidate, the level exporter
 game/survivor.gdextension   entry unified_init, res://.out/bin/libsurvivor.dylib | survivor.dll | libsurvivor.so
-game/autoload/         the shared Settings (+ render scale, best time) and Sfx (+ survivor's sounds); Game is the
-                       shared one
-game/ui/               the HUD; the menu scene (the arena with props behind the shared menu)
+game/app/              the autoloads: Game (the flow), Settings, Sfx, LibraryCheck; the bus layout
+game/ui/               the HUD, the menus and panels; the menu scene (the arena with props behind the menu)
 game/arena/            level (floor, walls, pillars, lights), start circle, arena (views root, MultiMesh views,
                        camera), follow camera
 game/views/            the scene views: player, crate, barrel; multi_view.gd (the MultiMesh views' script)
 game/fx/, game/shaders/  event effects; floor, start circle, multi views (toon + hit flash), gem shaders
-game/tools/            survivor's own tool steps (validate, ui_walk, coop extend the shared ones), tour, play_check
+game/tools/            tool scripts: validate, ui_walk, coop (on the library's), tour, menu_tool
 ```
 
 ### Flow
 
-The flow is the shared one (`games/shared/SPEC.md`), on the game library's `UnifiedSession` (without the library the
-shared LibraryCheck autoload shows "game library failed to load" with Quit). The sim's own phases (lobby → match →
+The flow is `game/app/game.gd`, on the game library's `UnifiedSession` (without the library the
+LibraryCheck autoload shows "game library failed to load" with Quit). The sim's own phases (lobby → match →
 over → lobby) are read from the HUD's session data (`Unified.data.hud.phase`, an `EnumPhase` value); the arena never
 reloads between matches.
 

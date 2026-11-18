@@ -409,7 +409,7 @@ lint_sim_rule_extra_imports :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(lint.scan(lint.sim_rule("mygame", "", {"../sim", "../physics"}), "b.odin", own)), 0)
 }
 
-// A game's export leaves out the tool scripts: its own (game/tools), the shared kit's and the library's (the
+// A game's export leaves out the tool scripts: its own (game/tools) and the library's (the
 // addons/unified mirror). Every preset's exclude_filter names them (Godot reads the filters per preset).
 @(test)
 game_exports_leave_out_the_tools :: proc(t: ^testing.T) {
@@ -419,9 +419,7 @@ game_exports_leave_out_the_tools :: proc(t: ^testing.T) {
 			context.temp_allocator,
 		)
 		if err != nil do continue // no export
-		project, _ := os.read_entire_file(fmt.tprintf("%s/%s/project.godot", GAMES_DIR, game), context.temp_allocator)
-		tools := []string{"game/tools/*", "addons/unified/*", "addons/shared/tools/*"}
-		if !strings.contains(string(project), "res://addons/shared/") do tools = tools[:2]
+		tools := []string{"game/tools/*", "addons/unified/*"}
 		filters := 0
 		text := string(presets)
 		for line in strings.split_lines_iterator(&text) {

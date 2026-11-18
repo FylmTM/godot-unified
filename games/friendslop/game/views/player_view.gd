@@ -27,7 +27,7 @@ var _t := 0.0
 
 func _ready() -> void:
 	var player := _view_marker.player
-	var c := UiTheme.player_color(Game.player_slot(player))  # the session panel's colour of this player
+	var c := UiTheme.player_color(Unified.session.get_player_slot(player))  # the session panel's colour of this player
 	_body = Node3D.new()
 	add_child(_body)
 	var radius := Unified.constants.player_radius
@@ -91,10 +91,10 @@ func _process(delta: float) -> void:
 	_ring.visible = charge > 0.01
 	_ring.scale = Vector3.ONE * (0.6 + charge * 0.8)
 	var player := _view_marker.player
-	var player_name := Game.player_name(player)
+	var player_name := Unified.session.get_player_name(player)
 	if _tag.text != player_name:
 		_tag.text = player_name
-	_tag.visible = player != Game.local_player()
+	_tag.visible = player != Unified.session.local_player
 
 
 ## Effects play once, when the event is first shown (predicted, or confirmed when nothing predicted it).
@@ -116,7 +116,7 @@ func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	elif event is EventHit:
 		_squash = 0.8
 		Sfx.play(&"hit")
-		if _view_marker.player == Game.local_player():
+		if _view_marker.player == Unified.session.local_player:
 			Game.rumble(0.4, 0.6, 0.25)
 	elif event is EventBrokeFree:
 		Sfx.play(&"pop", 0.0, 1.8)

@@ -48,7 +48,7 @@ func _ready() -> void:
 	_mesh.set_surface_override_material(0, _mat)
 	_ring_mat = _ring.get_surface_override_material(0).duplicate() as StandardMaterial3D
 	_ring.set_surface_override_material(0, _ring_mat)
-	_color_slot(maxi(Game.player_slot(player), 0))
+	_color_slot(maxi(Unified.session.get_player_slot(player), 0))
 
 
 ## Colours the player as `slot`'s.
@@ -104,9 +104,9 @@ func _sim_revived() -> void:
 
 
 func _update_hud_state(dt: float) -> void:
-	var slot := Game.player_slot(player)
+	var slot := Unified.session.get_player_slot(player)
 	if slot >= 0:
-		_label.text = Game.player_name(player)
+		_label.text = Unified.session.get_player_name(player)
 		if slot != _slot:
 			_color_slot(slot)
 	if _flash > 0.0:
@@ -135,4 +135,4 @@ func _spawn_ghost() -> void:
 
 
 func _is_local() -> bool:
-	return player == Game.local_player()
+	return player == Unified.session.local_player

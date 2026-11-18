@@ -3,7 +3,7 @@ extends MultiMeshInstance2D
 ## the bullet's velocity (scale per axis); the shader tints it with the owner's slot colour (custom.x = the owner's
 ## slot, -1 once they have left).
 
-## Loaded in _ready, not preloaded: the play scene loads on a thread (games/shared/SPEC.md, Play scene).
+## Loaded in _ready, not preloaded: the play scene loads on a thread (game/ui/menu.gd).
 const SHADER := "res://game/shaders/bullet.gdshader"
 
 
