@@ -233,10 +233,11 @@ save, the events). Ticks count from 1; tick 0 is the initial state.
   `restore` take the ring slot; `hash(tick, out)` covers the whole internal state on multiples of
   `DEEP_CHECKSUM_EVERY` (the ticks the netcode compares) and may cover less otherwise; `image(slot, live)` and
   `load(bytes)` are its portable form (`live`: the slot is the current tick's, saved after its last change, so the
-  live state may be imaged as it is); optional `size(slot)` (what a slot's save holds) and `check(state) -> string`
-  ("" when it agrees with the block, else why: physics' broken refs and orphaned bodies). `check_extra(simulation)`
-  runs the check; the sync-tests run it after every restore. `save_size` and `snapshot_size` measure a tick's save
-  and its portable image.
+  live state may be imaged as it is); optional `keep(slot, index)` and `image_kept(index)` together (a slot's save
+  copied aside, imaged later: `snapshot_keep`); optional `size(slot)` (what a slot's save holds) and
+  `check(state) -> string` ("" when it agrees with the block, else why: physics' broken refs and orphaned bodies).
+  `check_extra(simulation)` runs the check; the sync-tests run it after every restore. `save_size` and
+  `snapshot_size` measure a tick's save and its portable image.
 
 ## Files
 
@@ -251,6 +252,9 @@ what the bytes hold. The byte layouts are in the headers of `log.odin` and `snap
   `unified:headless`'s (`log_write`, `log_read`): this package touches no files.
 - **Portable snapshot** (`UNIS`): seed, content hash, tick, `layout_hash(State)`, the build's compat, a payload digest,
   the block, the Extra's image. `snapshot_encode(simulation, tick)` (`snapshot_encode_into` reuses a buffer),
+  `snapshot_keep(simulation, tick, index)` (a ring tick copied into one of `KEEP_SLOTS` keep slots: the block and,
+  through the Extra's `keep`, its save; an Extra without it is imaged at once) and `snapshot_encode_kept(simulation,
+  index, out)` (the bytes `snapshot_encode` gave for that tick, after the ring moved on),
   `from_snapshot(&GAME, bytes) -> (^Sim, Snap_Error)`: `Bad_Header`, `Layout_Differs`, `Content_Differs`,
   `Build_Differs` (the same layout, another compat), `Checksum_Mismatch`, `Extra_Rejected`. The library never prints.
 - `snapshot_diff(State, a, b) -> string`: what differs between two snapshots of one build, down to the leaf field

@@ -213,6 +213,9 @@ mode_synctest :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	if result.check != "" {
 		fmt.eprintfln("synctest: after restoring tick %d: %s", result.check_tick, result.check)
 	}
+	if result.problem != "" {
+		fmt.eprintfln("synctest: %s", result.problem)
+	}
 	fmt.printfln(
 		`{{"mode":"synctest","ticks":%d,"window":%d,"seed":%d,"players":%d,"mismatches":%d,"first_mismatch":%d,"resimulated_ticks":%d,"final_checksum":"%016x"}}`,
 		ticks,
@@ -224,7 +227,7 @@ mode_synctest :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 		result.resimulated,
 		result.final_checksum,
 	)
-	return result.mismatches == 0 && result.check == ""
+	return result.mismatches == 0 && result.check == "" && result.problem == ""
 }
 
 // The `replay` mode: replays an input log file (from tick 0, or from a portable snapshot: an F3 note's recording),
@@ -286,7 +289,7 @@ mode_bench :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 		result.warmup,
 	)
 	fmt.printfln(
-		`{{"mode":"bench","what":"%s","entities":%d,"window":%d,"ticks":%d,"warmup":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"resim_final_us":%s,"checksum_us":%s,"checksum_deep_us":%s,"snapshot_encode_us":%s,"snapshot_bytes":%d,"save_bytes":%d,"mismatches":%d}}`,
+		`{{"mode":"bench","what":"%s","entities":%d,"window":%d,"ticks":%d,"warmup":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"resim_final_us":%s,"checksum_us":%s,"checksum_deep_us":%s,"snapshot_encode_us":%s,"snapshot_keep_us":%s,"snapshot_bytes":%d,"save_bytes":%d,"mismatches":%d}}`,
 		what,
 		entities,
 		window,
@@ -300,6 +303,7 @@ mode_bench :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 		stat_json(result.checksum),
 		stat_json(result.checksum_deep),
 		stat_json(result.snapshot_encode),
+		stat_json(result.snapshot_keep),
 		result.snapshot_bytes,
 		result.save_bytes,
 		result.mismatches,

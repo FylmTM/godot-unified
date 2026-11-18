@@ -305,3 +305,43 @@ snapshot_errors_are_values :: proc(t: ^testing.T) {
 	_, ok = sim.log_decode(data, toy.Game)
 	testing.expect(t, !ok)
 }
+
+// A kept tick (snapshot_keep) encodes, after the ring moved past it, to the bytes snapshot_encode gave while the ring
+// held it: for a game without an Extra and for one whose Extra has no keep (imaged at once). Keeping again allocates
+// nothing; an empty slot or a tick out of the ring is refused.
+@(test)
+a_kept_tick_encodes_as_the_ring_did :: proc(t: ^testing.T) {
+	imaging := imaging_game()
+	for game in ([]^toy.Game{&toy.GAME, &imaging}) {
+		simulation := sim.create(game, 7)
+		defer sim.destroy(simulation)
+		out: [dynamic]u8
+		defer delete(out)
+		_, _, empty := sim.snapshot_encode_kept(simulation, 0, &out)
+		testing.expect(t, !empty)
+		wanted: [sim.KEEP_SLOTS][]u8
+		defer for bytes in wanted do delete(bytes)
+		for k in 0 ..< sim.KEEP_SLOTS {
+			run(simulation, 16, 3)
+			wanted[k] = sim.snapshot_encode(simulation, simulation.tick)
+			testing.expect(t, sim.snapshot_keep(simulation, simulation.tick, k))
+		}
+		run(simulation, 2 * u32(sim.ring_size(game.tick_hz)), 3) // the kept ticks left the ring long ago
+		testing.expect(t, !sim.snapshot_keep(simulation, 16, 0))
+		testing.expect(t, !sim.snapshot_keep(simulation, simulation.tick, sim.KEEP_SLOTS))
+		for k in 0 ..< sim.KEEP_SLOTS {
+			bytes, tick, ok := sim.snapshot_encode_kept(simulation, k, &out)
+			testing.expect(t, ok && tick == u32(16 * (k + 1)))
+			testing.expectf(t, string(bytes) == string(wanted[k]), "keep slot %d: other bytes", k)
+		}
+		counting := Counting {
+			inner = context.allocator,
+		}
+		context.allocator = {counting_proc, &counting}
+		for k in 0 ..< sim.KEEP_SLOTS {
+			run(simulation, 1, 3)
+			sim.snapshot_keep(simulation, simulation.tick, k)
+		}
+		testing.expect_value(t, counting.allocs, 0)
+	}
+}

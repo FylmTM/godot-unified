@@ -121,24 +121,29 @@ Player_Changes :: struct {
 // with two kinds composes them into one). The harness calls `save`/`restore` with the ring slot (tick % ring_size),
 // so an Extra keeps one saved copy per ring slot (at most MAX_RING_SIZE).
 Extra :: struct {
-	data:    rawptr,
-	save:    proc(data: rawptr, slot: int),
-	restore: proc(data: rawptr, slot: int) -> bool,
+	data:       rawptr,
+	save:       proc(data: rawptr, slot: int),
+	restore:    proc(data: rawptr, slot: int) -> bool,
 	// Appends the canonical bytes of the current state to `out` (checksum input). On ticks that are a multiple of
 	// DEEP_CHECKSUM_EVERY (the ones the netcode compares) it covers all of its internal state; on others it may cover
 	// less (a cheaper summary).
-	hash:    proc(data: rawptr, tick: u32, out: ^[dynamic]u8),
+	hash:       proc(data: rawptr, tick: u32, out: ^[dynamic]u8),
 	// Portable bytes of a ring slot (valid until that slot is saved again or the next image). `live`: the slot holds
 	// the current tick, saved after its last change, so the live state is that slot's and the Extra may image it
 	// directly instead of putting the slot in place first (physics skips swapping its world out and back).
-	image:   proc(data: rawptr, slot: int, live: bool) -> []u8,
+	image:      proc(data: rawptr, slot: int, live: bool) -> []u8,
 	// Loads portable bytes (from `image`, possibly another machine) into the live state.
-	load:    proc(data: rawptr, bytes: []u8) -> bool,
+	load:       proc(data: rawptr, bytes: []u8) -> bool,
+	// Optional, together (snapshot_keep): `keep` copies ring slot `slot`'s save into keep slot `index` (0 ..<
+	// KEEP_SLOTS; a memcpy, this build's bytes); `image_kept` gives keep slot `index`'s portable bytes, the same `image`
+	// gave for the slot it was kept from (valid until the next image). Without them snapshot_keep images at once.
+	keep:       proc(data: rawptr, slot: int, index: int),
+	image_kept: proc(data: rawptr, index: int) -> []u8,
 	// Optional: the bytes the save of a ring slot holds (what each tick's save copies; save_size, the benchmarks).
-	size:    proc(data: rawptr, slot: int) -> int,
+	size:       proc(data: rawptr, slot: int) -> int,
 	// Optional: "" when the extra agrees with the block (`state`), else why (physics: a broken ref, an orphaned body).
 	// sim.check_extra runs it; the sync-tests run it after every restore.
-	check:   proc(data: rawptr, state: rawptr) -> string,
+	check:      proc(data: rawptr, state: rawptr) -> string,
 }
 
 // The game's Extra's check on the current state: "" when it agrees with the block (or the game has none), else why.
@@ -218,6 +223,19 @@ ring_size :: proc(tick_hz: int) -> int {
 	return dmath.clamp(tick_hz / 4, MIN_RING_SIZE, MAX_RING_SIZE)
 }
 
+// Ticks a Sim keeps aside for a portable snapshot later (snapshot_keep): the netcode keeps its last checksum ticks
+// for a desync report.
+KEEP_SLOTS :: 8
+
+// A tick kept aside: its block and (with the Extra's keep) the Extra's save, or else the Extra's image taken at once.
+@(private)
+Kept_Tick :: struct($State: typeid) {
+	tick:  u32,
+	kept:  bool,
+	state: State,
+	image: [dynamic]u8, // the Extra's portable image when it has no keep
+}
+
 @(private)
 Ring_Slot :: struct($State: typeid) {
 	tick:   u32,
@@ -246,6 +264,7 @@ Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	// Checksum input: tick, block bytes, then each Extra's bytes. Hashed one-shot, because
 	// core:hash/xxhash's streaming XXH3 (dev-2026-11) returns wrong digests for some lengths.
 	hash_buf:      [dynamic]u8,
+	kept:          []Kept_Tick(part(G, GAME_STATE)), // KEEP_SLOTS, allocated by the first snapshot_keep
 }
 
 // XXH3-64 (seed 0), one-shot.
@@ -436,6 +455,10 @@ destroy :: proc(simulation: ^Sim($G)) {
 	}
 	delete(simulation.ring)
 	delete(simulation.hash_buf)
+	for &kept in simulation.kept {
+		delete(kept.image)
+	}
+	delete(simulation.kept)
 	if simulation.game.world_destroy != nil {
 		simulation.game.world_destroy(simulation.world)
 	} else {

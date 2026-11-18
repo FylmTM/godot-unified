@@ -89,13 +89,7 @@ Snap_Req :: struct {
 	min_tick: u32,
 }
 
-// A kept snapshot of a checksum tick (Welcome's Keep_Images), for a desync report. Its buffer is reused for the next
-// tick it keeps.
-@(private)
-Kept_Image :: struct {
-	tick: u32,
-	data: [dynamic]u8, // empty: nothing kept
-}
+#assert(DESYNC_IMAGES <= usim.KEEP_SLOTS) // a kept checksum tick is a sim keep slot
 
 // Finalized ticks a client holds ahead of its verified tick (a joiner: of its snapshot's). A joiner accepts them only
 // up to FIN_RING - 64 past its snapshot until it plays, so it must be in within that plus RELAY_RING ticks of the
@@ -209,7 +203,10 @@ Client :: struct($G: typeid) {
 	snap_tick:      u32,
 	snap_begin_us:  i64, // when the snapshot's Snap_Begin came
 	checking:       bool, // our restored snapshot waits for the relay's check (Snap_Ok)
-	images:         [DESYNC_IMAGES]Kept_Image,
+	// The checksum ticks kept for a desync report (Welcome's Keep_Images), by the sim's keep slot (0: none): a copy
+	// of the tick (usim.snapshot_keep), encoded only when the relay asks for it, into image_buf.
+	kept_ticks:     [DESYNC_IMAGES]u32,
+	image_buf:      [dynamic]u8,
 	// end
 	done_sent:      bool,
 	end_us:         i64, // when End arrived or stop was called (0: not ending)
@@ -271,9 +268,7 @@ client_destroy :: proc(client: ^Client($G)) {
 	delete(client.checksums)
 	delete(client.own_cmds)
 	delete(client.cmd_out.list)
-	for image in client.images {
-		delete(image.data)
-	}
+	delete(client.image_buf)
 	delete(client.first_desync.detail)
 	delete(client.roster)
 	free(client)
@@ -478,6 +473,7 @@ on_snap_begin :: proc(client: ^Client($G), reader: ^wire.Reader, now: i64) {
 		// Our snapshot failed the relay's check: this one, from another player, replaces it.
 		usim.destroy(client.sim)
 		client.sim = nil
+		client.kept_ticks = {} // they were the old sim's
 		client.checking = false
 		client.verified, client.predicted = 0, 0
 	}
@@ -755,20 +751,27 @@ on_checksum_tick :: proc(client: ^Client($G), tick: u32, now: i64) {
 	if !wants_image(client, tick) || usim.state_at(client.sim, tick) == nil {
 		return
 	}
-	// The kept image replaces the oldest one, in its buffer; a joiner gets the same bytes.
-	data: []u8
+	// The kept tick replaces the oldest one: a copy, encoded only if the relay asks for it.
 	if client.keep_images {
 		oldest := 0
-		for image, k in client.images {
-			if image.tick < client.images[oldest].tick {
+		for kept_tick, k in client.kept_ticks {
+			if kept_tick < client.kept_ticks[oldest] {
 				oldest = k
 			}
 		}
-		client.images[oldest].tick = tick
-		data = usim.snapshot_encode_into(client.sim, tick, &client.images[oldest].data)
-	} else {
-		data = usim.snapshot_encode(client.sim, tick)
+		if usim.snapshot_keep(client.sim, tick, oldest) {
+			client.kept_ticks[oldest] = tick
+		}
 	}
+	due := false
+	for request in client.snap_reqs {
+		due ||= request.min_tick <= tick
+	}
+	if !due {
+		return
+	}
+	data := usim.snapshot_encode(client.sim, tick)
+	defer delete(data)
 	for i := 0; i < len(client.snap_reqs); {
 		request := client.snap_reqs[i]
 		if request.min_tick > tick {
@@ -778,9 +781,6 @@ on_checksum_tick :: proc(client: ^Client($G), tick: u32, now: i64) {
 		send_snapshot(client, u8(request.joiner), tick, data, now)
 		log.infof("sent snapshot of tick %d (%d bytes) for slot %d", tick, len(data), request.joiner)
 		ordered_remove(&client.snap_reqs, i)
-	}
-	if !client.keep_images {
-		delete(data)
 	}
 }
 
@@ -800,13 +800,16 @@ send_snapshot :: proc(client: ^Client($G), target: u8, tick: u32, data: []u8, no
 	}
 }
 
-// The relay asks for a kept checksum tick's snapshot (a desync report): sent, or an empty one when not kept.
+// The relay asks for a kept checksum tick's snapshot (a desync report): encoded from its copy now and sent, or an
+// empty one when not kept.
 @(private)
 send_image :: proc(client: ^Client($G), tick: u32, now: i64) {
-	for image in client.images {
-		if image.tick == tick && len(image.data) > 0 {
-			send_snapshot(client, RELAY_TARGET, tick, image.data[:], now)
-			return
+	for kept_tick, k in client.kept_ticks {
+		if kept_tick == tick && tick != 0 && client.sim != nil {
+			if bytes, kept, ok := usim.snapshot_encode_kept(client.sim, k, &client.image_buf); ok && kept == tick {
+				send_snapshot(client, RELAY_TARGET, tick, bytes, now)
+				return
+			}
 		}
 	}
 	send_snapshot(client, RELAY_TARGET, tick, nil, now)

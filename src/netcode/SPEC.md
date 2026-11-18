@@ -14,7 +14,7 @@ whichever is sooner. A host with no remote links (single player) doesn't poll: i
 what they send within the same `host_step`, so it wakes at its deadlines only. Remote links are polled every
 `POLL_US` (EOS links can't wait on a socket). The session thread allocates nothing in steady state: queued messages,
 delayed datagrams and early reliable messages take reused slots (`Slot_Pool`), the loopback hub's inboxes are byte
-queues swapped whole, a client's kept desync images reuse their buffers. `now_us()` is the monotonic time base.
+queues swapped whole, a client's kept desync ticks are the sim's keep slots. `now_us()` is the monotonic time base.
 
 A game touches the netcode through a `Lobby` (online play: `eos.lobby`), `Hooks` (through `unified:godot`'s
 driver, or directly in its tests) and `headless.session_run`; it implements no transport. The library logs through
@@ -253,7 +253,9 @@ The types and how `tick` reads them: `src/sim/SPEC.md`. Each player's commands a
   gets it, the dev UI shows it, `session_run`'s `ok` turns false. A late report that differs from a judged tick is
   reported too. Checksums of ticks the relay has not finalized are dropped.
 - **Typed reports** (`desync_detail` on the relay or host config; the Godot host turns it on where the dev UI is):
-  clients keep snapshots of their last `DESYNC_IMAGES` checksum ticks (Welcome's `Keep_Images`); on the session's
-  first desync the relay asks a majority player and a diverged one for theirs and diffs them (`sim.snapshot_diff`:
+  clients keep their last `DESYNC_IMAGES` checksum ticks (Welcome's `Keep_Images`) as copies (`sim.snapshot_keep`:
+  the block and the extra's save, a memcpy), encoded into portable snapshots only when the relay asks, so it costs
+  next to nothing unless a desync happens and stays on in every build; on the session's first desync the relay asks
+  a majority player and a diverged one for theirs and diffs them (`sim.snapshot_diff`:
   table by table, field by field, then each extra's image): "tick 4160: enemies[12].pos.x 3.25 vs 3.5". Later
   desyncs are its consequences and carry no detail.
