@@ -52,7 +52,7 @@ console_logger :: proc(name: string) -> log.Logger {
 // netcode's cost (wall time is the clients' and the relay's CPU time), rollbacks, stalls, step times, bytes per
 // second, a late joiner's join; fails on a desync. `uni bench` runs it under `bad` and under `wan` with a late joiner.
 @(private)
-mode_session :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
+mode_session :: proc(game: ^$G, args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	cfg := uheadless.Session_Config {
 		clients = opt_int(args, "clients", min(PLAYERS, 4), low = 1, high = PLAYERS),
@@ -92,14 +92,14 @@ mode_session :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 		cfg.late_as_player = true // the join row times what a player waits
 	}
 	start := time.tick_now()
-	result := uheadless.session_run(headless, cfg)
+	result := uheadless.session_run(game, cfg)
 	defer uheadless.session_result_destroy(&result)
 	wall_ms := time.duration_milliseconds(time.tick_since(start))
 	ok := result.ok
 	if path := opt_str(args, "log"); path != "" {
 		ok &&= uheadless.log_write(path, &result.log)
 	}
-	seconds := f64(cfg.ticks) / f64(headless.game.tick_hz)
+	seconds := f64(cfg.ticks) / f64(game.tick_hz)
 	rollbacks, depth_sum, resim_ticks, stall_ticks, resends, client_bytes: int
 	steps: [netcode.Step_Kind]int
 	step_us: [netcode.Step_Kind]i64
@@ -132,7 +132,7 @@ mode_session :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 		cfg.profile.latency / 1000,
 		cfg.profile.jitter / 1000,
 		cfg.ticks,
-		headless.game.tick_hz,
+		game.tick_hz,
 		wall_ms,
 		strings.join(delays[:], ",", context.temp_allocator),
 		rollbacks,
@@ -169,7 +169,7 @@ mode_session :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 // The `relay` mode: a relay alone on a local UDP port, run until its session ends, for the multi-process test
 // (`uni test --suite net`) with `client` processes; fails on a desync.
 @(private)
-mode_relay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
+mode_relay :: proc(game: ^$G, args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	context.logger = console_logger("relay")
 	defer log.destroy_console_logger(context.logger)
@@ -180,13 +180,10 @@ mode_relay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	if !link_ok {
 		die("relay: cannot bind UDP port %d", port)
 	}
-	relay := netcode.relay_create(
-		headless.game,
-		{seed = 1, ticks = ticks, start_players = players, recording = log_opt(args)},
-	)
+	relay := netcode.relay_create(game, {seed = 1, ticks = ticks, start_players = players, recording = log_opt(args)})
 	defer netcode.relay_destroy(relay)
 	netcode.relay_add_link(relay, link)
-	ok := uheadless.run_relay(relay, uheadless.session_timeout_s(ticks, headless.game.tick_hz))
+	ok := uheadless.run_relay(relay, uheadless.session_timeout_s(ticks, game.tick_hz))
 	ok &&= netcode.relay_end_recording(relay)
 	fmt.printfln(
 		`{{"mode":"relay","desyncs":%d,"replaced_inputs":%d,"finalized":%d,"net":%s,"ok":%v}}`,
@@ -202,7 +199,7 @@ mode_relay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 // The `client` mode: one scripted client connecting to a `relay` process over UDP, behind a netsim profile;
 // prints its result as the JSON line.
 @(private)
-mode_client :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
+mode_client :: proc(game: ^$G, args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	address := opt_str(args, "connect", required = true)
 	endpoint, endpoint_ok := cnet.parse_endpoint(address)
@@ -219,12 +216,12 @@ mode_client :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	}
 	link = netcode.netsim_wrap(link, profile_opt(args, .Ideal), u32(slot) * 104729 + 17)
 	scripted := uheadless.Scripted_User(G) {
-		headless = headless,
-		seed     = 1,
+		game = game,
+		seed = 1,
 	}
-	client := netcode.client_create(headless.game, {slot = slot}, link, uheadless.scripted_hooks(&scripted))
+	client := netcode.client_create(game, {slot = slot}, link, uheadless.scripted_hooks(&scripted))
 	defer netcode.client_destroy(client)
-	ok := uheadless.run_client(client, uheadless.session_timeout_s(ticks, headless.game.tick_hz))
+	ok := uheadless.run_client(client, uheadless.session_timeout_s(ticks, game.tick_hz))
 	if client.ticks != 0 && client.ticks != ticks {
 		fmt.eprintfln("client: the relay runs %d ticks, --ticks says %d", client.ticks, ticks)
 		ok = false
@@ -235,10 +232,10 @@ mode_client :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 
 // The build a lobby mode opens its lobby with: the game's name (or --bucket), its build id and player count.
 @(private)
-lobby_build :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> netcode.Lobby_Build {
+lobby_build :: proc(game: ^$G, args: ^Args) -> netcode.Lobby_Build {
 	return {
-		game    = opt_str(args, "bucket", headless.game.name),
-		compat  = sim.compat_of(headless.game),
+		game    = opt_str(args, "bucket", game.name),
+		compat  = sim.compat_of(game),
 		version = "headless", // the readable version a joiner on another build is shown
 		players = sim.part(G, sim.GAME_PLAYERS),
 	}
@@ -262,7 +259,7 @@ lobby_wait_ready :: proc(lobby: ^netcode.Lobby, timeout_s: f64) -> (status: netc
 
 // The `<name>-host` mode: opens a lobby on the game's lobby service, prints its code and hosts a scripted session
 // over it; ok once the host verified every tick, `--players` joined and nobody desynced.
-mode_lobby_host :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
+mode_lobby_host :: proc(game: ^$G, args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	lobby := args.lobby
 	context.logger = console_logger("host")
@@ -274,7 +271,7 @@ mode_lobby_host :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool 
 	want := opt_int(args, "players", 2, low = 1, high = PLAYERS) // the session counts as played once this many joined
 	defer if lobby.shutdown != nil do lobby.shutdown()
 	started := time.tick_now()
-	link, link_ok := lobby.open_host(lobby_build(headless, args))
+	link, link_ok := lobby.open_host(lobby_build(game, args))
 	if !link_ok {
 		fmt.eprintfln("%s: %s", args.mode, lobby.pump().detail)
 		return false
@@ -309,18 +306,18 @@ mode_lobby_host :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool 
 		)
 	}
 	scripted := uheadless.Scripted_User(G) {
-		headless = headless,
-		seed     = 1,
+		game = game,
+		seed = 1,
 	}
 	host := netcode.host_create(
-		headless.game,
+		game,
 		{seed = 1, ticks = ticks, recording = log_opt(args)},
 		uheadless.scripted_hooks(&scripted),
 	)
 	defer netcode.host_destroy(host)
 	netcode.host_add_link(host, link)
 	link_ours = false
-	deadline := netcode.now_us() + i64(uheadless.session_timeout_s(ticks, headless.game.tick_hz) * 1e6)
+	deadline := netcode.now_us() + i64(uheadless.session_timeout_s(ticks, game.tick_hz) * 1e6)
 	for !netcode.host_finished(host) {
 		now := netcode.now_us()
 		wake := netcode.host_step(host, now) // the lobby's link drives the service when it finds nothing to read
@@ -351,7 +348,7 @@ mode_lobby_host :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool 
 
 // The `<name>-client` mode: joins a `<name>-host` lobby by `--code` and plays a scripted remote player to the end of
 // the host's session.
-mode_lobby_client :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
+mode_lobby_client :: proc(game: ^$G, args: ^Args) -> bool {
 	lobby := args.lobby
 	context.logger = console_logger("client")
 	defer log.destroy_console_logger(context.logger)
@@ -359,7 +356,7 @@ mode_lobby_client :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> boo
 	ticks := u32(opt_int(args, "ticks", required = true, low = 1, high = 1_000_000))
 	defer if lobby.shutdown != nil do lobby.shutdown()
 	started := time.tick_now()
-	link, link_ok := lobby.open_join(lobby_build(headless, args), code)
+	link, link_ok := lobby.open_join(lobby_build(game, args), code)
 	if !link_ok {
 		fmt.eprintfln("%s: %s", args.mode, lobby.pump().detail)
 		return false
@@ -375,13 +372,13 @@ mode_lobby_client :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> boo
 	join_ms := time.duration_milliseconds(time.tick_since(started))
 	fmt.eprintfln("%s: joined %s as %s, host %s (%.0f ms)", args.mode, status.code, status.local, status.host, join_ms)
 	scripted := uheadless.Scripted_User(G) {
-		headless = headless,
-		seed     = 1,
+		game = game,
+		seed = 1,
 	}
-	client := netcode.client_create(headless.game, {slot = -1}, link, uheadless.scripted_hooks(&scripted))
+	client := netcode.client_create(game, {slot = -1}, link, uheadless.scripted_hooks(&scripted))
 	link_ours = false
 	defer netcode.client_destroy(client)
-	ok = uheadless.run_client(client, uheadless.session_timeout_s(ticks, headless.game.tick_hz))
+	ok = uheadless.run_client(client, uheadless.session_timeout_s(ticks, game.tick_hz))
 	if client.ticks != 0 && client.ticks != ticks {
 		fmt.eprintfln("%s: the host runs %d ticks, --ticks says %d", args.mode, client.ticks, ticks)
 		ok = false

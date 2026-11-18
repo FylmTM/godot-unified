@@ -3,6 +3,7 @@
 // tests/scenarios, the seeded-bug eval.)
 package test_headless
 
+import "../toy"
 import "core:log"
 import "core:testing"
 
@@ -20,7 +21,7 @@ inputs_count_past_the_round_trip_ceiling :: proc(t: ^testing.T) {
 		ticks = 1200,
 		seed = 1,
 	}
-	result := headless.session_run(&HEADLESS, cfg)
+	result := headless.session_run(&toy.GAME, cfg)
 	defer headless.session_result_destroy(&result)
 	testing.expect(t, result.ok)
 	testing.expectf(t, result.replaced == 0, "%d of %d inputs replaced", result.replaced, 2 * cfg.ticks)
@@ -39,7 +40,7 @@ input_delay_stays_at_the_floor_within_the_window :: proc(t: ^testing.T) {
 		ticks = 640,
 		seed = 1,
 	}
-	result := headless.session_run(&HEADLESS, cfg)
+	result := headless.session_run(&toy.GAME, cfg)
 	defer headless.session_result_destroy(&result)
 	testing.expect(t, result.ok)
 	for client in result.clients {
@@ -91,9 +92,6 @@ WIDE_GAME := Wide_Game {
 // trip: on `bad` (a round trip is ~16 ticks, 70 bytes each here) a client keeps up instead of stalling on most ticks.
 @(test)
 a_wide_tick_keeps_up_on_a_bad_network :: proc(t: ^testing.T) {
-	wide := headless.Headless(Wide_Game) {
-		game = &WIDE_GAME,
-	}
 	cfg := headless.Session_Config {
 		clients = 4,
 		profile = netcode.PROFILES[.Bad],
@@ -101,7 +99,7 @@ a_wide_tick_keeps_up_on_a_bad_network :: proc(t: ^testing.T) {
 		seed    = 1,
 		churn   = true,
 	}
-	result := headless.session_run(&wide, cfg)
+	result := headless.session_run(&WIDE_GAME, cfg)
 	defer headless.session_result_destroy(&result)
 	testing.expect(t, result.ok)
 	stalls := 0

@@ -16,7 +16,7 @@ import "unified:sim"
 // standard scenario at full length (src/headless/SPEC.md, Running). The toy's suite always does.
 LONG :: #config(UNIFIED_LONG_TESTS, false)
 
-// A game's suite: its headless descriptor and the parameters of its runs.
+// A game's suite: the game and the parameters of its runs.
 Suite :: struct($G: typeid) {
 	game:    ^G, // its scripted player (sim.Game.scripted_input) plays every run, on its level (sim.Game.content)
 	players: int, // scripted players in offline runs
@@ -38,16 +38,10 @@ Reference :: struct {
 	log:           u64, // the hash of the input log's bytes
 }
 
-// The headless runs of a suite's game.
-@(private)
-headless_of :: proc(suite: ^Suite($G)) -> headless.Headless(G) {
-	return {game = suite.game}
-}
 
 // Restoring `window` ticks back and re-simulating, every tick, reproduces every tick's checksum.
 // `window` is at most headless.max_window(game) (the game's ring).
 rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
-	runs := headless_of(suite)
 	longest := headless.max_window(suite.game)
 	if !testing.expectf(
 		t,
@@ -58,7 +52,7 @@ rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 	) {
 		return
 	}
-	result := headless.run_synctest(&runs, suite.ticks, window, suite.seed, suite.players)
+	result := headless.run_synctest(suite.game, suite.ticks, window, suite.seed, suite.players)
 	testing.expectf(
 		t,
 		result.mismatches == 0,
@@ -116,7 +110,6 @@ expect_synced :: proc(t: ^testing.T, run: ^headless.Run($G), loc := #caller_loca
 // tick matches the forward run and the Extra agrees after every restore. (What the presence itself does, handles and
 // join events, is sim.Players', proven in tests/sim; a game proves what its own things do.)
 presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
-	runs := headless_of(suite)
 	what := fmt.tprintf("presence_churn (window %d; %s)", window, params(suite))
 	if !testing.expectf(
 		t,
@@ -135,7 +128,7 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 		{tick = start + 12, slot = back, member = 0},
 		{tick = start + 20, slot = back, member = 1}, // member 1 comes back in another slot
 	}
-	result := headless.run_synctest(&runs, suite.ticks, window, suite.seed, suite.players, seats)
+	result := headless.run_synctest(suite.game, suite.ticks, window, suite.seed, suite.players, seats)
 	testing.expectf(
 		t,
 		result.mismatches == 0,
@@ -152,8 +145,7 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 // Two scripted runs with the same parameters compute the same ticks, alive in one process at once: the
 // second created halfway through the first, then stepped alongside it and on after it (headless.run_interleaved).
 runs_match :: proc(t: ^testing.T, suite: ^Suite($G)) {
-	runs := headless_of(suite)
-	result := headless.run_interleaved(&runs, suite.ticks, suite.seed, suite.players)
+	result := headless.run_interleaved(suite.game, suite.ticks, suite.seed, suite.players)
 	testing.expectf(
 		t,
 		result.mismatches == 0,
@@ -228,9 +220,6 @@ late_join_agrees :: proc(t: ^testing.T, suite: ^Suite($G), profile: netcode.Netw
 // run `uni headless <game> -- sim --trace FILE` on both and compare the files. A new game pins its first one with the
 // four parameters set (seed, players, ticks, snapshot_tick): the run then prints the rest.
 reference_reproduces :: proc(t: ^testing.T, game: ^$G, reference: Reference) {
-	runs := headless.Headless(G) {
-		game = game,
-	}
 	what := fmt.tprintf("reference_reproduces (%s)", ref_params(reference))
 	if !testing.expectf(
 		t,
@@ -244,7 +233,7 @@ reference_reproduces :: proc(t: ^testing.T, game: ^$G, reference: Reference) {
 	defer headless.trace_destroy(&trace)
 	input_log: sim.Input_Log(G)
 	defer sim.log_destroy(&input_log)
-	headless.run_sim(&runs, reference.ticks, reference.seed, reference.players, &trace, &input_log)
+	headless.run_sim(game, reference.ticks, reference.seed, reference.players, &trace, &input_log)
 	got := reference
 	for &checkpoint, k in got.checkpoints {
 		checkpoint, _ = headless.trace_at(&trace, u32(k + 1) * reference.ticks / 4)
@@ -253,7 +242,7 @@ reference_reproduces :: proc(t: ^testing.T, game: ^$G, reference: Reference) {
 	log_bytes := sim.log_encode(&input_log)
 	defer delete(log_bytes)
 	got.log = sim.hash_bytes(log_bytes)
-	snapshot, _ := headless.run_snapshot(&runs, reference.snapshot_tick, reference.seed, reference.players)
+	snapshot, _ := headless.run_snapshot(game, reference.snapshot_tick, reference.seed, reference.players)
 	defer delete(snapshot)
 	got.snapshot = sim.hash_bytes(snapshot)
 	if got != reference {
@@ -283,14 +272,14 @@ reference_reproduces :: proc(t: ^testing.T, game: ^$G, reference: Reference) {
 	defer sim.log_destroy(&decoded)
 	replayed: headless.Trace
 	defer headless.trace_destroy(&replayed)
-	if _, replay_ok := headless.run_replay(&runs, &decoded, &replayed);
+	if _, replay_ok := headless.run_replay(game, &decoded, &replayed);
 	   testing.expectf(t, decoded_ok && replay_ok, "%s: the log does not decode and replay", what) {
 		expect_trace(t, what, "the replay", &replayed, &trace)
 	}
 	resumed: headless.Trace
 	defer headless.trace_destroy(&resumed)
 	resume_ticks := reference.ticks - reference.snapshot_tick
-	if result, resume_ok := headless.run_resume(&runs, snapshot, resume_ticks, reference.players, &resumed);
+	if result, resume_ok := headless.run_resume(game, snapshot, resume_ticks, reference.players, &resumed);
 	   testing.expectf(
 		   t,
 		   resume_ok && result.final_tick == reference.ticks,
@@ -378,8 +367,7 @@ session :: proc(
 	late_tick: u32 = 0,
 	churn := false,
 ) -> headless.Session_Result(G) {
-	runs := headless_of(suite)
-	return headless.session_run(&runs, {
+	return headless.session_run(suite.game, {
 		clients   = clients,
 		profile   = netcode.PROFILES[profile],
 		ticks     = suite.ticks,
@@ -497,7 +485,6 @@ check_session :: proc(
 // The relay's input log of a session replays offline to every checksum each client verified.
 @(private)
 expect_log_replays :: proc(t: ^testing.T, what: string, suite: ^Suite($G), result: ^headless.Session_Result(G)) {
-	runs := headless_of(suite)
 	if !testing.expectf(
 		t,
 		len(result.log.ticks) == int(suite.ticks),
@@ -509,7 +496,7 @@ expect_log_replays :: proc(t: ^testing.T, what: string, suite: ^Suite($G), resul
 	}
 	trace: headless.Trace
 	defer headless.trace_destroy(&trace)
-	if _, ok := headless.run_replay(&runs, &result.log, &trace);
+	if _, ok := headless.run_replay(suite.game, &result.log, &trace);
 	   !testing.expectf(t, ok, "%s: the relay's log does not replay", what) {
 		return
 	}

@@ -6,7 +6,7 @@ import "core:fmt"
 import "core:slice"
 @(require) import "core:time" // only in generic procs
 
-import uheadless "unified:headless"
+@(require) import uheadless "unified:headless" // only in generic procs
 @(require) import "unified:sim" // only in generic procs
 
 @(private)
@@ -69,23 +69,15 @@ BENCH_WARMUP :: 64
 // them when the run is no longer). A rollback at the prediction cap every tick is the worst case the netcode
 // makes, not a typical frame: the bound the frame budget is checked against.
 @(private)
-run_bench :: proc(
-	headless: ^uheadless.Headless($G),
-	entities: int,
-	window, ticks: u32,
-	seed: u64,
-	players: int,
-) -> (
-	result: Bench_Result,
-) {
+run_bench :: proc(game: ^$G, entities: int, window, ticks: u32, seed: u64, players: int) -> (result: Bench_Result) {
 	State :: sim.part(G, sim.GAME_STATE)
 	Input :: sim.part(G, sim.GAME_INPUT)
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
-	assert(window >= 1 && int(window) <= uheadless.max_window(headless.game))
-	simulation := sim.create(headless.game, seed)
+	assert(window >= 1 && int(window) <= uheadless.max_window(game))
+	simulation := sim.create(game, seed)
 	defer sim.destroy(simulation)
-	if headless.game.bench_prepare != nil {
-		headless.game.bench_prepare(&simulation.state, simulation.world, entities)
+	if game.bench_prepare != nil {
+		game.bench_prepare(&simulation.state, simulation.world, entities)
 		sim.save(simulation)
 	}
 	for k in 0 ..< sim.KEEP_SLOTS {
@@ -129,7 +121,7 @@ run_bench :: proc(
 	steps, rollbacks, checksums, deep_checksums := 0, 0, 0, 0
 	for tick in 1 ..= ticks {
 		timed := tick > warmup
-		recorded[tick] = uheadless.scripted(headless, simulation, tick, players, &commands)
+		recorded[tick] = uheadless.scripted(game, simulation, tick, players, &commands)
 		step_start := time.tick_now()
 		sim.step(simulation, &recorded[tick], save = false)
 		step_end := time.tick_now()

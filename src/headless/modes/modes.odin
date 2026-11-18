@@ -7,7 +7,7 @@ package modes
 @(require) import "core:fmt"
 @(require) import "core:os"
 
-// Imported as `uheadless`: the modes name their Headless parameter `headless`.
+// Imported as `uheadless`: `headless` reads as a run's name in the modes.
 import uheadless "unified:headless"
 import "unified:netcode"
 @(require) import "unified:sim" // only in generic procs
@@ -17,24 +17,23 @@ Mode :: struct($G: typeid) {
 	name:    string,
 	options: string, // its options as `help` shows them: every --name in it is an option it takes, the others fail
 	help:    string, // what it is for, one line
-	run:     proc(headless: ^uheadless.Headless(G), args: ^Args) -> bool,
+	run:     proc(game: ^G, args: ^Args) -> bool,
 	lobby:   ^netcode.Lobby, // a lobby mode's service (Args.lobby)
 }
 
-// Runs the mode named on the command line on `game` (its scripted player plays the runs, on its content). `options`:
-// the binary's benchmark (its `game` is `game`). `variants`: other variants of the game (e.g. other tunings), picked
-// with `--game NAME` (sim.Game.name) on any mode. `lobbies`: lobby services (eos.lobby) for the <name>-host and
-// <name>-client modes; a game opts in, and links the service's SDK. `own_modes`: the game's own modes.
+// Runs the mode named on the command line on `game` (its scripted player plays the runs, on its content). `bench`:
+// the game's standard benchmark, what `bench` runs without options (`uni bench`); none (zero): `bench` without
+// options runs nothing, and `uni bench` has no row for the game. `variants`: other variants of the game (e.g. other
+// tunings), picked with `--game NAME` (sim.Game.name) on any mode. `lobbies`: lobby services (eos.lobby) for the
+// <name>-host and <name>-client modes; a game opts in, and links the service's SDK. `own_modes`: the game's own modes.
 run :: proc(
 	game: ^$G,
-	options: uheadless.Headless(G),
+	bench := uheadless.Bench{},
 	variants: []^G = nil,
 	lobbies: []^netcode.Lobby = nil,
 	own_modes: []Mode(G) = nil,
 ) {
-	options := options
-	options.game = game
-	headless := &options
+	game := game
 	platform_init()
 	table := make([dynamic]Mode(G), context.temp_allocator)
 	append(&table, Mode(G) {
@@ -111,12 +110,13 @@ run :: proc(
 	}
 	args := parse_options(mode.name, argv[1:])
 	args.lobby = mode.lobby
+	args.bench = bench
 	if name, has := args.opts["game"]; has {
 		delete_key(&args.opts, "game")
-		found := headless.game.name == name
+		found := game.name == name
 		for variant in variants {
 			if !found && variant.name == name {
-				headless.game = variant
+				game = variant
 				found = true
 			}
 		}
@@ -131,12 +131,12 @@ run :: proc(
 			die("cannot read --level %s", path)
 		}
 		// A copy of the game on that level (it lives until the process exits).
-		on_level := new_clone(headless.game^)
+		on_level := new_clone(game^)
 		on_level.content = data
-		headless.game = on_level
+		game = on_level
 	}
 	check_known(&args, mode.options)
-	os.exit(mode.run(headless, &args) ? 0 : 1)
+	os.exit(mode.run(game, &args) ? 0 : 1)
 }
 
 @(private)
@@ -170,8 +170,8 @@ players_opt :: proc(args: ^Args, max_players: int) -> int {
 // `--window`: a rollback window, 1 to the longest the game's ring allows (headless.max_window); `fallback` (a game's
 // standard benchmark) must be in that range too.
 @(private)
-window_opt :: proc(headless: ^uheadless.Headless($G), args: ^Args, fallback := 0, required := false) -> u32 {
-	longest := uheadless.max_window(headless.game)
+window_opt :: proc(game: ^$G, args: ^Args, fallback := 0, required := false) -> u32 {
+	longest := uheadless.max_window(game)
 	assert(
 		required || (fallback >= 1 && fallback <= longest),
 		"the default rollback window is outside the game's ring",
@@ -181,7 +181,7 @@ window_opt :: proc(headless: ^uheadless.Headless($G), args: ^Args, fallback := 0
 
 // The `sim` mode: an offline run with scripted inputs, writing the per-tick trace and the input log when asked.
 @(private)
-mode_sim :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
+mode_sim :: proc(game: ^$G, args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
 	seed := seed_opt(args)
@@ -191,7 +191,7 @@ mode_sim :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	defer uheadless.trace_destroy(&trace)
 	input_log: sim.Input_Log(G)
 	defer sim.log_destroy(&input_log)
-	result := uheadless.run_sim(headless, ticks, seed, players, &trace, &input_log if log_path != "" else nil)
+	result := uheadless.run_sim(game, ticks, seed, players, &trace, &input_log if log_path != "" else nil)
 	ok := trace_path == "" || uheadless.trace_write(&trace, trace_path)
 	ok &&= log_path == "" || uheadless.log_write(log_path, &input_log)
 	fmt.printfln(
@@ -208,13 +208,13 @@ mode_sim :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 // The `synctest` mode: an offline run that re-simulates the last `--window` ticks every tick and fails on any
 // tick that comes out differently.
 @(private)
-mode_synctest :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
+mode_synctest :: proc(game: ^$G, args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	ticks := u32(opt_int(args, "ticks", required = true, high = 10_000_000))
-	window := window_opt(headless, args, required = true)
+	window := window_opt(game, args, required = true)
 	seed := seed_opt(args)
 	players := players_opt(args, PLAYERS)
-	result := uheadless.run_synctest(headless, ticks, window, seed, players)
+	result := uheadless.run_synctest(game, ticks, window, seed, players)
 	if result.mismatches > 0 {
 		fmt.eprintfln("synctest: tick %d re-simulated differently at %d", result.first_tick, result.first_at)
 	}
@@ -241,7 +241,7 @@ mode_synctest :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 // The `replay` mode: replays an input log file (from tick 0, or from a portable snapshot: an F3 note's recording),
 // writing the trace when asked; fails on a log of another build.
 @(private)
-mode_replay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
+mode_replay :: proc(game: ^$G, args: ^Args) -> bool {
 	log_path := opt_str(args, "log", required = true)
 	input_log, log_ok := uheadless.log_read(log_path, G)
 	if !log_ok {
@@ -257,7 +257,7 @@ mode_replay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 		snapshot, read_err = os.read_entire_file(path, context.allocator)
 		if read_err != nil do die("replay: cannot read snapshot %s", path)
 	}
-	result, ok := uheadless.run_replay(headless, &input_log, &trace, snapshot)
+	result, ok := uheadless.run_replay(game, &input_log, &trace, snapshot)
 	if path := opt_str(args, "trace"); ok && path != "" {
 		ok = uheadless.trace_write(&trace, path)
 	}
@@ -273,27 +273,27 @@ mode_replay :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 // The `bench` mode: times step, save, restore and re-sim with `--entities` held (the game's standard benchmark
 // without options); `uni bench` reads its JSON.
 @(private)
-mode_bench :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
+mode_bench :: proc(game: ^$G, args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
-	standard := headless.bench
+	standard := args.bench
 	if standard.ticks == 0 && len(args.opts) == 0 {
 		fmt.println(`{"mode":"bench","skipped":true}`) // no standard benchmark: `uni bench` leaves the game out
 		return true
 	}
 	if standard.ticks == 0 {
 		standard = {
-			what     = headless.game.name,
+			what     = game.name,
 			entities = 1000,
 			ticks    = 600,
 		}
 	}
 	if standard.window == 0 {
-		standard.window = uheadless.prediction_window(headless.game)
+		standard.window = uheadless.prediction_window(game)
 	}
 	entities := opt_int(args, "entities", standard.entities, low = 0, high = 1 << 20)
-	window := window_opt(headless, args, standard.window)
+	window := window_opt(game, args, standard.window)
 	ticks := u32(opt_int(args, "ticks", standard.ticks, low = 1, high = 1_000_000))
-	result := run_bench(headless, entities, window, ticks, seed_opt(args), players_opt(args, PLAYERS))
+	result := run_bench(game, entities, window, ticks, seed_opt(args), players_opt(args, PLAYERS))
 	// What ran, from the run's actual parameters (the game names only its own part).
 	what := fmt.tprintf(
 		"%s; a %d-tick rollback every tick, %d ticks (the first %d untimed)",

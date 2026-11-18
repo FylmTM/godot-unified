@@ -7,10 +7,5 @@ import "unified:headless/modes"
 import g "../friendslop"
 
 main :: proc() {
-	modes.run(&g.GAME, {
-		bench = {
-			what  = "friendslop on the park level (Box3D characters and joints)",
-			ticks = 600,
-		},
-	})
+	modes.run(&g.GAME, bench = {what = "friendslop on the park level (Box3D characters and joints)", ticks = 600})
 }
