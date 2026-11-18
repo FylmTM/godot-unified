@@ -121,7 +121,7 @@ for batch files); the config readers (`pins.cfg`, `.env`) accept either.
 - **Shared Godot code**: a project's `games/shared` (this repo: the demo games' code) is mirrored into a game that
   uses it (its `project.godot` names `res://addons/shared/`) as `addons/shared/` before every Godot run (git-ignored
   there; a copy edited in place stops the run; a `.uid` Godot writes for a new shared script is copied back).
-  unified's `src/godot/tools` (`UnifiedTool`, `UnifiedValidate`, the level exporter) is mirrored the same way into
+  unified's `src/godot/tools` (`UnifiedTool`, `UnifiedValidate`, `UnifiedCoop`, the level exporter) is mirrored the same way into
   every Godot project the CLI runs Godot on, as `addons/unified/`. `bake` without a game also exports the project's
   own level scenes (`Project_Config.bake`; this repo: the 2D fixture `tests/level` reads).
 - **Tool scripts** are a game's `game/tools/<name>.gd`, else `games/shared/tools/<name>.gd`, else unified's
@@ -130,6 +130,10 @@ for batch files); the config readers (`pins.cfg`, `.env`) accept either.
   `quit`, so a run stopped at the debugger prompt quits at once. A run killed at its timeout is killed with what it
   started. **Strict:** in `godot` suite steps, `tool`, `coop` and `bake`, a failing exit, a missing or `ok: false`
   result, an `ERROR` line, a leak at exit or a GDScript warning fails. `run` and `editor` only report.
+- **`coop`** runs the coop tool script (the game's, else unified's `UnifiedCoop`) as a host and a joiner, each
+  session started by its session flags (`--host-online` or `--host-port`, then `--join-code` or `--join`): the
+  joiner starts once the host has written its code to `.out/coop_code.txt`. Online, the joiner gets a fresh EOS
+  device (a second player); `--crash` starts a second joiner with the first one's identity.
 - **Suites**, each with its own budget and, optionally, a long variant (`test --long`, by hand, never in CI).
   `test` passes each its options (`Test_Options`: `only`, `long`, `game`) and reports its budget in its Result, so a
   `test` that `verify` nests keeps its own. A suite that mostly waits (`Suite.beside`) runs, with others, in a child

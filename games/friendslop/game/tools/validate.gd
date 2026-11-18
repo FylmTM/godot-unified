@@ -5,6 +5,10 @@ extends UnifiedValidate
 const ITEM_SCRIPT := "res://game/levels/markers/item.gd"
 
 
+func _play_scene() -> String:
+	return "res://game/arena/arena.tscn"
+
+
 func _check_contract() -> String:
 	var sizes := Unified.constants.item_sizes
 	if sizes.is_empty():

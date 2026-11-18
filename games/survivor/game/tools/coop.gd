@@ -1,5 +1,5 @@
 extends UnifiedCoop
-## survivor's co-op play (the flow is the shared one, UnifiedCoop): the host walks out of the start circle, which
+## survivor's co-op play (the flow is the library's, UnifiedCoop): the host walks out of the start circle, which
 ## starts the match, and both fight for ~8 s; the joiner keeps moving until the host leaves.
 
 const DIRS: Array[StringName] = [&"move_left", &"move_back", &"move_right", &"move_forward"]
@@ -24,3 +24,12 @@ func _join_play() -> void:
 
 func _playing() -> bool:
 	return Unified.data.hud.phase == EnumPhase.MATCH
+
+
+## The host left: the friend lands on the main menu, which says why.
+func _host_left() -> void:
+	await wait_for_scene("MainMenu", 10.0)
+	var error := find(current_scene, ^"Menu/%ErrorMessage") as Label
+	if failed():
+		return
+	step("on the menu: %s" % (error.text if error.is_visible_in_tree() else "(no error shown)"))

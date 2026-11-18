@@ -165,14 +165,21 @@ cannot hold, no session or a full queue: false and an error naming it); the sim 
 ## Godot side
 
 **`UnifiedSession`** (Node, one per app; scripts reach it typed, `%UnifiedSession` or `Unified.session`): starts, hosts,
-joins and leaves sessions; `status` (enum `Status`) and `status_changed`; the shown tick's `tick`, `local_player`; the
-roster (`get_players()`, `get_known_players()`, `get_player_slot` / `_name` / `_platform` / `_platform_id(player)`,
-`roster_changed`); `get_view(kind, key)`, `get_player_view(kind, player)`, `get_views(kind)` from the host's own tables
-(`kind`: an `EnumView` value, `session.get_view(EnumView.STATION, 0)`; one that is no member is an error once);
-`sim_event`; `view_root`, `seed`, `ticks`, `local_name`, `game_input`, `devui_visible`. Players are ints: a player's
-key, the same while they are in the session whatever slot they hold (0: nobody). Nothing about the session answers once
-it is over. A client's LAN token is kept in `user://unified_token_<n>`: each running copy of the game claims its own by
-an OS file lock held for the process's life, so a restarted one takes its token back.
+joins and leaves sessions; `status` (enum `Status`) and `status_changed`; `mode` (enum `Mode`: single player, hosting
+or joining, online or direct); the shown tick's `tick`, `local_player`; the roster (`get_players()`,
+`get_known_players()`, `get_player_slot` / `_name` / `_platform` / `_platform_id(player)`, `roster_changed`; a name is
+the one the player gave, else "P" and their slot from 1); `get_view(kind, key)`, `get_player_view(kind, player)`,
+`get_views(kind)` from the host's own tables (`kind`: an `EnumView` value, `session.get_view(EnumView.STATION, 0)`;
+one that is no member is an error once); `sim_event`; `view_root`, `seed`, `ticks`, `local_name`, `game_input`,
+`devui_visible`. Players are ints: a player's key, the same while they are in the session whatever slot they hold (0:
+nobody). Nothing about the session answers once it is over. A client's LAN token is kept in
+`user://unified_token_<n>`: each running copy of the game claims its own by an OS file lock held for the process's
+life, so a restarted one takes its token back.
+
+**Whoever starts a session, the game follows it.** A session starts from a script (`start_single`, `host_online`,
+...), from the session flags on the command line (below) when the node enters the tree, or from a tool script. A
+game's app layer reacts to `status_changed` and `mode`, not to its own buttons, so `uni coop` and the flags work
+in every game.
 
 The game's `View` and `MultiView` enums are the classes `EnumView` and `EnumMultiView`, whatever the game named them
 (members upper case, `name(value)` like any enum class).
@@ -264,8 +271,18 @@ a name, prints an error and quits (exit 2). A build without the dev UI ignores t
 
 ## Library tooling
 
-`uni` mirrors `src/godot/tools/` into every game as `res://addons/unified/` (git-ignored there): `level_export.gd`
-(`uni bake`'s level exporter), `tool.gd` (`UnifiedTool`, the base of every script `uni tool` runs: the result line, the strict
-error judgement, waits, input events, screenshots, frame-time reports; with its helpers `log_capture.gd` and
-`frame_log.gd`) and `validate.gd` (the godot suite's `validate` step: every script compiles with warnings as errors,
-every scene loads, the main scene runs; a game adds checks in `game/tools/validate.gd`).
+`uni` mirrors `src/godot/tools/` into every game as `res://addons/unified/` (git-ignored there). None of it knows a
+game's menus: a game drives its own UI from its own tool scripts (`game/tools/`).
+
+- `level_export.gd`: `uni bake`'s level exporter.
+- `tool.gd` (`UnifiedTool`): the base of every script `uni tool` runs: the result line, the strict error judgement,
+  waits, input events, screenshots, frame-time reports (with its helpers `log_capture.gd` and `frame_log.gd`), the
+  session (`Unified.session`) and `player_names()`. The run ends through the game's `Game` autoload's
+  `quit_app(exit_code)` when it has one, else `quit()`.
+- `validate.gd` (`UnifiedValidate`): the godot suite's `validate` step: every script compiles with warnings as
+  errors, every scene loads, the main scene runs, no script of the play scene (`_play_scene()`, the main scene unless
+  the game says otherwise) preloads; a game adds `_check_contract()` in `game/tools/validate.gd`.
+- `coop.gd` (`UnifiedCoop`): `uni coop`'s host and joiner, each session started by its session flags; `--rejoin`
+  (the joiner leaves and joins again) and `--crash` (it kills itself and a second one joins as the same player); a
+  desync fails it. A game adds its play in `game/tools/coop.gd`: `_host_play()`, `_join_play()`, `_playing()`,
+  `_host_left()`.

@@ -1,4 +1,4 @@
-extends UnifiedTool
+extends MenuTool
 ## A tour of the real game, driven by input actions and the camera rig (it steers by turning the camera and holding
 ## forward, as a player would):
 ##   godot --path games/friendslop -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>]

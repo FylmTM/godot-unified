@@ -35,7 +35,7 @@ Autoloads (a game registers its own script, extending the shared one, or the sha
   missing) it shows "the game library failed to load" and Quit instead of the game (the `Game` autoload, which names
   the library classes, does not load then); `--smoke-test` quits with 1.
 - **`UnifiedGame`** (`autoload/game.gd`, the `Game` autoload): the app flow, MENU -> CONNECTING -> PLAYING, owning
-  the session. Flow: `play_single`, `host_online`, `host_direct(port)`, `join_online(code)`, `join_direct(address)`,
+  the session and following it whoever started it. Flow: `play_single`, `host_online`, `host_direct(port)`, `join_online(code)`, `join_direct(address)`,
   `leave_to_menu(error)`, `quit_app(exit_code)`, `send_command(command: UnifiedCommand)`. State: `session` (a typed
   `UnifiedSession`), `flow`, `mode`, `status` (a `UnifiedSession.Status`), `status_detail`, `lobby_code`, `lan_port`, `lan_address`,
   `last_error`, `using_pad`. Helpers: `local_player()` (the session's: a
@@ -57,9 +57,9 @@ and `tagline`), `pause_menu.tscn` (game input off while it is open: `UnifiedSess
 rows and bindings, the panel owns the look), `OrbitCamera` (a 3D menu backdrop). The sim's values come from the
 library directly: `Unified.data.hud` (the game's session data) and `Unified.constants`. Audio: `audio/bus_layout.tres`.
 
-Tools (`tools/`, on the library `UnifiedTool`): `UnifiedUiWalk` (`ui_walk`, with `_walk_play()` and
-`_walk_online()`) and `UnifiedCoop` (`coop`, with `_host_play()`, `_join_play()`, `_playing()`; `--lan-port=N`, a
-free port `uni coop --lan` passes), which drive the shared menus by name.
+Tools (`tools/`, on the library `UnifiedTool`): `MenuTool` (`menu()`, `click_menu()`, `setting()`: the shared
+menus by name) and `UnifiedUiWalk` (`ui_walk`, with `_walk_play()` and `_walk_online()`). `uni coop` runs the
+library's `UnifiedCoop`; `Game` follows a session it didn't start (the flags, a tool).
 A tool script is compiled before the autoloads exist, so it never names a script that uses them: it reaches the game
 through its untyped `game` and the scene tree.
 
@@ -83,7 +83,7 @@ player at boot; `uni release`), plus the session flags (`--autostart`, `--script
   reported as leaked at exit (one object per resource), even when the threaded load is collected; the same script
   with `load()` doesn't leak, nor does a project without the threaded load (reproduced without unified: a menu that
   requests a scene whose script preloads a texture). So the scripts the play scene loads use `load()`, never
-  `preload()`; the library `validate` fails on a `preload(` in any script the play scene (`Game.PLAY_SCENE`)
-  depends on.
+  `preload()`; the library `validate` fails on a `preload(` in any script the play scene (each game's
+  `validate.gd` `_play_scene()`) depends on.
 - **Strict typing** (#9 T5): every game `project.godot` makes untyped and unsafe GDScript an error; the tool
   scripts (`game/tools`, `addons`, `.out`) are left out, since they reach the `Game` autoload untyped.

@@ -1,4 +1,4 @@
-extends UnifiedTool
+extends MenuTool
 ## A tour of the real game with the native session (the game library must be built), driven by input actions as
 ## a player would (the right stick aims, so the tour needs no mouse):
 ##   godot --path games/drift -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--end-in-match]
