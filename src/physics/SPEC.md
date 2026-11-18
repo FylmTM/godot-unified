@@ -1,6 +1,6 @@
 # `unified:physics`: Box3D for games, characters, kinematic paths
 
-Status: draft, pending #332
+Status: signed off 2026-11-18 (#332)
 
 Box3D as `sim` rollback state, its whole API addressed by references from the state block, plus what every co-op
 physics game needs: creation helpers, a character controller, kinematic paths, static level geometry and a 2D plane.
@@ -142,9 +142,9 @@ drive_kinematic(world, Body_Ref, target: [3]f32)       // velocity = (target −
 
 ## Static level geometry
 
-`create_static(world, ^level.Level, default_category) -> (count: int, problem: string)`: one static body per level
+`create_static(world, ^level.Level, default_category := 1) -> (problem: string)`: one static body per level
 body, in file order, the World's (shapes without a category get `default_category`); `create_level_shape(world,
-Body_Ref, ^Shape_Def, ^level.Shape) -> bool` adds one level shape to any body. A shape Box3D refuses (a hull under 4
+Body_Ref, Shape_Def, ^level.Shape) -> bool` adds one level shape to any body. A shape Box3D refuses (a hull under 4
 points, or past its edge limit) is never a silent hole: `problem` names it, and the games assert on it.
 
 ## 2D
@@ -171,10 +171,3 @@ The plane holds exactly: z, the quaternion's x and y, v.z, ω.x and ω.y stay ±
 
 - **Box3D generations are u16, reused last-in-first-out**: after 65,536 reuses of an index a stale link is live again.
 - **Host geometry only grows while a world lives** (the hull database is append-only, for rollbacks).
-
-## Tests (`tests/physics`)
-
-Box3D itself (`box3d_test.odin`): the mirrors' layouts and enums, a library sync-test, image loads on damaged bytes.
-Through physics: the plug-in, every game-facing proc once, the character, paths, the exact 2D plane, and two small
-games (a character rig, a top-down field) sync-tested on 1 and 4 workers and resumed from a portable snapshot. Golden
-traces pin the results on every platform: `BOX3D_GOLDEN` (Box3D alone), `GOLDEN_CHARACTERS`, `GOLDEN_FIELD`.

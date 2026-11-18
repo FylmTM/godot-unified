@@ -1,6 +1,6 @@
-# headless
+# `unified:headless`: offline runs, sessions, the game binary
 
-Status: draft, pending #333.
+Status: signed off 2026-11-18 (#333)
 
 Three packages: `unified:headless` (`src/headless`), the in-memory runs and `session_run`, which the end-to-end
 suites use; `unified:headless/modes`, a game's headless binary (only binaries import it); and
@@ -11,19 +11,19 @@ suites use; `unified:headless/modes`, a game's headless binary (only binaries im
 ## The binary
 
 A game's `simulation/headless/main.odin` calls `modes.run(&GAME, {content, bench, bench_prepare}, variants,
-lobbies, extra)`: `--game NAME` picks one of the `variants` (another tuning), `--level FILE` replaces the content,
-`lobbies` opts into lobby services (`eos.lobby`: it links the SDK), `extra` adds the game's own modes
-(`modes.Mode{name, options, help, run}`, parsed and checked like the library's). `uni headless [game] -- <mode>
-[options]` builds it when stale and runs it; `-- help` lists every mode and its options, `<mode> --help` one.
+lobbies, extra)`: a run can pick one of the `variants` (another tuning) by name, a level file replaces the
+content, `lobbies` opts into lobby services (`eos.lobby`: it links the SDK), `extra` adds the game's own modes
+(`modes.Mode{name, options, help, run}`, parsed and checked like the library's). `uni headless` builds it when stale
+and runs it; the binary's `help` lists every mode and its options.
 The runs are played by the game's scripted player (`sim.Game.scripted_input`, `scripted_commands`).
 
 - `sim`: an offline run; its per-tick trace and input log.
 - `synctest`: an offline run that re-simulates the last W ticks every tick; fails on any tick that differs.
-- `replay`: replays an input log (refused when another build or level recorded it), from a portable snapshot's tick
-  with `--snapshot` (an F3 note's recording, `src/godot/SPEC.md`).
+- `replay`: replays an input log (refused when another build or level recorded it), optionally from a portable
+  snapshot's tick (an F3 note's recording, `src/godot/SPEC.md`).
 - `session`: a relay and scripted clients in process on the virtual clock behind a network profile (`session_run`):
   rollbacks, stalls, step times, bytes per second, a late joiner's join; a desync fails it. `uni bench` runs it.
-- `relay`, `client`: separate processes over local UDP on the real clock (`uni test --suite net`).
+- `relay`, `client`: separate processes over local UDP on the real clock.
 - `bench`: the game's standard benchmark (`Headless.bench`, `bench_prepare` holding its population): step, save,
   checksum, a portable snapshot's encode, a restore and a re-sim at the prediction cap every tick. `uni bench` runs
   it.
@@ -34,8 +34,8 @@ Conventions:
 
 - Every mode prints one JSON object as its last stdout line (`mode`, and `ok` where it can fail); non-zero exit =
   failure; a bad or unknown option exits 2. A timing is `{"mean": µs, "p99": µs}`.
-- Ticks are numbered from 1: the state after the k-th step is tick k, and `--ticks N` ends at tick N. A trace has one
-  line per tick, `"%06d %016x"`, in order. Checksums in traces and JSON are lowercase `%016x`.
+- Ticks are numbered from 1: the state after the k-th step is tick k, and a run of N ticks ends at tick N. A trace has
+  one line per tick, `"%06d %016x"`, in order. Checksums in traces and JSON are lowercase `%016x`.
 - A client's result (`netcode.client_json`) is the same object everywhere: the `session` mode's results, `client`'s
   line, a lobby mode's, the Godot host's result line.
 - `relay` and `client` run seed 1.
@@ -61,9 +61,7 @@ Network profiles: `netcode.PROFILES[.Ideal | .Wan | .Bad]` (`src/netcode/SPEC.md
 Each game has its own suite of Odin tests calling the library in process
 (`games/<game>/simulation/tests/suite_test.odin`): one `@(test)` per standard scenario, named for what it checks, then
 the game's own scenarios, with its reference run's constants in its `Suite`. The toy's suite (`tests/scenarios/`) is
-the template a game's copies, and proves the library: it runs every scenario. The seeded-bug eval
-(`tests/scenarios/seeded_bugs_test.odin`) plants runtime determinism bugs in the toy and checks the detector meant for
-each catches it.
+the template a game's copies, and proves the library: it runs every scenario.
 
 ```odin
 Suite :: struct($G: typeid) {    // G: the game type, a sim.Game
@@ -90,11 +88,10 @@ Reference :: struct {            // run_sim(seed, players) for `ticks` ticks, pi
 | `late_join_agrees(t, suite, network, slot, tick)` | 0 desyncs; the joiner's checksums match from its first verified tick; the log replays to them |
 | `reference_reproduces(t, suite)` | the reference run's checkpoints and hashes are the suite's constants; its log replays, and its snapshot resumes, to the same checksums |
 
-**Two tiers.** `uni test` runs the toy's suite whole and each game's minimal set (`rollback_every_tick`, 4 clients
-under `bad`, a late joiner, `presence_churn`, the reference run) on short runs, each scenario its own test so the
-runner spreads them over the cores; `uni test --long` (`scenarios.LONG`) runs every standard scenario at full length
-and the slow tests a game keeps behind it. `uni test --suite net` is the one real-UDP, real-clock, multi-process test
-(a relay and client processes on the toy's binary).
+**Two tiers.** The default run covers the toy's suite whole and each game's minimal set (`rollback_every_tick`, 4
+clients under `bad`, a late joiner, `presence_churn`, the reference run) on short runs, each scenario its own test so
+the runner spreads them over the cores. The long tier (`scenarios.LONG`) runs every standard scenario at full length
+and the slow tests a game keeps behind it.
 
 ## Reference runs
 
@@ -103,5 +100,5 @@ checkpoints, the hash of every tick's checksum, and the hashes of the input log'
 platform both computes and encodes what every other does. A mismatch names the first checkpoint that differs and
 prints the literal to paste: paste it only after a change that alters the simulation or the log or snapshot format,
 saying why (the `sim-change` skill). The log and snapshot carry compat, so a version or pin bump moves their hashes
-while the checkpoints and trace stay. To find the first tick that differs between two builds: `uni headless <game>
--- sim --trace FILE` on both, then compare the files.
+while the checkpoints and trace stay. To find the first tick that differs between two builds, compare the
+`sim` mode's traces from both.

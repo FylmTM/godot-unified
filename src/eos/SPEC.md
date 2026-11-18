@@ -1,6 +1,6 @@
 # `unified:eos`: online play through Epic Online Services
 
-Status: draft, pending #333.
+Status: signed off 2026-11-18 (#333)
 
 Internet co-op without servers of our own: anonymous device-ID login (no Epic account), a lobby found by a short
 code, and EOS P2P (NAT traversal, Epic relays as fallback) carrying the netcode's datagrams. One-time setup and
@@ -40,12 +40,11 @@ authenticated): the relay knows a returning player by it (`src/netcode/SPEC.md`,
   `libEOSSDK-Linux-Shipping.so`) is loaded at run time from `lib_dirs`, else `$UNIFIED_EOS_LIB_DIR`, the
   executable's directory (macOS: also `../Frameworks`), else `$UNIFIED_EOS_SDK`'s `SDK/Bin`. Missing library or
   credentials → `init` fails with a reason and online play is off; single player and direct UDP still work. Bindings
-  are hand-written for the subset we use (`api.odin`); `tests/eos` checks every struct's size and offsets and every
-  copied constant against the headers with a C compiler, and that the library loads and initializes (both need
-  `UNIFIED_EOS_SDK`: they run on developer machines, not in CI).
+  are hand-written for the subset we use (`api.odin`), checked against the SDK's headers by tests that need the SDK:
+  they run on developer machines, not in CI.
 - **Credentials.** `UNIFIED_EOS_PRODUCT_ID`, `_SANDBOX_ID`, `_DEPLOYMENT_ID`, `_CLIENT_ID`, `_CLIENT_SECRET`: compiled
-  in with `-define:UNIFIED_EOS_PRODUCT_ID=...` (`uni build` and `uni release` pass them from the environment or
-  `.env`), else the same names from the environment. CI has none. Never logged.
+  in as defines (`uni build` and `uni release` pass them from the environment or `.env`), else the same names from the
+  environment. CI has none. Never logged.
 - **Login.** `EOS_Connect_Login` with `EOS_ECT_DEVICEID_ACCESS_TOKEN`; no device ID yet → `CreateDeviceId` →
   login again; first login of that device → `CreateUser`. Auth expiry (~1 h) logs in again; a failed refresh retries
   every 15 s instead of failing the running session.
@@ -84,8 +83,3 @@ authenticated): the relay knows a returning player by it (`src/netcode/SPEC.md`,
   "the device ID in the keychain belongs to another build") and `forget_device` at shutdown, so the next build starts
   clean. A dialog whose process has exited stays on screen: click **Deny**, which grants nothing. Never script around
   it.
-
-## Tests
-
-`tests/eos` (no network): codes (alphabet, unbiased, parsing), credentials precedence, header layouts, library load,
-and the lobby state machine on a fake SDK through the public calls. Over real EOS: `docs/EOS.md`.

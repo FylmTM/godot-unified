@@ -1,6 +1,6 @@
 # `unified:level`: Godot-authored levels for the sim
 
-Status: draft, pending #332
+Status: signed off 2026-11-18 (#332)
 
 A level is authored as a Godot scene, exported to a small binary file (`uni bake`), and loaded by the sim when its
 World is created. The scene is also the view: its meshes render as they are, its markers hide themselves.
@@ -62,15 +62,9 @@ level.prop_ref(&m, "target") -> int           // a NodePath to another marker: i
 `physics.create_static` builds a level's static bodies (`src/physics/SPEC.md`). A level's identity is
 `sim.content_hash(bytes)`: the log, the snapshot and the netcode's compat carry it, so a replay or a peer with another
 level is refused (`src/sim/SPEC.md`). A game's World gets the bytes from `world_create(seed, content)`; Godot reads
-`Glue.level`'s file, headless takes `--level` or embeds a default (`#load`).
+`Glue.level`'s file, headless takes a level file or embeds a default (`#load`).
 
 ## Baking
 
-The exported file is committed next to its scene (headless runs and CI need no Godot). `uni bake <game>` writes it;
-`uni bake --check` (a step of the `godot` suite) fails when it is stale. `uni bake` without a game also exports the
-project's own level scenes (this repo: the 2D fixture `tests/level` reads, checked by the `godot-bindings` suite).
-
-## Tests
-
-`tests/level`: every record and property type round-trips through a test encoder; bad magic, other versions and
-truncated files are refused; `create_static` builds the expected bodies, also from the 2D fixture's exported file.
+The exported file is committed next to its scene (headless runs and CI need no Godot). `uni bake` writes it and
+checks that it is current (`uni help`).
