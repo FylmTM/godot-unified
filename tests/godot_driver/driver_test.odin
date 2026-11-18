@@ -3,6 +3,7 @@
 // Godot (the godot suite's `session` step, tests/godot, tests/godot_views).
 package test_godot_driver
 
+import "core:strconv"
 import "core:strings"
 import "core:sync"
 import "core:testing"
@@ -195,6 +196,9 @@ driver_sessions :: proc(t: ^testing.T) {
 		}
 		testing.expect_value(t, godot.api.events_dropped(), 0)
 		testing.expect(t, connected, "a Connected status")
+		for message in messages {
+			testing.expect(t, message.kind != .Status || message.status != .Left, "a session that ran out never left")
+		}
 		testing.expect(t, joined, "the local player's join is confirmed")
 		frame, _ := godot.api.front()
 		testing.expect(
@@ -319,7 +323,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, ok)
 		messages := make([dynamic]godot.Message, context.temp_allocator)
 		got_code := drain(&messages, 2000, proc(message: godot.Message) -> bool {
-			return message.kind == .Lobby_Code && text(message) == "ABC123"
+			return message.kind == .Join_Code && text(message) == "ABC123"
 		})
 		testing.expect(t, got_code, "the lobby code is posted")
 		time.sleep(50 * time.Millisecond)
@@ -334,8 +338,34 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect_value(t, seen.build.players, toy.PLAYERS)
 		testing.expect_value(t, seen.closes, 1)
 		codes := 0
-		for message in messages do codes += int(message.kind == .Lobby_Code)
+		for message in messages do codes += int(message.kind == .Join_Code)
 		testing.expect_value(t, codes, 1)
+		// stopped (UnifiedSession.leave): this player left, whatever the link said
+		left, disconnected := false, false
+		for message in messages {
+			if message.kind != .Status do continue
+			left ||= message.status == .Left
+			disconnected ||= message.status == .Disconnected
+		}
+		testing.expect(t, left && !disconnected, "a stopped session's status is Left, never Disconnected")
+	}
+
+	// Hosting direct on loopback only (a tool run): the join code is the address a friend types, 127.0.0.1 and the
+	// bound port.
+	{
+		ok, err := godot.api.start({mode = .Host_Direct, seed = 3, port = 0, local = true})
+		testing.expect(t, ok, err)
+		messages := make([dynamic]godot.Message, context.temp_allocator)
+		testing.expect(t, drain(&messages, 2000, proc(message: godot.Message) -> bool {
+				return message.kind == .Join_Code
+			}), "a join code is posted")
+		code := text(messages[len(messages) - 1]) if len(messages) > 0 else ""
+		port, port_ok := strconv.parse_int(strings.trim_prefix(code, "127.0.0.1:"))
+		testing.expectf(t, strings.has_prefix(code, "127.0.0.1:") && port_ok && port > 0, "join code %q", code)
+		godot.api.stop()
+		testing.expect(t, drain(&messages, 5000, is_result), "a stopped session ends with a result")
+		for godot.api.running() do time.sleep(time.Millisecond)
+		godot.api.wait()
 	}
 
 	// A game with problems never stops the load: install collects them all and installs nothing (the editor opens; a

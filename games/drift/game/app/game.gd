@@ -78,7 +78,7 @@ func _ready() -> void:
 	# before it enters the tree, where the command line's session flags start it: the flow follows from there
 	session.local_name = Settings.player_name
 	session.status_changed.connect(_on_status_changed)
-	session.lobby_code.connect(_on_lobby_code)
+	session.join_code_changed.connect(_on_join_code)
 	add_child(session)
 	# Release smoke test (`uni release` runs the export headless with `-- --smoke-test`): exercise the sim too.
 	if _smoke_test():
@@ -256,10 +256,12 @@ func _on_status_changed(new_status: UnifiedSession.Status, detail: String) -> vo
 				quit_app.call_deferred(1)
 				return
 			leave_to_menu(detail if detail != "" else "Connection failed.")
+		UnifiedSession.STATUS_LEFT:
+			if flow != Flow.MENU:
+				leave_to_menu("")  # this player left through the session (a tool, say), not through the menus
 		UnifiedSession.STATUS_DISCONNECTED:
 			if flow != Flow.MENU:
-				# "left": this player left through the session (a tool, say), not through the menus
-				leave_to_menu("" if detail == "left" else "Disconnected" + (": " + detail if detail != "" else "."))
+				leave_to_menu("Disconnected" + (": " + detail if detail != "" else "."))
 
 
 ## A session the menus didn't start (the command line's session flags, a tool) is the app's too: the flow follows it.
@@ -275,11 +277,9 @@ func _adopt() -> void:
 			_begin(Mode.JOIN)
 
 
-func _on_lobby_code(code: String) -> void:
+func _on_join_code(code: String) -> void:
 	if mode == Mode.HOST_LAN:
-		# the native LAN host reports its port here; friends need the address
-		var ips := _lan_ips()
-		lan_address = "%s:%s" % [ips[0] if not ips.is_empty() else "127.0.0.1", code]
+		lan_address = code  # this machine's address and the port (UnifiedSession.join_code)
 		return
 	lobby_code = code
 	if mode == Mode.HOST and code != "":

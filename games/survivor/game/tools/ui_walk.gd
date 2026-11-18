@@ -34,7 +34,7 @@ func _run() -> void:
 	await _walk_pause_menu()
 	await click(find(find(current_scene, ^"PauseMenu"), ^"%Leave") as Control)
 	await wait_for_scene("MainMenu", 5.0)
-	await wait_for(func() -> bool: return game.flow == game.Flow.MENU and game.status in [UnifiedSession.STATUS_IDLE, UnifiedSession.STATUS_DISCONNECTED], 3.0,
+	await wait_for(func() -> bool: return game.flow == game.Flow.MENU and game.status in [UnifiedSession.STATUS_IDLE, UnifiedSession.STATUS_LEFT], 3.0,
 		"the flow back to MENU, the session ended")
 	step("left to the menu")
 

@@ -22,6 +22,7 @@ Session_Node :: struct {
 	name:        string,
 	status:      Status_Kind,
 	detail:      string,
+	join_code:   string, // UnifiedSession.join_code ("": none)
 	args:        Args,
 	args_read:   bool,
 	frame:       ^Frame_Data, // newest frame taken this process step (valid until the next one; nil once over)
@@ -79,6 +80,7 @@ register_session_class :: proc() {
 			clear_pending(session)
 			delete(session.name)
 			delete(session.detail)
+			delete(session.join_code)
 		},
 		ready = proc(instance: rawptr) {session_ready((^Session_Node)(instance))},
 		process = proc(instance: rawptr, dt: f64) {session_process((^Session_Node)(instance), dt)},
@@ -158,6 +160,12 @@ register_session_class :: proc() {
 		proc(session: ^Session_Node) -> i64 {return i64(session.mode)},
 		class_name = "UnifiedSession.Mode",
 		doc = "How the session started last began (single player, hosting or joining), whoever started it: a script, the menus or the command line's flags. Read it once [member status] leaves STATUS_IDLE.",
+	)
+	gd.bind_property(
+		class,
+		"join_code",
+		proc(session: ^Session_Node) -> string {return session.join_code},
+		doc = "What others join this session with, once the host knows it (\"\": none, or not hosting): online, the lobby code ([method join_online]); hosting direct, this machine's private IPv4 address and the port ([method join_direct], 127.0.0.1 when it has none). [signal join_code_changed] says when it changes.",
 	)
 	gd.bind_property(
 		class,
@@ -241,7 +249,7 @@ register_session_class :: proc() {
 		class,
 		"host_online",
 		proc(session: ^Session_Node) -> bool {return session_start(session, {mode = .Host_Online})},
-		doc = "Hosts an online session through the game's lobby service; [signal lobby_code] gives the code to share.",
+		doc = "Hosts an online session through the game's lobby service; [member join_code] is the code to share once it is known.",
 	)
 	gd.bind_method(class, "host_direct", proc(session: ^Session_Node, port: i64) -> bool {
 			return session_start(session, {mode = .Host_Direct, port = int(port)})
@@ -258,11 +266,11 @@ register_session_class :: proc() {
 		proc(session: ^Session_Node) {
 			if session.has_pending { 	// the waiting session never started
 				clear_pending(session)
-				emit_status(session, .Disconnected, "left")
+				emit_status(session, .Left, "")
 			}
 			if api.installed do api.stop()
 		},
-		doc = "Ends the session: it says goodbye on its own thread. A start right after waits for it.",
+		doc = "Ends the session: it says goodbye on its own thread, then the status is [constant STATUS_LEFT]. A start right after waits for it.",
 	)
 	gd.bind_dynamic_method(class, "send_command", proc(_: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
 			command, _ := gd.from_variant(gd.Object, args[0])
@@ -280,7 +288,12 @@ register_session_class :: proc() {
 		{{"status", .INT, "UnifiedSession.Status"}, {"detail", .STRING, ""}},
 		doc = "The session's status changed; [param detail] says why (a failure's reason).",
 	)
-	gd.bind_signal(class, "lobby_code", {{"code", .STRING, ""}}, doc = "The code other players join with.")
+	gd.bind_signal(
+		class,
+		"join_code_changed",
+		{{"code", .STRING, ""}},
+		doc = "[member join_code] changed: a host's code came, or went with its session.",
+	)
 	gd.bind_signal(
 		class,
 		"input_wanted",
@@ -322,7 +335,8 @@ STATUS_DOCS := [Status_Kind]string {
 	.Connecting   = "A session is starting: hosting, joining, or waiting for the previous one's goodbye.",
 	.Connected    = "In the session.",
 	.Failed       = "The session could not start or ended on an error ([code]detail[/code] says which).",
-	.Disconnected = "The session ended: left, the host left, or the link was lost.",
+	.Disconnected = "The session ended without this player leaving: the host left or ended it, or the link was lost ([code]detail[/code] says which).",
+	.Left         = "This player ended the session ([method leave]), from the menus, a tool or the dev UI.",
 }
 
 @(private)
@@ -337,8 +351,8 @@ MODE_NAMES := [Mode]string {
 @(private)
 MODE_DOCS := [Mode]string {
 	.Single      = "Single player ([method start_single], [code]--autostart[/code]).",
-	.Host_Online = "Hosting through the game's lobby service ([method host_online], [code]--host-online[/code]): [signal lobby_code] gives the code.",
-	.Host_Direct = "Hosting on a UDP port ([method host_direct], [code]--host-port[/code]): [signal lobby_code] gives the port.",
+	.Host_Online = "Hosting through the game's lobby service ([method host_online], [code]--host-online[/code]): [member join_code] is the lobby code.",
+	.Host_Direct = "Hosting on a UDP port ([method host_direct], [code]--host-port[/code]): [member join_code] is this machine's address and the port.",
 	.Join_Online = "Joining by a lobby code ([method join_online], [code]--join-code[/code]).",
 	.Join_Direct = "Joining a host:port ([method join_direct], [code]--join[/code]).",
 }
@@ -514,6 +528,7 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	views_check_index()
 	data_reset()
 	session.mode = request.mode
+	set_join_code(session, "")
 	dev_session_started()
 	ok, err := api.start(request)
 	if !ok {
@@ -562,6 +577,15 @@ session_shutdown_all :: proc() {
 	views_clear()
 	dev_shutdown()
 	active = nil
+}
+
+// The code others join this session with (join_code), and join_code_changed when it changes.
+@(private)
+set_join_code :: proc(session: ^Session_Node, code: string) {
+	if code == session.join_code do return
+	delete(session.join_code)
+	session.join_code = strings.clone(code)
+	gd.emit_signal(session.obj, gd.sn("join_code_changed"), code)
 }
 
 @(private)
@@ -661,9 +685,9 @@ drain_messages :: proc(session: ^Session_Node) {
 		switch message.kind {
 		case .Status:
 			emit_status(session, message.status, text)
-		case .Lobby_Code:
-			fmt.printfln("unified: lobby code %s", text)
-			gd.emit_signal(session.obj, gd.sn("lobby_code"), text)
+		case .Join_Code:
+			fmt.printfln("unified: join code %s", text)
+			set_join_code(session, text)
 		case .Desync:
 			fmt.printfln("unified: desync at tick %d: %s", message.tick, text)
 			dev_note(message.tick, fmt.tprintf("desync: %s", text))
@@ -672,6 +696,7 @@ drain_messages :: proc(session: ^Session_Node) {
 			fmt.printfln("unified: result %s", api.result())
 			if !session.has_pending {
 				data_reset()
+				set_join_code(session, "")
 				session.ended = true
 			}
 			if session.quit_at_end do gd.SceneTree_quit(gd.Node_get_tree(node_of(session)), 0)

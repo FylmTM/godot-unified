@@ -36,7 +36,8 @@ and host-view tests: what CI's Godot job runs).
 
 ## Levels
 
-A level is a Godot scene in `game/levels/` baked to the `.level` file the sim loads (`src/level/SPEC.md`). After
+A level is a Godot scene baked to the `.level` file the sim loads, committed beside it (`src/level/SPEC.md`): a new
+one goes in `game/levels/`; one kept elsewhere is found by its `.level`. After
 editing a level scene or its markers, run `./uni bake <game>` and commit the `.tscn` and the `.level` together.
 
 ## Looking at it

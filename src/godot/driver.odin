@@ -138,7 +138,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	frames:    Triple(Frame_Data),
 	poses:     Pose_Memory, // every keyed item's pose at the fill before (session thread)
 	states:    Triple(sim.part(G, sim.GAME_STATE)),
-	queue:     Queue(Message, 64), // statuses, the lobby code, desync reports, the result: never full in practice
+	queue:     Queue(Message, 64), // statuses, the join code, desync reports, the result: never full in practice
 	events:    Queue(Event_Message, 4096), // full: dropped and counted
 	dropped:   int, // atomic: events that found `events` full
 	fill:      Fill_Stats, // the frame hook's cost (atomic: the main thread takes it)
@@ -712,6 +712,12 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 		status = proc(user: rawptr, status: netcode.Status, detail: string) {
 			driver := (^This_Driver)(user)
 			if driver.failed do return // the lobby's failure is the session's last word
+			// The session ended after this player asked to leave (UnifiedSession.leave): STATUS_LEFT, whatever came
+			// first (the host's goodbye, a lost link).
+			if status == .Disconnected && driver.stopping {
+				post_status(driver, .Left, "")
+				return
+			}
 			post_status(driver, Status_Kind(status), detail)
 		},
 		desync = proc(user: rawptr, report: netcode.Desync_Report) {
@@ -824,7 +830,7 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 			return false
 		}
 		driver.host = netcode.host_create(game, host_config, hooks)
-		post_text(driver, .Lobby_Code, fmt.tprintf("%d", netcode.udp_bound_port(&link)))
+		post_text(driver, .Join_Code, direct_join_code(netcode.udp_bound_port(&link), request.local))
 		netcode.host_add_link(driver.host, wrap_link(driver, link))
 	case .Host_Online:
 		driver.online = true
@@ -898,7 +904,7 @@ lobby_pump :: proc(driver: ^Driver($G, $View, $MultiView)) {
 	status := lobby.pump()
 	if status.code != "" && !driver.code_sent {
 		driver.code_sent = true
-		post_text(driver, .Lobby_Code, status.code)
+		post_text(driver, .Join_Code, status.code)
 	}
 	if status.stage == .Failed && !driver.failed {
 		lobby_failed(driver, status.detail, "the lobby failed")
