@@ -43,8 +43,8 @@ games in `games/` prove it.
 ## Workflow
 
 - Iterate locally first. CI is the final check, and the cross-check of every reference run:
-  Linux x64, Linux arm64 and Windows x64 on every PR and push to `main`, macOS ARM64 nightly when `main` moved
-  (the top of `.github/workflows/ci.yml`). `gh workflow run ci.yml --ref <branch>` runs all but macOS on a branch
+  Linux x64, Linux arm64 and Windows x64 on every PR, all four on every push to `main` (macOS ARM64 again nightly
+  when `main` moved; the top of `.github/workflows/ci.yml`). `gh workflow run ci.yml --ref <branch>` runs all but macOS on a branch
   (its runners are often out of capacity); add `-f macos=true` for sim changes and dependency upgrades. macOS never
   blocks a merge: a PR merges when the other platforms are green, the run on `main` after the merge (all four) is the
   macOS check, and a red macOS on `main` is fixed before anything else merges.

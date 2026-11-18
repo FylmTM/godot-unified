@@ -8,12 +8,14 @@
 # so one red step doesn't hide the others. Each reported step's own output goes into the job summary.
 #
 # Platforms per event:
-#   pull request, push to main   linux-x64, linux-arm64, windows-x64, godot
-#   nightly (schedule)           macos-arm64, only if main moved since the last nightly (the `nightly` job)
+#   pull request                 linux-x64, linux-arm64, windows-x64, godot
+#   push to main                 the four above and macos-arm64: the macOS check of every merge (AGENTS.md)
+#   nightly (schedule)           macos-arm64, only if main moved since the last nightly (the `nightly` job): the
+#                                safety net when a push's macOS job never got a runner
 #   manual dispatch              all on main; elsewhere the four above, plus macos-arm64 with `-f macos=true`
 #                                (sim changes and dependency upgrades)
-# macOS runs only on main: its runners are often out of capacity. One job per platform and the Godot job keep a run
-# to four runners (GitHub Free runs 20 jobs at once, 5 of them on macOS).
+# macOS never gates a PR: its runners are often out of capacity. One job per platform and the Godot job keep a run
+# to five runners (GitHub Free runs 20 jobs at once, 5 of them on macOS).
 #
 # Cost: the repo is public, so every runner here (GitHub's standard hosted runners) is free and unlimited; larger
 # runners would be billed.
@@ -91,7 +93,8 @@ jobs:
         platform: >-
           ${{ fromJSON(
           github.event_name == 'schedule' && '["macos-arm64"]' ||
-          github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || inputs.macos) &&
+          (github.event_name == 'push' ||
+          github.event_name == 'workflow_dispatch' && (github.ref == 'refs/heads/main' || inputs.macos)) &&
           '["linux-x64", "linux-arm64", "windows-x64", "macos-arm64"]' ||
           '["linux-x64", "linux-arm64", "windows-x64"]') }}
     env:
