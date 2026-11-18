@@ -1,6 +1,6 @@
 # `unified:sim`: the deterministic harness
 
-Status: draft, pending #331
+Status: signed off 2026-11-18 (#331)
 
 A game is a function `tick(state, inputs) → next state`. Every machine that starts from the same bytes and applies
 the same inputs computes the same bytes; rollback, replays, late join and desync detection follow from that. This

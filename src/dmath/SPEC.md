@@ -1,6 +1,6 @@
 # `unified:dmath`: deterministic f32 math
 
-Status: draft, pending #331
+Status: signed off 2026-11-18 (#331)
 
 The arithmetic tick code uses, identical on every CPU: f32 only, hardware `+ − × ÷` and `sqrt` (IEEE-exact), never
 fused into a multiply-add.

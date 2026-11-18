@@ -1,6 +1,6 @@
 # wire
 
-Status: draft, pending #331
+Status: signed off 2026-11-18 (#331)
 
 Little-endian byte writer and reader for every binary format (`src/wire`, a leaf package): the input log, portable
 snapshots, netcode messages.
