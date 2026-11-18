@@ -467,7 +467,7 @@ play :: proc(game: Game, editor: bool, extra: []string, place: Window_Opts) -> R
 // --- tool -------------------------------------------------------------------------------------------------------
 
 // How long `uni tool` lets a script run before it kills it: a backstop for a script that waits forever (the
-// longest, play_check, runs minutes). A script error doesn't wait for it (tool_details).
+// longest, tour, runs minutes). A script error doesn't wait for it (tool_details).
 TOOL_TIMEOUT :: 1800
 
 // `tool -h`'s details: what fails a run, and how a script error ends it.

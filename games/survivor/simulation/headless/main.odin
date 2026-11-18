@@ -1,6 +1,6 @@
 // The survivor's headless binary: the modes of src/headless/SPEC.md (`-- help` lists them) on the survivor game with
-// the `stress` tuning, through unified:headless/modes; with EOS lobbies (eos-host, eos-client: two processes over
-// EOS, src/eos/SPEC.md), and `bot` (bot.odin), which measures the `play` tuning.
+// the `stress` tuning, through unified:headless/modes; `--game survivor` runs the game as played; with EOS lobbies
+// (eos-host, eos-client: two processes over EOS, src/eos/SPEC.md).
 package main
 
 import "../survivor"
@@ -20,6 +20,5 @@ main :: proc() {
 		variants = {&survivor.GAME}, // --game survivor: the `play` tuning, as the game runs it
 		// Test runs: no keychain dialog, and no device ID left behind for the next build to trip on (macOS).
 		lobbies = {eos.lobby({no_keychain_prompts = true, forget_device = true})},
-		extra = {BOT},
 	)
 }

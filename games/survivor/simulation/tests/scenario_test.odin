@@ -37,12 +37,13 @@ scenario_tick :: proc(t: ^survivor.Tick) {
 
 SCENARIO := survivor.Game {
 	name              = "survivor-scenario",
-	version           = survivor.SIM_VERSION,
+	version           = survivor.VERSION,
 	tick_hz           = survivor.TICK_HZ,
+	content           = #load("../../game/levels/arena.level"),
 	world_create      = survivor.world_create,
 	world_destroy     = survivor.world_destroy,
-	extra             = survivor.GAME.extra,
-	init              = survivor.GAME_STRESS.init, // the dense stress spawner
+	extra             = survivor.extra,
+	init              = survivor.init_stress, // the dense stress spawner
 	tick              = scenario_tick,
 	scripted_input    = survivor.scripted_input,
 	scripted_commands = survivor.scripted_commands,

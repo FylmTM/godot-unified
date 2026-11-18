@@ -1,6 +1,8 @@
-// A deterministic bot player for tuning and tests: orbits the arena, flees the nearest enemies,
-// collects nearby gems, dashes out of contact, picks level-up options round-robin (a command). It reads
-// only the state it is given (the predicted state in a session), so it is a valid input source anywhere.
+// The bot: a scripted player that reads the state, for the balance test (a copy of GAME with these as its
+// scripted_input and scripted_commands). Not the game's own scripted player: a session samples another tick's state
+// than an offline run, so their inputs would differ. It orbits the arena, flees the nearest enemies, collects nearby gems, dashes out of contact and picks
+// level-up options round-robin (a command). It reads only the state it is given (the predicted state in a session),
+// so it is a valid input source anywhere.
 package survivor
 
 import "unified:dmath"
@@ -10,8 +12,8 @@ BOT_SIGHT :: 9.0 // m: enemies that push the bot away
 BOT_GEM_SIGHT :: 8.0
 BOT_ORBIT :: 14.0 // m: the radius the bot circles at when nothing is near
 
-// The input of the bot in `slot` (zero when nobody holds it or they are dead).
-bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
+// The input of the bot in `slot` (zero when nobody holds it or they are dead), a sim.Game.scripted_input.
+bot_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> (input: Input) {
 	character := sim.slot_data(&state.players, slot)
 	if character == nil || !character.alive {
 		return
@@ -49,7 +51,7 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 			to_gem = dmath.normalize(toward)
 		}
 	}
-	// Orbit the centre at BOT_ORBIT (tangent + radial correction), away from walls and pillars.
+	// Orbit the centre at BOT_ORBIT (tangent + radial correction); the pillars' faces slide it along.
 	radius := dmath.length(pos)
 	radial := dmath.normalize(pos)
 	tangent := [2]f32{-radial.y, radial.x}
@@ -57,13 +59,6 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 		tangent = -tangent
 	}
 	orbit := tangent + radial * ((BOT_ORBIT - radius) * 0.15)
-	for k in 0 ..< 8 {
-		away := pos - 14 * dmath.DIR8[k]
-		distance2 := dmath.length_sq(away)
-		if distance2 < 9 {
-			orbit += away * (1.5 / (distance2 + 0.25))
-		}
-	}
 	// Crates and barrels, at their grid spots (the state has no item positions; most barely move).
 	for &item, i in state.items {
 		if !item.alive {
@@ -87,29 +82,12 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 	return
 }
 
-// The bot's commands: a level-up pick while one is pending, round-robin over the upgrades by level. In a
-// session it sees a predicted state a few ticks old, so it may pick more than once for one level-up: the
+// The bot's commands (a sim.Game.scripted_commands): a level-up pick while one is pending, round-robin over the upgrades by
+// level. In a session it sees a predicted state a few ticks old, so it may pick more than once for one level-up: the
 // sim ignores a pick with nothing pending.
-bot_commands :: proc(state: ^State, slot: int, tick: u32, out: ^sim.Command_Out(Cmd)) {
+bot_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
 	character := sim.slot_data(&state.players, slot)
 	if character != nil && character.alive && character.pending_levelups > 0 {
 		sim.send_command(out, Cmd_Pick{Upgrade((character.level + i32(slot)) % 3)})
 	}
-}
-
-// One tick of bots in slots 0 ..< player_count (the bot in slot i is member i + 1, joining when its slot is
-// free): their inputs and commands, as the tick's record. `out` is scratch (the caller deletes its list).
-bot_tick :: proc(state: ^State, player_count: int, tick: u32, out: ^sim.Command_Out(Cmd)) -> (inputs: Inputs) {
-	for slot in 0 ..< player_count {
-		sim.seat(&inputs, &state.players, slot, slot + 1)
-		inputs.input[slot] = bot_input(state, slot, tick)
-		out.slot = slot
-		out.cap = sim.COMMANDS_PER_SLOT
-		clear(&out.list)
-		bot_commands(state, slot, tick, out)
-		for raw in out.list {
-			sim.add_command(&inputs, raw)
-		}
-	}
-	return
 }

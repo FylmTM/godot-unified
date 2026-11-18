@@ -19,10 +19,10 @@ SUITE := scenarios.Suite(survivor.Game) {
 		players       = 4,
 		ticks         = 3600,
 		snapshot_tick = 1800,
-		checkpoints   = {0x0deab21fa4da2142, 0x2b9ec3ab48a7f942, 0x18c9e4bd233eed22, 0x6cd6a267eab8052a},
-		trace         = 0x4bd129a8aeb8a5aa,
-		snapshot      = 0x2f61786a33f95cec,
-		log           = 0x538fbbf4d1e529b6,
+		checkpoints   = {0x8ecc3dfed447de08, 0xb0f40a276d268744, 0x749b4de73b7274c5, 0xb25497c2ab16d77c},
+		trace         = 0x6a918b583aebc4af,
+		snapshot      = 0xdef62f033d43a401,
+		log           = 0x159e278909cd2d0f,
 	},
 }
 
