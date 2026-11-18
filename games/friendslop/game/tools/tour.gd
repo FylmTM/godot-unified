@@ -20,10 +20,10 @@ func _run() -> void:
 	await wait_for_scene("Arena", 5.0)
 	var arena: Node3D = current_scene
 	await wait_for(func() -> bool: return _me() != null, 8.0, "the player's view")
-	await wait_for(func() -> bool: return views(&"marker").size() >= 10, 5.0, "marker views (items, platforms)")
+	await wait_for(func() -> bool: return views(EnumView.MARKER).size() >= 10, 5.0, "marker views (items, platforms)")
 	await seconds(1.0)
 	await shot("r02_hub")
-	step("hub: %d views, %d markers adopted" % [arena.get_node(^"Views").get_child_count(), views(&"marker").size()])
+	step("hub: %d views, %d markers adopted" % [arena.get_node(^"Views").get_child_count(), views(EnumView.MARKER).size()])
 
 	var crate := _marker_view("Crate1")
 	if crate == null:
@@ -63,7 +63,7 @@ func _run() -> void:
 ## Marker views' positions by key (marker index).
 func _marker_positions() -> Dictionary[int, Vector3]:
 	var out: Dictionary[int, Vector3] = {}
-	for v: Node in views(&"marker"):
+	for v: Node in views(EnumView.MARKER):
 		out[_key(v)] = (v as Node3D).global_position
 	return out
 
@@ -73,13 +73,13 @@ func _marker_view(marker_name: String) -> Node3D:
 	var markers: Array[Node] = current_scene.markers
 	for i in markers.size():
 		if markers[i].name == marker_name:
-			return session.get_view("marker", i) as Node3D
+			return session.get_view(EnumView.MARKER, i) as Node3D
 	return null
 
 
 ## The local player's view, or null.
 func _me() -> Node3D:
-	return session.get_player_view("player", session.local_player) as Node3D
+	return session.get_player_view(EnumView.PLAYER, session.local_player) as Node3D
 
 
 ## What the local player holds (NONE while they hold no slot).

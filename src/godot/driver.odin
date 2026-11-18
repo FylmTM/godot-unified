@@ -24,6 +24,8 @@ Api :: struct {
 	tick_hz:         int,
 	view_names:      []string, // the View enum's members, lowercased, by kind
 	multi_names:     []string, // the MultiView enum's members, lowercased, by kind
+	view_enum:       ^runtime.Type_Info, // the View enum (the class EnumView)
+	multi_enum:      ^runtime.Type_Info, // the MultiView enum (the class EnumMultiView)
 	is_2d:           bool, // a sim.Position is a Vector2 (Glue.is_2d)
 	view_scale:      f32, // view units per sim unit (Glue.view_scale; 1 when unset)
 	events:          []Event_Layout, // the game's event union, by kind (events.odin)
@@ -294,6 +296,8 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		game_name     = game.name,
 		tick_hz       = game.tick_hz,
 		view_names    = view_names,
+		view_enum     = type_info_of(View),
+		multi_enum    = type_info_of(MultiView),
 		multi_names   = multi_names,
 		is_2d         = glue.is_2d,
 		view_scale    = glue.view_scale == 0 ? 1 : glue.view_scale,

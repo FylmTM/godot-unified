@@ -282,8 +282,8 @@ func click_menu(unique_name: String) -> void:
 	await click(find(menu(), "%" + unique_name) as Control)
 
 
-## The scene views of `kind` in the sim (their roots), by key: UnifiedSession.get_views.
-func views(kind: StringName) -> Array[Node]:
+## The scene views of `kind` (an EnumView value) in the sim (their roots), by key: UnifiedSession.get_views.
+func views(kind: int) -> Array[Node]:
 	if session == null:
 		return []
 	return session.get_views(kind)

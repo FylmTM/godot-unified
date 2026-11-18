@@ -42,7 +42,7 @@ func _run() -> void:
 	if not failed():
 		current_scene.mouse_aim_enabled = false  # the stick aims; a real mouse over a window must not
 	await wait_for(func() -> bool: return _me() != null, 8.0, "the local ship's view")
-	await wait_for(func() -> bool: return _views("station") == 1 and _views("gate") == 2, 3.0,
+	await wait_for(func() -> bool: return _views(EnumView.STATION) == 1 and _views(EnumView.GATE) == 2, 3.0,
 		"the station and 2 gate views")
 	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.LOBBY, 3.0, "the lobby")
 	if failed():
@@ -157,7 +157,7 @@ func _warp() -> void:
 		return
 	var at := _me().global_position
 	var gate: Node2D = null
-	for v in session.get_views("gate"):
+	for v in session.get_views(EnumView.GATE):
 		var g := v as Node2D
 		if gate == null or at.distance_to(g.global_position) < at.distance_to(gate.global_position):
 			gate = g
@@ -198,10 +198,10 @@ func _camera_lag() -> float:
 
 
 func _me() -> Node2D:
-	return session.get_player_view("ship", session.local_player) as Node2D
+	return session.get_player_view(EnumView.SHIP, session.local_player) as Node2D
 
 
-func _views(kind: String) -> int:
+func _views(kind: int) -> int:
 	return session.get_views(kind).size()
 
 

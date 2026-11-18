@@ -203,7 +203,12 @@ register_nested_classes :: proc() {
 register_data_classes :: proc() {
 	context.allocator = runtime.heap_allocator()
 	if api.installed {
-		for type in api.enum_types do register_enum_class(type)
+		// the view kinds: EnumView and EnumMultiView whatever the game named its enums (get_view and the scene's kind)
+		register_enum_class(api.view_enum, "EnumView")
+		register_enum_class(api.multi_enum, "EnumMultiView")
+		for type in api.enum_types {
+			if type.id != api.view_enum.id && type.id != api.multi_enum.id do register_enum_class(type)
+		}
 		for layout in api.data do append(&D.data, register_data_class(layout, .Data))
 	}
 	// the constants' and the input's classes always exist (no fields without a type), so scripts can name them
@@ -441,8 +446,8 @@ enum_class_name :: proc(type: ^runtime.Type_Info) -> string {
 	return pascal_name("Enum", strings.to_lower(name, context.temp_allocator))
 }
 
-register_enum_class :: proc(type: ^runtime.Type_Info) {
-	name := enum_class_name(type)
+register_enum_class :: proc(type: ^runtime.Type_Info, class_name := "") {
+	name := class_name != "" ? class_name : enum_class_name(type)
 	if gdi.classdb_get_class_tag(gd.sn(name)) != nil {
 		gd.print_error(
 			fmt.tprintf("unified: the enum %v would be the class %s, which exists already: rename it", type.id, name),

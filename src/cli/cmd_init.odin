@@ -20,8 +20,8 @@ Init_Opts :: struct {
 // .gitignore, tools/: the game's CLI), the shims, and unified as a git submodule at unified/. The template and the
 // shims come from the submodule, so they always match the library they build against.
 //
-// `--in-repo`: a game inside this unified checkout, at games/<name>: the game's files only (not template/repo/),
-// and its tests imported in tests/tests.odin, the one test compile (the lint test fails without it).
+// `--in-repo`: a game inside this unified checkout, at games/<name>: the game's files only (not template/repo/). Its
+// tests join the one test compile through tests/games.gen.odin, which uni writes.
 @(private)
 cmd_init :: proc(args: []string) -> Result {
 	opts: Init_Opts
@@ -147,25 +147,19 @@ init_game_repo :: proc(dir, name, typed_dir, source_arg, ref: string) -> Result 
 	}
 }
 
-// A game inside this checkout at `dir` (games/<name>), from this checkout's template, its tests imported in
-// tests/tests.odin.
+// A game inside this checkout at `dir` (games/<name>), from this checkout's template. Its tests join the one test
+// compile by themselves (uni writes tests/games.gen.odin): no shared file changes.
 @(private)
 init_in_repo :: proc(dir, name: string) -> Result {
 	count := write_game(join(state.project.root, "src", "cli", "template"), dir, name, repo = false)
-	tests := join(state.project.root, "tests", "tests.odin")
-	text, added := import_game_tests(must_read(tests), name)
-	if added {
-		write_text(tests, text)
-	}
 	shim := ODIN_OS == .Windows ? "uni.cmd" : "./uni"
 	return {
 		ok      = true,
 		summary = aprintf(
-			"init: %s, a new game in games/%s (%d files from the template%s); next: %s run %s",
+			"init: %s, a new game in games/%s (%d files from the template); next: %s run %s",
 			name,
 			name,
 			count,
-			added ? "; its tests imported in tests/tests.odin" : "",
 			shim,
 			name,
 		),
@@ -239,37 +233,6 @@ write_template :: proc(template, dir, name: string, repo: bool, suffix := ".tmpl
 @(private = "file")
 is_repo_file :: proc(path: string) -> bool {
 	return strings.contains(path, "/template/repo/") || strings.contains(path, "\\template\\repo\\")
-}
-
-// tests/tests.odin's text with `name`'s sim tests imported among the other games' (sorted), and whether that changed
-// it (false: already imported).
-import_game_tests :: proc(text, name: string) -> (string, bool) {
-	line := aprintf(`@(require) import %s_tests "../games/%s/simulation/tests"`, name, name)
-	lines := strings.split_lines(strings.trim_right(text, "\n"))
-	at := -1 // before the first game import that sorts after it, else after the last one
-	for existing, i in lines {
-		if existing == line {
-			return text, false
-		}
-		if !strings.has_prefix(existing, "@(require) import ") || !strings.contains(existing, `"../games/`) {
-			continue
-		}
-		if existing > line {
-			at = i
-			break
-		}
-		at = i + 1
-	}
-	out: [dynamic]string
-	if at == -1 {
-		append(&out, ..lines)
-		append(&out, "", line)
-	} else {
-		append(&out, ..lines[:at])
-		append(&out, line)
-		append(&out, ..lines[at:])
-	}
-	return aprintf("%s\n", strings.join(out[:], "\n")), true
 }
 
 // Whether a name can be a game's (`init` takes it from the directory): lowercase letters, digits and _,

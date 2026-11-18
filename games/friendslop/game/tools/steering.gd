@@ -34,7 +34,7 @@ static func face(tool: UnifiedTool, at: Vector3, pitch: float) -> void:
 
 ## A player's view (by key), or null while the sim shows none.
 static func player_view(tool: UnifiedTool, player: int) -> Node3D:
-	return tool.session.get_player_view("player", player) as Node3D
+	return tool.session.get_player_view(EnumView.PLAYER, player) as Node3D
 
 
 static func fmt(p: Vector3) -> String:

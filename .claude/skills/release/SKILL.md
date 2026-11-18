@@ -77,7 +77,8 @@ Without a tag, CI checks the pipeline from **Actions → release → Run workflo
   line, exit 1) if the session fails to start.
 - Runtime libraries the extension needs ship through the `.gdextension` `[dependencies]` section; `uni release`
   fails if one is missing from the export. Box3D (unified-box3d's shared library, `libbox3d.dylib` / `box3d.dll`)
-  is linked: an extension that uses physics doesn't load without it, so its `.gdextension` lists it.
+  is linked: an extension that uses physics doesn't load without it. `uni build` writes the section from what the
+  extension links (Box3D, the EOS SDK): never edit it by hand.
 - Online: when the extension imports `unified:eos` (its lobby), a build needs the five `UNIFIED_EOS_*` IDs and `UNIFIED_EOS_SDK`
   (`docs/EOS.md`) and fails unless the game build compiled each value into the extension (as `-define`s; logs show
   them redacted) and the export ships the EOS SDK library; testers' machines have no EOS config. With `--no-eos`

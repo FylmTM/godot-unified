@@ -89,14 +89,12 @@ library_follows_determinism_rules :: proc(t: ^testing.T) {
 }
 
 // Every game's simulation/ by its layout (lint.check_game): headless/, extension/, tests/ and its sim packages,
-// exactly as a game outside the repo lints itself. Its tests must be part of the one test compile.
+// exactly as a game outside the repo lints itself. (Its tests are in the one test compile: uni writes
+// tests/games.gen.odin.)
 @(test)
 games_follow_determinism_rules :: proc(t: ^testing.T) {
-	root, _ := os.read_entire_file(SRC_DIR + "/../tests/tests.odin", context.temp_allocator)
 	for game in game_dirs(t) {
 		lint.check_game(t, fmt.tprintf("%s/%s/simulation", GAMES_DIR, game))
-		imp := fmt.tprintf("\"../games/%s/simulation/tests\"", game)
-		testing.expectf(t, strings.contains(string(root), imp), "tests/tests.odin does not import %s", imp)
 	}
 }
 

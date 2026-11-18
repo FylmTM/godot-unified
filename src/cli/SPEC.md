@@ -46,7 +46,8 @@ repo, `test`, `vet`, `fmt` and `verify` cover the game only, never the submodule
 
 **What a project adds.** The conventions above are all a game repo needs. A project with more registers it in its
 `tools/main.odin` with `cli.configure` (`Project_Config`): this repo's test root (`tests/`, compiled with
-`-all-packages`), the toy game's headless binary and end-to-end suite, the Godot test extensions `vet` checks, the
+`-all-packages`; `uni` writes its `games.gen.odin`, git-ignored, importing every in-repo game's tests, so a new game
+edits no shared file), the toy game's headless binary and end-to-end suite, the Godot test extensions `vet` checks, the
 directories `fmt` formats, that its tests link Box3D, `vet`'s check of `uni init`'s template, and `bench`'s physics
 row. Its own test suites go in with `cli.add_suites`, its commands with `cli.run`. The public library knows nothing of
 this repo's layout but `init --in-repo`.
@@ -195,7 +196,9 @@ API change that breaks a new game fails `verify`.
   unified-box3d checkout instead (`setup` builds it). Programs link `lib/<platform>/` (`--mode debug`:
   `lib/<platform>-debug/`) and load the library from their own directory: the CLI copies it next to each output that
   links it, where Odin's default rpath and the Windows DLL search find it. A game's `.gdextension` lists it under
-  `[dependencies]`: Godot loads it from the extension's folder and an export ships it.
+  `[dependencies]`: Godot loads it from the extension's folder and an export ships it. `build` writes that section
+  from what the extension links (Box3D, the EOS SDK; every export platform) when it is missing or stale, so no game
+  copies it by hand.
 - **EOS SDK:** never fetched: the SDK `UNIFIED_EOS_SDK` names, its `SDK/Include/eos_version.h` checked against
   `[eos_sdk] version`; a game's build copies this host's library next to the game library. Missing: online play is
   off; `release` fails unless `--no-eos` (CI's LAN-only packages).

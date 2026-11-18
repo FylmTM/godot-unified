@@ -32,7 +32,7 @@ func _process(delta: float) -> void:
 	var stick := Input.get_vector(&"look_left", &"look_right", &"look_up", &"look_down")
 	yaw -= stick.x * 2.6 * delta
 	pitch = clampf(pitch - stick.y * 1.8 * delta, PITCH_MIN, PITCH_MAX)
-	var me := Game.session.get_player_view("player", Game.local_player()) as Node3D
+	var me := Game.session.get_player_view(EnumView.PLAYER, Game.local_player()) as Node3D
 	if me != null:
 		_pivot = _pivot.lerp(me.global_position + Vector3(0, HEIGHT, 0), 1.0 - exp(-delta * 12.0))
 	var dir := Vector3(sin(yaw) * cos(pitch), sin(pitch), cos(yaw) * cos(pitch))  # from the pivot to the target

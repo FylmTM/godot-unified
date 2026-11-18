@@ -6,7 +6,7 @@ extends UnifiedUiWalk
 
 
 func _walk_play() -> void:
-	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.LOBBY and views(&"player").size() == 1, 5.0,
+	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.LOBBY and views(EnumView.PLAYER).size() == 1, 5.0,
 		"the lobby with one player view")
 	expect(_hud(^"Hint").visible, "the start hint shows in the lobby")
 	expect((find(current_scene, ^"StartCircle") as Node3D).visible, "the start circle shows in the lobby")
@@ -44,7 +44,7 @@ func _enemies_drawn() -> int:
 func _attack_fired_steering() -> bool:
 	if multi_count(&"projectile") > 0 or multi_count(&"gem") > 0:
 		return true
-	var players := views(&"player")
+	var players := views(EnumView.PLAYER)
 	if players.is_empty():
 		return false
 	var from := (players[0] as Node3D).global_position
