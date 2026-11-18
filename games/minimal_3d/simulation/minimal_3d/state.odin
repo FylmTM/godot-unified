@@ -2,17 +2,10 @@ package minimal_3d
 
 import "unified:sim"
 
-Input :: struct {
-	dx:   i8, // -127 .. 127, right
-	dy:   i8, // -127 .. 127, down
-	_pad: [2]u8,
-}
-
 State :: struct {
 	players: sim.Players(Player_Data, Input, PLAYERS),
 	balls:   sim.Table(Ball, MAX_BALLS),
 }
-
 
 Player_Data :: struct {
 	position: [2]f32,

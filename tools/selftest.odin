@@ -58,6 +58,7 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		env:    []string,
 		check:  proc(game, head: string) -> string, // after cmd: what is wrong with the game repo ("": nothing)
 		expect: string, // what cmd's stdout must contain
+		reject: string, // what cmd's output (stdout and stderr) must not contain
 	}
 	steps: [dynamic]Step
 	append(&steps, Step {
@@ -74,7 +75,7 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		&steps,
 		Step {
 			what  = "init a game outside the repo",
-			cmd   = shim(clone, "init", game, "--unified", clone, "--ref", head),
+			cmd   = shim(clone, "init", game, "--unified", clone, "--ref", head[:12]), // a short hash: any commit-ish
 			dir   = work,
 			env   = env,
 			check = check_init,
@@ -105,6 +106,14 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 			cmd  = shim(game, "test", "--suite", "all"),
 			dir  = game,
 			env  = env,
+		},
+		// the scenes name their scripts by UID: a copy without the .uid files warns on every load
+		Step {
+			what   = "a tool run of the fresh game prints no warning",
+			cmd    = shim(game, "tool", "validate"),
+			dir    = game,
+			env    = env,
+			reject = "WARNING",
 		},
 		Step {
 			what = "the game repo's gate",
@@ -160,9 +169,9 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 			cmd     = step.cmd,
 			dir     = step.dir,
 			env     = step.env,
-			capture = step.expect != "",
+			capture = step.expect != "" || step.reject != "",
 		})
-		if step.expect != "" {
+		if step.expect != "" || step.reject != "" {
 			cli.log("%s%s", ran.stderr, ran.stdout)
 		}
 		if !ran.ok {
@@ -178,6 +187,12 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		}
 		if step.expect != "" && !strings.contains(ran.stdout, step.expect) {
 			return {ok = false, summary = cli.aprintf("selftest: %s: its output has no %s", step.what, step.expect)}
+		}
+		if step.reject != "" && strings.contains(strings.concatenate({ran.stdout, ran.stderr}), step.reject) {
+			return {
+				ok      = false,
+				summary = cli.aprintf("selftest: %s: its output has a %s line", step.what, step.reject),
+			}
 		}
 		if step.check != nil {
 			if problem := step.check(game, head); problem != "" {

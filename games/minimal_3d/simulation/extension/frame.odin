@@ -50,7 +50,7 @@ fill_frame_players :: proc(f: ^Frame) {
 		slot := sim.player_slot(&f.state.players, player)
 		godot.push_view(f, player, {
 			kind = .Player,
-			pos  = {data.position.x, 0, data.position.y},
+			pos  = sim.position_floor(data.position),
 		}, Player_View_Data{color = PLAYER_COLORS[slot]})
 	}
 }
@@ -61,7 +61,7 @@ fill_frame_balls :: proc(f: ^Frame) {
 		godot.push_multi_view(f, {
 			key   = sim.handle_key(handle),
 			kind  = .Ball,
-			pos   = {ball.pos.x, ball.height, ball.pos.y},
+			pos   = sim.position_floor(ball.pos, ball.height),
 			color = player_color(f, ball.thrower),
 		})
 	}

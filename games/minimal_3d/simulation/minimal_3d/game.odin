@@ -19,8 +19,8 @@ GAME := Game {
 }
 
 tick :: proc(t: ^Tick) {
-	on_player_join(t)
+	place_new_players(t)
 	move_players(t)
-	apply_commands(t)
+	throw_balls(t)
 	move_balls(t)
 }

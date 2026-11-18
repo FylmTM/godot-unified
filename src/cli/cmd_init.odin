@@ -9,7 +9,7 @@ Init_Opts :: struct {
 	dir:     string `args:"pos=0,required" usage:"the new game repo, or games/<name> with --in-repo; its name is the game's"`,
 	in_repo: bool `usage:"a game inside this unified checkout, at games/<name> (no submodule, shims or tools/)"`,
 	unified: string `hint:"<url>" usage:"where to clone unified from (default: this checkout's origin; a GitHub SSH URL becomes HTTPS)"`,
-	ref:     string `usage:"the unified commit, tag or branch to pin (default: the source's default branch, main)"`,
+	ref:     string `usage:"the unified commit (a full or short hash), tag or branch to pin (default: the source's default branch, main)"`,
 }
 
 // `init <dir>`: a new game, a copy of unified's games/minimal_3d named after the directory (minimal_3d replaced by
@@ -42,6 +42,7 @@ cmd_init :: proc(args: []string) -> Result {
 			usage("%s exists and is not empty", dir)
 		}
 	}
+	init_undo(dir)
 	games := join(state.project.root, "games")
 	if opts.in_repo {
 		if !is_unified_repo() {
@@ -96,25 +97,7 @@ init_game_repo :: proc(dir, name, typed_dir, source_arg, ref: string) -> Result 
 		}, aprintf("adding %s as the unified submodule", source))
 	submodule := join(dir, "unified")
 	if ref != "" {
-		// a commit, tag or branch, also one the default branch doesn't reach
-		must_run({
-				cmd     = strs(
-					git(),
-					"-C",
-					submodule,
-					"-c",
-					"protocol.file.allow=always",
-					"fetch",
-					"-q",
-					"origin",
-					ref,
-				),
-				capture = true,
-			}, aprintf("fetching %s from %s", ref, source))
-		must_run(
-			{cmd = strs(git(), "-C", submodule, "checkout", "-q", "--detach", "FETCH_HEAD"), capture = true},
-			aprintf("checking out %s", ref),
-		)
+		pin_ref(submodule, source, ref)
 		must_run({cmd = strs(git(), "-C", dir, "add", "unified")}, "staging the pinned submodule")
 	}
 	pinned := strings.trim_space(must_run({
@@ -135,7 +118,7 @@ init_game_repo :: proc(dir, name, typed_dir, source_arg, ref: string) -> Result 
 	return {
 		ok      = true,
 		summary = aprintf(
-			"init: %s, a new game repo (%d files, a copy of minimal_3d; unified at unified/: %s at %s); next: cd %s && %s run",
+			"init: %s, a new game repo (%d files, a copy of minimal_3d; unified at unified/: %s at %s); next: cd %s && %s test --suite all",
 			name,
 			count,
 			source,
@@ -155,7 +138,7 @@ init_in_repo :: proc(dir, name: string) -> Result {
 	return {
 		ok      = true,
 		summary = aprintf(
-			"init: %s, a new game in games/%s (%d files, a copy of minimal_3d); next: %s run %s",
+			"init: %s, a new game in games/%s (%d files, a copy of minimal_3d); next: %s test %s --suite all",
 			name,
 			name,
 			count,
@@ -167,8 +150,9 @@ init_in_repo :: proc(dir, name: string) -> Result {
 
 // What a new game is a copy of, in unified's checkout: the smallest complete game.
 TEMPLATE_GAME :: "games/minimal_3d"
-// Its files a copy leaves out: its spec, the UIDs Godot writes anew, the view index (written below) and its pinned
-// reference run (a new game pins its own once its rules settle).
+// Its files a copy leaves out: its spec (template/SPEC.md.tmpl, a draft skeleton, takes its place), the view index
+// (written below) and its pinned reference run (a new game pins its own once its rules settle). The `.uid` files are
+// copied: the scenes name their scripts by UID, so a copy without them warns on every load until Godot rewrites them.
 TEMPLATE_SKIP :: []string{"SPEC.md", "unified_index.tres", "simulation/tests/reference_test.odin"}
 
 // Writes the game: unified's minimal_3d (at `unified`, a checkout) with `name` for minimal_3d in paths and text
@@ -184,7 +168,7 @@ write_game :: proc(unified, dir, name: string, repo: bool) -> int {
 	)
 	count := 0
 	for rel_path in strings.split_lines(strings.trim_space(listed.stdout)) {
-		if slice.contains(TEMPLATE_SKIP, rel_path) || strings.has_suffix(rel_path, ".uid") do continue
+		if slice.contains(TEMPLATE_SKIP, rel_path) do continue
 		target, _ := strings.replace_all(rel_path, "minimal_3d", name)
 		text, _ := strings.replace_all(must_read(join(source, rel_path)), "minimal_3d", name)
 		text, _ = strings.replace_all(text, "\r\n", "\n")
@@ -192,8 +176,15 @@ write_game :: proc(unified, dir, name: string, repo: bool) -> int {
 		if !os.exists(path) do count += 1
 		write_text(path, text)
 	}
+	template := join(unified, "src", "cli", "template")
+	if skeleton, found := read_text(join(template, "SPEC.md.tmpl")); found { 	// an older unified pin has none
+		spec, _ := strings.replace_all(skeleton, "__GAME__", name)
+		spec, _ = strings.replace_all(spec, "\r\n", "\n")
+		write_text(join(dir, "SPEC.md"), spec)
+		count += 1
+	}
 	if repo {
-		count += write_repo_files(join(unified, "src", "cli", "template", "repo"), dir, name)
+		count += write_repo_files(join(template, "repo"), dir, name)
 	}
 	odin_files: [dynamic]string
 	append(&odin_files, ..find_files(join(dir, "simulation"), ".odin"))
@@ -203,6 +194,56 @@ write_game :: proc(unified, dir, name: string, repo: bool) -> int {
 	fmt_files(ensure_odinfmt(), odin_files[:], false)
 	bake_view_index({name, dir}, check = false, quiet = true)
 	return count + 1
+}
+
+// Checks out `ref` in the fresh submodule: any commit-ish (a full or short hash, a tag, a branch). The clone already
+// holds every branch and tag of the source, so most refs resolve at once; one it lacks (a commit no branch reaches) is
+// fetched by name, which needs the full hash.
+@(private)
+pin_ref :: proc(submodule, source, ref: string) {
+	resolve :: proc(submodule, name: string) -> string {
+		found := run_proc({
+			cmd     = strs(git(), "-C", submodule, "rev-parse", "--verify", "--quiet", aprintf("%s^0", name)),
+			capture = true,
+			quiet   = true,
+		})
+		return found.ok ? strings.trim_space(found.stdout) : ""
+	}
+	commit := resolve(submodule, ref)
+	if commit == "" do commit = resolve(submodule, aprintf("origin/%s", ref))
+	if commit == "" {
+		// protocol.file.allow: a local path is allowed as the source (selftest clones from one)
+		fetched := run_proc({
+			cmd     = strs(git(), "-C", submodule, "-c", "protocol.file.allow=always", "fetch", "-q", "origin", ref),
+			capture = true,
+			quiet   = true,
+		})
+		if fetched.ok do commit = resolve(submodule, "FETCH_HEAD")
+	}
+	if commit == "" {
+		fatal(
+			"--ref %s: no commit, tag or branch of that name in %s (a commit no branch reaches needs its full hash)",
+			ref,
+			source,
+		)
+	}
+	must_run(
+		{cmd = strs(git(), "-C", submodule, "checkout", "-q", "--detach", commit), capture = true},
+		aprintf("checking out %s", ref),
+	)
+}
+
+// On a failed init, removes what it made at `dir` (leaving an empty directory that was there before), so a retry
+// starts clean instead of finding the directory "not empty".
+@(private)
+init_undo :: proc(dir: string) {
+	@(static) target: string
+	@(static) existed: bool
+	target, existed = dir, os.exists(dir)
+	state.on_fatal = proc() {
+		remove_tree(target)
+		if existed do make_dirs(target)
+	}
 }
 
 // A GitHub SSH URL as HTTPS, which anyone (and any CI) can clone without keys: unified is public. Other URLs and
