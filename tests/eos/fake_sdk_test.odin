@@ -67,13 +67,20 @@ fake: struct {
 	on_member:          rawptr, // the lobby member status notification and its client data
 	member_data:        rawptr,
 	accepted:           [dynamic]int, // the users P2P_AcceptConnection was called for (fake.users indices)
-	users:              [3]u8, // Product_User_Id values point here: [0] = local, [1] = lobby owner (or a joiner), [2] = a stranger
+	// Product_User_Id values point here: [0] = local, [1] = lobby owner (or a joiner), [2] = a stranger, then JOINERS
+	// more users
+	users:              [FIRST_JOINER + JOINERS]u8,
+	packet_from:        int, // the user P2P_ReceivePacket hands one packet from (0: none)
 }
 
 @(private = "file")
 OWNER :: 1
 @(private = "file")
 STRANGER :: 2
+@(private = "file")
+FIRST_JOINER :: 3
+@(private = "file")
+JOINERS :: 40 // more than a host has peer numbers (netcode.MAX_PEERS - 1)
 
 @(private = "file")
 user_id :: proc(index: int) -> eos.Product_User_Id {
@@ -173,11 +180,17 @@ FAKE := eos.Api {
 	Shutdown = proc "c" () -> eos.Result {fake.shut_down += 1; return .Success},
 	EResult_ToString = proc "c" (result: eos.Result) -> cstring {return result == .Success ? "success" : "fake error"},
 	ProductUserId_ToString = proc "c" (id: eos.Product_User_Id, out: [^]u8, length: ^i32) -> eos.Result {
+		index := int(uintptr(id) - uintptr(&fake.users[0]))
 		text :=
-			(^u8)(id) == &fake.users[0] ? "fakeuser0" : (^u8)(id) == &fake.users[STRANGER] ? "fakestranger" : "fakeowner"
+			index == 0 ? "fakeuser0" : index == STRANGER ? "fakestranger" : index >= FIRST_JOINER ? "fakejoiner" : "fakeowner"
 		for i in 0 ..< len(text) do out[i] = text[i]
-		out[len(text)] = 0
-		length^ = i32(len(text) + 1)
+		count := len(text)
+		if index >= FIRST_JOINER {
+			out[count], out[count + 1] = u8('0' + index / 10), u8('0' + index % 10)
+			count += 2
+		}
+		out[count] = 0
+		length^ = i32(count + 1)
 		return .Success
 	},
 	Logging_SetCallback = proc "c" (callback: proc "c" (msg: ^eos.Log_Message)) -> eos.Result {return .Success},
@@ -236,7 +249,19 @@ FAKE := eos.Api {
 		channel: ^u8,
 		data: rawptr,
 		written: ^u32,
-	) -> eos.Result {return .NotFound},
+	) -> eos.Result {
+		if fake.packet_from == 0 {
+			return .NotFound
+		}
+		peer^ = eos.Product_User_Id(&fake.users[fake.packet_from])
+		fake.packet_from = 0
+		name := "unified-"
+		for i in 0 ..< len(name) do sock.socket_name[i] = name[i]
+		for i in 0 ..< len(fake.last_code) do sock.socket_name[len(name) + i] = fake.last_code[i]
+		([^]u8)(data)[0] = 0
+		written^ = 1
+		return .Success
+	},
 	P2P_AddNotifyPeerConnectionRequest = proc "c" (
 		handle: eos.H_P2P,
 		options: ^eos.P2P_Socket_Options,
@@ -656,6 +681,49 @@ session_state_machine :: proc(t: ^testing.T) {
 	delete(fake.accepted)
 	fake.accepted = {}
 
+	// A long-lived lobby serves any number of people over time: a user who left the lobby and whom the netcode forgot
+	// frees its peer number for the next new user, whichever happened first; one who never sent a packet is freed when
+	// it leaves. (A member the netcode forgot keeps its number: #32 above.)
+	host_link, host_ok = eos.open_host(BUILD)
+	testing.expect(t, host_ok)
+	stage, _, _ = pump_until(.Ready)
+	testing.expect_value(t, stage, eos.Stage.Ready)
+	lobby = fake_lobby_name(fake.lobbies)
+	for k in 0 ..< JOINERS {
+		user := FIRST_JOINER + k
+		member(lobby, user, .Joined)
+		request(user)
+		enqueue(.Established, fake.on_established, fake.p2p_data, .Success, user = user)
+		eos.pump()
+		testing.expect_value(t, eos.status().peers, 1)
+		drain_events(host_link)
+		if k % 3 != 2 {
+			fake.packet_from = user // its first packet: the netcode knows the peer from now on
+			buf: [netcode.MAX_DATAGRAM]u8
+			_, peer, got := netcode.link_recv(&host_link, buf[:])
+			if !testing.expectf(t, got && peer == 1, "user %d of %d: no packet (peer %d)", k + 1, JOINERS, peer) {
+				break
+			}
+		}
+		switch k % 3 {
+		case 0:
+			member(lobby, user, .Left)
+			_, lost := drain_events(host_link)
+			testing.expect_value(t, lost, 1) // the netcode hears it left...
+			host_link.forget(host_link.data, 1) // ...and forgets the peer
+		case 1:
+			host_link.forget(host_link.data, 1) // the netcode forgets it first (a goodbye)
+			member(lobby, user, .Left)
+		case:
+			member(lobby, user, .Left) // never sent a packet
+		}
+		eos.pump()
+		testing.expect_value(t, eos.status().peers, 0)
+	}
+	eos.close()
+	delete(fake.accepted)
+	fake.accepted = {}
+
 	// Join: search by code, the lobby owner becomes the host (peer 0); its lobby is this build.
 	same_build := strings.clone_to_cstring(eos.build_id(BUILD.compat))
 	defer delete(same_build)
@@ -676,6 +744,8 @@ session_state_machine :: proc(t: ^testing.T) {
 			count += 1
 		}
 	}
+	// The join above may have closed a try of its own before it left (CONNECT_WAIT_MS is short; under load it passes).
+	fake.closed_to_owner = 0
 	join_link, join_ok := eos.open_join(BUILD, "ABCDEF")
 	testing.expect(t, join_ok)
 	stage, _, _ = pump_until(.Ready)

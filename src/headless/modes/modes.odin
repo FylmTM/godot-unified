@@ -54,8 +54,8 @@ run :: proc(
 		run     = mode_replay,
 	}, Mode(G) {
 		name    = "session",
-		options = "[--clients N] [--ticks T] [--profile ideal|wan|bad] [--latency MS [--jitter MS] [--loss PERMILLE]] [--late-join P@T] [--log F] [--seed S]",
-		help    = "a relay and scripted clients in this process on a virtual clock behind a network profile: rollbacks, stalls, step times, bytes per second, a late joiner's join",
+		options = "[--clients N] [--ticks T] [--profile ideal|wan|bad] [--latency MS [--jitter MS] [--loss PERMILLE]] [--late-join P@T] [--script steady|churn] [--log F] [--seed S]",
+		help    = "a relay and scripted clients in this process on a virtual clock behind a network profile: rollbacks, stalls, step times, each client step's time (p99, worst), bytes per second; --late-join P@T: slot P connects at tick T and joins as a player does (its join, snapshot transfer and catch-up); --script churn: every slot's input changes every tick (rollbacks on most ticks)",
 		run     = mode_session,
 	}, Mode(G) {
 		name    = "relay",

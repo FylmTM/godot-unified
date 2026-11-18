@@ -13,13 +13,23 @@ import "unified:netcode"
 @(require) import "unified:sim"
 
 Session_Config :: struct {
-	clients:   int,
-	profile:   netcode.Profile, // every client's link, both ways
-	ticks:     u32,
-	seed:      u64,
-	late_tick: u32, // the tick slot `late_slot` joins at (0: everyone starts together)
-	late_slot: int,
+	clients:        int,
+	profile:        netcode.Profile, // every client's link, both ways
+	ticks:          u32,
+	seed:           u64,
+	late_tick:      u32, // the tick slot `late_slot` joins at (0: everyone starts together)
+	late_slot:      int,
+	// The late joiner connects once the relay's clock reaches late_tick and asks for no particular join tick, as a
+	// player does (its join then takes what a player waits); else it connects ahead, present from late_tick exactly.
+	late_as_player: bool,
+	// Every slot's scripted input is drawn afresh every tick (the game's script asked for tick × CHURN_SPREAD + slot):
+	// rollbacks on most ticks, the bound of real play from above (an analog stick changes every tick; the default
+	// script holds an input for its period, all slots switching together). Commands keep the script's ticks.
+	churn:          bool,
 }
+
+// How far apart churn asks the script for consecutive ticks: a fresh draw for any script period up to it.
+CHURN_SPREAD :: 4096
 
 Session_Result :: struct($G: typeid) {
 	ok:         bool, // every client verified every tick and disconnected cleanly, and nothing desynced
@@ -30,7 +40,8 @@ Session_Result :: struct($G: typeid) {
 	log:        sim.Input_Log(G), // the relay's official input log (its recording, in memory)
 	relay_net:  netcode.Channel_Stats,
 	// The late joiner's join (late_tick != 0): from its Hello to Connected (its snapshot restored and checked),
-	// virtual µs, and the bytes it received by then (its snapshot, the finalized ticks since it).
+	// virtual µs, and the bytes it received by then (its snapshot, the finalized ticks since it). Its client result
+	// has the snapshot's transfer (snapshot_bytes, snapshot_us) and its catch-up (client_steps.max_us).
 	join_us:    i64,
 	join_bytes: int,
 }
@@ -50,6 +61,7 @@ session_result_destroy :: proc(result: ^Session_Result($G)) {
 Scripted_User :: struct($G: typeid) {
 	headless: ^Headless(G),
 	seed:     u64,
+	churn:    bool, // Session_Config.churn
 }
 
 // Client hooks that sample the game's scripted input and commands for the client's slot, so a session's
@@ -62,7 +74,9 @@ scripted_hooks :: proc(scripted: ^Scripted_User($G)) -> netcode.Hooks(G) {
 		user = scripted,
 		sample = proc(user: rawptr, slot: int, tick: u32, state: ^State) -> Input {
 			scripted := (^Scripted_User(G))(user)
-			return scripted.headless.game.scripted_input(scripted.seed, slot, tick, state)
+			// Churn wraps after ~1M ticks (4.5 h at 64 Hz): still a fresh draw every tick.
+			asked := scripted.churn ? tick * CHURN_SPREAD + u32(slot) : tick
+			return scripted.headless.game.scripted_input(scripted.seed, slot, asked, state)
 		},
 	}
 	if scripted.headless.game.scripted_commands != nil {
@@ -145,7 +159,7 @@ session_run :: proc(headless: ^Headless($G), cfg: Session_Config) -> (result: Se
 	netcode.relay_add_link(relay, netcode.loopback_link(hub, 0))
 	clients := make([]^netcode.Client(G), cfg.clients)
 	defer delete(clients)
-	scripted := Scripted_User(G){headless, cfg.seed}
+	scripted := Scripted_User(G){headless, cfg.seed, cfg.churn}
 	new_client :: proc(
 		headless: ^Headless(G),
 		cfg: Session_Config,
@@ -174,8 +188,11 @@ session_run :: proc(headless: ^Headless($G), cfg: Session_Config) -> (result: Se
 	join_from: i64
 	result.ok = true
 	for {
-		if cfg.late_tick != 0 && clients[cfg.late_slot] == nil && relay.clock + lead >= cfg.late_tick {
-			clients[cfg.late_slot] = new_client(headless, cfg, hub, &clock, &scripted, cfg.late_slot, cfg.late_tick)
+		if cfg.late_tick != 0 &&
+		   clients[cfg.late_slot] == nil &&
+		   relay.clock + (cfg.late_as_player ? 0 : lead) >= cfg.late_tick {
+			join := cfg.late_as_player ? 0 : cfg.late_tick
+			clients[cfg.late_slot] = new_client(headless, cfg, hub, &clock, &scripted, cfg.late_slot, join)
 			join_from = clock.now
 		}
 		wake := netcode.relay_step(relay, clock.now)

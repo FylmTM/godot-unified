@@ -170,17 +170,33 @@ runs_match :: proc(t: ^testing.T, suite: ^Suite($G)) {
 }
 
 // A session on the virtual clock: no desyncs, every client reaches `ticks` and verifies the same checksums, the
-// relay's input log replays offline to them, and rollbacks happen unless the network is ideal.
-session_agrees :: proc(t: ^testing.T, suite: ^Suite($G), clients: int, profile: netcode.Network) {
+// relay's input log replays offline to them, and rollbacks happen unless the network is ideal. `churn`: every slot's
+// input changes every tick (headless.Session_Config.churn), so every client rolls back on most of the ticks it
+// verifies, and rollbacks cross the checksum ticks (their snapshots kept for a desync report on the way).
+session_agrees :: proc(t: ^testing.T, suite: ^Suite($G), clients: int, profile: netcode.Network, churn := false) {
 	what := fmt.tprintf(
-		"session_agrees (%d clients, %s network; %s)",
+		"session_agrees (%d clients, %s network%s; %s)",
 		clients,
 		netcode.PROFILES[profile].name,
+		churn ? ", churn" : "",
 		params(suite),
 	)
-	result := session(suite, clients, profile)
+	result := session(suite, clients, profile, churn = churn)
 	defer headless.session_result_destroy(&result)
 	check_session(t, what, suite, &result, profile != .Ideal)
+	if churn && profile != .Ideal {
+		for client, i in result.clients {
+			testing.expectf(
+				t,
+				client.rollbacks * 2 > int(suite.ticks),
+				"%s: client %d rolled back %d times in %d ticks",
+				what,
+				i,
+				client.rollbacks,
+				suite.ticks,
+			)
+		}
+	}
 }
 
 // A session of `suite.players` clients in which slot `slot` joins at `tick` (from a snapshot handed over
@@ -360,6 +376,7 @@ session :: proc(
 	profile: netcode.Network,
 	late_slot := 0,
 	late_tick: u32 = 0,
+	churn := false,
 ) -> headless.Session_Result(G) {
 	runs := headless_of(suite)
 	return headless.session_run(&runs, {
@@ -369,6 +386,7 @@ session :: proc(
 		seed      = suite.seed,
 		late_slot = late_slot,
 		late_tick = late_tick,
+		churn     = churn,
 	})
 }
 

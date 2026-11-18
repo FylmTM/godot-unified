@@ -30,7 +30,8 @@ SUITE := scenarios.Suite(dr.Game) {
 }
 
 // By default the minimal set, each scenario proving something about this game (the toy's suite proves the
-// library): rollback every tick, a bad-network session, a late joiner and the reference run, on short runs.
+// library): rollback every tick, a bad-network session, a session whose inputs change every tick, a late joiner and
+// the reference run, on short runs.
 // `uni test --long` adds the other standard scenarios and runs them all at full length.
 @(test)
 rollback_every_tick :: proc(t: ^testing.T) {scenarios.rollback_every_tick(t, &SUITE)}
@@ -38,6 +39,14 @@ rollback_every_tick :: proc(t: ^testing.T) {scenarios.rollback_every_tick(t, &SU
 presence_churn :: proc(t: ^testing.T) {scenarios.presence_churn(t, &SUITE)}
 @(test)
 four_clients_agree_on_a_bad_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Bad)}
+@(test)
+four_clients_agree_when_inputs_change_every_tick :: proc(t: ^testing.T) {scenarios.session_agrees(
+		t,
+		&SUITE,
+		4,
+		.Wan,
+		churn = true,
+	)}
 @(test)
 a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(
 		t,

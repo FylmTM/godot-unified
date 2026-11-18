@@ -181,9 +181,12 @@ A player is a session **member**, the person, not a slot (the sim's side: `src/s
   one tick back, which the ring holds even at full depth (P − V ≤ ring − 2). Checksum ticks are multiples of it.
 - `client_stats` (`Client_Stats`, copied whole: the dev UI takes differences of the counters): rollbacks and their
   depth, stall and re-simulated ticks, ticks stepped and the time stepping them by `Step_Kind`, own inputs replaced,
-  desync reports, when the relay's last message arrived; and the round trip, the input delay and the channel's bytes.
-  `client_inputs(tick)`: a tick's finalized inputs, else its predicted ones. `client_result` (the headless JSON, the
-  Godot result line): `ok` = didn't fail, no desync, and a fixed-length session's every tick verified.
+  desync reports, when the relay's last message arrived; `client_steps`, how long each `client_step` that stepped
+  the sim took (a `Durations`: fixed buckets, `durations_percentile`, `durations_merge`), the time the frame budget is
+  about; a joiner's snapshot (bytes, Snap_Begin to its last chunk); and the round trip, the input delay and the
+  channel's bytes. `client_inputs(tick)`: a tick's finalized inputs, else its predicted ones. `client_result` (the
+  headless JSON, the Godot result line): `ok` = didn't fail, no desync, and a fixed-length session's every tick
+  verified; its checksums are all of a fixed-length session's, the last `CHECKSUMS_KEPT` of an endless one's.
 
 ## Hooks (called from `client_step`, on the caller's thread)
 
@@ -218,17 +221,23 @@ The types and how `tick` reads them: `src/sim/SPEC.md`. Each player's commands a
   (and didn't send it a bad one) is asked for a snapshot of the first checksum tick S ≥ J − 1 it verifies. It goes
   through the relay in reliable chunks, only from the player asked; the finalized ticks from S on are streamed to the
   joiner. A provider that leaves, sends nothing for `SNAP_STALL_US`, or sends a snapshot the relay can't use is
-  replaced by another.
+  replaced by another. Until it plays the joiner holds finalized ticks only up to `FIN_RING − 64` past S, so it is
+  refused as too far behind when it isn't in within that plus `RELAY_RING` ticks of S (64 s at 64 Hz): the time a
+  large world's snapshot has to arrive.
 - **The check**: the joiner restores and sends its checksum of S; the relay compares it with the majority of the
   other players' checksums of S and answers `Snap_Ok` (the joiner plays) or asks another player. With nobody left to
   ask the joiner is refused: `Bad_Snapshot` after a failed check, `No_Snapshot` when nobody could send one. There is
   no replay from tick 0.
+- When no other player's checksum of S comes within twice `CHECK_WAIT_MS` (its only other player, the provider,
+  never reports S or leaves after sending it), there is nothing independent to compare with: the joiner plays
+  unchecked, and the relay counts it (`Relay.unchecked_snapshots`). Refusing instead would turn away joiners who
+  would have played fine; a snapshot that diverges is caught at the next checksum tick both report.
 - A crafted snapshot can do no more than fail to load: Box3D images load safely from any bytes, and a snapshot that
   loads but differs from the majority fails the check.
 - A rejoin is a late join, in the lowest free slot; a restarted program on the same address is recognized by its new
-  epoch. Over EOS the product user id keeps the Peer (not the slot) and makes the joiner the same member; over direct
-  UDP a restarted program has a new port and is a new peer, the same member when its token is (direct UDP is for LAN
-  and tests).
+  epoch. Over EOS the product user id keeps the Peer (not the slot) while the user stays in the lobby, and makes the
+  joiner the same member; over direct UDP a restarted program has a new port and is a new peer, the same member when
+  its token is (direct UDP is for LAN and tests).
 
 ## Checksums and desyncs
 

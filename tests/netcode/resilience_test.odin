@@ -70,8 +70,8 @@ gated_join :: proc(
 }
 
 // The relay gives up on a client whose packets stopped arriving, while the client still hears the
-// relay: once the ticks the client hasn't acked leave the relay's ring (RELAY_RING, 8 s at 64 Hz), it is
-// refused as too far behind (else the channel's 10 s timeout). The client must learn that the relay forgot it
+// relay: the channel times it out after 10 s (before the ticks it hasn't acked leave the relay's ring, RELAY_RING,
+// 32 s at 64 Hz: Too_Far_Behind). When its path comes back the client must learn that the relay forgot it
 // (status Disconnected), not sit in a frozen "Connected" session forever.
 @(test)
 one_way_outage_ends_the_client_session :: proc(t: ^testing.T) {
@@ -87,7 +87,7 @@ one_way_outage_ends_the_client_session :: proc(t: ^testing.T) {
 	gate.block_out = false
 	net_run(&session, 3)
 	testing.expect_value(t, client.status, netcode.Status.Disconnected)
-	testing.expect_value(t, client.detail, "fell too far behind the session")
+	testing.expect_value(t, client.detail, "connection lost")
 }
 
 // A client vanishes without saying goodbye (crash, killed process) and a new one comes back on the

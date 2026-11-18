@@ -168,10 +168,12 @@ fake_finalized :: proc(fake: ^Fake_Relay, first: u32, ticks: []toy.Inputs) {
 	fake_send(fake, .Unreliable)
 }
 
-// A Finalized datagram reordered by more than the ring (512 ticks) must not overwrite the slot a
+// A Finalized datagram reordered by more than the ring (FIN_RING ticks) must not overwrite the slot a
 // newer, not yet verified tick shares with it.
 @(test)
 stale_finalized_is_ignored :: proc(t: ^testing.T) {
+	STALE :: 89
+	LAST :: STALE + netcode.FIN_RING - 1 // verified before the stale copy arrives; the next tick shares its slot
 	hub := netcode.hub_create(2)
 	defer netcode.hub_destroy(hub)
 	fake: Fake_Relay
@@ -187,28 +189,28 @@ stale_finalized_is_ignored :: proc(t: ^testing.T) {
 	reference := sim.create(&toy.GAME, SEED)
 	defer sim.destroy(reference)
 	batch: [16]toy.Inputs
-	for first := u32(1); first <= 600; first += 16 {
+	for first := u32(1); first <= LAST; first += 16 {
 		for k in 0 ..< 16 {
 			batch[k] = finalized_of(first + u32(k), 1)
-			if first + u32(k) <= 600 {
+			if first + u32(k) <= LAST {
 				sim.step(reference, &batch[k])
 			}
 		}
-		fake_finalized(&fake, first, batch[:min(16, 601 - int(first))])
+		fake_finalized(&fake, first, batch[:min(16, LAST + 1 - int(first))])
 		fake_step(&fake, client)
 		fake_step(&fake, client)
 	}
-	testing.expect_value(t, client.verified, 600)
-	// Tick 601 arrives, then a copy of tick 89 delayed by 8 s: same ring slot (89 + 512 = 601).
-	next := [1]toy.Inputs{finalized_of(601, 3)}
-	stale := [1]toy.Inputs{finalized_of(89, -3)}
+	testing.expect_value(t, client.verified, LAST)
+	// The next tick arrives, then a copy of tick STALE delayed by the whole ring: the same ring slot.
+	next := [1]toy.Inputs{finalized_of(LAST + 1, 3)}
+	stale := [1]toy.Inputs{finalized_of(STALE, -3)}
 	sim.step(reference, &next[0])
-	fake_finalized(&fake, 601, next[:])
-	fake_finalized(&fake, 89, stale[:])
+	fake_finalized(&fake, LAST + 1, next[:])
+	fake_finalized(&fake, STALE, stale[:])
 	fake_step(&fake, client)
 	fake_step(&fake, client)
-	testing.expect_value(t, client.verified, 601)
-	testing.expect_value(t, client.fin_tick[601 % netcode.FIN_RING], 601)
+	testing.expect_value(t, client.verified, LAST + 1)
+	testing.expect_value(t, client.fin_tick[(LAST + 1) % netcode.FIN_RING], LAST + 1)
 	testing.expect_value(t, sim.checksum(client.sim), sim.checksum(reference))
 }
 
@@ -494,6 +496,22 @@ evil_run :: proc(evil: ^Evil, session: ^Net, seconds: f64, kind := netcode.Msg(0
 		net_run(session, 0.01)
 	}
 	return
+}
+
+// Sends `snapshot` of `tick` for the joiner in `target` as a provider does: Snap_Begin, then the chunks.
+evil_snapshot :: proc(evil: ^Evil, session: ^Net, target: u8, tick: u32, snapshot: []u8) {
+	writer := evil_begin(evil, .Snap_Begin)
+	wire.w_u8(writer, target)
+	wire.w_u32(writer, tick)
+	wire.w_u32(writer, u32(len(snapshot)))
+	evil_send(evil, session)
+	for offset := 0; offset < len(snapshot); offset += netcode.SNAP_CHUNK {
+		writer = evil_begin(evil, .Snap_Chunk)
+		wire.w_u8(writer, target)
+		wire.w_u32(writer, u32(offset))
+		wire.w_bytes(writer, snapshot[offset:min(offset + netcode.SNAP_CHUNK, len(snapshot))])
+		evil_send(evil, session)
+	}
 }
 
 evil_destroy :: proc(evil: ^Evil) {
@@ -796,4 +814,99 @@ another_protocol_version_is_told_at_once :: proc(t: ^testing.T) {
 	netcode.client_step(client, 1_001_000)
 	testing.expect_value(t, client.status, netcode.Status.Failed)
 	testing.expect_value(t, client.detail, "a different game build (another protocol version)")
+}
+
+// A seated peer that sends Leave and Hello in one datagram (or a Leave from its old connection and a Hello from its
+// new one in one poll) is not seated again on the connection the Leave just ended: such a seat would have nobody
+// behind it to time out, and the next newcomer, given that channel peer number, would have its Hello ignored and be
+// told it fell too far behind.
+@(test)
+a_leave_and_a_hello_in_one_datagram_seat_nobody :: proc(t: ^testing.T) {
+	session: Net
+	net_make_relay(&session, 2, 0)
+	defer net_destroy(&session)
+	evil: Evil
+	evil_seat(&evil, &session, 7, 1)
+	defer evil_destroy(&evil)
+	net_join(&session, 0)
+	evil.acking = true
+	evil_run(&evil, &session, 1)
+	testing.expect(t, session.relay.seats[1].connected)
+	evil.acking = false
+	evil_begin(&evil, .Leave)
+	evil_send(&evil, &session)
+	writer := evil_begin(&evil, .Hello)
+	wire.w_u8(writer, 1)
+	wire.w_u32(writer, 0)
+	wire.w_u64(writer, sim.compat_of(&toy.GAME))
+	token: netcode.Token
+	wire.w_bytes(writer, token[:])
+	wire.w_u8(writer, 0)
+	evil_send(&evil, &session)
+	netcode.channel_flush(evil.channel, session.clock.now) // one datagram: Leave, then Hello; then silence for good
+	net_run(&session, 0.5)
+	seat := &session.relay.seats[1]
+	testing.expectf(
+		t,
+		!seat.connected || netcode.channel_connected(session.relay.ch, seat.peer),
+		"seat 1 is held by channel peer %d, which has no connection",
+		seat.peer,
+	)
+	replaced := session.relay.replaced
+	late := net_join(&session) // the next endpoint gets the dropped peer's number
+	net_run(&session, 20)
+	testing.expectf(
+		t,
+		late.status == .Connected,
+		"a newcomer 0.5 s later is %v after 20 s (%d inputs replaced meanwhile)",
+		late.status,
+		session.relay.replaced - replaced,
+	)
+}
+
+// The input ack (Seat.recv_upto) moves past a tick whose input came too late and was replaced: the client stops
+// resending inputs the relay already holds.
+@(test)
+a_replaced_input_does_not_hold_the_input_ack_back :: proc(t: ^testing.T) {
+	session: Net
+	net_make(&session, 0, 0)
+	defer net_destroy(&session)
+	client := net_join(&session, -1, .Wan)
+	net_run(&session, 5)
+	// The client's machine hitches for 300 ms: the relay replaces the inputs it misses.
+	for end := session.clock.now + 300_000; session.clock.now < end; {
+		wake := netcode.host_step(session.host, session.clock.now)
+		session.clock.now = clamp(wake, session.clock.now + 1, end)
+	}
+	net_run(&session, 20)
+	testing.expect_value(t, client.status, netcode.Status.Connected)
+	testing.expect(t, session.relay.replaced > 0)
+	seat := &session.relay.seats[client.slot]
+	testing.expectf(
+		t,
+		session.relay.finalized - seat.recv_upto < 64,
+		"recv_upto %d, finalized %d (%d inputs replaced)",
+		seat.recv_upto,
+		session.relay.finalized,
+		session.relay.replaced,
+	)
+}
+
+// A client that stops acking finalized ticks is refused (Too_Far_Behind) once the ticks it hasn't acked leave the
+// relay's ring: they can't be streamed to it any more. The others play on.
+@(test)
+a_client_that_stops_acking_is_refused_as_too_far_behind :: proc(t: ^testing.T) {
+	session: Net
+	net_make_relay(&session, 2, 0)
+	defer net_destroy(&session)
+	evil: Evil
+	evil_seat(&evil, &session, 7, 1) // never acks a finalized tick (acking false), but its channel stays connected
+	defer evil_destroy(&evil)
+	honest := net_join(&session, 0)
+	reject := evil_run(&evil, &session, f64(netcode.RELAY_RING) / toy.HZ + 3, .Reject)
+	testing.expect(t, len(reject) == 2 && netcode.Reject_Reason(reject[1]) == .Too_Far_Behind, "a Too_Far_Behind")
+	testing.expect(t, session.relay.finalized > netcode.RELAY_RING)
+	testing.expect(t, !session.relay.seats[1].connected)
+	net_run(&session, 1)
+	testing.expect_value(t, honest.status, netcode.Status.Connected)
 }

@@ -66,6 +66,13 @@ mode_session :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 			loss    = u32(opt_int(args, "loss", 0, low = 0, high = 1000)),
 		}
 	}
+	switch script := opt_str(args, "script", "steady"); script {
+	case "steady":
+	case "churn":
+		cfg.churn = true
+	case:
+		die("session: --script must be steady or churn, got %q", script)
+	}
 	if late_join := opt_str(args, "late-join"); late_join != "" {
 		parts := strings.split(late_join, "@", context.temp_allocator)
 		slot, tick: int
@@ -79,6 +86,7 @@ mode_session :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 		}
 		cfg.late_slot = slot
 		cfg.late_tick = u32(tick)
+		cfg.late_as_player = true // the join row times what a player waits
 	}
 	start := time.tick_now()
 	result := uheadless.session_run(headless, cfg)
@@ -92,6 +100,7 @@ mode_session :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 	rollbacks, depth_sum, resim_ticks, stall_ticks, resends, client_bytes: int
 	steps: [netcode.Step_Kind]int
 	step_us: [netcode.Step_Kind]i64
+	client_steps: netcode.Durations // every client's, merged
 	delays := make([dynamic]string, context.temp_allocator)
 	clients := make([dynamic]string, context.temp_allocator)
 	for client in result.clients {
@@ -103,16 +112,20 @@ mode_session :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 		stall_ticks += client.stall_ticks
 		client_bytes += client.net.bytes_sent
 		resends += client.net.resends
+		netcode.durations_merge(&client_steps, client.client_steps)
 		for kind in netcode.Step_Kind {
 			steps[kind] += client.steps[kind]
 			step_us[kind] += client.step_us[kind]
 		}
 	}
 	resends += result.relay_net.resends
+	joiner: netcode.Client_Result // the late joiner's (zero: none)
+	if cfg.late_tick != 0 do joiner = result.clients[cfg.late_slot]
 	fmt.printfln(
-		`{{"mode":"session","clients":%d,"profile":"%s","latency_ms":%d,"jitter_ms":%d,"ticks":%d,"tick_hz":%d,"wall_ms":%.1f,"delay":[%s],"rollbacks":%d,"rollback_depth_avg":%.2f,"resim_ticks":%d,"stall_ticks":%d,"replaced_inputs":%d,"desyncs":%d,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"relay_bytes_per_s":%.0f,"client_bytes_per_s":%.0f,"relay_datagrams_per_s":%.1f,"resends":%d,"late_join":%d,"join_ms":%.1f,"join_bytes":%d,"relay_net":%s,"results":[%s],"ok":%v}}`,
+		`{{"mode":"session","clients":%d,"profile":"%s","script":"%s","latency_ms":%d,"jitter_ms":%d,"ticks":%d,"tick_hz":%d,"wall_ms":%.1f,"delay":[%s],"rollbacks":%d,"rollback_depth_avg":%.2f,"resim_ticks":%d,"stall_ticks":%d,"replaced_inputs":%d,"desyncs":%d,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"relay_bytes_per_s":%.0f,"client_bytes_per_s":%.0f,"relay_datagrams_per_s":%.1f,"resends":%d,"client_step_us":{{"p99":%d,"max":%d}},"late_join":%d,"join_ms":%.1f,"join_bytes":%d,"join_snapshot_bytes":%d,"join_transfer_ms":%.1f,"join_step_max_us":%d,"relay_net":%s,"results":[%s],"ok":%v}}`,
 		cfg.clients,
 		cfg.profile.name,
+		cfg.churn ? "churn" : "steady",
 		cfg.profile.latency / 1000,
 		cfg.profile.jitter / 1000,
 		cfg.ticks,
@@ -135,9 +148,14 @@ mode_session :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 		f64(client_bytes) / seconds / f64(cfg.clients),
 		f64(result.relay_net.datagrams_sent) / seconds,
 		resends,
-		cfg.late_tick,
+		netcode.durations_percentile(client_steps, 99),
+		client_steps.max_us,
+		joiner.join_tick,
 		f64(result.join_us) / 1000,
 		result.join_bytes,
+		joiner.snapshot_bytes,
+		f64(joiner.snapshot_us) / 1000,
+		joiner.client_steps.max_us,
 		netcode.channel_stats_json(result.relay_net),
 		strings.join(clients[:], ",", context.temp_allocator),
 		ok,
@@ -195,7 +213,10 @@ mode_client :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
 		die("client: cannot open a UDP socket")
 	}
 	link = netcode.netsim_wrap(link, profile_opt(args, .Ideal), u32(slot) * 104729 + 17)
-	scripted := uheadless.Scripted_User(G){headless, 1}
+	scripted := uheadless.Scripted_User(G) {
+		headless = headless,
+		seed     = 1,
+	}
 	client := netcode.client_create(
 		headless.game,
 		{slot = slot, content = headless.content},
@@ -287,7 +308,10 @@ mode_lobby_host :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool 
 			time.duration_seconds(time.tick_since(waiting)),
 		)
 	}
-	scripted := uheadless.Scripted_User(G){headless, 1}
+	scripted := uheadless.Scripted_User(G) {
+		headless = headless,
+		seed     = 1,
+	}
 	host := netcode.host_create(
 		headless.game,
 		{seed = 1, ticks = ticks, content = headless.content, recording = log_opt(args)},
@@ -350,7 +374,10 @@ mode_lobby_client :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> boo
 	}
 	join_ms := time.duration_milliseconds(time.tick_since(started))
 	fmt.eprintfln("%s: joined %s as %s, host %s (%.0f ms)", args.mode, status.code, status.local, status.host, join_ms)
-	scripted := uheadless.Scripted_User(G){headless, 1}
+	scripted := uheadless.Scripted_User(G) {
+		headless = headless,
+		seed     = 1,
+	}
 	client := netcode.client_create(
 		headless.game,
 		{slot = -1, content = headless.content},

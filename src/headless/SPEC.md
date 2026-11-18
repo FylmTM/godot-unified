@@ -22,7 +22,8 @@ The runs are played by the game's scripted player (`sim.Game.scripted_input`, `s
 - `replay`: replays an input log (refused when another build or level recorded it), optionally from a portable
   snapshot's tick (an F3 note's recording, `src/godot/SPEC.md`).
 - `session`: a relay and scripted clients in process on the virtual clock behind a network profile (`session_run`):
-  rollbacks, stalls, step times, bytes per second, a late joiner's join; a desync fails it. `uni bench` runs it.
+  rollbacks, stalls, step times, each client step's time (p99, worst), bytes per second, a late joiner's join (its
+  snapshot's transfer, its catch-up step); a desync fails it. `uni bench` runs it.
 - `relay`, `client`: separate processes over local UDP on the real clock.
 - `bench`: the game's standard benchmark (`Headless.bench`, `bench_prepare` holding its population): step, save,
   checksum, a portable snapshot's encode, a restore and a re-sim at the prediction cap every tick. `uni bench` runs
@@ -48,11 +49,16 @@ joining with its join record (`src/sim/SPEC.md`, Players); `seats` (`Seat{tick, 
 change who holds a slot. A tick takes the commands each slot's script sends for it; a script that sends more than a
 tick takes (`sim.COMMANDS_PER_SLOT`) fails the run: offline there is no relay to hold the rest.
 
-`session_run(&headless, Session_Config{clients, profile, ticks, seed, late_tick, late_slot})` runs a relay and
-scripted clients over loopback on one thread through virtual time (as fast as it computes, deterministically); a
-`late_tick` of 0 means everyone starts together. Its result: `ok` (every client verified every tick and left
-cleanly, nothing desynced), the first desync with its typed detail, the relay's input log, each client's
-`Client_Result`, the relay's channel stats, and a late joiner's join (Hello to playing, and the bytes it took).
+`session_run(&headless, Session_Config{clients, profile, ticks, seed, late_tick, late_slot, late_as_player, churn})`
+runs a relay and scripted clients over loopback on one thread through virtual time (as fast as it computes,
+deterministically); a `late_tick` of 0 means everyone starts together. A late joiner is present from `late_tick`
+exactly (the suites compare its checksums from there), or with `late_as_player` connects when the clock reaches it
+and joins as soon as it can, as a player does (the `session` mode: its join row times what a player waits). `churn`
+asks each slot's script for a fresh input every tick (`tick × CHURN_SPREAD + slot`): rollbacks on most ticks, where
+the default script holds an input for its period with every slot switching on the same tick; the reference runs
+always use the default script. Its result: `ok` (every client verified every tick and left cleanly, nothing
+desynced), the first desync with its typed detail, the relay's input log, each client's `Client_Result`, the relay's
+channel stats, and a late joiner's join (Hello to playing, and the bytes it took).
 
 Network profiles: `netcode.PROFILES[.Ideal | .Wan | .Bad]` (`src/netcode/SPEC.md`).
 
@@ -84,12 +90,12 @@ Reference :: struct {            // run_sim(seed, players) for `ticks` ticks, pi
 | `rollback_every_tick(t, suite, window = 8)` | restoring `window` ticks back and re-simulating, every tick: 0 mismatches (each re-simulated tick's checksum and events as the first run's), no NaN in the block |
 | `presence_churn(t, suite, window = 8)` | players come and go under `rollback_every_tick`: 0 mismatches, the Extra agrees after every restore |
 | `runs_match(t, suite)` | two runs alive at once (the second created halfway through the first): every tick equal. Catches state instances share, which back-to-back runs miss |
-| `session_agrees(t, suite, clients, network)` | a virtual-clock session: 0 desyncs, every client's checksums equal, all reach `ticks`, the relay's log replays to them, rollbacks > 0 unless `.Ideal` |
+| `session_agrees(t, suite, clients, network, churn = false)` | a virtual-clock session: 0 desyncs, every client's checksums equal, all reach `ticks`, the relay's log replays to them, rollbacks > 0 unless `.Ideal`; `churn`: inputs change every tick (`Session_Config.churn`), every client rolls back on most ticks |
 | `late_join_agrees(t, suite, network, slot, tick)` | 0 desyncs; the joiner's checksums match from its first verified tick; the log replays to them |
 | `reference_reproduces(t, suite)` | the reference run's checkpoints and hashes are the suite's constants; its log replays, and its snapshot resumes, to the same checksums |
 
 **Two tiers.** The default run covers the toy's suite whole and each game's minimal set (`rollback_every_tick`, 4
-clients under `bad`, a late joiner, `presence_churn`, the reference run) on short runs, each scenario its own test so
+clients under `bad`, 4 under `wan` with churn, a late joiner, `presence_churn`, the reference run) on short runs, each scenario its own test so
 the runner spreads them over the cores. The long tier (`scenarios.LONG`) runs every standard scenario at full length
 and the slow tests a game keeps behind it.
 

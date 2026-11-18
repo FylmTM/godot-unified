@@ -8,8 +8,9 @@ import "core:time"
 
 // bench, setup, clean.
 
-// A forward step plus a re-sim at the prediction cap (14 ticks at 64 Hz) must fit here, both at their p99 (unified's
-// target, the frame budget's bad frames; each game owns its benchmark's setup).
+// A client's worst frame must fit here: a forward step, a restore, a re-sim at the prediction cap (14 ticks at 64 Hz)
+// and a deep checksum (a checksum tick inside the re-sim), each at its p99 (unified's target, the frame budget's bad
+// frames; each game owns its benchmark's setup). The sessions time whole client steps against it too.
 BENCH_TARGET_US :: 6000.0
 
 @(private)
@@ -23,10 +24,13 @@ bench_details :: proc() -> string {
 	return aprintf(
 		"A game's benchmark (its headless `bench` mode) steps its standard setup and, every tick, rolls back to the\n" +
 		"prediction cap and re-simulates (the worst case the netcode makes: a bound, not a typical frame); the first\n" +
-		"window + 64 ticks run untimed. The target: a step plus that re-sim within %.0f ms at their p99. A re-sim whose\n" +
-		"checksum differs fails the run. Then its `session` twice on the virtual clock: 4 clients under `bad` (the\n" +
-		"stress case), and under `wan` (the common case) with the 4th joining halfway (the join: Hello to playing, and the\n" +
-		"bytes it took). Then the project's own rows. Reported in .out/bench.json, not gated by time.",
+		"window + 64 ticks run untimed. The target: a step, a restore, that re-sim and a deep checksum within %.0f ms at\n" +
+		"their p99. A re-sim whose checksum differs fails the run. Then its `session` twice on the virtual clock, 4\n" +
+		"clients whose inputs change every tick (--script churn: rollbacks on most ticks, a bound from above): under\n" +
+		"`bad` (the stress case), and under `wan` (the common case) with the 4th connecting halfway and\n" +
+		"joining as a player does (the join: Hello to playing, the bytes it took, the snapshot's transfer and the\n" +
+		"joiner's catch-up step). Each session row times every client step that stepped the sim (p99, worst): the\n" +
+		"measure the target models. Then the project's own rows. Reported in .out/bench.json, not gated by time.",
 		BENCH_TARGET_US / 1000,
 	)
 }
@@ -38,45 +42,51 @@ Bench_Stat :: struct {
 
 // A game's `bench` report (the headless mode's JSON line), with the target check added.
 Bench_Report :: struct {
-	what:                   string,
-	entities:               int,
-	window:                 int,
-	ticks:                  int,
-	warmup:                 int,
-	step_us:                Bench_Stat,
-	save_us:                Bench_Stat,
-	restore_us:             Bench_Stat,
-	resim_us:               Bench_Stat,
-	resim_final_us:         Bench_Stat, // the same re-sim of final ticks, saving only the last (a catch-up burst)
-	checksum_us:            Bench_Stat, // sim.checksum of a tick peers don't compare
-	checksum_deep_us:       Bench_Stat, // ... and of one they do (every 16th: every extra's whole state)
-	snapshot_encode_us:     Bench_Stat, // a portable snapshot of a checksum tick (a kept desync image, a joiner's)
-	snapshot_bytes:         int,
-	save_bytes:             int, // what each tick's save copies (the block and the extras' saves)
-	mismatches:             int,
-	step_plus_resim_p99_us: f64, // the target's measure
-	within_target:          bool,
+	what:               string,
+	entities:           int,
+	window:             int,
+	ticks:              int,
+	warmup:             int,
+	step_us:            Bench_Stat,
+	save_us:            Bench_Stat,
+	restore_us:         Bench_Stat,
+	resim_us:           Bench_Stat,
+	resim_final_us:     Bench_Stat, // the same re-sim of final ticks, saving only the last (a catch-up burst)
+	checksum_us:        Bench_Stat, // sim.checksum of a tick peers don't compare
+	checksum_deep_us:   Bench_Stat, // ... and of one they do (every 16th: every extra's whole state)
+	snapshot_encode_us: Bench_Stat, // a portable snapshot of a checksum tick (a kept desync image, a joiner's)
+	snapshot_bytes:     int,
+	save_bytes:         int, // what each tick's save copies (the block and the extras' saves)
+	mismatches:         int,
+	frame_p99_us:       f64, // the target's measure: step + restore + re-sim + deep checksum, each at its p99
+	within_target:      bool,
 }
 
 // A game's `session` report: clients on the virtual clock under a network profile.
 Net_Report :: struct {
-	clients:            int,
-	wall_ms:            f64,
-	rollbacks:          int,
-	rollback_depth_avg: f64,
-	resim_ticks:        int,
-	stall_ticks:        int,
-	replaced_inputs:    int,
-	desyncs:            int,
-	step_us:            struct {
+	clients:             int,
+	wall_ms:             f64,
+	rollbacks:           int,
+	rollback_depth_avg:  f64,
+	resim_ticks:         int,
+	stall_ticks:         int,
+	replaced_inputs:     int,
+	desyncs:             int,
+	step_us:             struct {
 		verified, resim, predicted: i64,
 	},
-	relay_bytes_per_s:  f64,
-	client_bytes_per_s: f64,
-	resends:            int,
-	late_join:          int, // the tick the last client joined at (0: none)
-	join_ms:            f64, // its Hello to playing (snapshot restored and checked), virtual ms
-	join_bytes:         int, // the bytes it received by then
+	relay_bytes_per_s:   f64,
+	client_bytes_per_s:  f64,
+	resends:             int,
+	client_step_us:      struct {
+		p99, max: f64, // every client step that stepped the sim, every client's: its real time
+	},
+	late_join:           int, // the tick the last client joined at (0: none)
+	join_ms:             f64, // its Hello to playing (snapshot restored and checked), virtual ms
+	join_bytes:          int, // the bytes it received by then
+	join_snapshot_bytes: int, // its snapshot
+	join_transfer_ms:    f64, // the snapshot's Snap_Begin to its last chunk, virtual ms
+	join_step_max_us:    f64, // the joiner's worst client step (its catch-up after the check)
 }
 
 // A game's two sessions: the stress case and the common one with a late joiner.
@@ -129,16 +139,18 @@ cmd_bench :: proc(args: []string) -> Result {
 			append(&failed, game.name)
 			continue
 		}
-		bench.step_plus_resim_p99_us = bench.step_us.p99 + bench.resim_us.p99
-		bench.within_target = bench.step_plus_resim_p99_us <= BENCH_TARGET_US
+		bench.frame_p99_us = bench.step_us.p99 + bench.restore_us.p99 + bench.resim_us.p99 + bench.checksum_deep_us.p99
+		bench.within_target = bench.frame_p99_us <= BENCH_TARGET_US
 		summary.benchmarks[game.name] = bench
 		log(
-			"%-12s step %5.0f us + %d-tick re-sim %5.0f us = %5.2f ms at p99 (target <= %.0f ms: %s; means %.0f + %.0f us); final ticks %.0f us; save %.0f us (%d bytes), restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes (encode %.0f us)",
+			"%-12s step %5.0f us + restore %3.0f us + %d-tick re-sim %5.0f us + deep checksum %3.0f us = %5.2f ms at p99 (target <= %.0f ms: %s; means %.0f + %.0f us); final ticks %.0f us; save %.0f us (%d bytes), restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes (encode %.0f us)",
 			game.name,
 			bench.step_us.p99,
+			bench.restore_us.p99,
 			bench.window,
 			bench.resim_us.p99,
-			bench.step_plus_resim_p99_us / 1000,
+			bench.checksum_deep_us.p99,
+			bench.frame_p99_us / 1000,
 			BENCH_TARGET_US / 1000,
 			bench.within_target ? "yes" : "NO",
 			bench.step_us.mean,
@@ -161,8 +173,8 @@ cmd_bench :: proc(args: []string) -> Result {
 			args: []string,
 			out:  ^Net_Report,
 		} {
-			{"bad", {"session", "--profile", "bad"}, &rows.bad},
-			{"wan", {"session", "--profile", "wan", "--late-join", "3@600"}, &rows.wan},
+			{"bad", {"session", "--profile", "bad", "--script", "churn"}, &rows.bad},
+			{"wan", {"session", "--profile", "wan", "--script", "churn", "--late-join", "3@600"}, &rows.wan},
 		}
 		net_ok := true
 		for session in sessions {
@@ -178,14 +190,27 @@ cmd_bench :: proc(args: []string) -> Result {
 				continue
 			}
 			net := session.out^
-			join_text :=
-				net.late_join != 0 ? aprintf("; the 4th joined at tick %d in %.0f ms (%.0f kB)", net.late_join, net.join_ms, f64(net.join_bytes) / 1000) : ""
+			join_text := ""
+			if net.late_join != 0 {
+				join_text = aprintf(
+					"; the 4th joined at tick %d in %.0f ms (%.0f kB; its %.0f kB snapshot in %.0f ms, %.0f kB/s; catch-up step %.2f ms)",
+					net.late_join,
+					net.join_ms,
+					f64(net.join_bytes) / 1000,
+					f64(net.join_snapshot_bytes) / 1000,
+					net.join_transfer_ms,
+					net.join_transfer_ms > 0 ? f64(net.join_snapshot_bytes) / net.join_transfer_ms : 0,
+					net.join_step_max_us / 1000,
+				)
+			}
 			log(
-				"%-12s session (%d clients, %s, virtual clock) %.0f ms: %d rollbacks (depth %.1f, re-sim %.0f ms), %d stalls, %d inputs replaced; relay %.1f kB/s, client %.1f kB/s, %d resends%s",
+				"%-12s session (%d clients, %s, virtual clock) %.0f ms: client step p99 %.0f us, worst %.2f ms; %d rollbacks (depth %.1f, re-sim %.0f ms), %d stalls, %d inputs replaced; relay %.1f kB/s, client %.1f kB/s, %d resends%s",
 				"",
 				net.clients,
 				session.name,
 				net.wall_ms,
+				net.client_step_us.p99,
+				net.client_step_us.max / 1000,
 				net.rollbacks,
 				net.rollback_depth_avg,
 				f64(net.step_us.resim) / 1000,

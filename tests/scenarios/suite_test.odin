@@ -46,6 +46,14 @@ four_clients_agree_on_an_ideal_network :: proc(t: ^testing.T) {scenarios.session
 four_clients_agree_on_a_wan :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Wan)}
 @(test)
 four_clients_agree_on_a_bad_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Bad)}
+@(test)
+four_clients_agree_when_inputs_change_every_tick :: proc(t: ^testing.T) {scenarios.session_agrees(
+		t,
+		&SUITE,
+		4,
+		.Wan,
+		churn = true,
+	)}
 
 @(test)
 a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(t, &SUITE, .Wan, 3, 1200)}

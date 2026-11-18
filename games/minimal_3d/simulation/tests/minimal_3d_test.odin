@@ -34,6 +34,14 @@ two_runs_match :: proc(t: ^testing.T) {scenarios.runs_match(t, &SUITE)}
 @(test)
 four_clients_agree_on_a_bad_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Bad)}
 @(test)
+four_clients_agree_when_inputs_change_every_tick :: proc(t: ^testing.T) {scenarios.session_agrees(
+		t,
+		&SUITE,
+		4,
+		.Wan,
+		churn = true,
+	)}
+@(test)
 a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(t, &SUITE, .Wan, 3, 300)}
 @(test)
 the_reference_run_reproduces :: proc(t: ^testing.T) {scenarios.reference_reproduces(t, &SUITE)}
