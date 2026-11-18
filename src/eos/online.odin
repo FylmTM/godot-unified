@@ -1,18 +1,16 @@
 // Online play through EOS: one process-wide session (the EOS platform is per process). The flow:
 //
-//   init      load the SDK library next to the game, EOS_Initialize, create the platform
-//   host      device-ID login -> create a lobby (max 4) with a random code attribute -> Ready
-//   join      device-ID login -> search the lobby by code -> join -> host = lobby owner -> Ready
-//   link      a netcode.Link over P2P (host: peers 1.. = joiners; joiner: peer 0 = host); it exists
-//             from host/join on and carries nothing until Ready
-//   leave     destroy/leave the lobby, close P2P connections -> Idle (login is kept)
+//   init       load the SDK library next to the game, EOS_Initialize, create the platform
+//   open_host  device-ID login -> create a lobby (the game's player count) with a random code attribute -> Ready;
+//              returns a netcode.Link over P2P (peers 1.. = joiners) that carries nothing until Ready
+//   open_join  device-ID login -> search the lobby by code -> join -> host = lobby owner -> Ready; the link's
+//              peer 0 is the host
+//   close      destroy/leave the lobby, close P2P connections -> Idle (login is kept)
 //
-// Every EOS call happens under one mutex, from whichever thread calls `poll`/`pump` or uses the
-// link; EOS callbacks run inside Platform_Tick, so they never lock. Callbacks build a fresh context on
-// the thread that ticks (a session thread may be gone by the next session). The thread running the netcode
-// drives EOS (the link's recv ticks the platform, `pump` too). Status is read with `status`, from any
-// thread. open_host / open_join / pump / close are the transport shape a host program's session
-// loop uses (godot.Transport).
+// Every EOS call happens under one mutex, from whichever thread calls `pump` or uses the link; EOS callbacks run
+// inside Platform_Tick, so they never lock. Callbacks build a fresh context on the thread that ticks (a session thread
+// may be gone by the next session). The thread running the netcode drives EOS (the link's recv ticks the platform,
+// `pump` too). Status is read with `status`, from any thread. lobby.odin makes these a netcode.Lobby.
 package eos
 
 import "base:runtime"
@@ -43,7 +41,6 @@ Stage :: enum u8 {
 MAX_REMOTES :: 16
 TICK_EVERY_US :: 500 // the link ticks EOS at most this often when it finds no packet
 SOCKET_PREFIX :: "unified-"
-MAX_MEMBERS :: 4
 SEARCH_TRIES :: 5 // a just-created lobby can take a second or two to show up in searches
 SEARCH_RETRY_US :: 1_200_000
 // A joiner whose P2P connection to the host isn't up this long after joining (or after its last
@@ -60,16 +57,16 @@ Remote :: struct {
 	connected: bool,
 	forgotten: bool, // host: closed by link_forget; its close notification is ours, not news for the netcode
 	heard:     bool, // a packet came in on this connection since it came up
-	reasm:     Reasm,
 }
 
-// What keeps builds apart. Lobbies are found per game (the bucket is the game's name); the host publishes its
-// build and readable version as lobby attributes, and a joiner on another build is told so instead of joining.
-Build :: struct {
-	game:    string, // the lobby bucket: the game's name ("survivor")
-	compat:  u64, // the session's build id (sim.compat_of: what the relay checks), with the netcode protocol
-	version: string, // readable, for the message ("0.1.4": the project's stamped version)
-}
+// What keeps builds apart (netcode.Lobby_Build). Lobbies are found per game (the bucket is the game's name); the
+// host publishes its build and readable version as lobby attributes, and a joiner on another build is told so
+// instead of joining. The lobby's member limit is the game's player count.
+Build :: netcode.Lobby_Build
+
+// EOS packets carry 1170 bytes: a netcode datagram always fits one, so datagrams go as they are.
+P2P_MAX_PACKET :: 1170 // EOS_P2P_MAX_PACKET_SIZE
+#assert(netcode.MAX_DATAGRAM <= P2P_MAX_PACKET)
 
 // The `build` attribute of a lobby: the compat and the netcode protocol version.
 build_id :: proc(compat: u64, allocator := context.temp_allocator) -> string {
@@ -137,10 +134,10 @@ Online :: struct {
 	notify_est:     Notification_Id,
 	notify_closed:  Notification_Id,
 	remotes:        [MAX_REMOTES]Remote,
-	members:        [MAX_MEMBERS]User, // host: the lobby's members it saw join (P2P is accepted from them only)
+	members:        [netcode.MAX_PEERS]User, // host: the lobby's members it saw join (P2P is accepted from them only)
+	max_members:    int, // the lobby's limit: the game's player count
 	held:           [HELD_REQUESTS]User, // host: connection requests waiting for their user to join the lobby
 	held_next:      int, // the held slot the next request takes (a ring: a stranger can't pin a slot)
-	next_frag:      u16,
 	last_tick_us:   i64,
 	sent, received: int,
 	send_errors:    int,
@@ -152,8 +149,6 @@ Online :: struct {
 	connect_at_us:  i64, // joiner: when to give up on this P2P connection try (0: connected or not joined)
 	connect_tries:  int, // joiner: P2P connection tries to the host in this session
 	joined_us:      i64, // joiner: when it joined the lobby
-	reported_code:  bool,
-	reported_fail:  bool,
 	events:         [32]Link_Event,
 	n_events:       int,
 }
@@ -244,12 +239,11 @@ init :: proc(opts: Init_Options) -> bool {
 		return false
 	}
 
-	creds, source := credentials_load(context.temp_allocator)
+	creds := credentials_load(context.temp_allocator)
 	if !credentials_complete(creds) && opts.sdk == nil {
 		set_detail(online, "EOS credentials missing (compiled in, or UNIFIED_EOS_* in the environment or .env)")
 		return false
 	}
-	_ = source
 
 	init_options := Initialize_Options {
 		api_version     = INITIALIZE_API_LATEST,
@@ -310,13 +304,15 @@ init :: proc(opts: Init_Options) -> bool {
 }
 
 // Starts hosting: login if needed, then a lobby of `build.game` with a fresh code and the build's attributes.
-// Poll until Ready, then read the code.
+// Pump until Ready, then read the code.
+@(private)
 host :: proc(build: Build) -> bool {
 	return begin(.Host, build, {})
 }
 
 // Starts joining the lobby with `code` (as typed: case and dashes don't matter). A lobby of another build fails
 // the join with a message naming both versions.
+@(private)
 join :: proc(build: Build, code: string) -> bool {
 	game_code, ok := code_parse(code)
 	if !ok {
@@ -326,13 +322,6 @@ join :: proc(build: Build, code: string) -> bool {
 		return false
 	}
 	return begin(.Join, build, game_code)
-}
-
-// Ticks EOS and advances the session. Call it regularly while no link is in use.
-poll :: proc() {
-	online := &session
-	sync.guard(&online.mu)
-	tick(online)
 }
 
 Status :: struct {
@@ -378,6 +367,7 @@ status :: proc(allocator := context.temp_allocator) -> (snapshot: Status) {
 // receives nothing until Ready). Host: peer i >= 1 is the i-th joiner that sent a packet; joiner:
 // peer 0 is the host. The link ticks EOS on every recv that finds nothing (at most every
 // TICK_EVERY_US), so the thread running the netcode keeps EOS alive.
+@(private)
 link :: proc() -> (net_link: netcode.Link, ok: bool) {
 	online := &session
 	sync.guard(&online.mu)
@@ -423,7 +413,7 @@ local_account :: proc() -> (account: netcode.Account, ok: bool) {
 	return {platform = PLATFORM, id = cstr(id[:])}, true
 }
 
-// --- transport shape (godot.Transport) ----------------------------------------------------------
+// --- the way in (netcode.Lobby: eos.lobby) -------------------------------------------------------
 
 // Starts hosting and returns the link at once (init must have succeeded).
 open_host :: proc(build: Build) -> (net_link: netcode.Link, ok: bool) {
@@ -441,25 +431,31 @@ open_join :: proc(build: Build, code: string) -> (net_link: netcode.Link, ok: bo
 	return link()
 }
 
-Pump_Result :: struct {
-	code:   string, // set once, when the host's lobby code is published
-	failed: string, // set once, when the session failed (reason)
-}
-
-// Ticks EOS and reports what changed since the last call. Strings use `allocator`.
-pump :: proc(allocator := context.temp_allocator) -> (result: Pump_Result) {
-	online := &session
-	sync.guard(&online.mu)
-	tick(online)
-	if online.stage == .Ready && online.role == .Host && !online.reported_code {
-		online.reported_code = true
-		result.code = strings.clone(string(online.code[:]), allocator)
+// Ticks EOS and says where the session stands (strings temp-allocated): the shape of netcode.Lobby.pump.
+pump :: proc() -> (result: netcode.Lobby_Status) {
+	{
+		online := &session
+		sync.guard(&online.mu)
+		tick(online)
 	}
-	if online.stage == .Failed && !online.reported_fail {
-		online.reported_fail = true
-		result.failed = strings.clone(string(online.detail[:online.detail_len]), allocator)
+	status := status()
+	stages := [Stage]netcode.Lobby_Stage {
+		.Off    = .Idle,
+		.Idle   = .Idle,
+		.Login  = .Opening,
+		.Lobby  = .Opening,
+		.Ready  = .Ready,
+		.Failed = .Failed,
 	}
-	return
+	return {
+		stage   = stages[status.stage],
+		detail  = status.detail,
+		code    = status.code,
+		local   = status.local,
+		host    = status.host,
+		network = fmt.tprint(status.network),
+		peers   = status.peers,
+	}
 }
 
 // Ends the session (same as leave).
@@ -471,6 +467,7 @@ close :: proc() {
 // Ticks EOS until the lobby request completed (at most LEAVE_FLUSH_MS): a game back in its menu,
 // or quitting, may not tick EOS again for a long time, and an unsent leave keeps the player a lobby
 // member (or the host's lobby open) until Epic notices, possibly after the player rejoined.
+@(private)
 leave :: proc() {
 	online := &session
 	sync.guard(&online.mu)
@@ -545,8 +542,7 @@ begin :: proc(role: Role, build: Build, code: Code) -> bool {
 	online.gen += 1
 	online.role = role
 	online.code = code
-	online.reported_code = false
-	online.reported_fail = false
+	online.max_members = clamp(build.players, 1, len(online.members))
 	online.searches = 0
 	online.search_at_us = 0
 	online.connect_at_us = 0
@@ -656,17 +652,13 @@ start_login :: proc(online: ^Online) {
 		online.api.Connect_DeleteDeviceId(online.connect, &delete_options, online, on_device_deleted)
 		return
 	}
-	name := os.get_env("UNIFIED_EOS_NAME", context.temp_allocator)
-	if name == "" {
-		name = "player"
-	}
 	creds := Connect_Credentials {
 		api_version = CONNECT_CREDENTIALS_API_LATEST,
 		type        = ECT_DEVICEID_ACCESS_TOKEN,
 	}
 	info := Connect_User_Login_Info {
 		api_version  = CONNECT_USERLOGININFO_API_LATEST,
-		display_name = strings.clone_to_cstring(name[:min(len(name), 32)], context.temp_allocator),
+		display_name = "player", // unused: names travel in the netcode's Hello
 	}
 	login_options := Connect_Login_Options {
 		api_version     = CONNECT_LOGIN_API_LATEST,
@@ -688,13 +680,9 @@ on_device_deleted :: proc "c" (info: ^Result_Callback_Info) {
 @(private)
 create_device_id :: proc(online: ^Online) {
 	online.device_tries += 1
-	model := os.get_env("UNIFIED_EOS_DEVICE_MODEL", context.temp_allocator)
-	if model == "" {
-		model = ODIN_OS == .Windows ? "Windows PC" : ODIN_OS == .Darwin ? "Mac" : "Linux PC"
-	}
 	create_device_options := Connect_Create_Device_Id_Options {
 		api_version  = CONNECT_CREATEDEVICEID_API_LATEST,
-		device_model = strings.clone_to_cstring(model, context.temp_allocator),
+		device_model = ODIN_OS == .Windows ? "Windows PC" : ODIN_OS == .Darwin ? "Mac" : "Linux PC",
 	}
 	online.api.Connect_CreateDeviceId(online.connect, &create_device_options, online, on_device_created)
 }
@@ -830,7 +818,7 @@ start_lobby :: proc(online: ^Online) {
 		create_lobby_options := Lobby_Create_Lobby_Options {
 			api_version            = LOBBY_CREATELOBBY_API_LATEST,
 			local_user_id          = online.local,
-			max_lobby_members      = MAX_MEMBERS,
+			max_lobby_members      = u32(online.max_members),
 			permission_level       = .Public_Advertised,
 			bucket_id              = cstring(&online.bucket[0]),
 			disable_host_migration = true,
@@ -1401,18 +1389,7 @@ link_send :: proc(data: rawptr, to: netcode.Peer, bytes: []u8) {
 	if online.stage != .Ready || int(to) < 0 || int(to) >= MAX_REMOTES || !online.remotes[to].used {
 		return
 	}
-	Ctx :: struct {
-		online: ^Online,
-		to:     Product_User_Id,
-	}
-	ctx := Ctx{online, online.remotes[to].id}
-	sent := frame_split(bytes, &online.next_frag, proc(user: rawptr, pkt: []u8) {
-			ctx := (^Ctx)(user)
-			send_packet(ctx.online, ctx.to, pkt)
-		}, &ctx)
-	if !sent {
-		online.send_errors += 1 // larger than the receiver reassembles: dropped, like a lost datagram
-	}
+	send_packet(online, online.remotes[to].id, bytes)
 }
 
 @(private)
@@ -1447,7 +1424,7 @@ link_recv :: proc(data: rawptr, buf: []u8) -> (length: int, from: netcode.Peer, 
 	}
 	for attempt in 0 ..< 2 {
 		for online.stage == .Ready {
-			pkt: [P2P_MAX_PACKET]u8
+			pkt: [P2P_MAX_PACKET]u8 = ---
 			peer: Product_User_Id
 			sock: P2P_Socket_Id
 			channel: u8
@@ -1478,9 +1455,10 @@ link_recv :: proc(data: rawptr, buf: []u8) -> (length: int, from: netcode.Peer, 
 			}
 			online.received += 1
 			online.remotes[i].heard = true
-			if joined, done := frame_join(&online.remotes[i].reasm, pkt[:written], buf); done {
-				return joined, netcode.Peer(i), true
+			if int(written) > len(buf) {
+				continue // larger than any netcode datagram: not ours
 			}
+			return copy(buf, pkt[:written]), netcode.Peer(i), true
 		}
 		if attempt == 0 && netcode.now_us() - online.last_tick_us >= TICK_EVERY_US {
 			tick(online)

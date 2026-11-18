@@ -22,16 +22,17 @@ import "core:fmt"
 import "core:strings"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
+import "unified:netcode"
 
 BUILD_TAG :: #config(UNIFIED_BUILD_TAG, "dev")
 
-// A game's GDExtension entry point in one call: installs the game and its Glue, registers the online transport
-// (nil: LAN and single player only) and hands Godot the extension's callbacks.
+// A game's GDExtension entry point in one call: installs the game and its Glue, takes its lobby service for online
+// play (nil: LAN and single player only; eos.lobby links the EOS SDK) and hands Godot the extension's callbacks.
 //
 //   @(export, link_name = "survivor_init")
 //   survivor_init :: proc "c" (get_proc_address: gdi.InterfaceGetProcAddress, library: gdi.ClassLibraryPtr, initialization: ^gdi.Initialization) -> gdi.Bool {
 //       context = runtime.default_context()
-//       return godot.init(&survivor.GAME, GLUE, get_proc_address, library, initialization, godot_eos.transport("survivor"))
+//       return godot.init(&survivor.GAME, GLUE, get_proc_address, library, initialization, eos.lobby({}))
 //   }
 init :: proc(
 	game: ^$G,
@@ -39,10 +40,10 @@ init :: proc(
 	get_proc_address: gdi.InterfaceGetProcAddress,
 	library: gdi.ClassLibraryPtr,
 	initialization: ^gdi.Initialization,
-	online: ^Transport = nil,
+	online: ^netcode.Lobby = nil,
 ) -> gdi.Bool {
 	install(game, glue)
-	set_transport(online)
+	lobby = online
 	return entry(get_proc_address, library, initialization)
 }
 
@@ -101,7 +102,7 @@ on_deinitialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 	session_shutdown_all()
 	delete(app_version)
 	app_version = ""
-	if transport != nil && transport.shutdown != nil do transport.shutdown(transport.user)
+	if lobby != nil && lobby.shutdown != nil do lobby.shutdown()
 	unregister_classes()
 	input_clear()
 	gd.shutdown()
@@ -115,7 +116,7 @@ is_editor :: proc() -> bool {
 }
 
 // The game's version: the project setting application/config/version, which a release build stamps from its
-// tag. Read on the main thread when the session node is ready, before any session starts, so transports can
+// tag. Read on the main thread when the session node is ready, before any session starts, so a lobby can
 // report it (EOS product_version) from the session thread.
 app_version: string
 

@@ -143,3 +143,56 @@ closing_a_netsim_sends_what_it_delays :: proc(t: ^testing.T) {
 	testing.expect_value(t, size, 3)
 	testing.expect_value(t, from, netcode.Peer(1))
 }
+
+@(private = "file")
+g_forgot: [dynamic]netcode.Peer // the peers the live netsim's inner link was told to forget
+
+// A live netsim (the dev UI's Conditions panel): straight through while ideal (nothing queued, no copy), impaired once
+// its profiles are set, drained after it is ideal again. `forget` reaches the inner link either way (EOS closes the
+// peer's connection with it, UDP frees the peer number).
+@(test)
+a_live_netsim_passes_through_while_ideal :: proc(t: ^testing.T) {
+	hub := netcode.hub_create(2)
+	defer netcode.hub_destroy(hub)
+	clock := netcode.Virtual_Clock {
+		now = 1_000_000,
+	}
+	inner := netcode.loopback_link(hub, 0)
+	inner.forget = proc(data: rawptr, peer: netcode.Peer) {append(&g_forgot, peer)}
+	defer delete(g_forgot)
+	link, netsim := netcode.netsim_live(inner, 5, &clock)
+	other := netcode.loopback_link(hub, 1)
+	defer netcode.link_close(&other)
+	buf: [64]u8
+
+	netcode.link_forget(&link, 1)
+	netcode.link_send(&link, 1, {1, 2, 3})
+	testing.expect_value(t, netcode.hub_queued(hub, 1), 1) // delivered at once
+	netcode.link_send(&other, 0, {9})
+	size, from, ok := netcode.link_recv(&link, buf[:])
+	testing.expect(t, ok && size == 1 && buf[0] == 9 && from == 1)
+
+	lag := netcode.Profile {
+		name    = "lag",
+		latency = 20_000,
+	}
+	netcode.netsim_set(netsim, lag, lag)
+	netcode.link_forget(&link, 1) // with the netsim on
+	netcode.link_send(&link, 1, {4})
+	testing.expect_value(t, netcode.hub_queued(hub, 1), 1) // held for 20 ms
+	clock.now += 30_000
+	_, _, _ = netcode.link_recv(&link, buf[:]) // pumps the netsim
+	testing.expect_value(t, netcode.hub_queued(hub, 1), 2)
+
+	// Ideal again: a datagram received while impaired is still delivered (drained), then direct.
+	netcode.link_send(&other, 0, {7})
+	_, _, _ = netcode.link_recv(&link, buf[:]) // the netsim takes it in, due in 20 ms
+	netcode.netsim_set(netsim, {}, {})
+	clock.now += 30_000
+	size, _, ok = netcode.link_recv(&link, buf[:])
+	testing.expect(t, ok && size == 1 && buf[0] == 7, "drained after the switch")
+	netcode.link_send(&link, 1, {5})
+	testing.expect_value(t, netcode.hub_queued(hub, 1), 3) // direct again
+	testing.expect_value(t, len(g_forgot), 2)
+	netcode.link_close(&link)
+}

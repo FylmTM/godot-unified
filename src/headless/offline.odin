@@ -7,14 +7,11 @@ import "core:fmt"
 import "core:os"
 import "core:strings"
 
-@(require) import "unified:netcode" // only in generic procs
 import "unified:sim"
 
 // A game as the headless runs, the end-to-end suites and the CLI drive it.
 Headless :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Game) {
 	game:          ^G, // its scripted player (Game.scripted_input, scripted_commands) plays the runs
-	// JSON fields describing a state, for the `sim` output (optional; temp-allocated).
-	summary:       proc(state: ^sim.part(G, sim.GAME_STATE)) -> string,
 	// `bench`: fill the state with `count` entities and hold that population (optional).
 	bench_prepare: proc(state: ^sim.part(G, sim.GAME_STATE), world: ^sim.part(G, sim.GAME_WORLD), count: int),
 	// The game's standard benchmark: what `bench` runs without arguments (`uni bench`).
@@ -86,7 +83,6 @@ trace_write :: proc(trace: ^Trace, path: string) -> bool {
 Run_Result :: struct {
 	final_tick:     u32,
 	final_checksum: u64,
-	summary:        string,
 }
 
 // A change of who holds a slot in a scripted run: from `tick` on, member `member` (the relay's id; 0: nobody).
@@ -96,23 +92,18 @@ Seat :: struct {
 	member: int,
 }
 
-// The script state of an offline run: who holds each slot (slot i is member i + 1 from tick 1, then `seats`
-// change it), and the scripted commands that wait for a tick: as in a session, at most sim.COMMANDS_PER_SLOT of a
-// slot go in one tick and the rest follow in order, a script's send fails once netcode.COMMAND_QUEUE of its
-// commands wait, and a player's waiting commands go when they leave.
+// The script state of an offline run: who holds each slot (slot i is member i + 1 from tick 1, then `seats` change
+// it). A tick takes what each slot's script sends for it: at most sim.COMMANDS_PER_SLOT commands (a session's relay
+// would hold the rest for the next ticks; an offline run asserts a script never sends more).
 Scripted_Commands :: struct($G: typeid) {
-	waiting: [sim.MAX_PLAYERS][dynamic]sim.Raw_Command,
-	out:     sim.Command_Out(sim.part(G, sim.GAME_CMD)),
-	seats:   []Seat, // borrowed
-	holder:  [sim.MAX_PLAYERS]int, // the member in each slot (0: nobody)
-	seated:  bool, // holder is set
+	out:    sim.Command_Out(sim.part(G, sim.GAME_CMD)),
+	seats:  []Seat, // borrowed
+	holder: [sim.MAX_PLAYERS]int, // the member in each slot (0: nobody)
+	seated: bool, // holder is set
 }
 
-// Frees the waiting command queues and the output list of an offline run's scripted commands.
+// Frees the output list of an offline run's scripted commands.
 scripted_commands_destroy :: proc(commands: ^Scripted_Commands($G)) {
-	for &queue in commands.waiting {
-		delete(queue)
-	}
 	delete(commands.out.list)
 }
 
@@ -135,7 +126,6 @@ scripted :: proc(
 	for seat in commands.seats {
 		if seat.tick == tick && seat.slot >= 0 && seat.slot < PLAYERS {
 			commands.holder[seat.slot] = seat.member
-			clear(&commands.waiting[seat.slot]) // the last holder's commands that never reached a tick go with them
 		}
 	}
 	for slot in 0 ..< PLAYERS {
@@ -151,18 +141,22 @@ scripted :: proc(
 		if headless.game.scripted_commands == nil {
 			continue
 		}
-		queue := &commands.waiting[slot]
 		out := &commands.out
 		out.slot = slot
-		out.cap = netcode.COMMAND_QUEUE - len(queue)
+		out.cap = sim.COMMANDS_PER_SLOT + 1 // one more than fits: a script that sends it is caught below
 		clear(&out.list)
 		headless.game.scripted_commands(simulation.seed, slot, tick, &simulation.state, out)
-		append(queue, ..out.list[:])
-		added := 0
-		for added < len(queue) && sim.add_command(&inputs, queue[added]) {
-			added += 1
+		fmt.assertf(
+			len(out.list) <= sim.COMMANDS_PER_SLOT,
+			"%s's script sends slot %d more than %d commands at tick %d: a tick takes at most that many",
+			headless.game.name,
+			slot,
+			sim.COMMANDS_PER_SLOT,
+			tick,
+		)
+		for command in out.list {
+			fmt.assertf(sim.add_command(&inputs, command), "tick %d's scripted commands do not fit a tick", tick)
 		}
-		remove_range(queue, 0, added)
 	}
 	return
 }
@@ -200,9 +194,6 @@ run_sim :: proc(
 		}
 	}
 	result.final_tick = ticks
-	if headless.summary != nil {
-		result.summary = headless.summary(&simulation.state)
-	}
 	return
 }
 
@@ -478,7 +469,6 @@ run_resume :: proc(
 		return
 	}
 	defer sim.destroy(simulation)
-	// commands still waiting at the snapshot's tick are not in it (they are input)
 	commands: Scripted_Commands(G)
 	defer scripted_commands_destroy(&commands)
 	start := simulation.tick

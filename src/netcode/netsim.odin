@@ -1,6 +1,7 @@
-// Network simulator: wraps a link and impairs both directions (latency, jitter, loss,
-// duplication, reordering; one profile, or one per direction) with a seeded RNG. Applied on the client side, so one wrapper shapes
-// the whole client <-> relay path. With a Virtual_Clock it runs on test time instead of real time.
+// Network simulator: wraps a link and impairs both directions (latency, jitter, loss, duplication, reordering) with
+// a seeded RNG. Applied on the client side, so one wrapper shapes the whole client <-> relay path. With a
+// Virtual_Clock it runs on test time instead of real time. A live one (netsim_live) changes its profiles while it runs
+// (the dev UI's Conditions panel); a direction that is ideal with nothing queued passes datagrams straight through.
 package netcode
 
 Profile :: struct {
@@ -12,24 +13,17 @@ Profile :: struct {
 	reorder:   u32, // per mille of packets held back an extra 1-3 ticks
 }
 
-PROFILES := [?]Profile {
-	{name = "ideal"},
-	{
-		name      = "wan",
-		latency   = 50_000,
-		jitter    = 15_000,
-		loss      = 20,
-		duplicate = 10,
-		reorder   = 10,
-	},
-	{
-		name      = "bad",
-		latency   = 120_000,
-		jitter    = 40_000,
-		loss      = 80,
-		duplicate = 30,
-		reorder   = 50,
-	},
+// The built-in network profiles (PROFILES), by the name the headless `--profile` option takes.
+Network :: enum u8 {
+	Ideal,
+	Wan, // 100 ms round trip ± 15 ms, 2% loss: the common case
+	Bad, // 240 ms round trip ± 40 ms, 8% loss, duplicates and reordering: a stress profile
+}
+
+PROFILES := [Network]Profile {
+	.Ideal = {name = "ideal"},
+	.Wan = {name = "wan", latency = 50_000, jitter = 15_000, loss = 20, duplicate = 10, reorder = 10},
+	.Bad = {name = "bad", latency = 120_000, jitter = 40_000, loss = 80, duplicate = 30, reorder = 50},
 }
 
 // A profile that changes nothing (netsim_wrap returns the link it is given).
@@ -43,7 +37,7 @@ profile_is_ideal :: proc(profile: Profile) -> bool {
 	)
 }
 
-// Looks up a built-in profile (ideal, wan, bad) by name, for the headless `--profile` option and scenarios.
+// Looks up a built-in profile by name (ideal, wan, bad), for the headless `--profile` option.
 profile_by_name :: proc(name: string) -> (Profile, bool) {
 	for profile in PROFILES {
 		if profile.name == name {
@@ -54,17 +48,15 @@ profile_by_name :: proc(name: string) -> (Profile, bool) {
 }
 
 Net_Sim :: struct {
-	inner:      Link,
-	profile:    Profile, // both directions, or only outgoing when `split`
-	profile_in: Profile, // incoming, when `split`
-	split:      bool,
-	rng:        u32,
-	outgoing:   [dynamic]Sim_Packet,
-	incoming:   [dynamic]Sim_Packet,
-	scratch:    [MAX_DATAGRAM]u8,
-	pool:       Slot_Pool, // the queued datagrams' bytes
-	stats:      Net_Sim_Stats,
-	clock:      ^Virtual_Clock,
+	inner:    Link,
+	up:       Profile, // datagrams we send
+	down:     Profile, // datagrams we receive
+	rng:      u32,
+	outgoing: [dynamic]Sim_Packet,
+	incoming: [dynamic]Sim_Packet,
+	scratch:  [MAX_DATAGRAM]u8,
+	pool:     Slot_Pool, // the queued datagrams' bytes
+	clock:    ^Virtual_Clock,
 }
 
 // Test time (µs) shared by netsims and the code that steps sessions on a virtual clock.
@@ -93,32 +85,41 @@ Sim_Packet :: struct {
 	bytes: Pooled,
 }
 
-Net_Sim_Stats :: struct {
-	sent, dropped, duplicated, reordered: int,
-}
-
-// Wraps `inner`; the result owns it. An ideal profile returns `inner` unchanged.
+// Wraps `inner` with `profile` both ways; the result owns it. An ideal profile returns `inner` unchanged.
 netsim_wrap :: proc(inner: Link, profile: Profile, seed: u32, clock: ^Virtual_Clock = nil) -> Link {
 	if profile_is_ideal(profile) {
 		return inner
 	}
+	link, netsim := netsim_live(inner, seed, clock)
+	netsim_set(netsim, profile, profile)
+	return link
+}
+
+// Wraps `inner` in a netsim whose profiles change while it runs (netsim_set), ideal both ways to begin with: an ideal
+// direction with nothing queued costs nothing. The link owns `inner` and the Net_Sim (closing it frees both).
+netsim_live :: proc(inner: Link, seed: u32, clock: ^Virtual_Clock = nil) -> (Link, ^Net_Sim) {
 	netsim := new(Net_Sim)
 	netsim.inner = inner
-	netsim.profile = profile
 	netsim.rng = seed == 0 ? 0x9E3779B9 : seed
 	netsim.clock = clock
 	pool_reserve(&netsim.pool, POOL_RESERVE)
 	return {
-		data    = netsim,
-		send    = netsim_send,
-		recv    = netsim_recv,
-		close   = netsim_close,
-		event   = inner.event == nil ? nil : netsim_event,
-		forget  = inner.forget == nil ? nil : proc(data: rawptr, peer: Peer) {link_forget(&(^Net_Sim)(data).inner, peer)},
-		account = inner.account == nil ? nil : proc(data: rawptr, peer: Peer) -> (Account, bool) {
-			return link_account(&(^Net_Sim)(data).inner, peer)
-		},
-	}
+			data    = netsim,
+			send    = netsim_send,
+			recv    = netsim_recv,
+			close   = netsim_close,
+			event   = inner.event == nil ? nil : netsim_event,
+			forget  = inner.forget == nil ? nil : proc(data: rawptr, peer: Peer) {link_forget(&(^Net_Sim)(data).inner, peer)},
+			account = inner.account == nil ? nil : proc(data: rawptr, peer: Peer) -> (Account, bool) {
+				return link_account(&(^Net_Sim)(data).inner, peer)
+			},
+		}, netsim
+}
+
+// Sets the profiles of datagrams sent (`up`) and received (`down`) from now on; the datagrams already queued keep
+// their delivery times.
+netsim_set :: proc(netsim: ^Net_Sim, up, down: Profile) {
+	netsim.up, netsim.down = up, down
 }
 
 @(private)
@@ -128,17 +129,13 @@ roll :: proc(netsim: ^Net_Sim, per_mille: u32) -> bool {
 
 // Queues zero, one or two copies of the datagram with their delivery times.
 @(private)
-impair :: proc(netsim: ^Net_Sim, queue: ^[dynamic]Sim_Packet, peer: Peer, bytes: []u8, incoming: bool) {
-	profile := incoming && netsim.split ? &netsim.profile_in : &netsim.profile
-	netsim.stats.sent += 1
+impair :: proc(netsim: ^Net_Sim, queue: ^[dynamic]Sim_Packet, peer: Peer, bytes: []u8, profile: ^Profile) {
 	if roll(netsim, profile.loss) {
-		netsim.stats.dropped += 1
 		return
 	}
 	copies := 1
 	if roll(netsim, profile.duplicate) {
 		copies = 2
-		netsim.stats.duplicated += 1
 	}
 	now := clock_now(netsim.clock)
 	for _ in 0 ..< copies {
@@ -148,7 +145,6 @@ impair :: proc(netsim: ^Net_Sim, queue: ^[dynamic]Sim_Packet, peer: Peer, bytes:
 		}
 		if roll(netsim, profile.reorder) {
 			delay += 16_000 * i64(1 + xorshift32(&netsim.rng) % 3)
-			netsim.stats.reordered += 1
 		}
 		append(queue, Sim_Packet {
 			at    = now + max(delay, 0),
@@ -186,19 +182,26 @@ pump :: proc(netsim: ^Net_Sim) {
 		link_send(&netsim.inner, packet.peer, pool_bytes(&netsim.pool, packet.bytes))
 		pool_release(&netsim.pool, packet.bytes)
 	}
+	if profile_is_ideal(netsim.down) && len(netsim.incoming) == 0 {
+		return // netsim_recv reads the inner link straight
+	}
 	for {
 		size, from, ok := link_recv(&netsim.inner, netsim.scratch[:])
 		if !ok {
 			break
 		}
-		impair(netsim, &netsim.incoming, from, netsim.scratch[:size], true)
+		impair(netsim, &netsim.incoming, from, netsim.scratch[:size], &netsim.down)
 	}
 }
 
 @(private)
 netsim_send :: proc(data: rawptr, to: Peer, bytes: []u8) {
 	netsim := (^Net_Sim)(data)
-	impair(netsim, &netsim.outgoing, to, bytes, false)
+	if profile_is_ideal(netsim.up) && len(netsim.outgoing) == 0 {
+		link_send(&netsim.inner, to, bytes)
+		return
+	}
+	impair(netsim, &netsim.outgoing, to, bytes, &netsim.up)
 	pump(netsim)
 }
 
@@ -206,6 +209,9 @@ netsim_send :: proc(data: rawptr, to: Peer, bytes: []u8) {
 netsim_recv :: proc(data: rawptr, buf: []u8) -> (size: int, from: Peer, ok: bool) {
 	netsim := (^Net_Sim)(data)
 	pump(netsim)
+	if profile_is_ideal(netsim.down) && len(netsim.incoming) == 0 {
+		return link_recv(&netsim.inner, buf)
+	}
 	packet := pop_due(&netsim.incoming, clock_now(netsim.clock)) or_return
 	defer pool_release(&netsim.pool, packet.bytes)
 	return copy(buf, pool_bytes(&netsim.pool, packet.bytes)), packet.peer, true

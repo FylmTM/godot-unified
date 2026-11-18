@@ -1,6 +1,5 @@
-// The online modes (<name>-host, <name>-client) on the toy over an in-process transport: a hub whose
-// endpoint 0 is the host's lobby link and endpoint 1 the joiner's. Real time, two threads, as two processes
-// over EOS would run them.
+// The lobby modes (<name>-host, <name>-client) on the toy over an in-process lobby: a hub whose endpoint 0 is the
+// host's lobby link and endpoint 1 the joiner's. Real time, two threads, as two processes over EOS would run them.
 package test_headless
 
 import "base:runtime"
@@ -14,34 +13,30 @@ import "unified:netcode"
 g_hub: ^netcode.Hub
 
 @(private = "file")
-g_opened: [2]struct {
-	game:   string,
-	compat: u64,
-} // what the host [0] and the joiner [1] opened the transport with
+g_opened: [2]netcode.Lobby_Build // what the host [0] and the joiner [1] opened the lobby with
 
 @(private = "file")
-LOOP_ONLINE := modes.Online {
+LOOP_LOBBY := netcode.Lobby {
 	name = "loop",
-	start = proc(args: ^modes.Args) -> bool {return true},
-	stop = proc() {},
-	open_host = proc(game: string, compat: u64) -> (netcode.Link, bool) {
-		g_opened[0] = {game, compat}
+	open_host = proc(build: netcode.Lobby_Build) -> (netcode.Link, bool) {
+		g_opened[0] = build
 		return netcode.loopback_link(g_hub, 0), true
 	},
-	open_join = proc(game: string, compat: u64, code: string) -> (netcode.Link, bool) {
-		g_opened[1] = {game, compat}
+	open_join = proc(build: netcode.Lobby_Build, code: string) -> (netcode.Link, bool) {
+		g_opened[1] = build
 		return netcode.loopback_link(g_hub, 1), true
 	},
-	poll = proc() -> modes.Online_Status {
+	pump = proc() -> netcode.Lobby_Status {
 		// A remote peer counts as connected once a datagram from it waits at the host's endpoint.
 		return {
-			ready = true,
+			stage = .Ready,
 			code  = "loop",
 			local = "me",
 			host  = "host",
 			peers = netcode.hub_queued(g_hub, 0) > 0 ? 1 : 0,
 		}
 	},
+	close = proc() {},
 }
 
 @(private = "file")
@@ -57,21 +52,20 @@ run_mode :: proc(task: ^Mode_Task) {
 	context.allocator = task.allocator
 	headless := HEADLESS
 	if task.host {
-		task.ok = modes.mode_online_host(&headless, &LOOP_ONLINE, &task.args)
+		task.ok = modes.mode_lobby_host(&headless, &task.args)
 	} else {
-		task.ok = modes.mode_online_client(&headless, &LOOP_ONLINE, &task.args)
+		task.ok = modes.mode_lobby_client(&headless, &task.args)
 	}
 }
 
-// `<name>-host --wait-s` waits for a joiner, whose Hello is already queued when the host starts: the host's
-// own player still gets player 0 and the joiner joins as player 1; both play to the end (#143). Both open the
-// transport with the game's name and the same build id (#304).
+// `<name>-host --wait-s` waits for a joiner, then both play to the end. Both open the lobby with the game's name, the
+// same build id and its player count.
 @(test)
-online_host_waits_for_a_joiner :: proc(t: ^testing.T) {
+lobby_host_waits_for_a_joiner :: proc(t: ^testing.T) {
 	g_hub = netcode.hub_create(2)
 	defer netcode.hub_destroy(g_hub)
 	host := Mode_Task {
-		args = {mode = "loop-host"},
+		args = {mode = "loop-host", lobby = &LOOP_LOBBY},
 		host = true,
 		allocator = context.allocator,
 	}
@@ -79,7 +73,7 @@ online_host_waits_for_a_joiner :: proc(t: ^testing.T) {
 	host.args.opts["wait-s"] = "20"
 	defer delete(host.args.opts)
 	joiner := Mode_Task {
-		args = {mode = "loop-client"},
+		args = {mode = "loop-client", lobby = &LOOP_LOBBY},
 		allocator = context.allocator,
 	}
 	joiner.args.opts["ticks"] = "64"
@@ -96,4 +90,5 @@ online_host_waits_for_a_joiner :: proc(t: ^testing.T) {
 	testing.expect_value(t, g_opened[0].game, HEADLESS.game.name)
 	testing.expect_value(t, g_opened[1].game, HEADLESS.game.name)
 	testing.expect(t, g_opened[0].compat != 0 && g_opened[0].compat == g_opened[1].compat, "the same build id")
+	testing.expect_value(t, g_opened[0].players, 4)
 }

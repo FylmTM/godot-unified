@@ -72,13 +72,10 @@ seeded_address_dependence_is_caught_by_desync_detection :: proc(t: ^testing.T) {
 	}
 	network, _ := netcode.profile_by_name("ideal")
 	result := headless.session_run(&bugged, {
-		clients     = 2,
-		transport   = "loopback",
-		virtual     = true,
-		profile     = network,
-		ticks       = 120,
-		seed        = SUITE.seed,
-		late_player = -1,
+		clients = 2,
+		profile = network,
+		ticks   = 120,
+		seed    = SUITE.seed,
 	})
 	defer headless.session_result_destroy(&result)
 	testing.expectf(t, result.desyncs > 0, "a state taken from an address: the session saw no desync")
@@ -98,13 +95,10 @@ a_desync_is_detected_and_reported :: proc(t: ^testing.T) {
 		game = &game,
 	}
 	cfg := headless.Session_Config {
-		clients     = 3,
-		transport   = "loopback",
-		virtual     = true,
-		profile     = netcode.PROFILES[1], // wan: rollbacks, so `tick` runs a different number of times
-		ticks       = 640,
-		seed        = 1,
-		late_player = -1,
+		clients = 3,
+		profile = netcode.PROFILES[.Wan], // wan: rollbacks, so `tick` runs a different number of times
+		ticks   = 640,
+		seed    = 1,
 	}
 	result := headless.session_run(&reads_world, cfg)
 	defer headless.session_result_destroy(&result)
@@ -124,10 +118,10 @@ a_desync_is_detected_and_reported :: proc(t: ^testing.T) {
 		result.desync.detail,
 	)
 	for client in result.clients {
-		testing.expectf(t, client.desyncs > 0, "player %d was not told", client.slot)
+		testing.expectf(t, client.stats.desyncs > 0, "player %d was not told", client.slot)
 		testing.expect(t, !client.ok)
 	}
-	cfg.profile = netcode.PROFILES[0]
+	cfg.profile = netcode.PROFILES[.Ideal]
 	ideal := headless.session_run(&reads_world, cfg)
 	defer headless.session_result_destroy(&ideal)
 	testing.expect_value(t, ideal.desyncs, 0)

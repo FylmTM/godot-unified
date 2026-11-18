@@ -156,9 +156,10 @@ for batch files); the config readers (`pins.cfg`, `.env`) accept either.
   rollback window (default: the netcode's prediction cap), ticks), which its `bench` mode runs: every tick a step, a
   save, a checksum, then a rollback at the window and a re-sim (the worst case the netcode makes: a bound, not a
   typical frame). The first window + 64 ticks run untimed. unified's target: a step plus that re-sim within 6 ms at
-  their p99. `bench` also runs each game's `net-bench` (4 clients under `bad` on the virtual clock), the headless
-  `table-bench` once, and the project's own rows (this repo: Box3D on a fixed scene, `tests/physics/bench`, what a
-  Box3D upgrade compares); `.out/bench.json`, not gated by time.
+  their p99. `bench` also runs each game's `session` on the virtual clock twice, 4 clients under `bad` (the stress
+  case) and under `wan` with the 4th joining halfway (the common case and a late join), and the project's own rows
+  (this repo: Box3D on a fixed scene, `tests/physics/bench`, what a Box3D upgrade compares); `.out/bench.json`, not
+  gated by time.
 
 ## The template game
 

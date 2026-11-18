@@ -8,25 +8,21 @@ import "core:testing"
 import "unified:headless"
 
 // Past the round-trip ceiling (400 ms, 200 ms each way: the prediction needs ~26 ticks, the window allows 14) the
-// sim stalls, but the inputs are sampled and sent on the clock, so they reach the relay in time. Before the #8
-// sitting the clock stalled with the sim: 2,322 of these 2,400 inputs were replaced.
+// sim stalls, but the inputs are sampled and sent on the clock, so they reach the relay in time.
 @(test)
 inputs_count_past_the_round_trip_ceiling :: proc(t: ^testing.T) {
 	cfg := headless.Session_Config {
 		clients = 2,
-		transport = "loopback",
-		virtual = true,
 		profile = {name = "400 ms", latency = 200_000},
 		ticks = 1200,
 		seed = 1,
-		late_player = -1,
 	}
 	result := headless.session_run(&HEADLESS, cfg)
 	defer headless.session_result_destroy(&result)
 	testing.expect(t, result.ok)
 	testing.expectf(t, result.replaced == 0, "%d of %d inputs replaced", result.replaced, 2 * cfg.ticks)
 	for client in result.clients {
-		testing.expectf(t, client.stall_ticks > 0, "player %d never stalled: not past the ceiling", client.slot)
+		testing.expectf(t, client.stats.stall_ticks > 0, "player %d never stalled: not past the ceiling", client.slot)
 		testing.expect_value(t, client.delay, 7) // the most: 100 ms
 	}
 }
@@ -36,18 +32,15 @@ inputs_count_past_the_round_trip_ceiling :: proc(t: ^testing.T) {
 input_delay_stays_at_the_floor_within_the_window :: proc(t: ^testing.T) {
 	cfg := headless.Session_Config {
 		clients = 2,
-		transport = "loopback",
-		virtual = true,
 		profile = {name = "100 ms", latency = 50_000},
 		ticks = 640,
 		seed = 1,
-		late_player = -1,
 	}
 	result := headless.session_run(&HEADLESS, cfg)
 	defer headless.session_result_destroy(&result)
 	testing.expect(t, result.ok)
 	for client in result.clients {
 		testing.expect_value(t, client.delay, 1)
-		testing.expect_value(t, client.stall_ticks, 0)
+		testing.expect_value(t, client.stats.stall_ticks, 0)
 	}
 }

@@ -4,12 +4,10 @@ package modes
 
 import "core:fmt"
 import "core:slice"
-@(require) import "core:strings"
-import "core:time"
+@(require) import "core:time" // only in generic procs
 
 import uheadless "unified:headless"
-@(require) import "unified:netcode"
-import "unified:sim"
+@(require) import "unified:sim" // only in generic procs
 
 Stat :: struct {
 	mean: f64,
@@ -37,12 +35,15 @@ stat_of :: proc(samples: []f64) -> Stat {
 
 Bench_Result :: struct {
 	step, save, restore, resim: Stat,
-	// The same re-sim of ticks that are all final (a catch-up burst), saving only the last one (#117: what the
-	// netcode does since the #8 sitting)
+	// The same re-sim of ticks that are all final (a catch-up burst), saving only the last one (what the netcode
+	// does)
 	resim_final:                Stat,
 	// sim.checksum of the stepped tick: on the ticks peers compare (sim.DEEP_CHECKSUM_EVERY: every extra's whole
 	// state) and on the others (an extra's cheaper summary)
 	checksum_deep, checksum:    Stat,
+	// sim.snapshot_encode_into of a checksum tick into a reused buffer: what a client pays for each kept desync image
+	// (Welcome's Keep_Images, 4 a second at 64 Hz) and for each snapshot a joiner gets
+	snapshot_encode:            Stat,
 	snapshot_bytes:             int,
 	save_bytes:                 int, // what each tick's save copies: the block and the extras' saves (sim.save_size)
 	warmup:                     int, // the first ticks, left out of the timings
@@ -56,7 +57,7 @@ BENCH_WARMUP :: 64
 // `bench`: prepares `entities` entities (the game holds that population), and every tick measures
 // the forward step, the save, a restore `window` ticks back and the `window`-tick re-sim (step +
 // save per tick, which is what a client rollback of predicted ticks costs), then the same re-sim of final ticks
-// (no save but the last: a catch-up burst, #117). Re-sim checksums are compared too, and the forward tick's
+// (no save but the last: a catch-up burst). Re-sim checksums are compared too, and the forward tick's
 // checksum is timed (deep ticks and the others apart). The first `window` + BENCH_WARMUP ticks run untimed (all of
 // them when the run is no longer). A rollback at the prediction cap every tick is the worst case the netcode
 // makes, not a typical frame: the bound the frame budget is checked against.
@@ -87,6 +88,8 @@ run_bench :: proc(
 	resim_final_us := make([]f64, tick_count)
 	checksum_us := make([]f64, tick_count)
 	checksum_deep_us := make([]f64, tick_count)
+	snapshot_encode_us := make([]f64, tick_count)
+	image: [dynamic]u8
 	recorded := make([]sim.Inputs(G), ticks + 1)
 	forward := make([]u64, ticks + 1)
 	commands: uheadless.Scripted_Commands(G)
@@ -99,6 +102,8 @@ run_bench :: proc(
 		delete(resim_final_us)
 		delete(checksum_us)
 		delete(checksum_deep_us)
+		delete(snapshot_encode_us)
+		delete(image)
 		delete(recorded)
 		delete(forward)
 	}
@@ -122,6 +127,9 @@ run_bench :: proc(
 		if timed {
 			if tick % sim.DEEP_CHECKSUM_EVERY == 0 {
 				checksum_deep_us[deep_checksums] = micros(save_end, checksum_end)
+				encode_start := time.tick_now()
+				_ = sim.snapshot_encode_into(simulation, tick, &image)
+				snapshot_encode_us[deep_checksums] = micros(encode_start, time.tick_now())
 				deep_checksums += 1
 			} else {
 				checksum_us[checksums] = micros(save_end, checksum_end)
@@ -173,160 +181,8 @@ run_bench :: proc(
 	result.resim_final = stat_of(resim_final_us[:rollbacks])
 	result.checksum = stat_of(checksum_us[:checksums])
 	result.checksum_deep = stat_of(checksum_deep_us[:deep_checksums])
+	result.snapshot_encode = stat_of(snapshot_encode_us[:deep_checksums])
 	result.save_bytes = sim.save_size(simulation)
 	result.snapshot_bytes = sim.snapshot_size(simulation)
 	return
-}
-
-// `table-bench` (N9, the #6 sitting): what a table walk costs when the table is sparse. sim.iterate / sim.next look
-// at every slot up to high_water, which never goes down, so a table that once held 65,536 items and now holds a few
-// still walks them all. Measures that walk against a dense table holding the same live items; an alive bitmask
-// (1 bit per slot) comes only if this shows the scan matters. Game-independent: `uni bench` runs it once.
-TABLE_BENCH_CAPACITY :: 65_536
-
-Table_Bench_Item :: struct {
-	position: [3]f32,
-	velocity: [3]f32,
-	life:     i32,
-	kind:     u32,
-}
-
-Table_Bench :: sim.Table(Table_Bench_Item, TABLE_BENCH_CAPACITY)
-
-// The `table-bench` mode: times a walk of a sparse 65,536-slot table against a dense one holding as many items,
-// to show whether the walk's scan of empty slots matters. Game-independent.
-mode_table_bench :: proc(args: ^Args) -> bool {
-	check_known(args, "live", "walks")
-	live := opt_int(args, "live", 1000, low = 1, high = TABLE_BENCH_CAPACITY)
-	walks := opt_int(args, "walks", 300, low = 1, high = 100_000)
-	sparse, dense := new(Table_Bench), new(Table_Bench)
-	defer free(sparse)
-	defer free(dense)
-	// sparse: every slot used once, then all but `live` (spread evenly) despawned; dense: `live` items at the front
-	handles := make([]sim.Handle(Table_Bench_Item), TABLE_BENCH_CAPACITY)
-	defer delete(handles)
-	for i in 0 ..< TABLE_BENCH_CAPACITY {
-		item: ^Table_Bench_Item
-		item, handles[i], _ = sim.spawn(sparse)
-		item.life = i32(i)
-	}
-	keep_every := TABLE_BENCH_CAPACITY / live
-	for i in 0 ..< TABLE_BENCH_CAPACITY {
-		if i % keep_every != 0 || i / keep_every >= live do sim.despawn(sparse, handles[i])
-	}
-	for i in 0 ..< live {
-		item, _, _ := sim.spawn(dense)
-		item.life = i32(i)
-	}
-	walk :: proc(table: ^Table_Bench) -> (micros: f64, sum: i64) {
-		start := time.tick_now()
-		items := sim.iterate(table)
-		for item, handle in sim.next(&items) {
-			sum += i64(item.life) + i64(handle.index)
-		}
-		return time.duration_microseconds(time.tick_since(start)), sum
-	}
-	sparse_us, dense_us := make([]f64, walks), make([]f64, walks)
-	defer delete(sparse_us)
-	defer delete(dense_us)
-	sparse_sum, dense_sum: i64
-	for i in 0 ..< walks {
-		sum: i64
-		sparse_us[i], sum = walk(sparse)
-		sparse_sum += sum
-		dense_us[i], sum = walk(dense)
-		dense_sum += sum
-	}
-	sparse_stat, dense_stat := stat_of(sparse_us), stat_of(dense_us)
-	fmt.printfln(
-		`{{"mode":"table-bench","capacity":%d,"live":%d,"walks":%d,"sparse_us":%s,"dense_us":%s,"checksum":%d}}`,
-		TABLE_BENCH_CAPACITY,
-		int(sparse.count),
-		walks,
-		stat_json(sparse_stat),
-		stat_json(dense_stat),
-		sparse_sum ~ dense_sum,
-	)
-	return int(sparse.count) == live
-}
-
-// `net-bench` (N10, the #8 sitting): the netcode's cost, a session on the virtual clock (one thread steps the relay
-// and every client through test time, so the run is deterministic and its wall time is the clients' and relay's
-// CPU time): wall time, rollbacks and what they re-simulated, the time each kind of step took, and the bytes per
-// second on the wire.
-mode_net_bench :: proc(headless: ^uheadless.Headless($G), args: ^Args) -> bool {
-	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
-	check_known(args, "clients", "ticks", "profile", "seed", "latency", "jitter", "loss")
-	cfg := uheadless.Session_Config {
-		clients     = opt_int(args, "clients", min(PLAYERS, 4), low = 1, high = PLAYERS),
-		transport   = "loopback",
-		virtual     = true,
-		profile     = profile_opt(args, "bad"),
-		ticks       = u32(opt_int(args, "ticks", 1200, low = 64, high = 1_000_000)),
-		seed        = seed_opt(args),
-		late_player = -1,
-	}
-	// A profile of its own: --latency and --jitter one way (ms), --loss per mille.
-	if latency := opt_int(args, "latency", -1, low = -1, high = 2000); latency >= 0 {
-		cfg.profile = {
-			name    = "custom",
-			latency = i64(latency) * 1000,
-			jitter  = i64(opt_int(args, "jitter", 0, low = 0, high = 1000)) * 1000,
-			loss    = u32(opt_int(args, "loss", 0, low = 0, high = 1000)),
-		}
-	}
-	start := time.tick_now()
-	result := uheadless.session_run(headless, cfg)
-	defer uheadless.session_result_destroy(&result)
-	wall_ms := time.duration_milliseconds(time.tick_since(start))
-	seconds := f64(cfg.ticks) / f64(headless.game.tick_hz)
-	rollbacks, resim_ticks, stall_ticks, resends: int
-	depth_sum := 0.0
-	client_bytes: int
-	steps: [3]int
-	step_us: [3]i64
-	delays := make([dynamic]string, context.temp_allocator)
-	for client in result.clients {
-		append(&delays, fmt.tprintf("%d", client.delay))
-		rollbacks += client.rollbacks
-		resim_ticks += client.resim_ticks
-		stall_ticks += client.stall_ticks
-		depth_sum += client.rollback_depth_avg * f64(client.rollbacks)
-		client_bytes += client.net.bytes_sent
-		resends += client.net.resends
-		for kind, k in ([3]netcode.Step_Kind{.Verified, .Resim, .Predicted}) {
-			steps[k] += client.steps[kind]
-			step_us[k] += client.step_us[kind]
-		}
-	}
-	resends += result.relay_net.resends
-	fmt.printfln(
-		`{{"mode":"net-bench","clients":%d,"profile":"%s","latency_ms":%d,"jitter_ms":%d,"ticks":%d,"tick_hz":%d,"wall_ms":%.1f,"delay":[%s],"rollbacks":%d,"rollback_depth_avg":%.2f,"resim_ticks":%d,"stall_ticks":%d,"replaced_inputs":%d,"desyncs":%d,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"relay_bytes_per_s":%.0f,"client_bytes_per_s":%.0f,"relay_datagrams_per_s":%.1f,"resends":%d,"ok":%v}}`,
-		cfg.clients,
-		cfg.profile.name,
-		cfg.profile.latency / 1000,
-		cfg.profile.jitter / 1000,
-		cfg.ticks,
-		headless.game.tick_hz,
-		wall_ms,
-		strings.join(delays[:], ",", context.temp_allocator),
-		rollbacks,
-		rollbacks > 0 ? depth_sum / f64(rollbacks) : 0,
-		resim_ticks,
-		stall_ticks,
-		result.replaced,
-		result.desyncs,
-		steps[0],
-		steps[1],
-		steps[2],
-		step_us[0],
-		step_us[1],
-		step_us[2],
-		f64(result.relay_net.bytes_sent) / seconds,
-		f64(client_bytes) / seconds / f64(cfg.clients),
-		f64(result.relay_net.datagrams_sent) / seconds,
-		resends,
-		result.ok,
-	)
-	return result.ok && result.desyncs == 0
 }

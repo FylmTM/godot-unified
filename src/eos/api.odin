@@ -225,13 +225,6 @@ P2P_Send_Packet_Options :: struct {
 	disable_auto_accept_connection: Bool,
 }
 
-P2P_GETNEXTRECEIVEDPACKETSIZE_API_LATEST :: 2
-P2P_Get_Next_Received_Packet_Size_Options :: struct {
-	api_version:       i32,
-	local_user_id:     Product_User_Id,
-	requested_channel: ^u8,
-}
-
 P2P_RECEIVEPACKET_API_LATEST :: 2
 P2P_Receive_Packet_Options :: struct {
 	api_version:         i32,
@@ -471,58 +464,51 @@ Lobby_Member_Status_Received_Callback_Info :: struct {
 // --- the function table ---------------------------------------------------------------------------
 
 Api :: struct {
-	__handle:                                    dynlib.Library,
-	Initialize:                                  proc "c" (opts: ^Initialize_Options) -> Result,
-	Shutdown:                                    proc "c" () -> Result,
-	EResult_ToString:                            proc "c" (result: Result) -> cstring,
-	ProductUserId_ToString:                      proc "c" (id: Product_User_Id, out: [^]u8, inout_len: ^i32) -> Result,
-	ProductUserId_IsValid:                       proc "c" (id: Product_User_Id) -> Bool,
-	Logging_SetCallback:                         proc "c" (callback: proc "c" (msg: ^Log_Message)) -> Result,
-	Logging_SetLogLevel:                         proc "c" (category: i32, level: Log_Level) -> Result,
-	Platform_Create:                             proc "c" (opts: ^Platform_Options) -> H_Platform,
-	Platform_Tick:                               proc "c" (handle: H_Platform),
-	Platform_Release:                            proc "c" (handle: H_Platform),
-	Platform_GetConnectInterface:                proc "c" (handle: H_Platform) -> H_Connect,
-	Platform_GetP2PInterface:                    proc "c" (handle: H_Platform) -> H_P2P,
-	Platform_GetLobbyInterface:                  proc "c" (handle: H_Platform) -> H_Lobby,
-	Connect_Login:                               proc "c" (
+	__handle:                                  dynlib.Library,
+	Initialize:                                proc "c" (opts: ^Initialize_Options) -> Result,
+	Shutdown:                                  proc "c" () -> Result,
+	EResult_ToString:                          proc "c" (result: Result) -> cstring,
+	ProductUserId_ToString:                    proc "c" (id: Product_User_Id, out: [^]u8, inout_len: ^i32) -> Result,
+	Logging_SetCallback:                       proc "c" (callback: proc "c" (msg: ^Log_Message)) -> Result,
+	Logging_SetLogLevel:                       proc "c" (category: i32, level: Log_Level) -> Result,
+	Platform_Create:                           proc "c" (opts: ^Platform_Options) -> H_Platform,
+	Platform_Tick:                             proc "c" (handle: H_Platform),
+	Platform_Release:                          proc "c" (handle: H_Platform),
+	Platform_GetConnectInterface:              proc "c" (handle: H_Platform) -> H_Connect,
+	Platform_GetP2PInterface:                  proc "c" (handle: H_Platform) -> H_P2P,
+	Platform_GetLobbyInterface:                proc "c" (handle: H_Platform) -> H_Lobby,
+	Connect_Login:                             proc "c" (
 		handle: H_Connect,
 		opts: ^Connect_Login_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^Connect_Login_Callback_Info),
 	),
-	Connect_CreateUser:                          proc "c" (
+	Connect_CreateUser:                        proc "c" (
 		handle: H_Connect,
 		opts: ^Connect_Create_User_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^Connect_Create_User_Callback_Info),
 	),
-	Connect_CreateDeviceId:                      proc "c" (
+	Connect_CreateDeviceId:                    proc "c" (
 		handle: H_Connect,
 		opts: ^Connect_Create_Device_Id_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^Result_Callback_Info),
 	),
-	Connect_DeleteDeviceId:                      proc "c" (
+	Connect_DeleteDeviceId:                    proc "c" (
 		handle: H_Connect,
 		opts: ^Connect_Delete_Device_Id_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^Result_Callback_Info),
 	),
-	Connect_AddNotifyAuthExpiration:             proc "c" (
+	Connect_AddNotifyAuthExpiration:           proc "c" (
 		handle: H_Connect,
 		opts: ^Connect_Add_Notify_Auth_Expiration_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^Connect_Auth_Expiration_Callback_Info),
 	) -> Notification_Id,
-	Connect_RemoveNotifyAuthExpiration:          proc "c" (handle: H_Connect, id: Notification_Id),
-	P2P_SendPacket:                              proc "c" (handle: H_P2P, opts: ^P2P_Send_Packet_Options) -> Result,
-	P2P_GetNextReceivedPacketSize:               proc "c" (
-		handle: H_P2P,
-		opts: ^P2P_Get_Next_Received_Packet_Size_Options,
-		out_size: ^u32,
-	) -> Result,
-	P2P_ReceivePacket:                           proc "c" (
+	P2P_SendPacket:                            proc "c" (handle: H_P2P, opts: ^P2P_Send_Packet_Options) -> Result,
+	P2P_ReceivePacket:                         proc "c" (
 		handle: H_P2P,
 		opts: ^P2P_Receive_Packet_Options,
 		out_peer: ^Product_User_Id,
@@ -531,124 +517,123 @@ Api :: struct {
 		out_data: rawptr,
 		out_bytes_written: ^u32,
 	) -> Result,
-	P2P_AddNotifyPeerConnectionRequest:          proc "c" (
+	P2P_AddNotifyPeerConnectionRequest:        proc "c" (
 		handle: H_P2P,
 		opts: ^P2P_Socket_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^P2P_On_Incoming_Connection_Request_Info),
 	) -> Notification_Id,
-	P2P_RemoveNotifyPeerConnectionRequest:       proc "c" (handle: H_P2P, id: Notification_Id),
-	P2P_AddNotifyPeerConnectionEstablished:      proc "c" (
+	P2P_RemoveNotifyPeerConnectionRequest:     proc "c" (handle: H_P2P, id: Notification_Id),
+	P2P_AddNotifyPeerConnectionEstablished:    proc "c" (
 		handle: H_P2P,
 		opts: ^P2P_Socket_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^P2P_On_Peer_Connection_Established_Info),
 	) -> Notification_Id,
-	P2P_RemoveNotifyPeerConnectionEstablished:   proc "c" (handle: H_P2P, id: Notification_Id),
-	P2P_AddNotifyPeerConnectionClosed:           proc "c" (
+	P2P_RemoveNotifyPeerConnectionEstablished: proc "c" (handle: H_P2P, id: Notification_Id),
+	P2P_AddNotifyPeerConnectionClosed:         proc "c" (
 		handle: H_P2P,
 		opts: ^P2P_Socket_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^P2P_On_Remote_Connection_Closed_Info),
 	) -> Notification_Id,
-	P2P_RemoveNotifyPeerConnectionClosed:        proc "c" (handle: H_P2P, id: Notification_Id),
-	P2P_AcceptConnection:                        proc "c" (
+	P2P_RemoveNotifyPeerConnectionClosed:      proc "c" (handle: H_P2P, id: Notification_Id),
+	P2P_AcceptConnection:                      proc "c" (
 		handle: H_P2P,
 		opts: ^P2P_Accept_Connection_Options,
 	) -> Result,
-	P2P_CloseConnection:                         proc "c" (
+	P2P_CloseConnection:                       proc "c" (
 		handle: H_P2P,
 		opts: ^P2P_Accept_Connection_Options,
 	) -> Result,
-	P2P_CloseConnections:                        proc "c" (handle: H_P2P, opts: ^P2P_Socket_Options) -> Result,
-	P2P_SetRelayControl:                         proc "c" (
+	P2P_CloseConnections:                      proc "c" (handle: H_P2P, opts: ^P2P_Socket_Options) -> Result,
+	P2P_SetRelayControl:                       proc "c" (
 		handle: H_P2P,
 		opts: ^P2P_Set_Relay_Control_Options,
 	) -> Result,
-	P2P_SetPacketQueueSize:                      proc "c" (
+	P2P_SetPacketQueueSize:                    proc "c" (
 		handle: H_P2P,
 		opts: ^P2P_Set_Packet_Queue_Size_Options,
 	) -> Result,
-	Lobby_CreateLobby:                           proc "c" (
+	Lobby_CreateLobby:                         proc "c" (
 		handle: H_Lobby,
 		opts: ^Lobby_Create_Lobby_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^Lobby_Callback_Info),
 	),
-	Lobby_UpdateLobbyModification:               proc "c" (
+	Lobby_UpdateLobbyModification:             proc "c" (
 		handle: H_Lobby,
 		opts: ^Lobby_User_Lobby_Options,
 		out: ^H_Lobby_Modification,
 	) -> Result,
-	Lobby_UpdateLobby:                           proc "c" (
+	Lobby_UpdateLobby:                         proc "c" (
 		handle: H_Lobby,
 		opts: ^Lobby_Update_Lobby_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^Lobby_Callback_Info),
 	),
-	Lobby_JoinLobby:                             proc "c" (
+	Lobby_JoinLobby:                           proc "c" (
 		handle: H_Lobby,
 		opts: ^Lobby_Join_Lobby_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^Lobby_Callback_Info),
 	),
-	Lobby_LeaveLobby:                            proc "c" (
+	Lobby_LeaveLobby:                          proc "c" (
 		handle: H_Lobby,
 		opts: ^Lobby_User_Lobby_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^Lobby_Callback_Info),
 	),
-	Lobby_DestroyLobby:                          proc "c" (
+	Lobby_DestroyLobby:                        proc "c" (
 		handle: H_Lobby,
 		opts: ^Lobby_User_Lobby_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^Lobby_Callback_Info),
 	),
-	Lobby_CreateLobbySearch:                     proc "c" (
+	Lobby_CreateLobbySearch:                   proc "c" (
 		handle: H_Lobby,
 		opts: ^Lobby_Create_Lobby_Search_Options,
 		out: ^H_Lobby_Search,
 	) -> Result,
-	Lobby_AddNotifyLobbyMemberStatusReceived:    proc "c" (
+	Lobby_AddNotifyLobbyMemberStatusReceived:  proc "c" (
 		handle: H_Lobby,
 		opts: ^Version_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^Lobby_Member_Status_Received_Callback_Info),
 	) -> Notification_Id,
-	Lobby_RemoveNotifyLobbyMemberStatusReceived: proc "c" (handle: H_Lobby, id: Notification_Id),
-	LobbyModification_AddAttribute:              proc "c" (
+	LobbyModification_AddAttribute:            proc "c" (
 		handle: H_Lobby_Modification,
 		opts: ^Lobby_Modification_Add_Attribute_Options,
 	) -> Result,
-	LobbyModification_Release:                   proc "c" (handle: H_Lobby_Modification),
-	LobbySearch_SetParameter:                    proc "c" (
+	LobbyModification_Release:                 proc "c" (handle: H_Lobby_Modification),
+	LobbySearch_SetParameter:                  proc "c" (
 		handle: H_Lobby_Search,
 		opts: ^Lobby_Search_Set_Parameter_Options,
 	) -> Result,
-	LobbySearch_Find:                            proc "c" (
+	LobbySearch_Find:                          proc "c" (
 		handle: H_Lobby_Search,
 		opts: ^Lobby_Search_Find_Options,
 		client_data: rawptr,
 		callback: proc "c" (info: ^Result_Callback_Info),
 	),
-	LobbySearch_GetSearchResultCount:            proc "c" (handle: H_Lobby_Search, opts: ^Version_Options) -> u32,
-	LobbySearch_CopySearchResultByIndex:         proc "c" (
+	LobbySearch_GetSearchResultCount:          proc "c" (handle: H_Lobby_Search, opts: ^Version_Options) -> u32,
+	LobbySearch_CopySearchResultByIndex:       proc "c" (
 		handle: H_Lobby_Search,
 		opts: ^Lobby_Search_Copy_Search_Result_By_Index_Options,
 		out: ^H_Lobby_Details,
 	) -> Result,
-	LobbySearch_Release:                         proc "c" (handle: H_Lobby_Search),
-	LobbyDetails_GetLobbyOwner:                  proc "c" (
+	LobbySearch_Release:                       proc "c" (handle: H_Lobby_Search),
+	LobbyDetails_GetLobbyOwner:                proc "c" (
 		handle: H_Lobby_Details,
 		opts: ^Version_Options,
 	) -> Product_User_Id,
-	LobbyDetails_CopyAttributeByKey:             proc "c" (
+	LobbyDetails_CopyAttributeByKey:           proc "c" (
 		handle: H_Lobby_Details,
 		opts: ^LobbyDetails_Copy_Attribute_By_Key_Options,
 		out: ^^Lobby_Attribute,
 	) -> Result,
-	Lobby_Attribute_Release:                     proc "c" (attribute: ^Lobby_Attribute),
-	LobbyDetails_Release:                        proc "c" (handle: H_Lobby_Details),
+	Lobby_Attribute_Release:                   proc "c" (attribute: ^Lobby_Attribute),
+	LobbyDetails_Release:                      proc "c" (handle: H_Lobby_Details),
 }
 
 // Loads the SDK library from `path` and resolves every function; false if the file is missing or

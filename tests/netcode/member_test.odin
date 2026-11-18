@@ -46,16 +46,14 @@ member_join :: proc(
 ) -> ^Client {
 	link := netcode.netsim_wrap(
 		netcode.loopback_link(hub, netcode.Peer(endpoint)),
-		netcode.PROFILES[1],
+		netcode.PROFILES[.Wan],
 		u32(endpoint) * 7919 + u32(len(session.clients)),
 		&session.clock,
 	)
 	client := netcode.client_create(&toy.GAME, {
 			slot        = -1,
-			name        = name,
 			player_name = name,
 			token       = token,
-			quiet       = true,
 		}, link, hooks_for(&session.watch[min(len(session.clients) + 1, 7)]))
 	append(&session.clients, client)
 	return client
@@ -111,7 +109,7 @@ a_token_brings_the_member_back_in_another_slot :: proc(t: ^testing.T) {
 	for client in ([]^Client{session.host.client, bob, again}) {
 		entry := netcode.client_member(client, ann.member)
 		if !testing.expect(t, entry != nil) do continue
-		testing.expect_value(t, netcode.name_string(&entry.name), "Ann")
+		testing.expect_value(t, netcode.text_string(&entry.name), "Ann")
 		testing.expect(t, entry.connected && int(entry.slot) == again.slot)
 		testing.expect_value(t, netcode.text_string(&entry.platform), "") // a token is never forwarded
 	}
@@ -155,7 +153,7 @@ a_vouched_account_brings_the_member_back :: proc(t: ^testing.T) {
 	if testing.expect(t, entry != nil) {
 		testing.expect_value(t, netcode.text_string(&entry.platform), "eos")
 		testing.expect_value(t, netcode.text_string(&entry.account), "0002aaaa")
-		testing.expect_value(t, netcode.name_string(&entry.name), "Ann (again)")
+		testing.expect_value(t, netcode.text_string(&entry.name), "Ann (again)")
 	}
 	expect_agree(t, &session)
 	testing.expect(t, !recorded(&session, transmute([]u8)string("0002aaaa")), "no account in the recording")
@@ -178,7 +176,7 @@ the_newest_connection_of_a_member_wins :: proc(t: ^testing.T) {
 	netcode.client_destroy(crashed)
 	ordered_remove(&session.clients, 0)
 	net_run(&session, 0.5)
-	testing.expect(t, session.host.relay.connected[1])
+	testing.expect(t, session.host.relay.seats[1].connected)
 	restarted := member_join(&session, session.hub, 2, "Cy", token)
 	net_run(&session, 3) // far below the channel's 10 s timeout
 	testing.expect_value(t, restarted.status, netcode.Status.Connected)
@@ -186,7 +184,7 @@ the_newest_connection_of_a_member_wins :: proc(t: ^testing.T) {
 	back, _ := host_player(&session, restarted.slot)
 	testing.expect_value(t, back, player)
 	connected := 0
-	for slot in 0 ..< toy.PLAYERS do connected += int(session.host.relay.connected[slot])
+	for slot in 0 ..< toy.PLAYERS do connected += int(session.host.relay.seats[slot].connected)
 	testing.expect_value(t, connected, 2) // the host and Cy's new connection
 	expect_agree(t, &session)
 }

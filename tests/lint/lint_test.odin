@@ -38,13 +38,12 @@ RULES := []Rule {
 	{pkg = "headless", kind = .Realtime, imports = {"unified:headless", "unified:sim", "unified:netcode"}},
 	{pkg = "lint", kind = .Realtime},
 	// Host side (Godot bindings, view, dev UI, the CLI): never feeds back into the sim. gdext's generated API imports
-	// its gdi sub-package relatively; godot_eos joins EOS and godot, so neither imports the other; the CLI imports
-	// Odin's own only, so editing the rest of the library never rebuilds it.
+	// its gdi sub-package relatively; the CLI imports Odin's own only, so editing the rest of the library never
+	// rebuilds it.
 	{pkg = "gdext", kind = .Host, imports = {"unified:gdext/gdi", "gdi"}},
 	{pkg = "view", kind = .Host},
 	{pkg = "devui", kind = .Host, imports = {"unified:gdext", "unified:gdext/gdi"}},
 	{pkg = "godot", kind = .Host, imports = GODOT_IMPORTS},
-	{pkg = "godot_eos", kind = .Host, imports = {"unified:eos", "unified:godot", "unified:netcode"}},
 	{pkg = "cli", kind = .Host},
 }
 

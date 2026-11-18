@@ -198,10 +198,21 @@ bump_fold :: proc(fold: u32, amount: i32) -> u32 {
 	return fold * 31 + u32(amount) + 1
 }
 
-// Scripted commands of `slot` for a tick, a function of (seed, slot, tick) only: a bump about every
-// 16th tick, a burst of 6 bumps every 200th tick (tick % 200 == 50: two of them wait for the next tick), a
-// mark every 64th.
+// Scripted commands of `slot` for a tick, a function of (seed, slot, tick) only: a bump about every 16th tick, a burst
+// of 3 bumps every 200th tick (tick % 200 == 50), a mark every 64th: never more than a tick takes (offline runs play
+// it).
 scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
+	commands_of(seed, slot, tick, out, 3)
+}
+
+// The same with a burst of 6 bumps: more than a tick takes, so two of them wait for the next tick (the netcode's
+// tests: the relay holds them).
+burst_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
+	commands_of(seed, slot, tick, out, 6)
+}
+
+@(private)
+commands_of :: proc(seed: u64, slot: int, tick: u32, out: ^sim.Command_Out(Cmd), burst: int) {
 	x := u32(seed) * 0x85EBCA77 ~ u32(slot + 1) * 0x9E3779B1 ~ tick * 0x27D4EB2F
 	x ~= x >> 15
 	x *= 0x2C1B3C6D
@@ -210,11 +221,11 @@ scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^
 		sim.send_command(out, Cmd_Bump{i32((x >> 8) % 1000) - 500})
 	}
 	if tick % 200 == 50 {
-		for k in 0 ..< 6 {
+		for k in 0 ..< burst {
 			sim.send_command(out, Cmd_Bump{i32(slot * 100 + k)})
 		}
 	}
-	if tick % 64 == 7 {
+	if tick % 64 == 7 { 	// never a burst tick (50 + 200k is even mod 64, 7 is odd)
 		sim.send_command(out, Cmd_Mark {
 			at    = {f32(slot), f32(tick % 7)},
 			count = i16(tick % 100),

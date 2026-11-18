@@ -36,7 +36,7 @@ Api :: struct {
 	start:           proc(request: Start) -> (ok: bool, err: string),
 	stop:            proc(), // ask the session to end (it keeps running until it has said goodbye)
 	hurry:           proc(), // a new session waits: cut the goodbye to at most HURRY_US after the stop
-	stopping:        proc() -> bool, // stop was asked (by stop or a transport failure) and the session is ending
+	stopping:        proc() -> bool, // stop was asked (by stop or a lobby failure) and the session is ending
 	wait:            proc(), // join the session thread (after stop)
 	running:         proc() -> bool,
 	front:           proc() -> (frame: ^Frame_Data, fresh: bool),
@@ -58,16 +58,10 @@ Api :: struct {
 }
 
 api: Api
-transport: ^Transport // set by the game's extension (online play); nil: Host_Online/Join_Online fail
+lobby: ^netcode.Lobby // the game's lobby service (godot.init; online play); nil: Host_Online/Join_Online fail
 
 // The main thread asks for state copies only while the dev UI shows them (atomic).
 want_state: bool
-
-// Registers the online transport (EOS P2P...) that Host_Online and Join_Online use. A game's extension calls it
-// from its init entry point, so unified:godot never imports a platform SDK.
-set_transport :: proc(new_transport: ^Transport) {
-	transport = new_transport
-}
 
 // One direction of the dev netsim.
 Netsim_Dir :: struct {
@@ -118,11 +112,11 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	req:       Start,
 	host:      ^netcode.Host(G),
 	client:    ^netcode.Client(G), // the local player's client (the host's own in host modes)
-	tev:       Transport_Events,
-	uses_tp:   bool,
+	online:    bool, // the session uses the lobby
 	thread:    ^thread.Thread,
 	stop_req:  bool, // atomic
-	failed:    bool, // the transport's fail hook posted the reason (session thread)
+	failed:    bool, // the lobby failed and its reason was posted (session thread)
+	code_sent: bool, // the lobby's code was posted
 	hurry:     bool, // atomic
 	finished:  bool, // atomic
 	stopping:  bool,
@@ -140,10 +134,10 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	result:    string,
 	bench:     G, // the game with Glue.bench after init (req.bench > 0)
 	alloc:     runtime.Allocator, // the starter's allocator: the session thread allocates what wait frees
-	nets:      [dynamic]^Dev_Link, // wrapped remote links (owned by the channel)
+	nets:      [dynamic]^netcode.Net_Sim, // the remote links' live netsims (owned by the channel)
 	net_gen:   u32,
 	roster:    u32, // the client's roster_changes last copied for the main thread
-	account:   [2]string, // the host player's platform account (Transport.account): platform, id
+	account:   [2]string, // the host player's platform account (Lobby.account): platform, id
 	inputs:    view.Triple(Inputs_View(G)), // for the dev UI's Input panel (while want_state)
 	confirmed: view.Queue(Command_Note, 256), // commands of verified ticks, for the dev UI (full: dropped)
 	recording: Recording, // the session so far, for F3 notes (dev UI builds)
@@ -189,104 +183,26 @@ Recording_Info :: struct {
 	check:      u64,
 }
 
-// A remote link the dev UI's Conditions panel can impair live. While the netsim is off, datagrams go straight to
-// the inner link (no copies, no queue); the netcode.Net_Sim is created on the first enable, and after a
-// disable it keeps delivering until its queues are empty.
-Dev_Link :: struct {
-	inner: netcode.Link,
-	sim:   netcode.Link, // the netsim wrapping inner (data == nil: not created yet); owns inner once created
-	on:    bool,
-	seed:  u32,
-}
-
-// Wraps a remote link so the Conditions panel can impair it live; returns the Dev_Link to apply settings to and the
-// link to hand the netcode in place of `inner` (closing it frees the Dev_Link).
-dev_link_wrap :: proc(inner: netcode.Link, seed: u32) -> (^Dev_Link, netcode.Link) {
-	dev_link := new(Dev_Link)
-	dev_link^ = {
-		inner = inner,
-		seed  = seed | 1,
-	}
-	return dev_link, {
-		data    = dev_link,
-		send    = dev_link_send,
-		recv    = dev_link_recv,
-		close   = dev_link_close,
-		event   = inner.event == nil ? nil : dev_link_event,
-		// the transport's own: it frees the peer (UDP) or closes its connection (EOS), netsim on or off
-		forget  = inner.forget == nil ? nil : proc(data: rawptr, peer: netcode.Peer) {
-			netcode.link_forget(&(^Dev_Link)(data).inner, peer)
-		},
-		account = inner.account == nil ? nil : proc(data: rawptr, peer: netcode.Peer) -> (netcode.Account, bool) {
-			return netcode.link_account(&(^Dev_Link)(data).inner, peer)
-		},
-	}
-}
-
-// Applies the panel's settings (the link's thread).
-dev_link_set :: proc(dev_link: ^Dev_Link, settings: Netsim_Settings) {
-	up, down := netsim_profile(settings.enabled, settings.up), netsim_profile(settings.enabled, settings.down)
-	dev_link.on = !netcode.profile_is_ideal(up) || !netcode.profile_is_ideal(down)
-	if dev_link.on && dev_link.sim.data == nil {
-		// a profile that isn't ideal, so netsim_wrap wraps; both directions are set below
-		dev_link.sim = netcode.netsim_wrap(dev_link.inner, netcode.profile_is_ideal(up) ? down : up, dev_link.seed)
-	}
-	if dev_link.sim.data != nil {
-		net_sim := (^netcode.Net_Sim)(dev_link.sim.data)
-		net_sim.profile, net_sim.profile_in, net_sim.split = up, down, true
-	}
-}
-
-@(private)
-dev_link_draining :: proc(dev_link: ^Dev_Link) -> bool {
-	if dev_link.sim.data == nil do return false
-	net_sim := (^netcode.Net_Sim)(dev_link.sim.data)
-	return dev_link.on || len(net_sim.outgoing) > 0 || len(net_sim.incoming) > 0
-}
-
-@(private)
-dev_link_send :: proc(data: rawptr, to: netcode.Peer, bytes: []u8) {
-	dev_link := (^Dev_Link)(data)
-	if dev_link.on {
-		dev_link.sim.send(dev_link.sim.data, to, bytes)
-	} else {
-		dev_link.inner.send(dev_link.inner.data, to, bytes)
-	}
-}
-
-@(private)
-dev_link_recv :: proc(data: rawptr, buf: []u8) -> (size: int, from: netcode.Peer, ok: bool) {
-	dev_link := (^Dev_Link)(data)
-	if dev_link_draining(dev_link) do return dev_link.sim.recv(dev_link.sim.data, buf)
-	return dev_link.inner.recv(dev_link.inner.data, buf)
-}
-
-@(private)
-dev_link_event :: proc(data: rawptr) -> (peer: netcode.Peer, kind: netcode.Link_Event_Kind, ok: bool) {
-	dev_link := (^Dev_Link)(data)
-	return dev_link.inner.event(dev_link.inner.data)
-}
-
-@(private)
-dev_link_close :: proc(data: rawptr) {
-	dev_link := (^Dev_Link)(data)
-	if dev_link.sim.data != nil {
-		netcode.link_close(&dev_link.sim) // closes inner too
-	} else {
-		netcode.link_close(&dev_link.inner)
-	}
-	free(dev_link)
-}
-
+// Wraps a remote link in a live netsim the dev UI's Conditions panel impairs (ideal while it is off: datagrams go
+// straight through) and returns the link to hand the netcode in place of `link`.
 @(private)
 wrap_link :: proc(driver: ^Driver($G, $View, $MultiView), link: netcode.Link) -> netcode.Link {
-	dev_link, wrapped := dev_link_wrap(link, u32(driver.req.seed))
+	wrapped, netsim := netcode.netsim_live(link, u32(driver.req.seed))
 	sync.mutex_lock(&netsim_req.mu)
-	dev_link_set(dev_link, netsim_req.set)
+	netsim_apply(netsim, netsim_req.set)
 	driver.net_gen = netsim_req.gen
 	sync.mutex_unlock(&netsim_req.mu)
-	append(&driver.nets, dev_link)
+	append(&driver.nets, netsim)
 	return wrapped
+}
+
+@(private)
+netsim_apply :: proc(netsim: ^netcode.Net_Sim, settings: Netsim_Settings) {
+	netcode.netsim_set(
+		netsim,
+		netsim_profile(settings.enabled, settings.up),
+		netsim_profile(settings.enabled, settings.down),
+	)
 }
 
 // The last event id an ended session gave out (main thread, between sessions): the next one continues after it.
@@ -390,7 +306,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 		if g_driver != nil do return false, "a session is already running"
 		game := (^G)(g_game)
 		glue := (^This_Glue)(g_glue)
-		if (request.mode == .Host_Online || request.mode == .Join_Online) && transport == nil {
+		if (request.mode == .Host_Online || request.mode == .Join_Online) && lobby == nil {
 			return false, "online play is not available in this build"
 		}
 		driver := new(This_Driver)
@@ -417,16 +333,6 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 		view.triple_init(&driver.states)
 		view.triple_init(&driver.inputs)
 		view.tracker_init(&driver.tracker, tick_event_id, event_serial) // ids never repeat in the process
-		driver.tev = {
-			ctx = driver,
-			code = proc(ctx: rawptr, code: string) {post_text((^This_Driver)(ctx), .Lobby_Code, code)},
-			fail = proc(ctx: rawptr, reason: string) {
-				driver := (^This_Driver)(ctx)
-				post_status(driver, .Failed, reason)
-				driver.failed = true
-				sync.atomic_store(&driver.stop_req, true)
-			},
-		}
 		g_driver = driver
 		driver.thread = thread.create_and_start_with_poly_data(driver, driver_run)
 		return true, ""
@@ -531,7 +437,12 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 // The session thread, a verified tick (dev UI builds): the recording starts at the first verified tick whose
 // state the ring saved (a snapshot of it) and appends every verified tick after it.
 @(private)
-record_tick :: proc(driver: ^Driver($G, $View, $MultiView), simulation: ^sim.Sim(G), tick: u32) {
+record_tick :: proc(
+	driver: ^Driver($G, $View, $MultiView),
+	simulation: ^sim.Sim(G),
+	tick: u32,
+	inputs: ^sim.Inputs(G),
+) {
 	Input :: sim.part(G, sim.GAME_INPUT)
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	recording := &driver.recording
@@ -553,7 +464,7 @@ record_tick :: proc(driver: ^Driver($G, $View, $MultiView), simulation: ^sim.Sim
 		return
 	}
 	if tick != recording.last + 1 do return // verified ticks come in order
-	sim.log_stream_tick(&recording.stream, &client.fin[tick % netcode.FIN_RING])
+	sim.log_stream_tick(&recording.stream, inputs)
 	recording.last = tick
 	if count := len(client.checksums); count > 0 && client.checksums[count - 1][0] > u64(recording.from) {
 		recording.check = client.checksums[count - 1]
@@ -570,15 +481,11 @@ fill_inputs_view :: proc(
 ) {
 	out^ = {}
 	out.predicted_tick, out.verified_tick = info.tick, info.verified
-	if client.slot >= 0 {
-		if info.tick <= info.verified {
-			out.own = client.fin[info.tick % netcode.FIN_RING].input[client.slot]
-		} else {
-			out.own = client.pred_inputs[info.tick % netcode.PRED_RING].input[client.slot]
-		}
+	if own := netcode.client_inputs(client, info.tick); client.slot >= 0 && own != nil {
+		out.own = own.input[client.slot]
 	}
-	if info.verified == 0 do return
-	verified := &client.fin[info.verified % netcode.FIN_RING]
+	verified := netcode.client_inputs(client, info.verified)
+	if verified == nil do return
 	for &slot, i in out.slots {
 		slot = {
 			player   = i < len(holders) ? sim.player_key(holders[i]) : 0,
@@ -732,21 +639,7 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 				}
 			}
 			roster_copy(client.roster[:], &driver.roster, client.roster_changes)
-			out.net = {
-				rtt_ms      = f32(netcode.client_rtt_ms(client)),
-				delay       = client.delay,
-				rollbacks   = i32(client.rollbacks),
-				resim_ticks = i32(client.resim_ticks),
-				depth_max   = i32(client.depth_max),
-				stalls      = i32(client.stall_ticks),
-				replaced    = i32(client.own_replaced),
-				steps       = {i32(client.steps[.Verified]), i32(client.steps[.Resim]), i32(client.steps[.Predicted])},
-				step_us     = {client.step_us[.Verified], client.step_us[.Resim], client.step_us[.Predicted]},
-				last_msg_us = client.last_msg_us,
-				bytes_in    = i64(client.ch.stats.bytes_recv),
-				bytes_out   = i64(client.ch.stats.bytes_sent),
-				desyncs     = i32(client.desyncs),
-			}
+			out.net = netcode.client_stats(client)
 			pose_memory_begin(&driver.poses, info.resim_from < info.tick)
 			frame := Frame(G, View, MultiView) {
 				state        = current,
@@ -766,22 +659,27 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 				view.triple_publish(&driver.inputs)
 			}
 		},
-		verified = proc(user: rawptr, simulation: ^sim.Sim(G), tick: u32, events: []sim.Raw_Event) {
+		verified = proc(
+			user: rawptr,
+			simulation: ^sim.Sim(G),
+			tick: u32,
+			inputs: ^sim.Inputs(G),
+			events: []sim.Raw_Event,
+		) {
 			driver := (^This_Driver)(user)
 			track_tick(driver, tick, events)
 			view.tracker_verified(&driver.tracker, tick)
 			flush_events(driver)
 			when DEVUI {
-				inputs := &driver.client.fin[tick % netcode.FIN_RING]
 				for command in inputs.commands[:inputs.command_count] {
 					_ = view.queue_push(&driver.confirmed, Command_Note{tick, command})
 				}
-				record_tick(driver, simulation, tick)
+				record_tick(driver, simulation, tick, inputs)
 			}
 		},
 		status = proc(user: rawptr, status: netcode.Status, detail: string) {
 			driver := (^This_Driver)(user)
-			if driver.failed do return // the transport's failure is the session's last word
+			if driver.failed do return // the lobby's failure is the session's last word
 			post_status(driver, Status_Kind(status), detail)
 		},
 		desync = proc(user: rawptr, report: netcode.Desync_Report) {
@@ -821,10 +719,10 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 	for {
 		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD() // this thread's temp data lives one iteration
 		now := netcode.now_us()
-		if driver.uses_tp && transport.pump != nil do transport.pump(transport.user, &driver.tev)
+		if driver.online do lobby_pump(driver)
 		if len(driver.nets) > 0 && sync.atomic_load(&netsim_req.gen) != driver.net_gen {
 			sync.mutex_lock(&netsim_req.mu)
-			for dev_link in driver.nets do dev_link_set(dev_link, netsim_req.set)
+			for netsim in driver.nets do netsim_apply(netsim, netsim_req.set)
 			driver.net_gen = netsim_req.gen
 			sync.mutex_unlock(&netsim_req.mu)
 		}
@@ -840,11 +738,11 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 			if netcode.host_finished(driver.host) do break
 		} else {
 			wake = netcode.client_step(driver.client, now)
-			if driver.client.status == .Failed || driver.client.status == .Disconnected do break
+			if netcode.client_finished(driver.client) do break
 		}
 		goodbye: i64 = sync.atomic_load(&driver.hurry) ? HURRY_US : GOODBYE_US
 		if driver.stopping && now - driver.stop_at > goodbye do break
-		if driver.uses_tp do wake = min(wake, now + 4_000)
+		if driver.online do wake = min(wake, now + 4_000)
 		netcode.sleep_until(wake)
 	}
 	driver.result = strings.clone(netcode.client_json(netcode.client_result(driver.client, context.temp_allocator)))
@@ -866,8 +764,6 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 		ticks         = request.ticks,
 		compat        = driver.glue.compat,
 		content       = request.content,
-		name          = "host",
-		quiet         = true,
 	}
 	client_config := netcode.Client_Config {
 		player_name = request.name,
@@ -875,8 +771,6 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 		token       = request.token,
 		compat      = driver.glue.compat,
 		content     = request.content,
-		name        = "client",
-		quiet       = true,
 	}
 	switch request.mode {
 	case .Single:
@@ -904,15 +798,14 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 		post_text(driver, .Lobby_Code, fmt.tprintf("%d", netcode.udp_bound_port(&link)))
 		netcode.host_add_link(driver.host, wrap_link(driver, link))
 	case .Host_Online:
-		driver.uses_tp = true
-		link, ok := transport.open_host(transport.user, session_compat(driver), &driver.tev)
+		driver.online = true
+		link, ok := lobby.open_host(lobby_build(driver))
 		if !ok {
-			// the transport's fail hook may have posted the real reason already
-			if !driver.failed do post_status(driver, .Failed, fmt.tprintf("%s: cannot host", transport.name))
+			lobby_failed(driver, lobby.pump().detail, fmt.tprintf("%s: cannot host", lobby.name))
 			return false
 		}
-		if transport.account != nil {
-			if account, has := transport.account(transport.user); has {
+		if lobby.account != nil {
+			if account, has := lobby.account(); has {
 				driver.account = {strings.clone(account.platform), strings.clone(account.id)}
 				host_config.account = {driver.account[0], driver.account[1]}
 			}
@@ -939,12 +832,10 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 		}
 		driver.client = netcode.client_create(game, client_config, wrap_link(driver, link), hooks)
 	case .Join_Online:
-		driver.uses_tp = true
-		link, ok := transport.open_join(transport.user, request.arg, session_compat(driver), &driver.tev)
+		driver.online = true
+		link, ok := lobby.open_join(lobby_build(driver), request.arg)
 		if !ok {
-			if !driver.failed {
-				post_status(driver, .Failed, fmt.tprintf("%s: cannot join %q", transport.name, request.arg))
-			}
+			lobby_failed(driver, lobby.pump().detail, fmt.tprintf("%s: cannot join %q", lobby.name, request.arg))
 			return false
 		}
 		driver.client = netcode.client_create(game, client_config, wrap_link(driver, link), hooks)
@@ -953,11 +844,35 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 	return true
 }
 
-// The session's build id, as the relay computes it (the glue's, else derived from the game and the level).
+// What the session's lobby carries: the game's name, its build id as the relay computes it (the glue's, else derived
+// from the game and the level), the project's stamped version and the player count.
 @(private)
-session_compat :: proc(driver: ^Driver($G, $View, $MultiView)) -> u64 {
-	if driver.glue.compat != 0 do return driver.glue.compat
-	return sim.compat_of(driver.game, driver.req.content)
+lobby_build :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Lobby_Build {
+	compat := driver.glue.compat
+	if compat == 0 do compat = sim.compat_of(driver.game, driver.req.content)
+	return {game = driver.game.name, compat = compat, version = app_version, players = sim.part(G, sim.GAME_PLAYERS)}
+}
+
+// Pumps the lobby (session thread): its code goes to the main thread once, a failure ends the session with its
+// reason.
+@(private)
+lobby_pump :: proc(driver: ^Driver($G, $View, $MultiView)) {
+	status := lobby.pump()
+	if status.code != "" && !driver.code_sent {
+		driver.code_sent = true
+		post_text(driver, .Lobby_Code, status.code)
+	}
+	if status.stage == .Failed && !driver.failed {
+		lobby_failed(driver, status.detail, "the lobby failed")
+	}
+}
+
+// The lobby failed (to open, or later): its reason (else `fallback`) is the session's last status.
+@(private)
+lobby_failed :: proc(driver: ^Driver($G, $View, $MultiView), reason, fallback: string) {
+	post_status(driver, .Failed, reason != "" ? reason : fallback)
+	driver.failed = true
+	sync.atomic_store(&driver.stop_req, true)
 }
 
 @(private)
@@ -968,7 +883,7 @@ driver_close :: proc(driver: ^Driver($G, $View, $MultiView)) {
 		netcode.client_destroy(driver.client)
 	}
 	driver.host, driver.client = nil, nil
-	if driver.uses_tp && transport.close != nil do transport.close(transport.user)
+	if driver.online do lobby.close()
 }
 
 @(private)

@@ -1,5 +1,5 @@
 // unified:godot without Godot: the session driver (its thread, frames, previous poses, the input hand-off, events,
-// statuses, transports) installed with the toy game, and the dev UI's switchable netsim link. The Godot-facing classes run under headless
+// statuses, lobbies) installed with the toy game. The Godot-facing classes run under headless
 // Godot (the godot suite's `session` step, tests/godot, tests/godot_views).
 package test_godot_driver
 
@@ -26,7 +26,7 @@ seen: struct {
 	hub:       ^netcode.Hub,
 	hold:      int, // atomic: 1 hold fill_frame at the local player's join tick, 2 held there, 3 let go
 	held_tick: u32,
-	compat:    u64, // what the transport's open_host got
+	build:     netcode.Lobby_Build, // what the lobby's open_host got
 }
 
 @(private = "file")
@@ -72,25 +72,25 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 }
 
 @(private = "file")
-FAILING := godot.Transport {
+FAILING := netcode.Lobby {
 	name = "fake",
-	open_host = proc(_: rawptr, compat: u64, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
-		events.fail(events.ctx, "fake: no lobby service")
-		return {}, false
-	},
-	close = proc(_: rawptr) {seen.closes += 1},
+	open_host = proc(build: netcode.Lobby_Build) -> (netcode.Link, bool) {return {}, false},
+	pump = proc() -> netcode.Lobby_Status {return {stage = .Failed, detail = "fake: no lobby service"}},
+	close = proc() {seen.closes += 1},
 }
 
 @(private = "file")
-OPENING := godot.Transport {
+OPENING := netcode.Lobby {
 	name = "fake",
-	open_host = proc(_: rawptr, compat: u64, events: ^godot.Transport_Events) -> (netcode.Link, bool) {
-		seen.compat = compat
-		events.code(events.ctx, "ABC123")
+	open_host = proc(build: netcode.Lobby_Build) -> (netcode.Link, bool) {
+		seen.build = build
 		return netcode.loopback_link(seen.hub, 0), true
 	},
-	pump = proc(_: rawptr, events: ^godot.Transport_Events) {seen.pumps += 1},
-	close = proc(_: rawptr) {seen.closes += 1},
+	pump = proc() -> netcode.Lobby_Status {
+		seen.pumps += 1
+		return {stage = .Ready, code = "ABC123"}
+	},
+	close = proc() {seen.closes += 1},
 }
 
 // Pops messages until `pred` holds or `ms` pass; returns every message seen.
@@ -227,7 +227,7 @@ driver_sessions :: proc(t: ^testing.T) {
 			testing.expect(t, frame.n_members == 1 && frame.members[0] == frame.local_player)
 			testing.expect(t, frame.n_views == 1 && frame.views[0].player == frame.local_player)
 			entry, known := godot.roster_entry(i64(frame.local_player))
-			testing.expect(t, known && netcode.name_string(&entry.name) == "solo", "the roster names the player")
+			testing.expect(t, known && netcode.text_string(&entry.name) == "solo", "the roster names the player")
 		}
 		testing.expect(t, frame != nil && frame.tick >= 39, "the last frame is at the end")
 		testing.expect(t, sync.atomic_load(&seen.extracted) > 0)
@@ -300,16 +300,16 @@ driver_sessions :: proc(t: ^testing.T) {
 		sync.atomic_store(&seen.hold, 0)
 	}
 
-	// Online without a transport: refused before a thread starts.
+	// Online without a lobby service: refused before a thread starts.
 	{
 		ok, err := godot.api.start({mode = .Host_Online})
-		testing.expect(t, !ok && err != "", "online needs a transport")
+		testing.expect(t, !ok && err != "", "online needs a lobby")
 	}
 
-	// A transport that fails to open: its reason is the only Failed status (no generic one after it).
+	// A lobby that fails to open: its reason is the only Failed status (no generic one after it).
 	{
-		godot.set_transport(&FAILING)
-		defer godot.set_transport(nil)
+		godot.lobby = &FAILING
+		defer godot.lobby = nil
 		ok, _ := godot.api.start({mode = .Host_Online})
 		testing.expect(t, ok)
 		for godot.api.running() do time.sleep(time.Millisecond)
@@ -325,14 +325,15 @@ driver_sessions :: proc(t: ^testing.T) {
 		godot.api.wait()
 	}
 
-	// A transport that opens: it gets the session's build id (what the relay checks), the code reaches the main
-	// thread, pump runs, stop ends the session (nobody to say goodbye to) and closes the transport once.
+	// A lobby that opens: it gets the game's name, the session's build id (what the relay checks) and player count,
+	// the code reaches the main thread once, pump runs, stop ends the session (nobody to say goodbye to) and closes
+	// the lobby once.
 	{
 		seen.hub = netcode.hub_create(2)
 		defer netcode.hub_destroy(seen.hub)
 		seen.closes, seen.pumps = 0, 0
-		godot.set_transport(&OPENING)
-		defer godot.set_transport(nil)
+		godot.lobby = &OPENING
+		defer godot.lobby = nil
 		ok, _ := godot.api.start({mode = .Host_Online, seed = 3})
 		testing.expect(t, ok)
 		messages := make([dynamic]godot.Message, context.temp_allocator)
@@ -346,9 +347,14 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, drain(&messages, 5000, is_result), "a stopped session ends with a result")
 		for godot.api.running() do time.sleep(time.Millisecond)
 		godot.api.wait()
-		testing.expect(t, seen.pumps > 0, "the transport is pumped")
-		testing.expect_value(t, seen.compat, sim.compat_of(&toy.GAME))
+		testing.expect(t, seen.pumps > 0, "the lobby is pumped")
+		testing.expect_value(t, seen.build.game, toy.GAME.name)
+		testing.expect_value(t, seen.build.compat, sim.compat_of(&toy.GAME))
+		testing.expect_value(t, seen.build.players, toy.PLAYERS)
 		testing.expect_value(t, seen.closes, 1)
+		codes := 0
+		for message in messages do codes += int(message.kind == .Lobby_Code)
+		testing.expect_value(t, codes, 1)
 	}
 
 	// A game with problems never stops the load: install collects them all and installs nothing (the editor opens; a
@@ -362,59 +368,6 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, !godot.api.installed)
 		testing.expectf(t, len(godot.api.problems) == 2, "both problems: %v", godot.api.problems)
 	}
-}
-
-@(private = "file")
-g_forgot: [dynamic]netcode.Peer // the peers the wrapped link was told to forget
-
-// The dev UI's netsim link: straight through while off (no queue), impaired while on, drained after. `forget` reaches
-// the transport either way (EOS closes the peer's connection with it, UDP frees the peer number).
-@(test)
-dev_link_passes_through_while_off :: proc(t: ^testing.T) {
-	hub := netcode.hub_create(2)
-	defer netcode.hub_destroy(hub)
-	inner := netcode.loopback_link(hub, 0)
-	inner.forget = proc(data: rawptr, peer: netcode.Peer) {append(&g_forgot, peer)}
-	defer delete(g_forgot)
-	dev_link, link := godot.dev_link_wrap(inner, 5)
-	other := netcode.loopback_link(hub, 1)
-	defer netcode.link_close(&other)
-	buf: [64]u8
-	inbox := proc(hub: ^netcode.Hub, i: int) -> int {
-		return netcode.hub_queued(hub, netcode.Peer(i))
-	}
-
-	netcode.link_forget(&link, 1)
-	netcode.link_send(&link, 1, {1, 2, 3})
-	testing.expect_value(t, inbox(hub, 1), 1) // delivered at once, no netsim
-	testing.expect(t, dev_link.sim.data == nil, "no netsim created while off")
-	netcode.link_send(&other, 0, {9})
-	size, from, ok := netcode.link_recv(&link, buf[:])
-	testing.expect(t, ok && size == 1 && buf[0] == 9 && from == 1)
-
-	godot.dev_link_set(dev_link, {
-		enabled = true,
-		up = {latency_ms = 20},
-		down = {latency_ms = 20},
-	})
-	netcode.link_forget(&link, 1) // with the netsim on
-	netcode.link_send(&link, 1, {4})
-	testing.expect_value(t, inbox(hub, 1), 1) // held for 20 ms
-	time.sleep(30 * time.Millisecond)
-	_, _, _ = netcode.link_recv(&link, buf[:]) // pumps the netsim
-	testing.expect_value(t, inbox(hub, 1), 2)
-
-	// Off again: a datagram received while on is still delivered (drained), then direct.
-	netcode.link_send(&other, 0, {7})
-	_, _, _ = netcode.link_recv(&link, buf[:]) // the netsim takes it in, due in 20 ms
-	godot.dev_link_set(dev_link, {})
-	time.sleep(30 * time.Millisecond)
-	size, _, ok = netcode.link_recv(&link, buf[:])
-	testing.expect(t, ok && size == 1 && buf[0] == 7, "drained after the switch")
-	netcode.link_send(&link, 1, {5})
-	testing.expect_value(t, inbox(hub, 1), 3) // direct again
-	testing.expect_value(t, len(g_forgot), 2)
-	netcode.link_close(&link)
 }
 
 // The host's pose memory (#284): tick - 1 as remembered, and its estimate after a rollback or skipped ticks.

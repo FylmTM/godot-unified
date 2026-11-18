@@ -35,9 +35,7 @@ desync_report_reaches_the_hook :: proc(t: ^testing.T) {
 		},
 	}
 	client := netcode.client_create(&toy.GAME, {
-			slot  = -1,
-			name  = "c",
-			quiet = true,
+			slot = -1,
 		}, netcode.loopback_link(hub, 1), hooks)
 	defer netcode.client_destroy(client)
 	fake_welcome(&fake, client)
@@ -55,6 +53,6 @@ desync_report_reaches_the_hook :: proc(t: ^testing.T) {
 	testing.expect_value(t, seen.tick, 4160)
 	testing.expect_value(t, seen.diverged, sim.Slots{2})
 	testing.expect_value(t, string(seen.detail[:seen.len]), detail)
-	testing.expect_value(t, client.desyncs, 1)
+	testing.expect_value(t, client.stats.desyncs, 1)
 	testing.expect(t, !netcode.client_result(client, context.temp_allocator).ok)
 }

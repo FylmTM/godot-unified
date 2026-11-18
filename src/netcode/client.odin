@@ -1,17 +1,12 @@
-// The client (src/netcode/SPEC.md), generic over the game: a verified frame advanced only with finalized
-// inputs, a predicted frame up to the local tick (own inputs and commands + the others' last finalized
-// input repeated), rollback on misprediction, a prediction cap, an adaptive input delay and a 2% clock slew
-// towards relay tick + stamp lead - delay. Own inputs are sampled and sent on the clock, also while the prediction
-// cap holds the sim back. Own commands are resent until the relay acks them and predicted until a finalized tick
-// carries them. Serves late-join snapshots of checksum ticks; a late joiner plays once the relay has checked its
-// restored snapshot against the others' checksum. Re-simulated ticks that are already final are not saved, except
-// the ones something reads. Driven by client_step from the host's loop; talks to the host application through
-// Hooks (all called from client_step).
+// The client (src/netcode/SPEC.md, Client), generic over the game: the verified and predicted frames, rollback, the
+// clock and input delay, snapshots for joiners. Driven by client_step from the host's loop; talks to the host
+// application through Hooks (all called from client_step).
 package netcode
 
-import "core:fmt"
 // Used only inside generic procs: @(require) keeps -vet from calling it unused in a program that never instantiates
 // them (a game's tests that don't run the netcode).
+@(require) import "core:fmt"
+@(require) import "core:log"
 @(require) import "core:strings"
 @(require) import "core:time"
 
@@ -27,16 +22,13 @@ Client_Config :: struct {
 	// On a link that vouches for no account (LAN, direct UDP): what the relay recognizes this person by when they
 	// come back (the same member, in any free slot). All zero: none (a new member every time).
 	token:       Token,
-	name:        string, // for log lines
-	poll_us:     i64, // 0: DEFAULT_POLL_US
-	quiet:       bool,
 }
 
 Status :: enum u8 {
 	Idle,
 	Connecting,
 	Connected, // welcomed and simulating (a late joiner: once its snapshot is restored and checked)
-	Failed, // rejected, a protocol error, or the relay never answered
+	Failed, // rejected, a protocol error, another protocol version, or the relay never answered
 	Disconnected, // left, the session ended, or the connection was lost after it worked
 }
 
@@ -66,11 +58,17 @@ Hooks :: struct($G: typeid) {
 		state: ^usim.part(G, usim.GAME_STATE),
 		out: ^usim.Command_Out(usim.part(G, usim.GAME_CMD)),
 	),
-	// After a step that computed new predicted ticks: the view reads sim.state_at(simulation, frame.tick)
-	// and frame.tick - 1 for interpolation, and usim.events_at for ticks frame.resim_from..frame.tick.
+	// After a step that computed new predicted ticks: the view reads simulation.state (frame.tick's) and
+	// usim.events_at for ticks frame.resim_from..frame.tick.
 	frame:    proc(user: rawptr, simulation: ^usim.Sim(G), frame: Frame_Info),
-	// Each newly verified tick, in order, with the events it emitted under the final inputs.
-	verified: proc(user: rawptr, simulation: ^usim.Sim(G), tick: u32, events: []usim.Raw_Event),
+	// Each newly verified tick, in order, with its final inputs and the events it emitted under them.
+	verified: proc(
+		user: rawptr,
+		simulation: ^usim.Sim(G),
+		tick: u32,
+		inputs: ^usim.Inputs(G),
+		events: []usim.Raw_Event,
+	),
 	status:   proc(user: rawptr, status: Status, detail: string),
 	// Optional: the relay found the players' checksums of a tick differ (report.detail is valid during the call).
 	desync:   proc(user: rawptr, report: Desync_Report),
@@ -104,6 +102,11 @@ FIN_RING :: 512
 OWN_RING :: 512
 PRED_RING :: 64
 CHK_RING :: 64
+// Predicted ticks are saved every 2nd tick (and a checksum tick a snapshot is wanted of): a rollback restores the
+// nearest saved tick at or before its target, at most one tick back, which the ring still holds at the prediction cap
+// (P - V <= ring - 2). Checksum ticks are multiples of it, so always saved.
+PREDICTED_SAVE_EVERY :: 2
+#assert(CHECKSUM_EVERY % PREDICTED_SAVE_EVERY == 0)
 
 // What a stepped tick was: verified for the first time, re-simulated after a rollback (with final or predicted
 // inputs), or newly predicted.
@@ -111,6 +114,26 @@ Step_Kind :: enum u8 {
 	Verified,
 	Resim,
 	Predicted,
+}
+
+// A client's counters (cumulative: the dev UI takes differences) and its live estimates, copied whole by
+// client_stats.
+Client_Stats :: struct {
+	rollbacks:     int,
+	depth_sum:     int, // rollback depths summed (their average: depth_sum / rollbacks)
+	depth_max:     int,
+	stall_ticks:   int, // clock ticks the prediction cap held the sim back
+	resim_ticks:   int,
+	delay_changes: int,
+	desyncs:       int, // desync reports from the relay
+	own_replaced:  int, // finalized ticks where the relay replaced our input (it arrived too late)
+	steps:         [Step_Kind]int, // ticks stepped, by kind
+	step_us:       [Step_Kind]i64, // time spent stepping them (saves included), µs
+	last_msg_us:   i64, // when the relay's last message arrived (now_us; 0: none yet)
+	// live, filled by client_stats
+	rtt_ms:        f64, // the round trip the clock and input delay use
+	delay:         u32, // the input delay, ticks
+	net:           Channel_Stats,
 }
 
 Client :: struct($G: typeid) {
@@ -121,6 +144,7 @@ Client :: struct($G: typeid) {
 	ch:             ^Channel,
 	relay:          Peer,
 	w:              wire.Writer,
+	poll_us:        i64, // how often client_step wants to run between deadlines (a host's own client: never)
 	sim:            ^usim.Sim(G), // nil until welcomed (a late joiner: until its snapshot lands)
 	status:         Status,
 	detail:         string,
@@ -161,9 +185,9 @@ Client :: struct($G: typeid) {
 	started:        bool,
 	offset_us:      f64, // relay time - local time
 	have_offset:    bool,
-	rtt_us:         f64,
-	rtt_dev_us:     f64, // the round trip's mean deviation (jitter)
-	rtt_samples:    int,
+	rtt_us:         f64, // the round trip, averaged over the channel's samples
+	rtt_dev_us:     f64, // its mean deviation (jitter)
+	rtt_samples:    int, // the channel's samples taken in
 	delay:          u32, // k: own inputs are sampled for tick local + delay
 	delay_eval_us:  i64,
 	next_tick_us:   f64,
@@ -181,19 +205,8 @@ Client :: struct($G: typeid) {
 	leaving:        bool, // client_stop was called
 	// results
 	checksums:      [dynamic][2]u64, // (tick, checksum) of verified ticks divisible by 16, from J on
-	rollbacks:      int,
-	depth_sum:      int,
-	depth_max:      int,
-	stall_ticks:    int,
-	resim_ticks:    int,
-	delay_changes:  int,
-	desyncs:        int, // desync reports from the relay
-	first_desync:   Desync_Report, // the first one (its detail owned by the client)
-	// for the dev UI's graphs (cumulative; the host takes differences)
-	own_replaced:   int, // finalized ticks where the relay replaced our input (it arrived too late)
-	steps:          [Step_Kind]int, // ticks stepped, by kind
-	step_us:        [Step_Kind]i64, // time spent stepping them, µs
-	last_msg_us:    i64, // when the relay's last message arrived (now_us; 0: none yet)
+	stats:          Client_Stats, // the counters (client_stats fills the live fields)
+	first_desync:   Desync_Report, // the first desync report (its detail owned by the client)
 	// the relay's roster: every member of the session, by member id - 1 (departed ones stay)
 	roster:         [dynamic]Roster_Entry,
 	roster_changes: u32, // bumped on every roster entry received
@@ -219,9 +232,7 @@ client_create :: proc(game: ^$G, cfg: Client_Config, link: Link, hooks: Hooks(G)
 	if client.cfg.compat == 0 {
 		client.cfg.compat = usim.compat_of(game, client.cfg.content)
 	}
-	if client.cfg.poll_us <= 0 {
-		client.cfg.poll_us = DEFAULT_POLL_US
-	}
+	client.poll_us = POLL_US
 	client.hooks = hooks
 	client.tm = timing_of(game.tick_hz)
 	client.ch = channel_make()
@@ -235,7 +246,7 @@ client_create :: proc(game: ^$G, cfg: Client_Config, link: Link, hooks: Hooks(G)
 }
 
 // Frees the client, its sim and its channel (closing the link it owns). Call client_stop and step until
-// Disconnected first, so the relay hears the Leave.
+// client_finished first, so the relay hears the Leave.
 client_destroy :: proc(client: ^Client($G)) {
 	channel_destroy(client.ch)
 	if client.sim != nil {
@@ -255,10 +266,10 @@ client_destroy :: proc(client: ^Client($G)) {
 	free(client)
 }
 
-// Leaves the session: the relay frees the player at once. Keep stepping until the status is
-// Disconnected (at most ~0.5 s, so the Leave gets through).
+// Leaves the session: the relay frees the player at once. Keep stepping until client_finished (at most 2 s, so the
+// Leave gets through).
 client_stop :: proc(client: ^Client($G), now: i64) {
-	if client.status == .Failed || client.status == .Disconnected || client.end_us != 0 {
+	if client_finished(client) || client.end_us != 0 {
 		return
 	}
 	if client.hello_sent {
@@ -269,19 +280,36 @@ client_stop :: proc(client: ^Client($G), now: i64) {
 	client.detail = "left"
 }
 
+// Whether the client is done: it left, the session ended, the connection was lost, or it failed. The loop stepping
+// it stops on it.
+client_finished :: proc(client: ^Client($G)) -> bool {
+	return client.status == .Disconnected || client.status == .Failed
+}
+
 // The latest predicted state (nil before the sim exists).
 client_state :: proc(client: ^Client($G)) -> ^usim.part(G, usim.GAME_STATE) {
 	return &client.sim.state if client.sim != nil else nil
 }
 
-// The round trip to the relay in milliseconds, the estimate the clock and input delay use, for the dev UI.
-client_rtt_ms :: proc(client: ^Client($G)) -> f64 {
-	return client.rtt_us / 1000
+// The inputs of `tick`: the finalized ones once the relay finalized it (a verified tick's), else the predicted ones
+// while it is predicted; nil for a tick the client doesn't hold (not reached yet, or older than its rings).
+client_inputs :: proc(client: ^Client($G), tick: u32) -> ^usim.Inputs(G) {
+	if tick != 0 && tick <= client.fin_upto {
+		return fin_have(client, tick) ? &client.fin[tick % FIN_RING] : nil
+	}
+	if tick > client.verified && tick <= client.predicted && tick - client.verified <= PRED_RING {
+		return &client.pred_inputs[tick % PRED_RING]
+	}
+	return nil
 }
 
-// The typed diff of a game's State's snapshots, for Relay_Config.desync_diff (and Host_Config.desync_detail).
-desync_diff_of :: proc($State: typeid) -> proc(a, b: []u8) -> string {
-	return proc(a, b: []u8) -> string {return usim.snapshot_diff(State, a, b)}
+// The client's counters and live estimates (round trip, input delay, the channel's bytes and datagrams).
+client_stats :: proc(client: ^Client($G)) -> Client_Stats {
+	stats := client.stats
+	stats.rtt_ms = client.rtt_us / 1000
+	stats.delay = client.delay
+	stats.net = client.ch.stats
+	return stats
 }
 
 @(private)
@@ -291,8 +319,8 @@ set_status :: proc(client: ^Client($G), status: Status, detail: string) {
 	}
 	client.status = status
 	client.detail = detail
-	if !client.cfg.quiet && (status == .Failed || status == .Disconnected) {
-		fmt.eprintfln("%s: %v (%s)", client.cfg.name, status, detail)
+	if status == .Failed || status == .Disconnected {
+		log.infof("%v (%s)", status, detail)
 	}
 	if client.hooks.status != nil {
 		client.hooks.status(client.hooks.user, status, detail)
@@ -355,11 +383,25 @@ fin_base :: proc(client: ^Client($G)) -> u32 {
 	return client.sim != nil ? client.verified : client.snap_tick
 }
 
+// Takes the channel's new round-trip sample, if there is one, into the average and its deviation.
+@(private)
+take_rtt :: proc(client: ^Client($G)) {
+	sample, samples := channel_rtt(client.ch, client.relay)
+	if samples == client.rtt_samples {
+		return
+	}
+	if client.rtt_samples == 0 {
+		client.rtt_us = sample
+	} else {
+		client.rtt_dev_us += (abs(sample - client.rtt_us) - client.rtt_dev_us) * 0.1
+		client.rtt_us += (sample - client.rtt_us) * 0.1
+	}
+	client.rtt_samples = samples
+}
+
 @(private)
 on_finalized :: proc(client: ^Client($G), reader: ^wire.Reader, now: i64) {
 	relay_time := r_i64(reader)
-	echo := r_i64(reader)
-	hold := r_i64(reader)
 	input_ack := wire.r_u32(reader)
 	command_ack := wire.r_u32(reader)
 	first := wire.r_u32(reader)
@@ -368,38 +410,23 @@ on_finalized :: proc(client: ^Client($G), reader: ^wire.Reader, now: i64) {
 		return
 	}
 	client.cmd_acked = max(client.cmd_acked, min(command_ack, client.cmd_seq))
-	if echo > 0 {
-		sample := f64(now - echo - hold)
-		// A sample past the disconnect timeout is no round trip: an echo of another clock (a previous occupant's).
-		if sample > 0 && sample < DISCONNECT_US {
-			if client.rtt_samples == 0 {
-				client.rtt_us = sample
-			} else {
-				client.rtt_dev_us += (abs(sample - client.rtt_us) - client.rtt_dev_us) * 0.1
-				client.rtt_us += (sample - client.rtt_us) * 0.1
-			}
-			client.rtt_samples += 1
-		}
-	}
-	// Until the first echo of our inputs (they go out from Welcome on, so it takes a round trip), the
-	// channel's latest RTT sample (the acks of the Hello and the datagrams since) stands in, and the first
-	// echo replaces it. Waiting for echoes would start a late joiner's clock a round trip later and land
-	// its inputs for the join tick at the relay about two round trips after its Hello: past J + tolerance
-	// from ~280 ms.
-	rtt_ok := client.rtt_samples > 0
-	if !rtt_ok {
-		client.rtt_us, rtt_ok = channel_rtt(client.ch, client.relay)
-	}
-	if rtt_ok {
+	// The channel measured the round trip from the Hello's ack on, so the first Finalized already times the clock
+	// (a late joiner's inputs for its join tick reach the relay in time).
+	take_rtt(client)
+	if client.rtt_samples > 0 {
 		offset := f64(relay_time) + client.rtt_us / 2 - f64(now)
 		if !client.have_offset {
 			client.offset_us = offset
 			client.have_offset = true
+		} else if !client.started && offset > client.offset_us && offset - client.offset_us < DISCONNECT_US {
+			// Until the clock starts, the fastest Finalized's: one that came late would start the clock late, and the
+			// first inputs with it.
+			client.offset_us = offset
 		} else if abs(offset - client.offset_us) < DISCONNECT_US {
 			client.offset_us += (offset - client.offset_us) * 0.05
 		} // else not the relay's clock (a mangled time): taken, it would throw the local clock hours off
 	}
-	client.own_acked = max(client.own_acked, input_ack)
+	client.own_acked = max(client.own_acked, min(input_ack, client.own_last))
 	limit := fin_base(client) + FIN_RING - 64
 	tick_inputs := &client.fin_scratch
 	tick_inputs^ = {} // each tick is read as its changes from the one before; the first's from the empty tick
@@ -462,21 +489,18 @@ on_desync :: proc(client: ^Client($G), reader: ^wire.Reader) {
 	if !reader.ok {
 		return
 	}
-	client.desyncs += 1
-	if client.desyncs == 1 {
+	client.stats.desyncs += 1
+	if client.stats.desyncs == 1 {
 		client.first_desync = report
 		client.first_desync.detail = strings.clone(report.detail)
 	}
-	if !client.cfg.quiet {
-		fmt.eprintfln(
-			"%s: desync at tick %d: players %v differ%s%s",
-			client.cfg.name,
-			report.tick,
-			report.diverged,
-			report.detail != "" ? ": " : "",
-			report.detail,
-		)
-	}
+	log.warnf(
+		"desync at tick %d: slots %v differ%s%s",
+		report.tick,
+		report.diverged,
+		report.detail != "" ? ": " : "",
+		report.detail,
+	)
 	if client.hooks.desync != nil {
 		client.hooks.desync(client.hooks.user, report)
 	}
@@ -484,7 +508,7 @@ on_desync :: proc(client: ^Client($G), reader: ^wire.Reader) {
 
 @(private)
 handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
-	client.last_msg_us = now
+	client.stats.last_msg_us = now
 	reader := wire.reader_make(data)
 	#partial switch Msg(wire.r_u8(&reader)) {
 	case .Welcome:
@@ -496,8 +520,8 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 		#partial switch why {
 		case .Full:
 			detail = "the session is full"
-		case .Player_Taken:
-			detail = "that player is taken"
+		case .Slot_Taken:
+			detail = "that slot is taken"
 		case .Incompatible:
 			detail = "a different game build or level"
 		case .Not_Started:
@@ -587,13 +611,10 @@ load_snapshot :: proc(client: ^Client($G), now: i64) {
 	value := usim.checksum(client.sim)
 	client.chk[(tick / CHECKSUM_EVERY) % CHK_RING] = {tick, value}
 	writer := msg_begin(&client.w, .Checksum)
-	wire.w_u8(writer, u8(client.slot))
 	wire.w_u32(writer, tick)
 	wire.w_u64(writer, value)
 	csend(client, writer, .Reliable, now)
-	if !client.cfg.quiet {
-		fmt.eprintfln("%s: restored snapshot of tick %d (%d bytes)", client.cfg.name, tick, len(client.snap_buf))
-	}
+	log.infof("restored snapshot of tick %d (%d bytes)", tick, len(client.snap_buf))
 	clear(&client.snap_buf)
 }
 
@@ -651,23 +672,38 @@ record_checksum :: proc(client: ^Client($G)) {
 	}
 }
 
-// Steps one tick; `save` false: a tick that is already final and nothing reads its state.
+// Steps one tick; `save` false: nothing restores or reads its state (sim.step).
 @(private)
-step_tick :: proc(client: ^Client($G), inputs: ^usim.Inputs(G), kind: Step_Kind, save := true) {
+step_tick :: proc(client: ^Client($G), inputs: ^usim.Inputs(G), kind: Step_Kind, save: bool) {
 	step_start := time.tick_now()
 	usim.step(client.sim, inputs, save)
-	client.steps[kind] += 1
-	client.step_us[kind] += i64(time.duration_microseconds(time.tick_since(step_start)))
+	client.stats.steps[kind] += 1
+	client.stats.step_us[kind] += i64(time.duration_microseconds(time.tick_since(step_start)))
 	record_checksum(client)
 	if client.resim_from == 0 || client.sim.tick < client.resim_from {
 		client.resim_from = client.sim.tick
 	}
 }
 
+// Steps predicted tick `tick` (forward, or re-simulated after a rollback): saved every PREDICTED_SAVE_EVERY ticks, and
+// when a snapshot of it may be wanted.
+@(private)
+step_predicted :: proc(client: ^Client($G), tick: u32, kind: Step_Kind) {
+	inputs := &client.pred_inputs[tick % PRED_RING]
+	predicted_inputs(client, tick, inputs)
+	step_tick(client, inputs, kind, tick % PREDICTED_SAVE_EVERY == 0 || wants_image(client, tick))
+}
+
 @(private)
 on_tick_verified :: proc(client: ^Client($G), tick: u32) {
 	if client.hooks.verified != nil {
-		client.hooks.verified(client.hooks.user, client.sim, tick, usim.events_at(client.sim, tick))
+		client.hooks.verified(
+			client.hooks.user,
+			client.sim,
+			tick,
+			&client.fin[tick % FIN_RING],
+			usim.events_at(client.sim, tick),
+		)
 	}
 }
 
@@ -716,15 +752,7 @@ on_checksum_tick :: proc(client: ^Client($G), tick: u32, now: i64) {
 			continue
 		}
 		send_snapshot(client, u8(request.joiner), tick, data, now)
-		if !client.cfg.quiet {
-			fmt.eprintfln(
-				"%s: sent snapshot of tick %d (%d bytes) for player %d",
-				client.cfg.name,
-				tick,
-				len(data),
-				request.joiner,
-			)
-		}
+		log.infof("sent snapshot of tick %d (%d bytes) for slot %d", tick, len(data), request.joiner)
 		ordered_remove(&client.snap_reqs, i)
 	}
 	if !client.keep_images {
@@ -761,17 +789,35 @@ send_image :: proc(client: ^Client($G), tick: u32, now: i64) {
 }
 
 // Steps tick `tick`, which is final, while verifying up to `newest`. Its state is saved only when something will
-// read it (#117): the newest verified tick (the next rollback's target), the one before it when nothing is predicted
-// past it (the view interpolates between the current tick and the one before), and a checksum tick a snapshot is
-// wanted of.
+// read it: the newest verified tick (the next rollback's target), and a checksum tick a snapshot is wanted of.
 @(private)
-step_final :: proc(client: ^Client($G), tick, newest: u32, view_reads_previous: bool, kind: Step_Kind, now: i64) {
-	save := tick == newest || (view_reads_previous && tick + 1 == newest) || wants_image(client, tick)
-	step_tick(client, &client.fin[tick % FIN_RING], kind, save)
+step_final :: proc(client: ^Client($G), tick, newest: u32, kind: Step_Kind, now: i64) {
+	step_tick(client, &client.fin[tick % FIN_RING], kind, tick == newest || wants_image(client, tick))
 	on_tick_verified(client, tick)
 	if tick % CHECKSUM_EVERY == 0 {
 		on_checksum_tick(client, tick, now)
 	}
+}
+
+// Restores the nearest saved tick at or before `target` and re-steps the final ticks up to `target` (unsaved:
+// PREDICTED_SAVE_EVERY leaves at most one). False when none is restorable.
+@(private)
+restore_to :: proc(client: ^Client($G), target: u32) -> bool {
+	from := target
+	for usim.state_at(client.sim, from) == nil {
+		if from == 0 || target - from >= PREDICTED_SAVE_EVERY {
+			return false
+		}
+		from -= 1
+	}
+	if !usim.restore(client.sim, from) {
+		return false
+	}
+	for tick in from + 1 ..= target {
+		step_tick(client, &client.fin[tick % FIN_RING], .Resim, false)
+		client.stats.resim_ticks += 1
+	}
+	return true
 }
 
 // Advances the verified frame with newly finalized ticks, rolling back on a misprediction.
@@ -796,7 +842,7 @@ advance_verified :: proc(client: ^Client($G), now: i64) {
 	}
 	for tick in old_verified + 1 ..= new_verified {
 		drop_verified_commands(client, tick)
-		if client.slot >= 0 && client.slot in client.fin[tick % FIN_RING].replaced do client.own_replaced += 1
+		if client.slot >= 0 && client.slot in client.fin[tick % FIN_RING].replaced do client.stats.own_replaced += 1
 	}
 	for tick in old_verified + 1 ..= (mispredicted != 0 ? mispredicted - 1 : limit) {
 		on_tick_verified(client, tick) // predicted right: the ring already holds the verified result
@@ -805,29 +851,26 @@ advance_verified :: proc(client: ^Client($G), now: i64) {
 		}
 	}
 	if mispredicted != 0 {
-		if !usim.restore(client.sim, mispredicted - 1) {
+		depth := int(client.predicted - (mispredicted - 1))
+		if !restore_to(client, mispredicted - 1) {
 			set_status(client, .Failed, "rollback failed: the target tick is not restorable")
 			return
 		}
-		depth := int(client.predicted - (mispredicted - 1))
-		client.rollbacks += 1
-		client.depth_sum += depth
-		client.depth_max = max(client.depth_max, depth)
-		view_reads_previous := client.predicted <= new_verified
+		client.stats.rollbacks += 1
+		client.stats.depth_sum += depth
+		client.stats.depth_max = max(client.stats.depth_max, depth)
 		for tick in mispredicted ..= new_verified {
-			step_final(client, tick, new_verified, view_reads_previous, .Resim, now)
-			client.resim_ticks += 1
+			step_final(client, tick, new_verified, .Resim, now)
+			client.stats.resim_ticks += 1
 		}
 		for tick in new_verified + 1 ..= client.predicted {
-			inputs := &client.pred_inputs[tick % PRED_RING]
-			predicted_inputs(client, tick, inputs)
-			step_tick(client, inputs, .Resim)
-			client.resim_ticks += 1
+			step_predicted(client, tick, .Resim)
+			client.stats.resim_ticks += 1
 		}
 		client.predicted = max(client.predicted, new_verified)
 	} else if new_verified > client.predicted {
 		for tick in client.predicted + 1 ..= new_verified {
-			step_final(client, tick, new_verified, true, .Verified, now)
+			step_final(client, tick, new_verified, .Verified, now)
 		}
 		client.predicted = new_verified
 	}
@@ -842,7 +885,6 @@ advance_verified :: proc(client: ^Client($G), now: i64) {
 		}
 		append(&client.checksums, [2]u64{u64(tick), entry.value})
 		writer := msg_begin(&client.w, .Checksum)
-		wire.w_u8(writer, u8(client.slot))
 		wire.w_u32(writer, tick)
 		wire.w_u64(writer, entry.value)
 		csend(client, writer, .Reliable, now)
@@ -894,15 +936,14 @@ generate_inputs :: proc(client: ^Client($G)) {
 send_inputs :: proc(client: ^Client($G), now: i64) {
 	Input :: usim.part(G, usim.GAME_INPUT)
 	writer := msg_begin(&client.w, .Inputs)
-	wire.w_u8(writer, u8(client.slot))
-	w_i64(writer, now)
 	wire.w_u32(writer, min(client.fin_upto, fin_base(client) + FIN_RING - 64))
 	first := max(client.own_acked + 1, client.first_tick)
 	last := min(client.own_last, first + inputs_window(Input) - 1)
 	wire.w_u32(writer, first)
 	count := last >= first ? last - first + 1 : 0
+	assert(len(writer.buf) + 1 == INPUTS_HEAD)
 	wire.w_u8(writer, u8(count))
-	base: Input // each input as its changes from the one before it, the first from the zero input (#245)
+	base: Input // each input as its changes from the one before it, the first from the zero input
 	for tick in first ..< first + count {
 		window_write_input(writer, &client.own[tick % OWN_RING], &base)
 		base = client.own[tick % OWN_RING]
@@ -959,7 +1000,7 @@ clock_tick :: proc(client: ^Client($G)) {
 	client.local += 1
 	generate_inputs(client)
 	if client.sim != nil && !client.checking && client.local > client.verified + client.tm.prediction_cap {
-		client.stall_ticks += 1
+		client.stats.stall_ticks += 1
 	}
 }
 
@@ -987,11 +1028,11 @@ schedule :: proc(client: ^Client($G), now: i64) -> (advanced: bool) {
 	// The delay rises at once (a prediction past the cap stalls the view) and falls a tick per second.
 	if want := client_want_delay(client); want > client.delay {
 		client.delay = want
-		client.delay_changes += 1
+		client.stats.delay_changes += 1
 		client.delay_eval_us = now
 	} else if want < client.delay && now - client.delay_eval_us >= 1_000_000 {
 		client.delay -= 1
-		client.delay_changes += 1
+		client.stats.delay_changes += 1
 		client.delay_eval_us = now
 	}
 	behind := relay_tick + clock_lead(client, client.delay) - f64(client.local) // ticks behind its target
@@ -1028,9 +1069,7 @@ predict :: proc(client: ^Client($G)) {
 	    client.predicted < client.verified + client.tm.prediction_cap &&
 	    !at_end(client, client.predicted) {
 		tick := client.predicted + 1
-		inputs := &client.pred_inputs[tick % PRED_RING]
-		predicted_inputs(client, tick, inputs)
-		step_tick(client, inputs, .Predicted)
+		step_predicted(client, tick, .Predicted)
 		client.predicted = tick
 	}
 }
@@ -1038,38 +1077,42 @@ predict :: proc(client: ^Client($G)) {
 // One step of the client: receive, verify (rolling back if needed), advance the local clock,
 // predict, publish, send. Returns when it wants to run next (a now_us value).
 client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
-	if client.status == .Failed || client.status == .Disconnected {
+	if client_finished(client) {
 		return now + 100_000
 	}
 	if !client.hello_sent {
 		writer := msg_begin(&client.w, .Hello)
-		wire.w_u16(writer, PROTOCOL_VERSION)
-		wire.w_u8(writer, client.cfg.slot < 0 ? ANY_PLAYER : u8(client.cfg.slot))
+		wire.w_u8(writer, client.cfg.slot < 0 ? ANY_SLOT : u8(client.cfg.slot))
 		wire.w_u32(writer, client.cfg.join_tick)
 		wire.w_u64(writer, client.cfg.compat)
 		wire.w_bytes(writer, client.cfg.token[:])
-		name := name_of(client.cfg.player_name)
-		w_name(writer, &name)
+		name := text_of(NAME_MAX, client.cfg.player_name)
+		w_text(writer, &name)
 		csend(client, writer, .Reliable, now)
 		client.hello_sent = true
 		set_status(client, .Connecting, "")
 	}
 	for event in channel_poll(client.ch, now) {
+		if event.peer != client.relay {
+			continue // not from the relay
+		}
 		switch event.kind {
 		case .Message:
-			if event.peer == client.relay do handle_client_msg(client, event.data, now) // not from another peer
+			handle_client_msg(client, event.data, now)
 		case .Disconnected:
-			if event.peer == client.relay && client.end_us == 0 {
+			if client.end_us == 0 {
 				set_status(
 					client,
 					client.welcomed ? .Disconnected : .Failed,
 					client.welcomed ? "connection lost" : "no answer from the relay",
 				)
 			}
+		case .Incompatible:
+			set_status(client, .Failed, "a different game build (another protocol version)")
 		case .Connected:
 		}
 	}
-	if client.status == .Failed || client.status == .Disconnected {
+	if client_finished(client) {
 		return now + 100_000
 	}
 	client.resim_from = 0
@@ -1088,10 +1131,7 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 			send_inputs(client, now)
 		}
 		if client.welcomed && client.ticks != 0 && client.verified >= client.ticks && !client.done_sent {
-			writer := msg_begin(&client.w, .Done)
-			wire.w_u8(writer, u8(client.slot))
-			wire.w_u32(writer, client.verified)
-			csend(client, writer, .Reliable, now)
+			csend(client, msg_begin(&client.w, .Done), .Reliable, now)
 			client.done_sent = true
 		}
 	}
@@ -1104,34 +1144,24 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 			set_status(client, .Disconnected, client.detail)
 		}
 	}
-	wake_us = now + client.cfg.poll_us
+	wake_us = now + client.poll_us
 	if client.started {
 		wake_us = min(wake_us, i64(client.next_tick_us) + 1)
 	}
 	return
 }
 
-// What a client reports about its session: the headless CLI's client object (src/headless/SPEC.md,
-// CLI conventions), the Godot host's result line, and the end-to-end scenarios' checks.
+// What a client reports about its session: the headless CLI's client object (src/headless/SPEC.md), the Godot host's
+// result line, and the end-to-end scenarios' checks.
 Client_Result :: struct {
-	slot:               int,
-	member:             int, // the relay's member id
-	join_tick:          u32, // the first tick the player is present
-	final_tick:         u32, // the last verified tick (= the session's ticks on success)
-	checksums:          [][2]u64, // (tick, checksum) of every verified tick divisible by 16, from join_tick on
-	rollbacks:          int,
-	rollback_depth_avg: f64,
-	rollback_depth_max: int,
-	stall_ticks:        int,
-	resim_ticks:        int,
-	delay:              u32,
-	delay_changes:      int,
-	rtt_ms:             f64,
-	desyncs:            int, // desync reports the relay sent
-	ok:                 bool, // verified every tick of the session, did not fail, and was told of no desync
-	net:                Channel_Stats,
-	steps:              [Step_Kind]int, // ticks stepped, by kind
-	step_us:            [Step_Kind]i64, // time stepping them (saves included), µs
+	slot:        int,
+	member:      int, // the relay's member id
+	join_tick:   u32, // the first tick the player is present
+	final_tick:  u32, // the last verified tick (= the session's ticks on success)
+	checksums:   [][2]u64, // (tick, checksum) of every verified tick divisible by 16, from join_tick on
+	// Did not fail and was told of no desync; a fixed-length session's client also verified every tick of it.
+	ok:          bool,
+	using stats: Client_Stats,
 }
 
 // A client's results; the checksums are copied into `allocator` (the caller deletes them).
@@ -1139,25 +1169,14 @@ client_result :: proc(client: ^Client($G), allocator := context.allocator) -> Cl
 	checksums := make([][2]u64, len(client.checksums), allocator)
 	copy(checksums, client.checksums[:])
 	return {
-		slot               = client.slot,
-		member             = int(client.member),
-		join_tick          = client.first_tick,
-		final_tick         = client.verified,
-		checksums          = checksums,
-		rollbacks          = client.rollbacks,
-		rollback_depth_avg = client.rollbacks > 0 ? f64(client.depth_sum) / f64(client.rollbacks) : 0,
-		rollback_depth_max = client.depth_max,
-		stall_ticks        = client.stall_ticks,
-		resim_ticks        = client.resim_ticks,
-		delay              = client.delay,
-		delay_changes      = client.delay_changes,
-		rtt_ms             = client.rtt_us / 1000,
-		desyncs            = client.desyncs,
-		ok                 = client.ticks !=
-			0 && client.verified == client.ticks && client.status != .Failed && client.desyncs == 0,
-		net                = client.ch.stats,
-		steps              = client.steps,
-		step_us            = client.step_us,
+		slot       = client.slot,
+		member     = int(client.member),
+		join_tick  = client.first_tick,
+		final_tick = client.verified,
+		checksums  = checksums,
+		ok         = client.status !=
+			.Failed && client.stats.desyncs == 0 && (client.ticks == 0 || client.verified == client.ticks),
+		stats      = client_stats(client),
 	}
 }
 
@@ -1177,8 +1196,8 @@ client_json :: proc(result: Client_Result) -> string {
 		result.final_tick,
 		string(checksums[:]),
 		result.rollbacks,
-		result.rollback_depth_avg,
-		result.rollback_depth_max,
+		result.rollbacks > 0 ? f64(result.depth_sum) / f64(result.rollbacks) : 0,
+		result.depth_max,
 		result.stall_ticks,
 		result.resim_ticks,
 		result.join_tick,

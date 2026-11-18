@@ -18,7 +18,7 @@ import "base:runtime"
 import "unified:wire"
 
 MAGIC :: "UNLV"
-VERSION :: 2
+VERSION :: 2 // bump on any change to a .level file's bytes (the sim-change skill)
 
 Shape_Kind :: enum u8 {
 	Box,

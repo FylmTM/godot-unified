@@ -63,9 +63,7 @@ gated_join :: proc(
 	link, gate := gate_wrap(inner)
 	client := netcode.client_create(&toy.GAME, {
 			slot        = -1,
-			name        = "remote",
 			player_name = "Grace",
-			quiet       = true,
 		}, link, hooks_for(watch))
 	append(&session.clients, client)
 	return client, gate
@@ -80,12 +78,12 @@ one_way_outage_ends_the_client_session :: proc(t: ^testing.T) {
 	session: Net
 	net_make(&session, 0, 0)
 	defer net_destroy(&session)
-	client, gate := gated_join(&session, 1, netcode.PROFILES[1], &session.watch[1])
+	client, gate := gated_join(&session, 1, netcode.PROFILES[.Wan], &session.watch[1])
 	net_run(&session, 3)
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	gate.block_out = true
 	net_run(&session, 12) // the relay times the player out after 10 s
-	testing.expect(t, !session.host.relay.connected[client.slot])
+	testing.expect(t, !session.host.relay.seats[client.slot].connected)
 	gate.block_out = false
 	net_run(&session, 3)
 	testing.expect_value(t, client.status, netcode.Status.Disconnected)
@@ -100,7 +98,7 @@ rejoin_on_the_same_link_peer :: proc(t: ^testing.T) {
 	session: Net
 	net_make(&session, 0, 0)
 	defer net_destroy(&session)
-	crashed, _ := gated_join(&session, 1, netcode.PROFILES[1], &session.watch[1])
+	crashed, _ := gated_join(&session, 1, netcode.PROFILES[.Wan], &session.watch[1])
 	net_run(&session, 3)
 	testing.expect_value(t, crashed.status, netcode.Status.Connected)
 	player := crashed.slot
@@ -108,7 +106,7 @@ rejoin_on_the_same_link_peer :: proc(t: ^testing.T) {
 	netcode.client_destroy(crashed)
 	ordered_remove(&session.clients, 0)
 	net_run(&session, 1)
-	rejoined, _ := gated_join(&session, 1, netcode.PROFILES[1], &session.watch[2])
+	rejoined, _ := gated_join(&session, 1, netcode.PROFILES[.Wan], &session.watch[2])
 	net_run(&session, 4)
 	testing.expect_value(t, rejoined.status, netcode.Status.Connected)
 	testing.expect_value(t, rejoined.slot, player)
@@ -132,7 +130,13 @@ long_round_trip_keeps_up :: proc(t: ^testing.T) {
 	net_run(&session, 20)
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	ticks := int(client.verified - client.first_tick)
-	testing.expectf(t, client.stall_ticks * 20 < ticks, "stalled %d of %d ticks", client.stall_ticks, ticks)
+	testing.expectf(
+		t,
+		client.stats.stall_ticks * 20 < ticks,
+		"stalled %d of %d ticks",
+		client.stats.stall_ticks,
+		ticks,
+	)
 	testing.expect_value(t, session.host.relay.replaced, 0)
 	expect_agree(t, &session)
 }

@@ -1,4 +1,4 @@
-// Reused datagram-sized buffers (#262): a queued message, a delayed datagram or an early reliable message takes a
+// Reused datagram-sized buffers: a queued message, a delayed datagram or an early reliable message takes a
 // slot instead of a heap allocation of its own. A pool grows to the most slots it ever held at once, then allocates
 // no more, so a session thread's steady state allocates nothing.
 package netcode

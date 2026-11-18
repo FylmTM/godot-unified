@@ -1,21 +1,16 @@
-// The survivor's headless binary: every mode of src/headless/SPEC.md (CLI) (sim, synctest, replay, session,
-// relay, client, snapshot, resume, bench) on the survivor game with the `stress` tuning, through
-// unified:headless/modes, with EOS as its online transport (online.odin: eos-host, eos-client); plus
-// `bot` (bot.odin), which measures the `play` tuning.
+// The survivor's headless binary: the modes of src/headless/SPEC.md (`-- help` lists them) on the survivor game with
+// the `stress` tuning, through unified:headless/modes; with EOS lobbies (eos-host, eos-client: two processes over
+// EOS, src/eos/SPEC.md), and `bot` (bot.odin), which measures the `play` tuning.
 package main
 
-import "core:fmt"
-
 import "../survivor"
+import "unified:eos"
 import "unified:headless/modes"
-import "unified:sim"
 
 main :: proc() {
-	bot_main()
 	modes.run(
 		&survivor.GAME_STRESS,
 		{
-			summary = summary,
 			bench_prepare = survivor.bench_prepare,
 			bench = {
 				what     = "survivor (stress tuning) holding 1000 enemies",
@@ -24,31 +19,8 @@ main :: proc() {
 			},
 		},
 		variants = {&survivor.GAME}, // --game survivor: the `play` tuning, as the game runs it
-		online = &EOS_ONLINE,
-	)
-}
-
-// A JSON fragment describing the state (for the CLI output; temp-allocated). `levels` by slot (0: nobody).
-summary :: proc(state: ^survivor.State) -> string {
-	levels: [survivor.PLAYERS]i32
-	alive := 0
-	for slot in 0 ..< survivor.PLAYERS {
-		character := sim.player_data(&state.players, sim.player_in_slot(&state.players, slot))
-		if character == nil do continue
-		levels[slot] = character.level
-		alive += int(character.alive)
-	}
-	return fmt.tprintf(
-		`"phase":"%v","matches":%d,"wave":%d,"enemies":%d,"projectiles":%d,"gems":%d,"kills":%d,"explosions":%d,"players_alive":%d,"levels":%v`,
-		state.phase,
-		state.matches,
-		state.wave,
-		state.enemies.count,
-		state.projectiles.count,
-		state.gems.count,
-		state.kills,
-		state.explosions,
-		alive,
-		levels,
+		// Test runs: no keychain dialog, and no device ID left behind for the next build to trip on (macOS).
+		lobbies = {eos.lobby({no_keychain_prompts = true, forget_device = true})},
+		extra = {BOT},
 	)
 }

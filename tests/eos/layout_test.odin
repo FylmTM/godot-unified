@@ -70,11 +70,6 @@ LAYOUTS := []Layout {
 		"ApiVersion LocalUserId RemoteUserId SocketId Channel DataLengthBytes Data bAllowDelayedDelivery Reliability bDisableAutoAcceptConnection",
 	},
 	{
-		eos.P2P_Get_Next_Received_Packet_Size_Options,
-		"EOS_P2P_GetNextReceivedPacketSizeOptions",
-		"ApiVersion LocalUserId RequestedChannel",
-	},
-	{
 		eos.P2P_Receive_Packet_Options,
 		"EOS_P2P_ReceivePacketOptions",
 		"ApiVersion LocalUserId MaxDataSizeBytes RequestedChannel",
@@ -193,7 +188,6 @@ CONSTANTS := []Constant {
 	{"EOS_P2P_SOCKETID_SOCKETNAME_SIZE", eos.P2P_SOCKETID_SOCKETNAME_SIZE},
 	{"EOS_P2P_MAX_PACKET_SIZE", eos.P2P_MAX_PACKET},
 	{"EOS_P2P_SENDPACKET_API_LATEST", eos.P2P_SENDPACKET_API_LATEST},
-	{"EOS_P2P_GETNEXTRECEIVEDPACKETSIZE_API_LATEST", eos.P2P_GETNEXTRECEIVEDPACKETSIZE_API_LATEST},
 	{"EOS_P2P_RECEIVEPACKET_API_LATEST", eos.P2P_RECEIVEPACKET_API_LATEST},
 	{"EOS_P2P_ADDNOTIFYPEERCONNECTIONREQUEST_API_LATEST", eos.P2P_ADDNOTIFYPEERCONNECTIONREQUEST_API_LATEST},
 	{"EOS_P2P_ADDNOTIFYPEERCONNECTIONESTABLISHED_API_LATEST", eos.P2P_ADDNOTIFYPEERCONNECTIONESTABLISHED_API_LATEST},
@@ -292,7 +286,7 @@ bindings_match_the_sdk_headers :: proc(t: ^testing.T) {
 	probe := strings.to_string(builder)
 	version, _ := os.read_entire_file(fmt.tprintf("%s/eos_version.h", include), context.temp_allocator)
 	stamp := fmt.tprintf(
-		"%s/eos-layout-%16x.ok",
+		"%s/eos-layout-%016x.ok",
 		OUT_DIR,
 		hash.fnv64a(transmute([]u8)strings.concatenate({probe, string(version)}, context.temp_allocator)),
 	)

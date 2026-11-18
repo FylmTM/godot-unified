@@ -27,20 +27,20 @@ diverging_game :: proc() -> ^toy.Game {
 // majority (players 1 and 2) doesn't have. The relay asks player 1 instead, and the joiner plays from that one.
 @(test)
 a_bad_snapshot_is_refused_and_another_player_sends_one :: proc(t: ^testing.T) {
-	session: Rnet
-	rnet_make(&session, 3, 0)
-	defer rnet_destroy(&session)
-	rnet_join(&session, 0, diverging_game())
-	rnet_join(&session, 1)
-	rnet_join(&session, 2)
-	rnet_run(&session, 3)
+	session: Net
+	net_make_relay(&session, 3, 0)
+	defer net_destroy(&session)
+	net_join(&session, 0, game = diverging_game())
+	net_join(&session, 1)
+	net_join(&session, 2)
+	net_run(&session, 3)
 	testing.expect(t, session.relay.desyncs > 0) // player 0 parted from the others at tick 100
 	testing.expect(t, sim.Slots{0} <= session.relay.first_desync.diverged)
-	joiner := rnet_join(&session, 3)
-	rnet_run(&session, 1, proc(session: ^Rnet) -> bool {return session.relay.provider[3] >= 0})
-	testing.expect_value(t, session.relay.provider[3], 0) // asked first: the lowest that can provide
-	rnet_run(&session, 4)
-	testing.expect(t, 0 in session.relay.refused[3])
+	joiner := net_join(&session, 3)
+	net_run(&session, 1, proc(session: ^Net) -> bool {return session.relay.seats[3].provider >= 0})
+	testing.expect_value(t, session.relay.seats[3].provider, 0) // asked first: the lowest that can provide
+	net_run(&session, 4)
+	testing.expect(t, 0 in session.relay.seats[3].refused)
 	testing.expect_value(t, joiner.status, netcode.Status.Connected)
 	testing.expect(t, joiner.verified > joiner.first_tick)
 	// The joiner agrees with the honest players.
@@ -64,24 +64,24 @@ a_bad_snapshot_is_refused_and_another_player_sends_one :: proc(t: ^testing.T) {
 // ... and when the players who could send another leave, the joiner is refused: its snapshot was bad.
 @(test)
 a_bad_snapshot_with_nobody_else_refuses_the_joiner :: proc(t: ^testing.T) {
-	session: Rnet
-	rnet_make(&session, 3, 0)
-	defer rnet_destroy(&session)
-	rnet_join(&session, 0, diverging_game())
-	rnet_join(&session, 1)
-	rnet_join(&session, 2)
-	rnet_run(&session, 3)
-	joiner := rnet_join(&session, 3)
-	rnet_run(&session, 4, proc(session: ^Rnet) -> bool {return 0 in session.relay.refused[3]})
-	testing.expect(t, 0 in session.relay.refused[3])
+	session: Net
+	net_make_relay(&session, 3, 0)
+	defer net_destroy(&session)
+	net_join(&session, 0, game = diverging_game())
+	net_join(&session, 1)
+	net_join(&session, 2)
+	net_run(&session, 3)
+	joiner := net_join(&session, 3)
+	net_run(&session, 4, proc(session: ^Net) -> bool {return 0 in session.relay.seats[3].refused})
+	testing.expect(t, 0 in session.relay.seats[3].refused)
 	netcode.client_stop(session.clients[1], session.clock.now)
 	netcode.client_stop(session.clients[2], session.clock.now)
-	rnet_run(&session, 2)
+	net_run(&session, 2)
 	testing.expect_value(t, joiner.status, netcode.Status.Failed)
 	testing.expect_value(
 		t,
 		joiner.detail,
 		"the snapshot differed from the other players' and nobody else could send one",
 	)
-	testing.expect(t, !session.relay.connected[3])
+	testing.expect(t, !session.relay.seats[3].connected)
 }

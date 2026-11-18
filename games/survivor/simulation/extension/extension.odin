@@ -8,9 +8,9 @@ import "base:runtime"
 import "core:fmt"
 import "core:math"
 import "unified:dmath"
+import "unified:eos"
 import "unified:gdext/gdi"
 import "unified:godot"
-import "unified:godot_eos"
 import "unified:physics"
 import "unified:sim"
 import "unified:view"
@@ -26,7 +26,7 @@ survivor_init :: proc "c" (
 ) -> gdi.Bool {
 	context = runtime.default_context()
 	constants_fill(&CONSTANTS)
-	return godot.init(&survivor.GAME, GLUE, gpa, lib, init, godot_eos.transport("survivor")) // online play: EOS lobbies and P2P
+	return godot.init(&survivor.GAME, GLUE, gpa, lib, init, eos.lobby({})) // online play: EOS lobbies and P2P
 }
 
 // ---- the view contract

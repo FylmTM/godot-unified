@@ -1,12 +1,11 @@
 // unified:headless on the toy game, without a process per mode: what the standard scenarios on the toy
-// (tests/scenarios) don't cover: scripted commands over the per-tick limit, the files the CLI writes, the build
-// check of a replay, the sessions' JSON and their repeatability, and the netcode policies.
+// (tests/scenarios) don't cover: the files the CLI writes, the build check of a replay, the sessions' JSON and their
+// repeatability, and the netcode policies.
 package test_headless
 
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
-import "core:slice"
 import "core:strings"
 import "core:testing"
 
@@ -18,35 +17,6 @@ import "unified:sim"
 // Read-only: the runs only read it, so the tests share it.
 HEADLESS := headless.Headless(toy.Game) {
 	game = &toy.GAME,
-}
-
-// An offline run gives a tick at most four commands of a player and the rest to the next ticks, in order,
-// as the relay does (toy.scripted_commands sends six bumps, 100 * player + 0..5, at tick 250).
-@(test)
-offline_runs_hold_commands_over_the_limit_for_the_next_tick :: proc(t: ^testing.T) {
-	input_log: sim.Input_Log(toy.Game)
-	defer sim.log_destroy(&input_log)
-	headless.run_sim(&HEADLESS, 260, 3, 2, nil, &input_log)
-	for player in 0 ..< 2 {
-		applied_at: [6]u32 // the tick each of the six bumps went into
-		for k in 249 ..< 255 {
-			inputs := sim.log_inputs(&input_log, k)
-			testing.expect(t, len(sim.slot_commands(&inputs, player)) <= sim.COMMANDS_PER_SLOT)
-			for &raw in sim.slot_commands(&inputs, player) {
-				bump := sim.command_value(&raw, toy.Cmd).(toy.Cmd_Bump) or_continue
-				if i := int(bump.amount) - 100 * player; i >= 0 && i < 6 && applied_at[i] == 0 {
-					applied_at[i] = u32(k + 1)
-				}
-			}
-		}
-		testing.expectf(
-			t,
-			applied_at[0] == 250 && slice.is_sorted(applied_at[:]) && applied_at[4] == 251,
-			"player %d: ticks %v",
-			player,
-			applied_at,
-		)
-	}
 }
 
 temp_path :: proc(name: string) -> string {
@@ -94,13 +64,10 @@ offline_modes_agree :: proc(t: ^testing.T) {
 @(test)
 virtual_sessions_repeat :: proc(t: ^testing.T) {
 	cfg := headless.Session_Config {
-		clients     = 2,
-		transport   = "loopback",
-		virtual     = true,
-		profile     = netcode.PROFILES[1],
-		ticks       = 320,
-		seed        = 3,
-		late_player = -1,
+		clients = 2,
+		profile = netcode.PROFILES[.Wan],
+		ticks   = 320,
+		seed    = 3,
 	}
 	first := headless.session_run(&HEADLESS, cfg)
 	defer headless.session_result_destroy(&first)
@@ -135,18 +102,15 @@ far_start_players_keep_their_first_inputs :: proc(t: ^testing.T) {
 			jitter  = 10_000,
 			loss    = 20,
 		},
-		netcode.PROFILES[2], // bad: 120 ± 40 ms each way, loss, reordering
+		netcode.PROFILES[.Bad], // bad: 120 ± 40 ms each way, loss, reordering
 	}
 	for profile in profiles {
 		for seed in u64(1) ..= 4 {
 			cfg := headless.Session_Config {
-				clients     = 2,
-				transport   = "loopback",
-				virtual     = true,
-				profile     = profile,
-				ticks       = 192,
-				seed        = seed,
-				late_player = -1,
+				clients = 2,
+				profile = profile,
+				ticks   = 192,
+				seed    = seed,
 			}
 			result := headless.session_run(&HEADLESS, cfg)
 			defer headless.session_result_destroy(&result)

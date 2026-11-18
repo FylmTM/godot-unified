@@ -4,12 +4,13 @@
 package main
 
 import "core:fmt"
-import "core:os"
 import "core:slice"
 import "core:strconv"
 import "core:strings"
 
 import "../survivor"
+import uheadless "unified:headless"
+import "unified:headless/modes"
 import "unified:sim"
 
 Bot_Run :: struct {
@@ -78,33 +79,27 @@ bot_run :: proc(
 	return
 }
 
-mode_bot :: proc(args: []string) -> bool {
-	player_count, seeds := 1, 8
-	minutes: f32 = 10
-	tuning := "play"
-	sets: [dynamic]string
-	defer delete(sets)
-	for i := 0; i + 1 < len(args); i += 2 {
-		value := args[i + 1]
-		switch args[i] {
-		case "--players":
-			player_count, _ = strconv.parse_int(value)
-		case "--seeds":
-			seeds, _ = strconv.parse_int(value)
-		case "--minutes":
-			minutes, _ = strconv.parse_f32(value)
-		case "--tuning":
-			tuning = value
-		case "--set":
-			append(&sets, value) // applied once --tuning is known
-		case:
-			fmt.eprintfln("bot: unknown option %s (--players N --seeds K --minutes M --tuning play|stress)", args[i])
-			return false
-		}
+// `bot`, a mode of the survivor's binary (modes.run's `extra`).
+BOT := modes.Mode(survivor.Game) {
+	name    = "bot",
+	options = "[--players N] [--seeds K] [--minutes M] [--tuning play|stress] [--set FIELD=VALUE,...]",
+	help    = "plays matches with the bot policy to measure a tuning (--set overrides tuning fields: exploration only)",
+	run     = mode_bot,
+}
+
+mode_bot :: proc(headless: ^uheadless.Headless(survivor.Game), args: ^modes.Args) -> bool {
+	player_count := modes.opt_int(args, "players", 1, low = 1, high = survivor.PLAYERS)
+	seeds := modes.opt_int(args, "seeds", 8, low = 1, high = 10_000)
+	minutes := f32(modes.opt_int(args, "minutes", 10, low = 1, high = 600))
+	tuning := modes.opt_str(args, "tuning", "play")
+	if tuning != "play" && tuning != "stress" {
+		modes.die("bot: --tuning must be play or stress, got %q", tuning)
 	}
+	sets := strings.split(modes.opt_str(args, "set"), ",", context.temp_allocator)
 	game := tuning == "stress" ? &survivor.GAME_STRESS : &survivor.GAME
 	tune := survivor.TUNINGS[tuning == "stress" ? .Stress : .Play]
 	for set in sets {
+		if set == "" do continue
 		// --set field=value: override one field of the chosen tuning (exploration only)
 		field_value := strings.split(set, "=", context.temp_allocator)
 		number := 0
@@ -139,7 +134,6 @@ mode_bot :: proc(args: []string) -> bool {
 			return false
 		}
 	}
-	player_count = clamp(player_count, 1, survivor.PLAYERS)
 	first := make([]f32, seeds)
 	survival := make([]f32, seeds)
 	defer delete(first)
@@ -178,12 +172,4 @@ mode_bot :: proc(args: []string) -> bool {
 		survival[seeds - 1],
 	)
 	return true
-}
-
-bot_main :: proc() -> bool {
-	if len(os.args) >= 2 && os.args[1] == "bot" {
-		ok := mode_bot(os.args[2:])
-		os.exit(ok ? 0 : 1)
-	}
-	return false
 }
