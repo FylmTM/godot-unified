@@ -34,7 +34,7 @@ View_Item :: struct($View: typeid) {
 	kind:   View,
 	player: sim.Player, // the player it shows ({}: none): events whose subject is this player come here
 	pos:    sim.Position, // sim units (the host applies Glue.view_scale); 2D: pos.xy (Godot 2D: x right, y down)
-	rot:    [4]f32, // unit quaternion (x, y, z, w); dmath.quat_yaw, quat_angle2d (2D); zero = identity
+	rot:    [4]f32, // unit quaternion (x, y, z, w); dmath.quat_yaw, quat_angle_2d (2D); zero = identity
 }
 
 // One MultiMesh instance this tick (fill_frame: push_multi_view). Position and rotation interpolate from the
@@ -43,7 +43,7 @@ Multi_View_Item :: struct($MultiView: typeid) {
 	key:    u64, // identifies the instance across ticks, per kind (a handle's sim.handle_key); 0: not interpolated
 	kind:   MultiView,
 	pos:    sim.Position, // like View_Item's
-	rot:    [4]f32, // unit quaternion like View_Item's (2D: quat_angle2d); zero = identity
+	rot:    [4]f32, // unit quaternion like View_Item's (2D: quat_angle_2d); zero = identity
 	scale:  [3]f32, // per local axis (2D: x, y); zero = {1, 1, 1}
 	color:  Color, // the instance color (use_colors), RGBA; zero = white
 	custom: [4]f32, // the instance custom data (the game's shader reads it)

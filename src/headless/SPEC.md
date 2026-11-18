@@ -10,9 +10,9 @@ suites use; `unified:headless/modes`, a game's headless binary (only binaries im
 
 ## The binary
 
-A game's `simulation/headless/main.odin` calls `modes.run(&GAME, {bench}, variants, lobbies, extra)`: a run can pick
+A game's `simulation/headless/main.odin` calls `modes.run(&GAME, {bench}, variants, lobbies, own_modes)`: a run can pick
 one of the `variants` (another tuning) by name, `--level FILE` plays a copy of the game on that level instead of
-`GAME.content`, `lobbies` opts into lobby services (`eos.lobby`: it links the SDK), `extra` adds the game's own modes
+`GAME.content`, `lobbies` opts into lobby services (`eos.lobby`: it links the SDK), `own_modes` adds the game's own modes
 (`modes.Mode{name, options, help, run}`, parsed and checked like the library's). `uni headless` builds it when stale
 and runs it; the binary's `help` lists every mode and its options.
 The runs are played by the game's scripted player (`sim.Game.scripted_input`, `scripted_commands`).
@@ -62,8 +62,10 @@ inputs.input[0] = input
 headless.run_step(&run, &inputs)
 ship := sim.slot_data(run.simulation, 0)
 headless.run_pin(&run)                      // the test changed the state: never restore before this tick
-// then: run.mismatches == 0, run.check == "", run.problem == "", run_events(&run, Event_X)
+scenarios.expect_synced(t, &run)            // every re-simulation agreed: no mismatch, check or problem
 ```
+
+`run_events(&run, Event_X)` counts the events of one kind the forward ticks emitted.
 
 `session_run(&headless, Session_Config{clients, profile, ticks, seed, late_tick, late_slot, late_as_player, churn})`
 runs a relay and scripted clients over loopback on one thread through virtual time (as fast as it computes,
@@ -82,8 +84,9 @@ Network profiles: `netcode.PROFILES[.Ideal | .Wan | .Bad]` (`src/netcode/SPEC.md
 
 Each game has its own suite of Odin tests calling the library in process
 (`games/<game>/simulation/tests/suite_test.odin`): one `@(test)` per standard scenario, named for what it checks, then
-the game's own scenarios, with its reference run's constants in its `Suite`. The toy's suite (`tests/scenarios/`) is
-the template a game's copies, and proves the library: it runs every scenario.
+the game's own scenarios, with its reference run's constants in its `Suite`. A new game copies minimal_3d's
+(`games/minimal_3d/simulation/tests/`, what `uni init` copies); the toy's (`tests/scenarios/`) proves the library: it
+runs every scenario.
 
 ```odin
 Suite :: struct($G: typeid) {    // G: the game type, a sim.Game

@@ -88,7 +88,7 @@ func _run() -> void:
 	# fire while the first wave drifts in
 	Input.action_press(&"fire")
 	Input.action_press(&"aim_up", 1.0)
-	await wait_for(func() -> bool: return multi_count(&"bullet") > 0, 2.0, "bullets in the bullet multi view")
+	await wait_for(func() -> bool: return multi_count(EnumMultiView.BULLET) > 0, 2.0, "bullets in the bullet multi view")
 	await wait_for(func() -> bool: return _rocks_drawn() > 0, 6.0, "rocks in the rock multi views")
 	Input.action_release(&"aim_up")
 	if failed():
@@ -96,8 +96,8 @@ func _run() -> void:
 		return
 	await seconds(0.5)
 	await shot("r03_match")
-	step("match: %d bullets, %d rocks, %d gems drawn; shots fired %d" % [multi_count(&"bullet"),
-		_rocks_drawn(), multi_count(&"gem"), (local_row()).shots])
+	step("match: %d bullets, %d rocks, %d gems drawn; shots fired %d" % [multi_count(EnumMultiView.BULLET),
+		_rocks_drawn(), multi_count(EnumMultiView.GEM), (local_row()).shots])
 
 	await _hunt()
 	if flag("end-in-match"):
@@ -207,7 +207,7 @@ func _views(kind: int) -> int:
 func _rocks_drawn() -> int:
 	var n := 0
 	for v in (Unified.constants.rock_shapes as Array).size():
-		n += multi_count("rock_%d" % v)
+		n += multi_count(EnumMultiView.ROCK_0 + v)
 	return n
 
 

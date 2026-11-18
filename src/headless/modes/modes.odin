@@ -12,7 +12,7 @@ import uheadless "unified:headless"
 import "unified:netcode"
 @(require) import "unified:sim" // only in generic procs
 
-// A mode of the binary: the library's, a lobby service's, or a game's own (run's `extra`).
+// A mode of the binary: the library's, a lobby service's, or a game's own (run's `own_modes`).
 Mode :: struct($G: typeid) {
 	name:    string,
 	options: string, // its options as `help` shows them: every --name in it is an option it takes, the others fail
@@ -24,13 +24,13 @@ Mode :: struct($G: typeid) {
 // Runs the mode named on the command line on `game` (its scripted player plays the runs, on its content). `options`:
 // the binary's benchmark (its `game` is `game`). `variants`: other variants of the game (e.g. other tunings), picked
 // with `--game NAME` (sim.Game.name) on any mode. `lobbies`: lobby services (eos.lobby) for the <name>-host and
-// <name>-client modes; a game opts in, and links the service's SDK. `extra`: the game's own modes.
+// <name>-client modes; a game opts in, and links the service's SDK. `own_modes`: the game's own modes.
 run :: proc(
 	game: ^$G,
 	options: uheadless.Headless(G),
 	variants: []^G = nil,
 	lobbies: []^netcode.Lobby = nil,
-	extra: []Mode(G) = nil,
+	own_modes: []Mode(G) = nil,
 ) {
 	options := options
 	options.game = game
@@ -88,7 +88,7 @@ run :: proc(
 			lobby   = lobby,
 		})
 	}
-	append(&table, ..extra)
+	append(&table, ..own_modes)
 	argv := os.args[1:]
 	if len(argv) == 0 || argv[0] == "help" || argv[0] == "--help" {
 		print_usage(table[:], len(argv) == 0 ? os.stderr : os.stdout)

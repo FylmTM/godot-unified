@@ -221,6 +221,7 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 				"unified: CommandMark.",
 				`has no property "pad_check"`,
 				"is not a member of the game's View enum",
+				"is not a thing's index",
 			},
 		},
 		{views, cli.join(views, "ext"), "views_test", "markers_check.gd", "MARKERS TESTS", nil},

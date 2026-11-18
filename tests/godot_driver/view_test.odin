@@ -1,5 +1,6 @@
 package test_godot_driver
 
+import "core:math"
 import "core:sync"
 import "core:testing"
 import "core:thread"
@@ -150,12 +151,12 @@ track_teleports_snap :: proc(t: ^testing.T) {
 track_rotation_interpolates_and_smooths :: proc(t: ^testing.T) {
 	smoothing := godot.SMOOTHING_DEFAULT
 	track: godot.Track
-	godot.track_push(&track, 1, {{}, godot.quat_yaw_angle(0)}, smoothing)
-	godot.track_push(&track, 2, {{}, godot.quat_yaw_angle(1)}, smoothing)
+	godot.track_push(&track, 1, {{}, quat_yaw_angle(0)}, smoothing)
+	godot.track_push(&track, 2, {{}, quat_yaw_angle(1)}, smoothing)
 	pose := godot.track_sample(&track, 2, 0.5, 0, smoothing)
 	testing.expectf(t, abs(godot.yaw_of(pose.rot) - 0.5) < 1e-3, "yaw %v", godot.yaw_of(pose.rot))
 	_ = godot.track_sample(&track, 2, 1, 0, smoothing)
-	godot.track_push(&track, 2, {{}, godot.quat_yaw_angle(0.5)}, smoothing)
+	godot.track_push(&track, 2, {{}, quat_yaw_angle(0.5)}, smoothing)
 	pose = godot.track_sample(&track, 2, 1, 0, smoothing)
 	testing.expectf(t, abs(godot.yaw_of(pose.rot) - 1) < 1e-3, "no rotation jump: %v", godot.yaw_of(pose.rot))
 	for _ in 0 ..< 120 do pose = godot.track_sample(&track, 2, 1, 1.0 / 60, smoothing)
@@ -166,15 +167,15 @@ track_rotation_interpolates_and_smooths :: proc(t: ^testing.T) {
 @(test)
 angle2d_round_trips_and_interpolates :: proc(t: ^testing.T) {
 	for angle in ([]f32{0, 0.5, -1, 2, 3, -3}) {
-		testing.expectf(t, abs(godot.angle2d_of(godot.quat_angle2d(angle)) - angle) < 1e-5, "angle %v", angle)
-		testing.expectf(t, abs(godot.yaw_of(godot.quat_angle2d(angle))) < 1e-5, "angle %v has no yaw", angle)
+		testing.expectf(t, abs(godot.angle_2d_of(godot.quat_angle_2d(angle)) - angle) < 1e-5, "angle %v", angle)
+		testing.expectf(t, abs(godot.yaw_of(godot.quat_angle_2d(angle))) < 1e-5, "angle %v has no yaw", angle)
 	}
-	testing.expect(t, abs(godot.angle2d_of(godot.IDENTITY)) < 1e-6)
+	testing.expect(t, abs(godot.angle_2d_of(godot.IDENTITY)) < 1e-6)
 	track: godot.Track
-	godot.track_push(&track, 1, {{}, godot.quat_angle2d(0)})
-	godot.track_push(&track, 2, {{}, godot.quat_angle2d(1)})
+	godot.track_push(&track, 1, {{}, godot.quat_angle_2d(0)})
+	godot.track_push(&track, 2, {{}, godot.quat_angle_2d(1)})
 	pose := godot.track_sample(&track, 2, 0.5, 0)
-	testing.expectf(t, abs(godot.angle2d_of(pose.rot) - 0.5) < 1e-3, "angle %v", godot.angle2d_of(pose.rot))
+	testing.expectf(t, abs(godot.angle_2d_of(pose.rot) - 0.5) < 1e-3, "angle %v", godot.angle_2d_of(pose.rot))
 }
 
 @(test)
@@ -425,4 +426,9 @@ track_push_prev_glides :: proc(t: ^testing.T) {
 	godot.track_push(&track, 6, {pos = {9, 0, 0}, rot = godot.IDENTITY}, smoothing)
 	start := godot.track_sample(&track, 6, 0, 0, smoothing)
 	testing.expectf(t, abs(start.pos.x - glide.pos.x) < 1e-4, "no jump after skipped ticks: %v", start.pos.x)
+}
+
+// Rotation about +Y by `yaw` radians (Godot's up axis).
+quat_yaw_angle :: proc(yaw: f32) -> [4]f32 {
+	return {0, math.sin(yaw * 0.5), 0, math.cos(yaw * 0.5)}
 }

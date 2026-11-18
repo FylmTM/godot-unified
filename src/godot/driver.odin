@@ -86,6 +86,7 @@ fill_stats_add :: proc(stats: ^Fill_Stats, took: time.Duration) {
 lobby: ^netcode.Lobby // the game's lobby service (godot.init; online play); nil: Host_Online/Join_Online fail
 
 // The main thread asks for state copies only while the dev UI shows them (atomic).
+@(private)
 want_state: bool
 
 // Network impairment for remote links (the dev UI's Conditions panel, --lag): the main thread publishes settings

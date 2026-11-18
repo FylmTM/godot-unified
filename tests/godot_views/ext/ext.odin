@@ -70,6 +70,9 @@ Data_Toy :: struct {
 	tint:        [4]f32, // by shape: a Vector4 (godot.Color is a Color)
 	turn:        godot.Quat, // a Quaternion
 	cell:        [2]i32, // a Vector2i
+	_pad2:       [4]u8,
+	lamp:        sim.Entity, // its index (sim.entity(4): 4)
+	no_lamp:     sim.Entity, // the zero Entity: -1
 }
 
 // The constants (Unified.constants): what `constants` returns, copied at install.
@@ -146,7 +149,7 @@ bench_frame :: proc(f: ^Frame) {
 			key  = u64(100 + i),
 			kind = .Plain3D,
 			pos  = {math.cos(angle), 0, math.sin(angle)},
-			rot  = godot.quat_yaw_angle(angle),
+			rot  = quat_yaw_angle(angle),
 		})
 	}
 	for i in 0 ..< BENCH_STATIC_VIEWS {
@@ -159,7 +162,7 @@ bench_frame :: proc(f: ^Frame) {
 			key    = u64(i + 1),
 			kind   = .Multi3D,
 			pos    = {f32(i % side) * 0.2, 0.1 * math.sin(phase), f32(i / side) * 0.2},
-			rot    = godot.quat_yaw_angle(phase),
+			rot    = quat_yaw_angle(phase),
 			custom = {phase, 0, 0, 0},
 		})
 	}
@@ -177,6 +180,8 @@ sample_input :: proc(input: ^toy.Input) {
 // What test.gd sets on Unified.input.
 Input_Values :: struct {
 	drift: f32,
+	_pad:  [4]u8,
+	pick:  sim.Entity, // a fixed thing's index, set and read back (-1: none)
 }
 
 fill_frame :: proc(f: ^Frame) {
@@ -186,8 +191,8 @@ fill_frame :: proc(f: ^Frame) {
 		bench_frame(f)
 		return
 	}
-	q2 := godot.quat_angle2d(ANGLE_2D)
-	q3 := godot.quat_yaw_angle(YAW_3D)
+	q2 := godot.quat_angle_2d(ANGLE_2D)
+	q3 := quat_yaw_angle(YAW_3D)
 	godot.push_view(f, {
 		key    = 1,
 		kind   = .Typed2D,
@@ -245,10 +250,11 @@ fill_frame :: proc(f: ^Frame) {
 		tint        = {1, 2, 3, 4},
 		turn        = {0, 0, 0, 1},
 		cell        = {-3, 7},
+		lamp        = sim.entity(4),
 	})
 	// the rotation negated every other tick (the same rotation): on the shorter arc it doesn't turn at all, so it is
 	// exact at any alpha
-	angle := godot.quat_angle2d(0.25)
+	angle := godot.quat_angle_2d(0.25)
 	godot.push_multi_view(f, {
 		key    = 1,
 		kind   = .Multi2D,
@@ -291,4 +297,9 @@ views_test_init :: proc "c" (
 	GAME = toy.GAME
 	GAME.bench_prepare = bench_prepare
 	return godot.init(&GAME, GLUE, get_proc_address, library, init, constants = constants)
+}
+
+// Rotation about +Y by `yaw` radians (Godot's up axis).
+quat_yaw_angle :: proc(yaw: f32) -> [4]f32 {
+	return {0, math.sin(yaw * 0.5), 0, math.cos(yaw * 0.5)}
 }

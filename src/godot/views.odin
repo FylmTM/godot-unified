@@ -439,7 +439,7 @@ set_pose :: proc(scene_view: ^Scene_View, pose: Pose) {
 	case .Node2D:
 		node2d := gd.cast_to(gd.Node2D, scene_view.node)
 		gd.Node2D_set_position(node2d, {pose.pos.x, pose.pos.y})
-		gd.Node2D_set_rotation(node2d, angle2d_of(pose.rot))
+		gd.Node2D_set_rotation(node2d, angle_2d_of(pose.rot))
 	case .Node3D:
 		node3d := gd.cast_to(gd.Node3D, scene_view.node)
 		gd.Node3D_set_position(node3d, {pose.pos.x, pose.pos.y, pose.pos.z})

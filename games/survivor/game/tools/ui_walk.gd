@@ -169,12 +169,12 @@ func _controls_panel() -> Control:
 
 ## The enemies the MultiMesh views draw.
 func _enemies_drawn() -> int:
-	return multi_count(&"grunt") + multi_count(&"runner") + multi_count(&"brute")
+	return multi_count(EnumMultiView.GRUNT) + multi_count(EnumMultiView.RUNNER) + multi_count(EnumMultiView.BRUTE)
 
 
 ## Whether a projectile or a gem is drawn; until then, holds the moves towards the nearest enemy drawn.
 func _attack_fired_steering() -> bool:
-	if multi_count(&"projectile") > 0 or multi_count(&"gem") > 0:
+	if multi_count(EnumMultiView.PROJECTILE) > 0 or multi_count(EnumMultiView.GEM) > 0:
 		return true
 	var players := views(EnumView.PLAYER)
 	if players.is_empty():

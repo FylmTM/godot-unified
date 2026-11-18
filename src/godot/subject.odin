@@ -63,11 +63,13 @@ event_subject :: proc(layout: ^Event_Layout, data: []u8) -> (player: u64, entity
 }
 
 // A sim.Handle(T): its RTTI names it "Handle($T=...)" in package sim.
+@(private)
 is_handle :: proc(type: ^runtime.Type_Info) -> bool {
 	named, ok := type.variant.(runtime.Type_Info_Named)
 	return ok && named.pkg == "sim" && strings.has_prefix(named.name, "Handle(") && type.size == 8
 }
 
+@(private)
 read_uint :: proc(bytes: []u8) -> u64 {
 	value: u64
 	for i := len(bytes) - 1; i >= 0; i -= 1 do value = value << 8 | u64(bytes[i])
@@ -75,6 +77,7 @@ read_uint :: proc(bytes: []u8) -> u64 {
 }
 
 // The key of a sim.Player's bytes (sim.player_key: 0 for nobody).
+@(private)
 player_key_of :: proc(bytes: []u8) -> u64 {
 	return sim.player_key({index = u16(read_uint(bytes[:2])), id = u16(read_uint(bytes[2:4]))})
 }

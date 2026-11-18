@@ -108,6 +108,14 @@ write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -
 		if key != 0 && player == {} do return fmt.tprintf("%d is not a player", key)
 		copy(out, ([^]u8)(&player)[:size_of(sim.Player)])
 		return ""
+	case type.id == sim.Entity:
+		// a fixed thing's index (sim.entity(index); -1: none)
+		if variant_type != .INT do return fmt.tprintf("want a thing's index (an int, -1: none), %s", got(variant_type))
+		index, _ := gd.from_variant(i64, variant)
+		if index < -1 do return fmt.tprintf("%d is not a thing's index (-1: none)", index)
+		entity := index < 0 ? sim.Entity(0) : sim.entity(int(index))
+		copy(out, ([^]u8)(&entity)[:size_of(sim.Entity)])
+		return ""
 	}
 	#partial switch want {
 	case .VECTOR2, .VECTOR3, .VECTOR4, .COLOR, .QUATERNION, .VECTOR2I, .VECTOR3I, .VECTOR4I:

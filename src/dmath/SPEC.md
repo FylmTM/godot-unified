@@ -15,7 +15,7 @@ length(v)  length_sq(v)                   // length_sq: no sqrt, compare against
 dist_sq(a, b)                             // squared distance
 dot(a, b)                                 // components summed in order: x, y (, z)
 cross2(a, b)                              // a.x * b.y - a.y * b.x
-normalize(v, eps)                         // zero when |v| <= eps
+normalize(v, eps = 0.0001)                // zero when |v| <= eps
 clamp_length(v, max_len)
 quat_rotate(quat, v)                      // v turned by the unit quaternion (x, y, z, w)
 quat_yaw(facing: [2]f32) -> [4]f32        // about +Y, turning +Z toward the unit floor direction (x, z): sqrt only

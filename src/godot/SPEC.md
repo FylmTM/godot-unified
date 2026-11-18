@@ -40,8 +40,8 @@ constants :: proc() -> Data_Constants {return {speed = g.SPEED, ...}} // Unified
 ```
 
 Glue procs are named procs, never inline lambdas. `godot.init` is a `proc "c"` that sets the Odin context itself,
-so the entry point is one call; the constants are a proc it calls once the context is set (they may format strings
-or compute shapes), its value copied. A game's extension fills frames; its Godot calls go in GDScript or through
+so the entry point is one call; `constants` is the proc itself, not its result (`constants = constants`): `init`
+calls it once the context is set (it may format strings or compute shapes) and copies its value. A game's extension fills frames; its Godot calls go in GDScript or through
 `unified:godot` helpers, so it never imports `unified:gdext` (`godot` names the entry point's types). The level the
 session plays is the game's (`sim.Game.content`, embedded in the extension).
 
@@ -101,7 +101,7 @@ once when `view_root` is not at the world origin).
   `sim.player_key` survives a slot change and a rejoin (key 0 with `player` set means that key), a table thing's by
   `sim.handle_key`, a fixed thing's by its index (its events carry `sim.entity(index)`). The key and `player` route
   events to it (Events, below). `pos` is a `sim.Position` in sim units (2D: x, y). `rot` is a unit quaternion
-  (zero: identity; `dmath.quat_yaw` from a facing, `godot.quat_angle2d`). `data` is a plain struct set as the view's
+  (zero: identity; `dmath.quat_yaw` from a facing, `godot.quat_angle_2d`). `data` is a plain struct set as the view's
   properties of the same names, converted like any sim-facing field (Data and classes, below), on spawn and whenever
   its bytes change; one kind always pushes one data type.
 - `push_multi_view(f, Multi_View_Item{key, kind, pos, rot, scale, color, custom})`: one MultiMesh instance. `key`
@@ -138,7 +138,7 @@ callback, while scripting still runs.
 Every sim-facing field (events, commands, view and session data, constants, input values) converts by type, the
 same everywhere: integers `int`, f32 `float`, bools; an enum an `int` (its class names the members: `survivor.Phase`
 is `EnumPhase.LOBBY`, `EnumPhase.name(value)`); a bit_set an `Array[int]`; a handle and a `sim.Player` their key (an
-`int`, 0: none); a `sim.Position` a `Vector2` (`is_2d`) or `Vector3` in view units; by shape `[2]/[3]/[4]f32` a
+`int`, 0: none); a `sim.Entity` its index (an `int`, −1: none), the number its views are keyed by; a `sim.Position` a `Vector2` (`is_2d`) or `Vector3` in view units; by shape `[2]/[3]/[4]f32` a
 `Vector2/3/4` and `[2]/[3]/[4]i32` a `Vector2i/3i/4i`; `godot.Color` a `Color`, `godot.Quat` a `Quaternion`; other
 arrays and enumerated arrays a typed `Array` (an array of arrays untyped); a nested struct an object of its class (a
 struct only view data uses has no class: a `Dictionary`); a string (constants) a `String`. `_` fields are left out.
@@ -168,13 +168,14 @@ cannot hold, no session or a full queue: false and an error naming it); the sim 
 ## Godot side
 
 **`UnifiedSession`** (Node, one per app; scripts reach it typed, `%UnifiedSession` or `Unified.session`): starts, hosts,
-joins and leaves sessions; `status` (enum `Status`) and `status_changed`; `mode` (enum `Mode`: single player, hosting
-or joining, online or direct); the shown tick's `tick`, `local_player`; the roster (`get_players()`,
+joins and leaves sessions; `running` (a session's thread is alive, until its goodbye ends), `status` (enum `Status`) and
+`status_changed`; `mode` (enum `Mode`: single player, hosting or joining, online or direct); `lobby_code` (the code
+others join with) and `desync(tick, detail)`; the shown tick's `tick`, `local_player`; the roster (`get_players()`,
 `get_known_players()`, `get_player_slot` / `_name` / `_platform` / `_platform_id(player)`, `roster_changed`; a name is
 the one the player gave, else "P" and their slot from 1); `get_view(kind, key)`, `get_player_view(kind, player)`,
 `get_views(kind)` from the host's own tables (`kind`: an `EnumView` value, `session.get_view(EnumView.STATION, 0)`;
 one that is no member is an error once); `sim_event`; `view_root`, `seed`, `ticks`, `local_name`, `game_input`,
-`devui_visible`. Players are ints: a player's key, the same while they are in the session whatever slot they hold (0:
+`devui_visible`; `take_sync_stats()` (the view sync's cost since the last call, for benchmarks). Players are ints: a player's key, the same while they are in the session whatever slot they hold (0:
 nobody). Nothing about the session answers once it is over. A client's LAN token is kept in
 `user://unified_token_<n>`: each running copy of the game claims its own by an OS file lock held for the process's
 life, so a restarted one takes its token back.

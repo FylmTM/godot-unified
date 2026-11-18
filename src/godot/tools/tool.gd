@@ -281,12 +281,13 @@ func views(kind: int) -> Array[Node]:
 	return session.get_views(kind)
 
 
-## The instances the MultiMesh views of `kind` draw (0 without one).
-func multi_count(kind: StringName) -> int:
+## The instances the MultiMesh views of `kind` (an EnumMultiView value) draw (0 without one).
+func multi_count(kind: int) -> int:
+	var kind_name: String = EnumMultiView.name(kind)  # the marker's kind: the member's name, lowercased
 	var count := 0
 	for marker: Node in root.find_children("*", "UnifiedMultiView", true, false):
 		var multi_view := marker as UnifiedMultiView
-		if multi_view.kind != String(kind):
+		if multi_view.kind != kind_name:
 			continue
 		var parent := multi_view.get_parent()
 		var mm: MultiMesh = null
