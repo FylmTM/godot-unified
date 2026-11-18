@@ -142,45 +142,75 @@ declarations_are_checked :: proc(t: ^testing.T) {
 	Left :: sim.Event_Player_Left
 	cases := []Case {
 		{declared(toy.Cmd, toy.Event), ""},
-		{declared(union {
+		{
+			declared(union {
 					Cmd_Max,
-				}, toy.Event), ""},
-		{declared(union {
+				}, toy.Event),
+			"",
+		},
+		{
+			declared(union {
 					Cmd_Padded,
-				}, toy.Event), "padding"},
-		{declared(union {
+				}, toy.Event),
+			"padding",
+		},
+		{
+			declared(union {
 					Cmd_Too_Big,
-				}, toy.Event), "bytes"},
-		{declared(union {
+				}, toy.Event),
+			"bytes",
+		},
+		{
+			declared(union {
 					struct{},
-				}, toy.Event), "bytes"},
-		{declared(union {
+				}, toy.Event),
+			"bytes",
+		},
+		{
+			declared(union {
 					string,
-				}, toy.Event), "commands"},
-		{declared(union {
+				}, toy.Event),
+			"commands",
+		},
+		{
+			declared(union {
 					Bump,
 					Cmd_Bump,
-				}, toy.Event), "named"}, 	// "bump" twice: the prefix goes
+				}, toy.Event),
+			"named",
+		}, // "bump" twice: the prefix goes
 		{declared(Cmd_Bump, toy.Event), "not a union"},
-		{declared(toy.Cmd, union {
+		{
+			declared(toy.Cmd, union {
 					Joined,
 					Left,
 					Event_Padded,
-				}), ""},
-		{declared(toy.Cmd, union {
+				}),
+			"",
+		},
+		{
+			declared(toy.Cmd, union {
 					Joined,
 					Left,
 					Event_Pointer,
-				}), "events"},
-		{declared(toy.Cmd, union #no_nil {
+				}),
+			"events",
+		},
+		{
+			declared(toy.Cmd, union #no_nil {
 					Joined,
 					Left,
-				}), "#no_nil"},
-		{declared(toy.Cmd, union {
+				}),
+			"#no_nil",
+		},
+		{
+			declared(toy.Cmd, union {
 					Joined,
 					Left,
 					Event_Ticked,
-				}), "`tick`"},
+				}),
+			"`tick`",
+		},
 		{declared(toy.Cmd, toy.Event, 60), "tick_hz"},
 		{declared(toy.Cmd, toy.Event, 256), "tick_hz"},
 		{declared(toy.Cmd, toy.Event, 16), "tick_hz"},
@@ -271,21 +301,33 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 		{"another version", with("version", "a version the toy never has")},
 		{"another name", with("name", "toy-variant")},
 		{"another tick rate", with("tick_hz", "")},
-		{"fewer events", compat_with(toy.State, toy.Input, union {
+		{
+			"fewer events",
+			compat_with(toy.State, toy.Input, union {
 					sim.Event_Player_Joined,
 					sim.Event_Player_Left,
-				}, toy.Cmd)},
-		{"commands as other kinds", compat_with(toy.State, toy.Input, toy.Event, union {
+				}, toy.Cmd),
+		},
+		{
+			"commands as other kinds",
+			compat_with(toy.State, toy.Input, toy.Event, union {
 					toy.Cmd_Mark,
 					toy.Cmd_Bump,
-				})},
-		{"fewer commands", compat_with(toy.State, toy.Input, toy.Event, union {
+				}),
+		},
+		{
+			"fewer commands",
+			compat_with(toy.State, toy.Input, toy.Event, union {
 					toy.Cmd_Bump,
-				})},
-		{"a command renamed", compat_with(toy.State, toy.Input, toy.Event, union {
+				}),
+		},
+		{
+			"a command renamed",
+			compat_with(toy.State, toy.Input, toy.Event, union {
 					toy.Cmd_Bump,
 					Renamed,
-				})},
+				}),
+		},
 		{"another Input of the same size", compat_with(Other_State, Other_Input, toy.Event, toy.Cmd)},
 		{"content", sim.compat_of(&toy.GAME, level)},
 		{"other content", sim.compat_of(&toy.GAME, []u8{1, 2, 4})},
