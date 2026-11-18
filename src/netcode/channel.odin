@@ -4,21 +4,24 @@
 //
 //   datagram = u8 tag (0x80 | PROTOCOL_VERSION), u32 epoch, u32 peer epoch, u32 seq, u32 ack, u32 ack_bits,
 //              u8 recent, u16 recent delay (ACK_DELAY_UNIT_US), u8 chunk count, chunks
-//   chunk    = u8 kind (0 unreliable, 1 reliable), [u32 message id if reliable], u16 len, bytes
+//   chunk    = u8 kind (0 unreliable, 1 reliable, 2 older acks), [u32 message id if reliable], u16 len, bytes
+//   older acks = up to ACK_EXT_WORDS u32: bit b of word w acks seq ack - 33 - (32 w + b)
 //   notice   = u8 tag, u32 0: "I run this protocol version", the answer to a datagram of another version
 //
 // The tag carries the protocol version, so two builds never read each other's datagrams. A datagram whose tag has the
 // top bit but another version is answered with a notice (a notice never is: two versions can't ping-pong); a notice
 // from a peer is the channel's Incompatible event. The notice's five bytes never change across versions.
 //
-// Every datagram acks the peer's latest sequence number plus a 32-bit history, and names the datagram that arrived
+// Every datagram acks the peer's latest sequence number plus a 32-bit history (and, while a burst arrives, the older
+// acks chunk: up to 256 seqs more), and names the datagram that arrived
 // last (`recent` back from the ack) with how long it waited before this one went out: the round trip measured from
 // it is the path's own. The last arrival, not the newest seq: under jitter the newest is the one that came fast, and
 // sampling only it would read the round trip short. A reliable message
 // rides in datagrams until one of them is acked, and is resent after a timeout derived from the
 // measured RTT. At most REL_IN_FLIGHT datagrams carrying reliable messages are in flight past the newest seq the
-// peer acked, so one ack (its seq and 32 more) covers a whole burst (a snapshot): the rest waits for that ack instead
-// of being resent though it arrived. Reliable messages are delivered once, in order. Unreliable ones are delivered as
+// peer acked, so one ack (its seq, 32 more and the older acks chunk) covers a whole burst (a snapshot): the rest waits
+// for that ack instead of being resent though it arrived. Reliable bytes to a peer are paced (a token bucket of
+// REL_BURST refilled at REL_RATE): a burst never floods a home uplink or a default socket buffer. Reliable messages are delivered once, in order. Unreliable ones are delivered as
 // they arrive (possibly duplicated or reordered by the network). A sender keeps at most REL_WINDOW
 // reliable messages in flight past its oldest unacked one, and a receiver drops anything further
 // ahead, so a peer cannot grow the out-of-order buffer at will. A datagram whose header doesn't
@@ -61,8 +64,12 @@ POOL_RESERVE :: 32 // message slots a channel (and a netsim) has from the start 
 SENT_RING :: 1024 // per active connection, allocated when it opens
 MAX_IDS_PER_PACKET :: 64
 REL_WINDOW :: 512 // reliable messages in flight past the oldest unacked one
-REL_IN_FLIGHT :: 32 // datagrams with reliable messages past the newest seq the peer acked (one ack covers 33 seqs)
-FLUSH_BUDGET :: 96 * 1024 // reliable bytes per peer per flush
+ACK_EXT_WORDS :: 8 // the older acks chunk's words at most: 256 seqs beyond a header's 33
+ACK_SPAN :: 33 + 32 * ACK_EXT_WORDS // seqs one datagram can ack: its ack and the 288 before it
+ACK_EXT_HOLD_US :: 250_000 // a receiver sends the older acks this long after seqs it can't ack otherwise arrived
+REL_IN_FLIGHT :: ACK_SPAN - 1 // datagrams with reliable messages past the newest seq the peer acked
+REL_RATE :: 1_000_000 // reliable bytes per second to one peer (8 Mbit/s): a 2 MB snapshot in 2 s per hop
+REL_BURST :: 32 * MAX_DATAGRAM // reliable bytes to one peer at once (37 kB: fits a default socket buffer)
 DISCONNECT_US :: 10_000_000 // silence from a peer that has answered before
 // Silence from a peer that never answered. A transport may need seconds to set up the path first (EOS: login, lobby
 // search, the P2P connection and its retries), and the client's first hello goes out before that.
@@ -124,7 +131,8 @@ Conn :: struct {
 	unrel_out:   [dynamic]Pooled,
 	srtt_us:     f64,
 	acked_max:   u32, // the newest of our seqs the peer acked (0: none)
-	rel_seqs:    [REL_IN_FLIGHT]u32, // seqs of datagrams with reliable messages, newer than acked_max (a FIFO)
+	// Seqs of datagrams with reliable messages, newer than acked_max (a FIFO of REL_IN_FLIGHT, allocated with `sent`)
+	rel_seqs:    []u32,
 	rel_first:   int,
 	rel_count:   int,
 	rtt_last_us: f64, // the latest round-trip sample (valid once rtt_samples > 0)
@@ -134,7 +142,12 @@ Conn :: struct {
 	recv_max:    u32,
 	recent:      u32, // the seq that arrived last (any, an old one too)
 	recent_at:   i64, // when it did (the delay we send with it)
-	recv_bits:   u32,
+	recv_bits:   [1 + ACK_EXT_WORDS]u32, // bit i: seq recv_max - 1 - i arrived (word 0 goes in the header)
+	low_since:   u32, // the oldest seq that arrived since our last datagram (have_since: any did)
+	have_since:  bool,
+	ext_until:   i64, // our datagrams carry the older acks until then
+	rel_bucket:  i64, // reliable bytes we may send now (refilled at REL_RATE up to REL_BURST)
+	rel_fill_us: i64, // when the bucket was last refilled
 	ack_pending: bool,
 	rel_next:    u32,
 	rel_early:   map[u32]Pooled, // ids rel_next+1 ..< rel_next+REL_WINDOW that arrived early
@@ -260,12 +273,14 @@ conn_reset :: proc(channel: ^Channel, conn: ^Conn) {
 	for _, held in conn.rel_early {
 		pool_release(&channel.pool, held)
 	}
-	rel_out, unrel_out, rel_early, sent := conn.rel_out, conn.unrel_out, conn.rel_early, conn.sent
+	rel_out, unrel_out, rel_early, sent, rel_seqs :=
+		conn.rel_out, conn.unrel_out, conn.rel_early, conn.sent, conn.rel_seqs
 	clear(&rel_out)
 	clear(&unrel_out)
 	clear(&rel_early)
 	conn^ = {}
-	conn.rel_out, conn.unrel_out, conn.rel_early, conn.sent = rel_out, unrel_out, rel_early, sent
+	conn.rel_out, conn.unrel_out, conn.rel_early, conn.sent, conn.rel_seqs =
+		rel_out, unrel_out, rel_early, sent, rel_seqs
 }
 
 @(private)
@@ -274,6 +289,7 @@ conn_free :: proc(conn: ^Conn) {
 	delete(conn.unrel_out)
 	delete(conn.rel_early)
 	delete(conn.sent)
+	delete(conn.rel_seqs)
 	conn^ = {}
 }
 
@@ -289,12 +305,14 @@ conn_open :: proc(channel: ^Channel, peer: Peer, now: i64) -> ^Conn {
 		conn.active = true
 		if conn.sent == nil {
 			conn.sent = make([]Sent_Packet, SENT_RING)
+			conn.rel_seqs = make([]u32, REL_IN_FLIGHT)
 		} else {
 			for &record in conn.sent {
 				record = {} // a seq of the previous connection is not one of this one's
 			}
 		}
 		conn.last_recv = now
+		conn.rel_bucket, conn.rel_fill_us = REL_BURST, now
 		conn.next_seq = 1
 		conn.srtt_us = 100_000
 		channel.epochs += 1
@@ -508,7 +526,7 @@ handle_datagram :: proc(channel: ^Channel, from: Peer, header: Dgram_Header, byt
 	note_seq(conn, header.seq, now)
 	reader := wire.reader_make(bytes)
 	reader.pos = header.body
-	read_chunks(channel, conn, from, &reader, header.n_chunks)
+	read_chunks(channel, conn, from, &reader, header.n_chunks, header.ack)
 }
 
 // Matches the datagram's epochs against the connection; returns it when the datagram should be read.
@@ -554,6 +572,28 @@ take_acks :: proc(channel: ^Channel, conn: ^Conn, header: Dgram_Header, now: i64
 			seq_acked(conn, ack - bit - 1)
 		}
 	}
+	release_acked(channel, conn)
+}
+
+// The older acks chunk of a datagram whose header acks `ack`: seqs ack - 33 and older.
+@(private)
+take_older_acks :: proc(channel: ^Channel, conn: ^Conn, ack: u32, words: []u8) {
+	reader := wire.reader_make(words)
+	for word in 0 ..< min(len(words) / 4, ACK_EXT_WORDS) {
+		bits := wire.r_u32(&reader)
+		for bit in 0 ..< u32(32) {
+			back := 33 + u32(word) * 32 + bit
+			if bits & (1 << bit) != 0 && ack > back {
+				seq_acked(conn, ack - back)
+			}
+		}
+	}
+	release_acked(channel, conn)
+}
+
+// Drops the acknowledged prefix of the reliable queue.
+@(private)
+release_acked :: proc(channel: ^Channel, conn: ^Conn) {
 	k := 0
 	for k < len(conn.rel_out) && conn.rel_out[k].acked {
 		pool_release(&channel.pool, conn.rel_out[k].data)
@@ -568,23 +608,52 @@ take_acks :: proc(channel: ^Channel, conn: ^Conn, header: Dgram_Header, now: i64
 @(private)
 note_seq :: proc(conn: ^Conn, seq: u32, now: i64) {
 	conn.recent, conn.recent_at = seq, now
+	if !conn.have_since || seq < conn.low_since {
+		conn.low_since, conn.have_since = seq, true
+	}
 	if !conn.have_recv || seq > conn.recv_max {
-		shift := conn.have_recv ? seq - conn.recv_max : 33
-		conn.recv_bits = shift >= 32 ? 0 : (conn.recv_bits << shift)
-		if conn.have_recv && shift <= 32 {
-			conn.recv_bits |= 1 << (shift - 1)
+		if conn.have_recv {
+			shift := seq - conn.recv_max
+			recv_bits_shift(&conn.recv_bits, shift)
+			recv_bits_set(&conn.recv_bits, shift - 1) // the previous newest
+		} else {
+			conn.recv_bits = {}
 		}
 		conn.recv_max = seq
 		conn.have_recv = true
-	} else if seq < conn.recv_max && conn.recv_max - seq <= 32 {
-		conn.recv_bits |= 1 << (conn.recv_max - seq - 1)
+	} else if seq < conn.recv_max {
+		recv_bits_set(&conn.recv_bits, conn.recv_max - seq - 1)
+	}
+}
+
+// Moves the received seqs' bits `shift` seqs back (the newest seq moved on by that much).
+@(private)
+recv_bits_shift :: proc(bits: ^[1 + ACK_EXT_WORDS]u32, shift: u32) {
+	words, bit := int(min(shift / 32, 1 + ACK_EXT_WORDS)), shift % 32
+	for w := len(bits) - 1; w >= 0; w -= 1 {
+		from := w - words
+		value: u32
+		if from >= 0 {
+			value = bits[from] << bit
+			if bit != 0 && from >= 1 {
+				value |= bits[from - 1] >> (32 - bit)
+			}
+		}
+		bits[w] = value
+	}
+}
+
+@(private)
+recv_bits_set :: proc(bits: ^[1 + ACK_EXT_WORDS]u32, index: u32) {
+	if index < 32 * len(bits) {
+		bits[index / 32] |= 1 << (index % 32)
 	}
 }
 
 // Delivers the datagram's chunks: unreliable ones at once, reliable ones in id order (early ones wait
 // within REL_WINDOW; duplicates and ids beyond the window are dropped).
 @(private)
-read_chunks :: proc(channel: ^Channel, conn: ^Conn, from: Peer, reader: ^wire.Reader, n_chunks: int) {
+read_chunks :: proc(channel: ^Channel, conn: ^Conn, from: Peer, reader: ^wire.Reader, n_chunks: int, ack: u32) {
 	for _ in 0 ..< n_chunks {
 		kind := wire.r_u8(reader)
 		id: u32
@@ -592,8 +661,12 @@ read_chunks :: proc(channel: ^Channel, conn: ^Conn, from: Peer, reader: ^wire.Re
 			id = wire.r_u32(reader)
 		}
 		data := wire.r_bytes(reader, int(wire.r_u16(reader)))
-		if !reader.ok || kind > 1 {
+		if !reader.ok || kind > 2 {
 			return
+		}
+		if kind == 2 {
+			if ack != 0 do take_older_acks(channel, conn, ack, data)
+			continue
 		}
 		if kind == 0 {
 			append(&channel.events, Event {
@@ -658,7 +731,7 @@ begin_packet :: proc(builder: ^Packet_Builder, conn: ^Conn, now: i64) {
 	wire.w_u32(&builder.w, conn.peer_epoch)
 	wire.w_u32(&builder.w, conn.next_seq)
 	wire.w_u32(&builder.w, conn.have_recv ? conn.recv_max : 0)
-	wire.w_u32(&builder.w, conn.recv_bits)
+	wire.w_u32(&builder.w, conn.recv_bits[0])
 	wire.w_u8(&builder.w, back)
 	wire.w_u16(&builder.w, delay)
 	wire.w_u8(&builder.w, 0) // chunk count, patched in end_packet
@@ -667,6 +740,25 @@ begin_packet :: proc(builder: ^Packet_Builder, conn: ^Conn, now: i64) {
 
 @(private)
 end_packet :: proc(channel: ^Channel, builder: ^Packet_Builder, conn: ^Conn, peer: Peer, now: i64) {
+	// Seqs older than the header's 33 arrived since our last datagram (a burst, or reordered): ack them for a while.
+	if conn.have_since && conn.have_recv && conn.recv_max - conn.low_since > 32 {
+		conn.ext_until = now + ACK_EXT_HOLD_US
+	}
+	conn.have_since = false
+	if now < conn.ext_until {
+		words := 0
+		for w in 1 ..< len(conn.recv_bits) {
+			if conn.recv_bits[w] != 0 do words = w
+		}
+		if words > 0 && len(builder.w.buf) + 3 + 4 * words <= MAX_DATAGRAM && builder.count < 255 {
+			wire.w_u8(&builder.w, 2)
+			wire.w_u16(&builder.w, u16(4 * words))
+			for w in 1 ..= words {
+				wire.w_u32(&builder.w, conn.recv_bits[w])
+			}
+			builder.count += 1
+		}
+	}
 	builder.w.buf[HEADER_BYTES - 1] = u8(builder.count)
 	record := &conn.sent[conn.next_seq % SENT_RING]
 	record^ = builder.sp
@@ -726,15 +818,21 @@ channel_flush :: proc(channel: ^Channel, now: i64) {
 			pool_release(&channel.pool, held)
 		}
 		clear(&conn.unrel_out)
-		budget := FLUSH_BUDGET
+		if elapsed := now - conn.rel_fill_us; elapsed > 0 {
+			conn.rel_bucket = min(REL_BURST, conn.rel_bucket + elapsed * REL_RATE / 1_000_000)
+			conn.rel_fill_us = now
+		}
 		for &message in conn.rel_out {
-			if message.id - conn.rel_out[0].id >= REL_WINDOW || budget <= 0 {
+			if message.id - conn.rel_out[0].id >= REL_WINDOW {
 				break // the receiver would drop it: wait for acks
 			}
 			if message.acked || (message.last_sent != 0 && now - message.last_sent < rto) {
 				continue
 			}
 			data := pool_bytes(&channel.pool, message.data)
+			if conn.rel_bucket < i64(CHUNK_OVERHEAD + len(data)) {
+				break // paced: the rest goes as the bucket refills
+			}
 			if !fits(&builder, CHUNK_OVERHEAD + len(data)) || builder.sp.n_ids == MAX_IDS_PER_PACKET {
 				end_packet(channel, &builder, &conn, peer, now)
 				begin_packet(&builder, &conn, now)
@@ -754,7 +852,7 @@ channel_flush :: proc(channel: ^Channel, now: i64) {
 			builder.sp.ids[builder.sp.n_ids] = message.id
 			builder.sp.n_ids += 1
 			message.last_sent = now
-			budget -= len(data)
+			conn.rel_bucket -= i64(CHUNK_OVERHEAD + len(data))
 		}
 		// Data, a pending ack, or a keepalive so idle peers (e.g. waiting for the start) stay connected.
 		if builder.count > 0 ||
