@@ -301,11 +301,6 @@ register_session_class :: proc() {
 	)
 	gd.bind_signal(
 		class,
-		"input_wanted",
-		doc = "Every frame, just before the session samples the local player's input (at priority -1000, before every other node's [code]_process[/code]): set [code]Unified.input[/code]'s values here, whatever your node's priority, and this frame's sample takes them.",
-	)
-	gd.bind_signal(
-		class,
 		"desync",
 		{{"tick", .INT, ""}, {"detail", .STRING, ""}},
 		doc = "The players' checksums of [param tick] differ.",
