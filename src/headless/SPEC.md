@@ -108,9 +108,10 @@ calls each one explicitly; tests are named for what they check; no platform assu
   then the game's own scenarios, with its reference run's constants in its `Suite`.
 - **The toy's suite** (#67): `tests/scenarios/`, the scenarios package's own tests. It is the template a game's suite
   copies: the standard part is identical in shape.
-- **The seeded-bug eval** (#123): `tests/scenarios/seeded_bugs_test.odin` plants runtime determinism bugs in the toy
-  (World state not rolled back, state instances share, a value from an address) and checks that the detector meant
-  for each (`rollback_every_tick`, `runs_match`, the netcode's desync detection) catches it. The static traps have
+- **The seeded-bug eval**: `tests/scenarios/seeded_bugs_test.odin` plants runtime determinism bugs in the toy (World
+  state not rolled back, state instances share, a value from an address, a rule that reads the World) and checks
+  that the detector meant for each (`rollback_every_tick`, `runs_match`, the netcode's desync detection and its typed
+  report) catches it. The static traps have
   planted cases in `tests/lint` and `tests/sim`.
 
 ### API
