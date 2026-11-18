@@ -340,7 +340,7 @@ sys_enemies :: proc(state: ^State, world: ^World, tick: u32, dt: f32) {
 	scratch := &world.scratch
 	build_grid(state, scratch)
 	targets := targets_of(state)
-	ray_filter := physics.Query {
+	ray_filter := physics.Filter {
 		mask = CAT_CRATE | CAT_BARREL,
 	}
 	enemies := sim.iterate(&state.enemies)
@@ -532,7 +532,7 @@ sys_attack :: proc(state: ^State) {
 sys_projectiles :: proc(state: ^State, world: ^World, tick: u32, dt: f32) {
 	scratch := &world.scratch
 	build_grid(state, scratch)
-	ray_filter := physics.Query {
+	ray_filter := physics.Filter {
 		mask = CAT_STATIC | CAT_CRATE | CAT_BARREL,
 	}
 	projectiles := sim.iterate(&state.projectiles)

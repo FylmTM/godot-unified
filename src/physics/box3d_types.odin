@@ -141,9 +141,9 @@ Compound_Sphere_Def :: struct {
 // ---- bodies and shapes
 
 Body_Type :: enum i32 {
-	Static_Body    = 0,
-	Kinematic_Body = 1,
-	Dynamic_Body   = 2,
+	Static    = 0,
+	Kinematic = 1,
+	Dynamic   = 2,
 }
 
 Motion_Locks :: struct {
@@ -179,12 +179,12 @@ Body_Def :: struct {
 }
 
 Shape_Type :: enum i32 {
-	Capsule_Shape  = 0,
-	Compound_Shape = 1,
-	Height_Shape   = 2,
-	Hull_Shape     = 3,
-	Mesh_Shape     = 4,
-	Sphere_Shape   = 5,
+	Capsule  = 0,
+	Compound = 1,
+	Height   = 2,
+	Hull     = 3,
+	Mesh     = 4,
+	Sphere   = 5,
 }
 
 Surface_Material :: struct {
@@ -197,10 +197,13 @@ Surface_Material :: struct {
 	padding:            u32,
 }
 
+// Which shapes collide and which a query sees. A shape collides with another when each one's category is in the
+// other's mask, unless they share a group (negative: never collide; positive: always). As a query's filter (zero:
+// everything), it sees the shapes whose category is in `mask` and whose mask has one of `category`'s bits.
 Filter :: struct {
-	category_bits: u64,
-	mask_bits:     u64,
-	group_index:   i32,
+	category: u64,
+	mask:     u64,
+	group:    i32,
 }
 
 Shape_Def :: struct {
@@ -262,17 +265,17 @@ Manifold_Point :: struct {
 
 // What kind a joint is (joint_get_type).
 Joint_Type :: enum i32 {
-	Parallel_Joint  = 0,
-	Distance_Joint  = 1,
-	Filter_Joint    = 2,
-	Motor_Joint     = 3,
-	Prismatic_Joint = 4,
-	Revolute_Joint  = 5,
-	Spherical_Joint = 6,
-	Weld_Joint      = 7,
-	Wheel_Joint     = 8,
-	Mover_Joint     = 9,
-	Pogo_Joint      = 10,
+	Parallel  = 0,
+	Distance  = 1,
+	Filter    = 2,
+	Motor     = 3,
+	Prismatic = 4,
+	Revolute  = 5,
+	Spherical = 6,
+	Weld      = 7,
+	Wheel     = 8,
+	Mover     = 9,
+	Pogo      = 10,
 }
 
 Joint_Def :: struct {

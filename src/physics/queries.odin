@@ -9,13 +9,6 @@ import "base:runtime"
 
 import box3d "box3d:bindings"
 
-// Which shapes a query sees: shapes whose category is in `mask` (and whose own mask has one of `category`'s bits).
-// Zero value: everything.
-Query :: struct {
-	category: u64,
-	mask:     u64,
-}
-
 // A shape an overlap, a sensor or a contact names.
 Overlap :: struct {
 	body:     Body_Link,
@@ -25,7 +18,7 @@ Overlap :: struct {
 }
 
 // A ray or shape cast's hit.
-Ray_Hit :: struct {
+Hit :: struct {
 	using overlap: Overlap,
 	material:      u64, // the shape's user material id
 	point:         [3]f32,
@@ -50,11 +43,11 @@ Contact_Data :: struct {
 MAX_BODY_MOVER_PLANES :: 32
 
 @(private)
-query_filter :: proc(query: Query) -> box3d.QueryFilter {
-	filter := box3d.DefaultQueryFilter()
-	if query.category != 0 do filter.categoryBits = query.category
-	if query.mask != 0 do filter.maskBits = query.mask
-	return filter
+query_filter :: proc(filter: Filter) -> box3d.QueryFilter {
+	query := box3d.DefaultQueryFilter()
+	if filter.category != 0 do query.categoryBits = filter.category
+	if filter.mask != 0 do query.maskBits = filter.mask
+	return query
 }
 
 // The overlap record of a shape (zero for a shape that no longer exists: an end event after a destroy).
@@ -66,13 +59,7 @@ overlap_of :: proc(world: ^World, id: box3d.ShapeId) -> Overlap {
 }
 
 @(private)
-hit_of :: proc(
-	world: ^World,
-	shape: box3d.ShapeId,
-	point, normal: box3d.Vec3,
-	fraction: f32,
-	material: u64,
-) -> Ray_Hit {
+hit_of :: proc(world: ^World, shape: box3d.ShapeId, point, normal: box3d.Vec3, fraction: f32, material: u64) -> Hit {
 	return {overlap_of(world, shape), material, transmute([3]f32)point, transmute([3]f32)normal, fraction}
 }
 
@@ -90,9 +77,9 @@ Ray_Ctx :: struct {
 	ctx:    runtime.Context,
 	world:  ^World,
 	ignore: box3d.BodyId,
-	hit:    Ray_Hit,
+	hit:    Hit,
 	found:  bool,
-	out:    ^[dynamic]Ray_Hit, // every hit (world_cast_ray, world_cast_shape); nil: the closest only
+	out:    ^[dynamic]Hit, // every hit (world_cast_ray, world_cast_shape); nil: the closest only
 }
 
 // The closest hit along `translation` from `origin`, skipping sensors and the `ignore` body (a ray that starts inside
@@ -100,10 +87,10 @@ Ray_Ctx :: struct {
 world_cast_ray_closest :: proc(
 	world: ^World,
 	origin, translation: [3]f32,
-	query := Query{},
+	filter := Filter{},
 	ignore := Body_Link{},
 ) -> (
-	hit: Ray_Hit,
+	hit: Hit,
 	ok: bool,
 ) {
 	ray := Ray_Ctx {
@@ -115,7 +102,7 @@ world_cast_ray_closest :: proc(
 		world.id,
 		transmute(box3d.Vec3)origin,
 		transmute(box3d.Vec3)translation,
-		query_filter(query),
+		query_filter(filter),
 		ray_callback,
 		&ray,
 	)
@@ -124,7 +111,7 @@ world_cast_ray_closest :: proc(
 
 // Every hit along `translation` from `origin` into `out` (replaced, never appended to), sensors skipped, sorted by
 // fraction, then body and shape index.
-world_cast_ray :: proc(world: ^World, origin, translation: [3]f32, out: ^[dynamic]Ray_Hit, query := Query{}) {
+world_cast_ray :: proc(world: ^World, origin, translation: [3]f32, out: ^[dynamic]Hit, filter := Filter{}) {
 	clear(out)
 	ray := Ray_Ctx {
 		ctx   = context,
@@ -135,7 +122,7 @@ world_cast_ray :: proc(world: ^World, origin, translation: [3]f32, out: ^[dynami
 		world.id,
 		transmute(box3d.Vec3)origin,
 		transmute(box3d.Vec3)translation,
-		query_filter(query),
+		query_filter(filter),
 		ray_callback,
 		&ray,
 	)
@@ -149,8 +136,8 @@ world_cast_shape :: proc(
 	origin: [3]f32,
 	proxy: Shape_Proxy,
 	translation: [3]f32,
-	out: ^[dynamic]Ray_Hit,
-	query := Query{},
+	out: ^[dynamic]Hit,
+	filter := Filter{},
 ) {
 	clear(out)
 	ray := Ray_Ctx {
@@ -164,7 +151,7 @@ world_cast_shape :: proc(
 		transmute(box3d.Vec3)origin,
 		(^box3d.ShapeProxy)(&proxy),
 		transmute(box3d.Vec3)translation,
-		query_filter(query),
+		query_filter(filter),
 		ray_callback,
 		&ray,
 	)
@@ -206,13 +193,13 @@ Overlap_Ctx :: struct {
 // Every shape whose fat AABB overlaps the box [lo, hi] ("near" rather than exact: world_overlap_shape is exact), into
 // `out` (replaced), sorted by body index, then shape index. A game keeps `out` in its World as scratch: it never
 // holds anything from an earlier call, so it can't carry a result into another tick (src/sim/SPEC.md, World).
-world_overlap_aabb :: proc(world: ^World, lo, hi: [3]f32, out: ^[dynamic]Overlap, query := Query{}) {
+world_overlap_aabb :: proc(world: ^World, lo, hi: [3]f32, out: ^[dynamic]Overlap, filter := Filter{}) {
 	clear(out)
 	overlap := Overlap_Ctx{context, world, out}
 	box3d.World_OverlapAABB(
 		world.id,
 		transmute(box3d.AABB)AABB{lo, hi},
-		query_filter(query),
+		query_filter(filter),
 		overlap_callback,
 		&overlap,
 	)
@@ -225,7 +212,7 @@ world_overlap_shape :: proc(
 	origin: [3]f32,
 	proxy: Shape_Proxy,
 	out: ^[dynamic]Overlap,
-	query := Query{},
+	filter := Filter{},
 ) {
 	clear(out)
 	overlap := Overlap_Ctx{context, world, out}
@@ -234,7 +221,7 @@ world_overlap_shape :: proc(
 		world.id,
 		transmute(box3d.Vec3)origin,
 		(^box3d.ShapeProxy)(&proxy),
-		query_filter(query),
+		query_filter(filter),
 		overlap_callback,
 		&overlap,
 	)
@@ -274,7 +261,7 @@ world_cast_mover :: proc(
 	origin: [3]f32,
 	mover: Capsule,
 	translation: [3]f32,
-	query := Query{},
+	filter := Filter{},
 	ignore := Body_Link{},
 ) -> f32 {
 	ctx := Mover_Ctx {
@@ -288,7 +275,7 @@ world_cast_mover :: proc(
 		transmute(box3d.Vec3)origin,
 		(^box3d.Capsule)(&mover),
 		transmute(box3d.Vec3)translation,
-		query_filter(query),
+		query_filter(filter),
 		mover_accepts,
 		&ctx,
 	)
@@ -301,7 +288,7 @@ world_collide_mover :: proc(
 	origin: [3]f32,
 	mover: Capsule,
 	out: ^[dynamic]Mover_Plane,
-	query := Query{},
+	filter := Filter{},
 	ignore := Body_Link{},
 ) {
 	clear(out)
@@ -316,7 +303,7 @@ world_collide_mover :: proc(
 		world.id,
 		transmute(box3d.Vec3)origin,
 		(^box3d.Capsule)(&mover),
-		query_filter(query),
+		query_filter(filter),
 		mover_planes_callback,
 		&ctx,
 	)
@@ -351,11 +338,11 @@ body_cast_ray :: proc(
 	world: ^World,
 	ref: Body_Ref,
 	origin, translation: [3]f32,
-	query := Query{},
+	filter := Filter{},
 	max_fraction: f32 = 1,
 	pose: Maybe(Transform) = nil,
 ) -> (
-	hit: Ray_Hit,
+	hit: Hit,
 	ok: bool,
 ) {
 	id := body_id(world, ref)
@@ -363,7 +350,7 @@ body_cast_ray :: proc(
 		id,
 		transmute(box3d.Vec3)origin,
 		transmute(box3d.Vec3)translation,
-		query_filter(query),
+		query_filter(filter),
 		max_fraction,
 		pose_of(id, pose),
 	)
@@ -379,12 +366,12 @@ body_cast_shape :: proc(
 	origin: [3]f32,
 	proxy: Shape_Proxy,
 	translation: [3]f32,
-	query := Query{},
+	filter := Filter{},
 	max_fraction: f32 = 1,
 	can_encroach := false,
 	pose: Maybe(Transform) = nil,
 ) -> (
-	hit: Ray_Hit,
+	hit: Hit,
 	ok: bool,
 ) {
 	id := body_id(world, ref)
@@ -394,7 +381,7 @@ body_cast_shape :: proc(
 		transmute(box3d.Vec3)origin,
 		(^box3d.ShapeProxy)(&proxy),
 		transmute(box3d.Vec3)translation,
-		query_filter(query),
+		query_filter(filter),
 		max_fraction,
 		can_encroach,
 		pose_of(id, pose),
@@ -409,7 +396,7 @@ body_overlap_shape :: proc(
 	ref: Body_Ref,
 	origin: [3]f32,
 	proxy: Shape_Proxy,
-	query := Query{},
+	filter := Filter{},
 	pose: Maybe(Transform) = nil,
 ) -> bool {
 	id := body_id(world, ref)
@@ -418,7 +405,7 @@ body_overlap_shape :: proc(
 		id,
 		transmute(box3d.Vec3)origin,
 		(^box3d.ShapeProxy)(&proxy),
-		query_filter(query),
+		query_filter(filter),
 		pose_of(id, pose),
 	)
 }
@@ -437,7 +424,7 @@ body_collide_mover :: proc(
 	origin: [3]f32,
 	mover: Capsule,
 	out: ^[dynamic]Mover_Plane,
-	query := Query{},
+	filter := Filter{},
 	pose: Maybe(Transform) = nil,
 ) {
 	clear(out)
@@ -450,7 +437,7 @@ body_collide_mover :: proc(
 		len(planes),
 		transmute(box3d.Vec3)origin,
 		(^box3d.Capsule)(&mover),
-		query_filter(query),
+		query_filter(filter),
 		pose_of(id, pose),
 	)
 	for plane in planes[:count] {
@@ -468,11 +455,11 @@ body_time_of_impact_mover :: proc(
 	origin: [3]f32,
 	mover: Capsule,
 	translation: [3]f32,
-	query := Query{},
+	filter := Filter{},
 	pose1: Maybe(Transform) = nil,
 	pose2: Maybe(Transform) = nil,
 ) -> (
-	hit: Ray_Hit,
+	hit: Hit,
 	ok: bool,
 ) {
 	id := body_id(world, ref)
@@ -482,7 +469,7 @@ body_time_of_impact_mover :: proc(
 		transmute(box3d.Vec3)origin,
 		(^box3d.Capsule)(&mover),
 		transmute(box3d.Vec3)translation,
-		query_filter(query),
+		query_filter(filter),
 		pose_of(id, pose1),
 		pose_of(id, pose2),
 	)
@@ -501,7 +488,7 @@ pose_of :: proc(id: box3d.BodyId, pose: Maybe(Transform)) -> box3d.Transform {
 
 // A ray from `origin` along `translation` against this shape alone; not ok: no hit. The material is the hit
 // triangle's on a mesh or height field.
-shape_ray_cast :: proc(world: ^World, shape: Shape_Ref, origin, translation: [3]f32) -> (hit: Ray_Hit, ok: bool) {
+shape_ray_cast :: proc(world: ^World, shape: Shape_Ref, origin, translation: [3]f32) -> (hit: Hit, ok: bool) {
 	id := shape_id(world, shape)
 	output := box3d.Shape_RayCast(id, transmute(box3d.Vec3)origin, transmute(box3d.Vec3)translation)
 	if !output.hit do return {}, false
@@ -608,7 +595,7 @@ overlap_before :: proc(a, b: Overlap) -> bool {
 }
 
 @(private)
-hit_before :: proc(a, b: Ray_Hit) -> bool {
+hit_before :: proc(a, b: Hit) -> bool {
 	if a.fraction != b.fraction do return a.fraction < b.fraction
 	return overlap_before(a, b)
 }

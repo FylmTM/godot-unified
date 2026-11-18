@@ -42,7 +42,7 @@ default_wheel_joint_def :: proc() -> Wheel_Joint_Def {
 	return transmute(Wheel_Joint_Def)box3d.DefaultWheelJointDef()
 }
 
-// The World's anchor body (Settings.anchor), for joints that hold a body to the world. Zero when there is none.
+// The World's anchor: a static body every World has (its first), for joints that hold a body to the world.
 world_anchor :: proc(world: ^World) -> Body_Link {
 	return link_of(world.anchor)
 }
@@ -194,239 +194,132 @@ joint_as :: proc(
 	J,
 	bool,
 ) where intrinsics.type_is_subtype_of(J, Joint_Ref) {
-	if !joint_valid(world, joint) || Joint_Type(box3d.Joint_GetType(joint_id(world, joint))) != joint_type_of(J) do return {}, false
+	refs := JOINT_REFS
+	if !joint_valid(world, joint) || refs[joint_type(world, joint)] != J do return {}, false
 	return J{joint = joint}, true
 }
 
-// The Box3D joint type a typed joint ref stands for.
+// The typed joint ref of each Box3D joint type.
 @(private)
-joint_type_of :: proc "contextless" ($J: typeid) -> Joint_Type {
-	when J == Distance_Joint_Ref {
-		return .Distance_Joint
-	} else when J == Filter_Joint_Ref {
-		return .Filter_Joint
-	} else when J == Motor_Joint_Ref {
-		return .Motor_Joint
-	} else when J == Mover_Joint_Ref {
-		return .Mover_Joint
-	} else when J == Parallel_Joint_Ref {
-		return .Parallel_Joint
-	} else when J == Pogo_Joint_Ref {
-		return .Pogo_Joint
-	} else when J == Prismatic_Joint_Ref {
-		return .Prismatic_Joint
-	} else when J == Revolute_Joint_Ref {
-		return .Revolute_Joint
-	} else when J == Spherical_Joint_Ref {
-		return .Spherical_Joint
-	} else when J == Weld_Joint_Ref {
-		return .Weld_Joint
-	} else when J == Wheel_Joint_Ref {
-		return .Wheel_Joint
-	} else {
-		#panic("physics: not a typed joint ref")
-	}
+JOINT_REFS :: [Joint_Type]typeid {
+	.Parallel  = Parallel_Joint_Ref,
+	.Distance  = Distance_Joint_Ref,
+	.Filter    = Filter_Joint_Ref,
+	.Motor     = Motor_Joint_Ref,
+	.Prismatic = Prismatic_Joint_Ref,
+	.Revolute  = Revolute_Joint_Ref,
+	.Spherical = Spherical_Joint_Ref,
+	.Weld      = Weld_Joint_Ref,
+	.Wheel     = Wheel_Joint_Ref,
+	.Mover     = Mover_Joint_Ref,
+	.Pogo      = Pogo_Joint_Ref,
 }
 
 // ---- on any joint ref
 
 // The joint's type.
-joint_type :: proc(
-	world: ^World,
-	joint: $J,
-) -> Joint_Type where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_type :: proc(world: ^World, joint: Joint_Ref) -> Joint_Type {
 	return Joint_Type(box3d.Joint_GetType(joint_id(world, joint)))
 }
 
 // The joint's first body.
-joint_body_a :: proc(
-	world: ^World,
-	joint: $J,
-) -> Body_Link where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_body_a :: proc(world: ^World, joint: Joint_Ref) -> Body_Link {
 	return link_of(box3d.Joint_GetBodyA(joint_id(world, joint)))
 }
 
 // The joint's second body.
-joint_body_b :: proc(
-	world: ^World,
-	joint: $J,
-) -> Body_Link where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_body_b :: proc(world: ^World, joint: Joint_Ref) -> Body_Link {
 	return link_of(box3d.Joint_GetBodyB(joint_id(world, joint)))
 }
 
 // Moves the joint's frame on body A (in A's frame).
-joint_set_local_frame_a :: proc(
-	world: ^World,
-	joint: $J,
-	local_frame: Transform,
-) where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_set_local_frame_a :: proc(world: ^World, joint: Joint_Ref, local_frame: Transform) {
 	box3d.Joint_SetLocalFrameA(joint_id(world, joint), transmute(box3d.Transform)local_frame)
 }
 
 // The joint's frame on body A (in A's frame).
-joint_local_frame_a :: proc(
-	world: ^World,
-	joint: $J,
-) -> Transform where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_local_frame_a :: proc(world: ^World, joint: Joint_Ref) -> Transform {
 	return transmute(Transform)box3d.Joint_GetLocalFrameA(joint_id(world, joint))
 }
 
 // Moves the joint's frame on body B (in B's frame).
-joint_set_local_frame_b :: proc(
-	world: ^World,
-	joint: $J,
-	local_frame: Transform,
-) where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_set_local_frame_b :: proc(world: ^World, joint: Joint_Ref, local_frame: Transform) {
 	box3d.Joint_SetLocalFrameB(joint_id(world, joint), transmute(box3d.Transform)local_frame)
 }
 
 // The joint's frame on body B (in B's frame).
-joint_local_frame_b :: proc(
-	world: ^World,
-	joint: $J,
-) -> Transform where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_local_frame_b :: proc(world: ^World, joint: Joint_Ref) -> Transform {
 	return transmute(Transform)box3d.Joint_GetLocalFrameB(joint_id(world, joint))
 }
 
 // Sets whether the joint's two bodies collide with each other.
-joint_set_collide_connected :: proc(
-	world: ^World,
-	joint: $J,
-	should_collide: bool,
-) where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_set_collide_connected :: proc(world: ^World, joint: Joint_Ref, should_collide: bool) {
 	box3d.Joint_SetCollideConnected(joint_id(world, joint), should_collide)
 }
 
 // Whether the joint's two bodies collide with each other.
-joint_collide_connected :: proc(
-	world: ^World,
-	joint: $J,
-) -> bool where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_collide_connected :: proc(world: ^World, joint: Joint_Ref) -> bool {
 	return box3d.Joint_GetCollideConnected(joint_id(world, joint))
 }
 
 // Wakes the joint's bodies.
-joint_wake_bodies :: proc(
-	world: ^World,
-	joint: $J,
-) where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_wake_bodies :: proc(world: ^World, joint: Joint_Ref) {
 	box3d.Joint_WakeBodies(joint_id(world, joint))
 }
 
 // Whether the joint is awake (an attached body is awake).
-joint_is_awake :: proc(
-	world: ^World,
-	joint: $J,
-) -> bool where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_is_awake :: proc(world: ^World, joint: Joint_Ref) -> bool {
 	return box3d.Joint_IsAwake(joint_id(world, joint))
 }
 
 // The current constraint force for this joint.
-joint_constraint_force :: proc(
-	world: ^World,
-	joint: $J,
-) -> [3]f32 where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_constraint_force :: proc(world: ^World, joint: Joint_Ref) -> [3]f32 {
 	return transmute([3]f32)box3d.Joint_GetConstraintForce(joint_id(world, joint))
 }
 
 // The current constraint torque for this joint.
-joint_constraint_torque :: proc(
-	world: ^World,
-	joint: $J,
-) -> [3]f32 where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_constraint_torque :: proc(world: ^World, joint: Joint_Ref) -> [3]f32 {
 	return transmute([3]f32)box3d.Joint_GetConstraintTorque(joint_id(world, joint))
 }
 
 // The joint's current linear error (m), not counting the movement it allows.
-joint_linear_separation :: proc(
-	world: ^World,
-	joint: $J,
-) -> f32 where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_linear_separation :: proc(world: ^World, joint: Joint_Ref) -> f32 {
 	return box3d.Joint_GetLinearSeparation(joint_id(world, joint))
 }
 
 // The joint's current angular error (radians), not counting the movement it allows.
-joint_angular_separation :: proc(
-	world: ^World,
-	joint: $J,
-) -> f32 where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_angular_separation :: proc(world: ^World, joint: Joint_Ref) -> f32 {
 	return box3d.Joint_GetAngularSeparation(joint_id(world, joint))
 }
 
 // Sets the joint's constraint stiffness (Hz) and damping ratio (1: critical). Advanced.
-joint_set_constraint_tuning :: proc(
-	world: ^World,
-	joint: $J,
-	hertz: f32,
-	damping_ratio: f32,
-) where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_set_constraint_tuning :: proc(world: ^World, joint: Joint_Ref, hertz: f32, damping_ratio: f32) {
 	box3d.Joint_SetConstraintTuning(joint_id(world, joint), hertz, damping_ratio)
 }
 
 // The joint's constraint stiffness (Hz) and damping ratio. Advanced.
-joint_constraint_tuning :: proc(
-	world: ^World,
-	joint: $J,
-) -> (
-	hertz: f32,
-	damping_ratio: f32,
-) where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_constraint_tuning :: proc(world: ^World, joint: Joint_Ref) -> (hertz: f32, damping_ratio: f32) {
 	box3d.Joint_GetConstraintTuning(joint_id(world, joint), &hertz, &damping_ratio)
 	return
 }
 
 // Sets the force (N) above which the joint reports a joint event.
-joint_set_force_threshold :: proc(
-	world: ^World,
-	joint: $J,
-	threshold: f32,
-) where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_set_force_threshold :: proc(world: ^World, joint: Joint_Ref, threshold: f32) {
 	box3d.Joint_SetForceThreshold(joint_id(world, joint), threshold)
 }
 
 // The force (N) above which the joint reports a joint event.
-joint_force_threshold :: proc(
-	world: ^World,
-	joint: $J,
-) -> f32 where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_force_threshold :: proc(world: ^World, joint: Joint_Ref) -> f32 {
 	return box3d.Joint_GetForceThreshold(joint_id(world, joint))
 }
 
 // Sets the torque (N·m) above which the joint reports a joint event.
-joint_set_torque_threshold :: proc(
-	world: ^World,
-	joint: $J,
-	threshold: f32,
-) where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_set_torque_threshold :: proc(world: ^World, joint: Joint_Ref, threshold: f32) {
 	box3d.Joint_SetTorqueThreshold(joint_id(world, joint), threshold)
 }
 
 // The torque (N·m) above which the joint reports a joint event.
-joint_torque_threshold :: proc(
-	world: ^World,
-	joint: $J,
-) -> f32 where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_torque_threshold :: proc(world: ^World, joint: Joint_Ref) -> f32 {
 	return box3d.Joint_GetTorqueThreshold(joint_id(world, joint))
 }
 
@@ -1383,7 +1276,7 @@ wheel_joint_steering_torque :: proc(world: ^World, joint: Wheel_Joint_Ref) -> f3
 }
 
 // Destroys the joint (if it is still alive: destroying a body destroys its joints) and clears the ref.
-destroy_joint :: proc(world: ^World, joint: ^$J) where J == Joint_Ref || intrinsics.type_is_subtype_of(J, Joint_Ref) {
+destroy_joint :: proc(world: ^World, joint: ^Joint_Ref) {
 	if joint_valid(world, joint^) {
 		box3d.DestroyJoint(joint_id(world, joint^), true)
 	}

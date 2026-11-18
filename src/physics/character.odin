@@ -69,7 +69,8 @@ Character_Def :: struct {
 	platform_material:      u64, // attach to kinematic bodies with this material (0: any kinematic body)
 }
 
-// The sample's defaults (a 1.6 m tall character).
+// The sample's defaults (a 1.6 m tall character): a game starts from them and sets its own fields
+// (`def := physics.CHARACTER_DEFAULT`, then `def.radius = ...`).
 CHARACTER_DEFAULT :: Character_Def {
 	radius                 = 0.3,
 	half_height            = 0.5,
@@ -95,13 +96,11 @@ CHARACTER_DEFAULT :: Character_Def {
 	jump_buffer_s          = 0.125,
 }
 
-// Creates the character's body (tagged `tag`, as create_body's) and drive joint at `pos` (the capsule's centre). Needs
-// Settings.anchor.
-character_create :: proc(world: ^World, character: ^Character, def: ^Character_Def, pos: [3]f32, tag: u64 = 0) {
-	assert(world.anchor.index1 != 0, "physics: characters need Settings.anchor")
+// Creates the character's body (tagged `tag`, as create_body's) and drive joint at `pos` (the capsule's centre).
+character_create :: proc(world: ^World, character: ^Character, def: Character_Def, pos: [3]f32, tag: u64 = 0) {
 	character^ = {}
 	body_def := transmute(Body_Def)box3d.DefaultBodyDef()
-	body_def.type = .Dynamic_Body
+	body_def.type = .Dynamic
 	body_def.position = pos
 	body_def.gravity_scale = def.gravity_scale
 	body_def.motion_locks = {
@@ -119,8 +118,8 @@ character_create :: proc(world: ^World, character: ^Character, def: ^Character_D
 	shape_def.base_material.friction = 0
 	shape_def.base_material.restitution = 0
 	shape_def.base_material.user_material_id = def.material
-	if def.category != 0 do shape_def.filter.category_bits = def.category
-	if def.mask != 0 do shape_def.filter.mask_bits = def.mask
+	if def.category != 0 do shape_def.filter.category = def.category
+	if def.mask != 0 do shape_def.filter.mask = def.mask
 	shape_def.enable_hit_events = def.hit_events
 	shape_def.enable_sensor_events = def.sensor_events
 	capsule := Capsule{{0, -def.half_height, 0}, {0, def.half_height, 0}, def.radius}
@@ -139,7 +138,7 @@ character_destroy :: proc(world: ^World, character: ^Character) {
 create_move_joint :: proc(
 	world: ^World,
 	character: ^Character,
-	def: ^Character_Def,
+	def: Character_Def,
 	base: box3d.BodyId,
 ) -> Mover_Joint_Ref {
 	joint_def := transmute(Mover_Joint_Def)box3d.DefaultMoverJointDef()
@@ -152,7 +151,7 @@ create_move_joint :: proc(
 }
 
 @(private)
-character_weight :: proc(world: ^World, character: ^Character, def: ^Character_Def) -> f32 {
+character_weight :: proc(world: ^World, character: ^Character, def: Character_Def) -> f32 {
 	gravity := transmute([3]f32)box3d.World_GetGravity(world.id)
 	return(
 		def.gravity_scale *
@@ -225,7 +224,7 @@ character_grounded :: proc(character: ^Character) -> bool {
 character_update :: proc(
 	world: ^World,
 	character: ^Character,
-	def: ^Character_Def,
+	def: Character_Def,
 	move: [2]f32,
 	jump: bool,
 	speed_scale: f32,
@@ -264,9 +263,9 @@ character_update :: proc(
 	translation := [3]f32{0, -ray_len, 0}
 	pos := transmute([3]f32)box3d.Body_GetPosition(body)
 	origin := [3]f32{pos.x, pos.y - def.half_height, pos.z}
-	query := Query{def.category, def.mask}
+	filter := Filter{def.category, def.mask, 0}
 	self := link(character.body)
-	hit, found := world_cast_ray_closest(world, origin, translation, query, self)
+	hit, found := world_cast_ray_closest(world, origin, translation, filter, self)
 	offset: [3]f32
 	if !(found && hit.normal.y >= def.min_ground_normal_y) {
 		// The skirt turns with the direction of travel, so ties go to the leading probe.
@@ -287,7 +286,7 @@ character_update :: proc(
 				0,
 				def.radius * (dmath.DIR8[i].x * heading.y + dmath.DIR8[i].y * side.y),
 			}
-			skirt_hit, ok := world_cast_ray_closest(world, origin + skirt_offset, translation, query, self)
+			skirt_hit, ok := world_cast_ray_closest(world, origin + skirt_offset, translation, filter, self)
 			if ok && skirt_hit.normal.y >= def.min_ground_normal_y {
 				gap := abs(skirt_hit.fraction * ray_len - def.pogo_rest)
 				if gap < best {
@@ -332,7 +331,7 @@ character_update :: proc(
 	base := world.anchor
 	if found {
 		ground_id := link_id(world, hit.body)
-		if Body_Type(box3d.Body_GetType(ground_id)) == .Kinematic_Body &&
+		if Body_Type(box3d.Body_GetType(ground_id)) == .Kinematic &&
 		   (def.platform_material == 0 || hit.material == def.platform_material) {
 			base = ground_id
 		}

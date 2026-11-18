@@ -149,7 +149,7 @@ add_static_box :: proc(world: ^World, pos: [3]f32, half: [3]f32) {
 	body_def.position = pos
 	body := physics.create_body(world.phys, &body_def)
 	shape_def := physics.default_shape_def()
-	shape_def.filter.category_bits = CAT_STATIC
+	shape_def.filter.category = CAT_STATIC
 	hull := physics.make_box_hull(half.x, half.y, half.z)
 	physics.create_hull_shape(world.phys, body, &shape_def, &hull.base)
 }
@@ -157,16 +157,16 @@ add_static_box :: proc(world: ^World, pos: [3]f32, half: [3]f32) {
 // Creates the body of item i (a crate or a barrel) at its grid spot, tagged with i.
 create_item_body :: proc(world: ^World, i: int) -> Body_Ref {
 	body_def := physics.default_body_def()
-	body_def.type = .Dynamic_Body
+	body_def.type = .Dynamic
 	body_def.position = item_position(i)
 	ref := physics.create_body(world.phys, &body_def, tag = u64(i))
 	shape_def := physics.default_shape_def()
 	shape_def.density = 1
 	if item_kind(i) == .Barrel {
-		shape_def.filter.category_bits = CAT_BARREL
+		shape_def.filter.category = CAT_BARREL
 		physics.create_capsule_shape(world.phys, ref, &shape_def, {{0, -0.3, 0}, {0, 0.3, 0}, 0.4})
 	} else {
-		shape_def.filter.category_bits = CAT_CRATE
+		shape_def.filter.category = CAT_CRATE
 		hull := physics.make_box_hull(0.5, 0.5, 0.5)
 		physics.create_hull_shape(world.phys, ref, &shape_def, &hull.base)
 	}
@@ -176,7 +176,7 @@ create_item_body :: proc(world: ^World, i: int) -> Body_Ref {
 // Creates a player's body at the start spot of `slot`.
 create_player_body :: proc(world: ^World, slot: int) -> Body_Ref {
 	body_def := physics.default_body_def()
-	body_def.type = .Dynamic_Body
+	body_def.type = .Dynamic
 	body_def.position = PLAYER_START[slot]
 	body_def.motion_locks.angular_x = true
 	body_def.motion_locks.angular_y = true
@@ -184,7 +184,7 @@ create_player_body :: proc(world: ^World, slot: int) -> Body_Ref {
 	body_def.enable_sleep = false
 	ref := physics.create_body(world.phys, &body_def)
 	shape_def := physics.default_shape_def()
-	shape_def.filter.category_bits = CAT_PLAYER
+	shape_def.filter.category = CAT_PLAYER
 	physics.create_capsule_shape(world.phys, ref, &shape_def, {{0, -0.45, 0}, {0, 0.45, 0}, 0.45})
 	return ref
 }

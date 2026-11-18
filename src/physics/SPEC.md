@@ -13,13 +13,13 @@ Box3D (any worker count steps identically), state in the block or in the Box3D w
 ```odin
 create(settings := Settings{}) -> ^World    // one Box3D world; mutex-guarded (Box3D's world table is global)
 destroy(world)
-Settings :: struct {workers: i32, gravity: Maybe([3]f32), hit_threshold: f32, anchor: bool}
+Settings :: struct {workers: i32, gravity: Maybe([3]f32), hit_event_threshold: f32, anchor: bool}
 extra(world, State) -> sim.Extra            // the world as rollback state (a game's sim.Game.extra returns it)
 ```
 
 - `workers`: Box3D's threads for the step (0 or 1: the caller's thread). Results are bit-identical for any count;
   each game sets it (`PHYSICS_WORKERS`, 1 for now: Godot and the netcode share the CPU).
-- `gravity` nil: Box3D's default; `hit_threshold` 0: Box3D's default approach speed for hit events; `anchor`: the
+- `gravity` nil: Box3D's default; `hit_event_threshold` 0: Box3D's default approach speed for hit events; `anchor`: the
   static body characters attach their joints to, created first (it shifts every later body's index).
 - The `Extra`: saves are Box3D snapshots (a memcpy of the world's arena), one per ring slot (`sim.ring_size(tick_hz)`,
   so 32 at 128 Hz; room for `sim.MAX_RING_SIZE`, the unused ones stay empty); a restore puts back everything
@@ -125,15 +125,15 @@ kept.
 
 ```odin
 Query :: struct {category, mask: u64}  // zero: everything
-Ray_Hit :: struct {body: Body_Link, shape: Shape_Ref, tag, category, material: u64, point, normal: [3]f32, fraction: f32}
+Hit :: struct {body: Body_Link, shape: Shape_Ref, tag, category, material: u64, point, normal: [3]f32, fraction: f32}
 Overlap :: struct {body: Body_Link, shape: Shape_Ref, tag, category: u64}
 Contact_Event :: struct {kind: enum {Begin, End, Hit}, a, b: Overlap, point, normal: [3]f32, speed: f32}  // Hit: normal a → b
 world_contact_events(world, out) / world_sensor_events(world, out)  // the begins, the ends (then the hits), each in Box3D's order
 Sensor_Event :: struct {kind: enum {Begin, End}, sensor, visitor: Overlap}
 step(world, dt, substeps)
-world_cast_ray_closest(world, origin, translation, query := {}, ignore: Body_Link = {}) -> (Ray_Hit, bool) // skips ignore, sensors
+world_cast_ray_closest(world, origin, translation, query := {}, ignore: Body_Link = {}) -> (Hit, bool) // skips ignore, sensors
 world_overlap_shape(world, origin, Shape_Proxy, out: ^[dynamic]Overlap, query := {})    // the exact shape, not fat AABBs
-world_cast_shape(world, origin, Shape_Proxy, translation, out: ^[dynamic]Ray_Hit, query := {})
+world_cast_shape(world, origin, Shape_Proxy, translation, out: ^[dynamic]Hit, query := {})
 make_proxy(points: [][3]f32, radius) -> Shape_Proxy // a convex point cloud with a radius (one point: a sphere)
 shape_sensor_data(world, sensor: Shape_Ref, out: ^[dynamic]Overlap)  // what is in a sensor after the step, sorted
 ```

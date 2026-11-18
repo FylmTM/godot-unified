@@ -22,10 +22,10 @@ SUITE := scenarios.Suite(dr.Game) {
 		players       = 4,
 		ticks         = 1800,
 		snapshot_tick = 900,
-		checkpoints   = {0x27ae5869ee03d7b5, 0xcaf6248a8db728ad, 0x297f684f4a8b78bf, 0x8336d4cd4a2c7332},
-		trace         = 0xde856ab7995ab37b,
-		snapshot      = 0xf99b5a9fa55724e4,
-		log           = 0x2d6e627d8274e8db,
+		checkpoints   = {0xba6a89930e805be5, 0xae97083fa432adc3, 0x3908e44b52dc7f7f, 0x2a45fbaee427f5cd},
+		trace         = 0xb178b6a29ea77843,
+		snapshot      = 0xc34b679803317f28,
+		log           = 0xf2dbad543310621e,
 	},
 }
 

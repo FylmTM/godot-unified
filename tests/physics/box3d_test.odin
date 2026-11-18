@@ -134,8 +134,8 @@ mirrors_match_the_bindings :: proc(t: ^testing.T) {
 	}
 }
 
-// An enum mirror's members are the library's, by value and by name (`dynamicBody` → `Dynamic_Body`), in order;
-// `drop_last` library members (a count) have no mirror.
+// An enum mirror's members are the library's, by value and by name without the type's word (`dynamicBody` →
+// `Dynamic`, `heightShape` → `Height`), in order; `drop_last` library members (a count) have no mirror.
 expect_enum_members :: proc(t: ^testing.T, $Ours, $Theirs: typeid, drop_last := 0) {
 	ours := runtime.type_info_base(type_info_of(Ours)).variant.(runtime.Type_Info_Enum)
 	theirs := runtime.type_info_base(type_info_of(Theirs)).variant.(runtime.Type_Info_Enum)
@@ -152,7 +152,8 @@ expect_enum_members :: proc(t: ^testing.T, $Ours, $Theirs: typeid, drop_last := 
 				strings.write_byte(&ada, char)
 			}
 		}
-		testing.expect_value(t, ours.names[i], strings.to_string(ada))
+		ada_name := strings.to_string(ada)
+		testing.expect_value(t, ours.names[i], ada_name[:strings.last_index_byte(ada_name, '_')])
 		testing.expect_value(t, ours.values[i], theirs.values[i])
 	}
 }

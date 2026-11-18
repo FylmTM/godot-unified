@@ -137,10 +137,10 @@ HEX_S := [6]f32{0, 0.8660254, 0.8660254, 0, -0.8660254, -0.8660254}
 // station marker.
 init :: proc(t: ^Tick) {
 	t.state.station_hp = STATION_HP
-	body_def := physics.body_def_2d(.Kinematic_Body, t.world.station)
+	body_def := physics.body_def_2d(.Kinematic, t.world.station)
 	ref := physics.create_body(t.world.phys, &body_def)
 	shape_def := physics.default_shape_def()
-	shape_def.filter.category_bits = CAT_STATION
+	shape_def.filter.category = CAT_STATION
 	corners: [6][2]f32
 	for k in 0 ..< 6 do corners[k] = {HEX_C[k] * STATION_RADIUS, HEX_S[k] * STATION_RADIUS}
 	physics.create_polygon_shape_2d(t.world.phys, ref, &shape_def, corners[:], ROCK_DEPTH)
@@ -151,14 +151,14 @@ init :: proc(t: ^Tick) {
 
 // A ship's body at `at`, nose up.
 create_ship :: proc(world: ^World, ship: ^Ship, at: [2]f32) {
-	body_def := physics.body_def_2d(.Dynamic_Body, at, {0, -1})
+	body_def := physics.body_def_2d(.Dynamic, at, {0, -1})
 	body_def.linear_damping = SHIP_DAMPING
 	ref := physics.create_body(world.phys, &body_def)
 	shape_def := physics.default_shape_def()
 	shape_def.density = SHIP_DENSITY
 	shape_def.base_material.restitution = 0.5
 	shape_def.base_material.friction = 0.1
-	shape_def.filter.category_bits = CAT_SHIP
+	shape_def.filter.category = CAT_SHIP
 	physics.create_circle_shape_2d(world.phys, ref, &shape_def, SHIP_RADIUS)
 	ship.body = ref
 }
@@ -178,13 +178,13 @@ create_rock :: proc(
 ) {
 	rock: ^Rock
 	rock, handle = sim.spawn(&state.rocks) or_return
-	body_def := physics.body_def_2d(.Dynamic_Body, pos)
+	body_def := physics.body_def_2d(.Dynamic, pos)
 	ref := physics.create_body(world.phys, &body_def, tag = sim.handle_key(handle))
 	shape_def := physics.default_shape_def()
 	shape_def.density = 1
 	shape_def.base_material.restitution = 0.4
 	shape_def.base_material.friction = 0.3
-	shape_def.filter.category_bits = CAT_ROCK
+	shape_def.filter.category = CAT_ROCK
 	points := rock_points(variant, size)
 	physics.create_polygon_shape_2d(world.phys, ref, &shape_def, points[:], ROCK_DEPTH)
 	rock^ = {

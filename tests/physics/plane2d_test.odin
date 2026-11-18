@@ -3,6 +3,7 @@
 // game (ships, rocks that split, walls, ray-cast bullets) rolls back and resumes from a portable image.
 package test_physics
 
+import "core:slice"
 import "core:testing"
 
 import "unified:dmath"
@@ -25,10 +26,10 @@ arena_walls :: proc(world: ^physics.World, half: [2]f32) {
 		{{half.x + HALF_THICK, 0}, {HALF_THICK, half.y}},
 	}
 	for wall in walls {
-		body_def := physics.body_def_2d(.Static_Body, wall[0])
+		body_def := physics.body_def_2d(.Static, wall[0])
 		id := physics.create_body(world, &body_def)
 		shape_def := physics.default_shape_def()
-		shape_def.filter.category_bits = CAT_STATIC
+		shape_def.filter.category = CAT_STATIC
 		physics.create_box_shape_2d(world, id, &shape_def, wall[1], DEPTH_2D)
 	}
 }
@@ -38,12 +39,12 @@ ROCK_POINTS := [7][2]f32{{1, 0}, {0.62, 0.78}, {-0.2, 0.95}, {-0.9, 0.45}, {-0.8
 ROCK_RADIUS := [5]f32{0, 0.5, 0.9, 1.5, 0.7} // by size; 4 is never at tick 0 (portable_image_carries_new_hulls)
 
 rock_body :: proc(world: ^physics.World, pos, rot, vel: [2]f32, ang: f32, size: u32) -> physics.Body_Ref {
-	body_def := physics.body_def_2d(.Dynamic_Body, pos, rot)
+	body_def := physics.body_def_2d(.Dynamic, pos, rot)
 	body_def.linear_velocity = {vel.x, vel.y, 0}
 	body_def.angular_velocity = {0, 0, ang}
 	id := physics.create_body(world, &body_def)
 	shape_def := physics.default_shape_def()
-	shape_def.filter.category_bits = CAT_ROCK
+	shape_def.filter.category = CAT_ROCK
 	scaled: [len(ROCK_POINTS)][2]f32
 	for point, i in ROCK_POINTS {
 		scaled[i] = point * ROCK_RADIUS[size]
@@ -60,11 +61,11 @@ circle_body :: proc(
 	cat := CAT_SHIP,
 	restitution: f32 = 0,
 ) -> physics.Body_Ref {
-	body_def := physics.body_def_2d(.Dynamic_Body, pos)
+	body_def := physics.body_def_2d(.Dynamic, pos)
 	body_def.linear_velocity = {vel.x, vel.y, 0}
 	id := physics.create_body(world, &body_def)
 	shape_def := physics.default_shape_def()
-	shape_def.filter.category_bits = cat
+	shape_def.filter.category = cat
 	shape_def.base_material.restitution = restitution
 	physics.create_circle_shape_2d(world, id, &shape_def, radius)
 	return id
@@ -123,7 +124,7 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 				item.radius = rnd(&rng, 0.3, 0.7)
 				item.body = circle_body(world, pos, vel, item.radius, restitution = 0.5)
 			case .Box:
-				body_def := physics.body_def_2d(.Dynamic_Body, pos, rot)
+				body_def := physics.body_def_2d(.Dynamic, pos, rot)
 				body_def.linear_velocity = {vel.x, vel.y, 0}
 				id := physics.create_body(world, &body_def)
 				shape_def := physics.default_shape_def()
@@ -171,7 +172,7 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 			physics.body_set_linear_velocity_2d(world, item.body, lin)
 			physics.body_set_angular_velocity_2d(world, item.body, rnd(&rng, -10, 10))
 		}
-		step(world)
+		steps(world, 1)
 		for item in items {
 			if !on_plane(world, item.body) do off_plane += 1
 			if !in_plane_velocity(world, item.body) do off_velocity += 1
@@ -255,6 +256,60 @@ rot_2d_round_trips :: proc(t: ^testing.T) {
 	)
 }
 
+// The 2D pose setter and every 2D force, torque and impulse: each acts in the plane, as its 3D form would with z = 0.
+@(test)
+forces_and_impulses_2d :: proc(t: ^testing.T) {
+	world := zero_g()
+	defer physics.destroy(world)
+	body_def := physics.body_def_2d(.Dynamic, {0, 0})
+	body := physics.create_body(world, &body_def)
+	shape_def := physics.default_shape_def()
+	physics.create_circle_shape_2d(world, body, &shape_def, 1)
+	mass := physics.body_mass(world, body)
+	physics.body_set_transform_2d(world, body, {3, 4}, {0, 1})
+	pos, rot := physics.body_position_2d(world, body), physics.body_rotation_2d(world, body)
+	testing.expectf(t, pos == {3, 4} && abs(rot.x) < 1e-6 && abs(rot.y - 1) < 1e-6, "pose %v %v", pos, rot)
+	testing.expect(t, on_plane(world, body))
+	// An impulse through the centre: a velocity change of impulse / mass, no spin.
+	physics.body_apply_linear_impulse_2d(world, body, {2 * mass, -mass}, {3, 4})
+	testing.expectf(
+		t,
+		near(physics.body_linear_velocity(world, body), {2, -1, 0}),
+		"impulse at the centre: %v",
+		physics.body_linear_velocity(world, body),
+	)
+	testing.expect_value(t, physics.body_angular_velocity_2d(world, body), 0)
+	// An angular impulse and an impulse off the centre turn it about +Z (+x toward +y), and nothing else.
+	physics.body_apply_angular_impulse_2d(world, body, 0.5)
+	spin := physics.body_angular_velocity_2d(world, body)
+	testing.expectf(t, spin > 0, "angular impulse: %v", spin)
+	physics.body_apply_linear_impulse_2d(world, body, {0, mass}, {4, 4}) // +y at the +x edge: counter-clockwise in +Z
+	testing.expectf(t, physics.body_angular_velocity_2d(world, body) > spin, "off-centre impulse")
+	testing.expect(t, in_plane_velocity(world, body))
+	// Forces and torques act over the next step: F · dt / m.
+	physics.body_set_linear_velocity_2d(world, body, {})
+	physics.body_set_angular_velocity_2d(world, body, 0)
+	physics.body_apply_force_to_center_2d(world, body, {mass / DT, 0})
+	physics.step(world, DT, 4)
+	testing.expectf(
+		t,
+		near(physics.body_linear_velocity(world, body), {1, 0, 0}, 1e-3),
+		"force at the centre: %v",
+		physics.body_linear_velocity(world, body),
+	)
+	physics.body_set_linear_velocity_2d(world, body, {})
+	physics.body_apply_torque_2d(world, body, -1)
+	physics.step(world, DT, 4)
+	testing.expectf(t, physics.body_angular_velocity_2d(world, body) < 0, "torque")
+	center := physics.body_position_2d(world, body)
+	physics.body_set_angular_velocity_2d(world, body, 0)
+	physics.body_apply_force_2d(world, body, {0, -mass / DT}, center + {1, 0}) // −y at the +x edge: clockwise
+	physics.step(world, DT, 4)
+	testing.expectf(t, physics.body_angular_velocity_2d(world, body) < 0, "force off the centre")
+	testing.expectf(t, physics.body_linear_velocity_2d(world, body).y < -0.9, "force off the centre")
+	testing.expect(t, on_plane(world, body) && in_plane_velocity(world, body))
+}
+
 @(test)
 shapes_and_rays_2d :: proc(t: ^testing.T) {
 	world := zero_g()
@@ -262,13 +317,13 @@ shapes_and_rays_2d :: proc(t: ^testing.T) {
 	shape_def := physics.default_shape_def()
 	shape_def.density = 2
 	// A circle at the origin, a box at x = 5, a triangle at x = 10 turned 90°.
-	circle_body_def := physics.body_def_2d(.Dynamic_Body, {0, 0})
+	circle_body_def := physics.body_def_2d(.Dynamic, {0, 0})
 	circle := physics.create_body(world, &circle_body_def)
 	physics.create_circle_shape_2d(world, circle, &shape_def, 1)
-	box_body_def := physics.body_def_2d(.Dynamic_Body, {5, 0})
+	box_body_def := physics.body_def_2d(.Dynamic, {5, 0})
 	box_body := physics.create_body(world, &box_body_def)
 	physics.create_box_shape_2d(world, box_body, &shape_def, {1, 0.5}, 0.4)
-	tri_body_def := physics.body_def_2d(.Dynamic_Body, {10, 0}, {0, 1})
+	tri_body_def := physics.body_def_2d(.Dynamic, {10, 0}, {0, 1})
 	tri := physics.create_body(world, &tri_body_def)
 	_, ok := physics.create_polygon_shape_2d(world, tri, &shape_def, {{-1, -1}, {1, -1}, {0, 1}}, 2)
 	testing.expect(t, ok)
@@ -473,7 +528,7 @@ field_tick :: proc(tick: ^Field_Tick) {
 		rock_add(state, world, corner * (ARENA - 2), {1, 0}, -corner * 2, 1, 3)
 		state.spawns += 1
 	}
-	step(world)
+	steps(world, 1)
 }
 
 rock_add :: proc(state: ^Field, world: ^physics.World, pos, rot, vel: [2]f32, ang: f32, size: u32) {
@@ -522,42 +577,28 @@ field_inputs :: proc(tick: u32) -> Field_Inputs {
 
 FIELD_TICKS :: 640
 
-// The field sync-tested on 1 and on 4 workers: the same checksums on every tick.
+// The field sync-tested on 1 and on 4 workers (synctest_and_resume): the plane holds through every rollback, and the
+// same checksums on every tick.
 @(test)
 field_synctest_and_resume :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.plain_violation(type_info_of(Field)), "")
-	one_worker := field_synctest(t, &FIELD)
+	one_worker := synctest_and_resume(t, &FIELD, 3, FIELD_TICKS, field_inputs, field_on_plane, field_did_its_job)
 	field_4 := field_on_4_workers()
-	four_workers := field_synctest(t, &field_4)
-	testing.expect(t, four_workers == one_worker, "the field on 4 workers: checksums differ from 1 worker's")
+	four_workers := synctest_and_resume(t, &field_4, 3, FIELD_TICKS, field_inputs)
+	testing.expect(
+		t,
+		slice.equal(four_workers, one_worker),
+		"the field on 4 workers: checksums differ from 1 worker's",
+	)
 }
 
-// Rolls back WINDOW ticks after every tick and re-simulates (the plane must hold), then resumes a second session from
-// a portable snapshot. Returns the forward checksums.
-field_synctest :: proc(t: ^testing.T, game: ^Field_Game) -> (forward: [FIELD_TICKS + 1]u64) {
-	TICKS :: FIELD_TICKS
-	WINDOW :: 8
-	session := sim.create(game, 3)
-	defer sim.destroy(session)
-	mismatches, off_plane := 0, 0
-	for tick in u32(1) ..= TICKS {
-		inputs := field_inputs(tick)
-		sim.step(session, &inputs)
-		forward[tick] = sim.checksum(session)
-		if tick < WINDOW do continue
-		testing.expect(t, sim.restore(session, tick - WINDOW))
-		testing.expect_value(t, physics.check_refs(session.world.phys, &session.state), "")
-		for replay_tick in tick - WINDOW + 1 ..= tick {
-			replay_inputs := field_inputs(replay_tick)
-			sim.step(session, &replay_inputs)
-			if sim.checksum(session) != forward[replay_tick] do mismatches += 1
-		}
-		for ship in session.state.ships do off_plane += int(!on_plane(session.world.phys, ship.body))
-		for rock in session.state.rocks do off_plane += int(rock.size != 0 && !on_plane(session.world.phys, rock.body))
-	}
-	testing.expect_value(t, mismatches, 0)
-	testing.expect_value(t, off_plane, 0)
-	// Rocks really were split, shot to dust and respawned inside the rollback windows.
+field_on_plane :: proc(t: ^testing.T, session: ^sim.Sim(Field_Game)) {
+	for ship in session.state.ships do testing.expect(t, on_plane(session.world.phys, ship.body))
+	for rock in session.state.rocks do testing.expect(t, rock.size == 0 || on_plane(session.world.phys, rock.body))
+}
+
+// Rocks really were split, shot to dust and respawned inside the rollback windows.
+field_did_its_job :: proc(t: ^testing.T, session: ^sim.Sim(Field_Game)) {
 	testing.expectf(
 		t,
 		session.state.splits > 20 && session.state.spawns > 2,
@@ -565,22 +606,6 @@ field_synctest :: proc(t: ^testing.T, game: ^Field_Game) -> (forward: [FIELD_TIC
 		session.state.splits,
 		session.state.spawns,
 	)
-
-	// A portable snapshot loads into a fresh world and continues bit-exactly.
-	snap := sim.snapshot_encode(session, TICKS)
-	defer delete(snap)
-	session2, err := sim.from_snapshot(game, snap)
-	testing.expect_value(t, err, sim.Snap_Error.None)
-	if session2 == nil do return
-	defer sim.destroy(session2)
-	for tick in u32(TICKS + 1) ..= TICKS + 64 {
-		inputs := field_inputs(tick)
-		inputs2 := inputs
-		sim.step(session, &inputs)
-		sim.step(session2, &inputs2)
-		testing.expect_value(t, sim.checksum(session2), sim.checksum(session))
-	}
-	return
 }
 
 // The image carries the geometry its shapes use (#86): a hull first made after tick 0 reaches a
@@ -621,7 +646,7 @@ portable_image_carries_new_hulls :: proc(t: ^testing.T) {
 // The field's golden trace: plane-locked bodies, polygon hulls, splits and rays pinned on every
 // platform. A change to src/physics, Box3D or the build flags that alters any of these fails here;
 // if it is intended, update the values in the same commit.
-GOLDEN_FIELD := [4]u64{0xc1e37f2e9c996beb, 0xa8ee79918a89e3bc, 0x3b8a4336456b77d, 0x6194f13dfa782d04}
+GOLDEN_FIELD :: [4]u64{0x578f7068c8690caa, 0x4989b17bb35ae9e3, 0x5d6ca0117e2c9798, 0x93d1bc45aae956e0}
 
 // On 1 and on 4 workers: the same values.
 @(test)

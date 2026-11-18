@@ -121,7 +121,7 @@ pilot :: proc(t: ^Tick, ship: ^Ship, player: sim.Player) {
 
 // ---- bullets: a ray per tick against rocks, the station and walls
 
-BULLET_QUERY :: physics.Query {
+BULLET_QUERY :: physics.Filter {
 	category = CAT_BULLET,
 	mask     = CAT_STATIC | CAT_ROCK | CAT_STATION,
 }

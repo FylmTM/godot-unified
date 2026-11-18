@@ -411,9 +411,8 @@ body_created :: proc(world: ^World, id: box3d.BodyId, tag: u64) {
 	index := int(id.index1) - 1
 	if index >= len(world.bodies) do resize(&world.bodies, index + 1)
 	world.bodies[index] = {
-		tag        = tag,
-		generation = id.generation,
-		flags      = world.sealed ? {.Alive} : {.Alive, .World},
+		tag   = tag,
+		flags = world.sealed ? {.Alive} : {.Alive, .World},
 	}
 }
 

@@ -30,7 +30,7 @@ create_static :: proc(
 		shape_def.base_material.friction = level_body.friction
 		shape_def.base_material.restitution = level_body.restitution
 		shape_def.base_material.user_material_id = level_body.material
-		shape_def.filter.category_bits = level_body.category if level_body.category != 0 else default_category
+		shape_def.filter.category = level_body.category if level_body.category != 0 else default_category
 		for &shape, shape_index in level_body.shapes {
 			if !level_shape(id, &shape_def, &shape) && problem == "" {
 				problem = fmt.tprintf(

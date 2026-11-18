@@ -6,7 +6,7 @@ package physics
 import box3d "box3d:bindings"
 
 // A contact between two shapes: touching began or ended (both shapes with contact events on), or a hit (one with
-// hit events on, approaching faster than Settings.hit_threshold).
+// hit events on, approaching faster than Settings.hit_event_threshold).
 Contact_Event :: struct {
 	kind:   Contact_Kind,
 	a, b:   Overlap, // an End's shape may be gone (destroyed this step): zero

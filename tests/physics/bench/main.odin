@@ -51,12 +51,12 @@ add_box :: proc(world: ^physics.World, pos, half: [3]f32, type: physics.Body_Typ
 main :: proc() {
 	world := physics.create()
 	defer physics.destroy(world)
-	add_box(world, {0, -0.5, 0}, {30, 0.5, 30}, .Static_Body)
+	add_box(world, {0, -0.5, 0}, {30, 0.5, 30}, .Static)
 	for x in 0 ..< BODIES_SIDE {
 		for y in 0 ..< BODIES_SIDE {
 			for z in 0 ..< BODIES_SIDE {
 				pos := [3]f32{f32(x) * 0.8 - 2.8, 0.5 + f32(y) * 0.8, f32(z) * 0.8 - 2.8}
-				add_box(world, pos, {0.25, 0.25, 0.25}, .Dynamic_Body)
+				add_box(world, pos, {0.25, 0.25, 0.25}, .Dynamic)
 			}
 		}
 	}

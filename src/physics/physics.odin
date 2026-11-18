@@ -13,21 +13,17 @@ import "unified:sim"
 // World options. Results are bit-identical for any worker count (unified-box3d tests it).
 Settings :: struct {
 	// Threads for Box3D's built-in scheduler; 0 or 1: none, the step runs on the caller's thread.
-	workers:       i32,
-	gravity:       Maybe([3]f32), // nil: Box3D's default
-	hit_threshold: f32, // approach speed (m/s) above which contacts report hit events; 0: Box3D's default
-	// Create the static anchor body characters attach their joints to (it is created first, so it
-	// shifts the indices of every body created after it).
-	anchor:        bool,
+	workers:             i32,
+	gravity:             Maybe([3]f32), // nil: Box3D's default
+	hit_event_threshold: f32, // approach speed (m/s) above which contacts report hit events; 0: Box3D's default
 }
 
 // What physics keeps about a body, by body index, beside Box3D's state and rolled back with it: its tag, and whether
 // it is alive and the World's (made before `extra`, so no ref in the block owns it).
 Body_Entry :: struct {
-	tag:        u64,
-	generation: u16,
-	flags:      bit_set[Body_Flag;u8],
-	_pad:       [5]u8,
+	tag:   u64,
+	flags: bit_set[Body_Flag;u8],
+	_pad:  [7]u8,
 }
 
 Body_Flag :: enum u8 {
@@ -49,7 +45,7 @@ World :: struct {
 	layouts:     [dynamic]Type_Layout, // destroy_refs' cache (a few types: a list, no map in tick code)
 	owned:       [dynamic]bool, // check_refs' scratch
 	visitors:    [dynamic]box3d.ShapeId, // shape_sensor_data's scratch
-	anchor:      box3d.BodyId, // Settings.anchor
+	anchor:      box3d.BodyId, // the World's first body (world_anchor)
 	workers:     i32, // Box3D's worker count (Settings.workers, at least 1)
 }
 
@@ -68,16 +64,16 @@ create :: proc(settings := Settings{}) -> ^World {
 	if gravity, ok := settings.gravity.?; ok {
 		world_def.gravity = transmute(box3d.Vec3)gravity
 	}
-	if settings.hit_threshold > 0 {
-		world_def.hitEventThreshold = settings.hit_threshold
+	if settings.hit_event_threshold > 0 {
+		world_def.hitEventThreshold = settings.hit_event_threshold
 	}
 	world.id = box3d.CreateWorld(&world_def)
-	if settings.anchor {
-		body_def := transmute(Body_Def)box3d.DefaultBodyDef()
-		body_def.name = "anchor"
-		world.anchor = box3d.CreateBody(world.id, (^box3d.BodyDef)(&body_def))
-		body_created(world, world.anchor, 0)
-	}
+	// The static body joints attach to when they hold a body to the world (world_anchor; every character's): the
+	// World's first body, body 0.
+	anchor_def := box3d.DefaultBodyDef()
+	anchor_def.name = "anchor"
+	world.anchor = box3d.CreateBody(world.id, &anchor_def)
+	body_created(world, world.anchor, 0)
 	world.image = box3d.CreateWorldState()
 	return world
 }

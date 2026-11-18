@@ -3,7 +3,6 @@
 // (destroy_refs, despawn), and check_refs, which finds every ref in the block by RTTI.
 package physics
 
-import "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
 
@@ -91,36 +90,38 @@ Wheel_Joint_Ref :: struct {
 
 // The Box3D id of a body the block owns, in this world (the library's; games use the body_* procs). A
 // zero ref asserts: Box3D's release library doesn't validate ids, so it would index body -1 and corrupt memory.
+@(private)
 body_id :: proc(world: ^World, ref: Body_Ref, loc := #caller_location) -> box3d.BodyId {
 	assert(ref.index1 != 0, "physics: a zero Body_Ref (no body)", loc)
 	return {index1 = ref.index1, world0 = world.id.index1 - 1, generation = ref.generation}
 }
 
 // The Box3D id of a linked body, in this world. Unchecked: the body may be gone (resolve first).
+@(private)
 link_id :: proc(world: ^World, body_link: Body_Link) -> box3d.BodyId {
 	return {index1 = body_link.index1, world0 = world.id.index1 - 1, generation = body_link.generation}
 }
 
 // The Box3D id of a shape, in this world.
+@(private)
 shape_id :: proc(world: ^World, shape: Shape_Ref) -> box3d.ShapeId {
 	return {index1 = shape.index1, world0 = world.id.index1 - 1, generation = shape.generation}
 }
 
 // The Box3D id of a joint (any joint ref), in this world.
-joint_id :: proc(
-	world: ^World,
-	joint: $J,
-) -> box3d.JointId where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+@(private)
+joint_id :: proc(world: ^World, joint: Joint_Ref) -> box3d.JointId {
 	return {index1 = joint.index1, world0 = world.id.index1 - 1, generation = joint.generation}
 }
 
 // The block's reference to a body Box3D made (the world index dropped, so blocks match across worlds).
+@(private)
 ref_of :: proc "contextless" (id: box3d.BodyId) -> Body_Ref {
 	return {index1 = id.index1, generation = id.generation}
 }
 
 // The link to a body Box3D made, for one the block doesn't own (query and event results, grounds).
+@(private)
 link_of :: proc "contextless" (id: box3d.BodyId) -> Body_Link {
 	return {index1 = id.index1, generation = id.generation}
 }
@@ -131,11 +132,13 @@ link :: proc "contextless" (ref: Body_Ref) -> Body_Link {
 }
 
 // The ref of a shape Box3D made.
+@(private)
 shape_ref_of :: proc "contextless" (id: box3d.ShapeId) -> Shape_Ref {
 	return {index1 = id.index1, generation = id.generation}
 }
 
 // The untyped ref of a joint Box3D made.
+@(private)
 joint_ref_of :: proc "contextless" (id: box3d.JointId) -> Joint_Ref {
 	return {index1 = id.index1, generation = id.generation}
 }
@@ -159,11 +162,7 @@ shape_valid :: proc(world: ^World, shape: Shape_Ref) -> bool {
 }
 
 // Whether a (possibly stale) joint ref names a live joint (destroying a body destroys its joints). Zero is not valid.
-joint_valid :: proc(
-	world: ^World,
-	joint: $J,
-) -> bool where J == Joint_Ref ||
-	intrinsics.type_is_subtype_of(J, Joint_Ref) {
+joint_valid :: proc(world: ^World, joint: Joint_Ref) -> bool {
 	return joint.index1 != 0 && box3d.Joint_IsValid(joint_id(world, joint))
 }
 
@@ -251,12 +250,14 @@ check_refs :: proc(world: ^World, state: rawptr) -> string {
 }
 
 // A type's ref layout, cached by destroy_refs.
+@(private)
 Type_Layout :: struct {
 	type:   typeid,
 	layout: Ref_Layout,
 }
 
 // Where a type's refs are (byte offsets), found by RTTI once per type.
+@(private)
 Ref_Layout :: struct {
 	bodies: []int,
 	shapes: []int,

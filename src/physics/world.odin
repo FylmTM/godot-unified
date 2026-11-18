@@ -88,7 +88,7 @@ world_restitution_iterations :: proc(world: ^World) -> int {
 	return int(box3d.World_GetRestitutionIterations(world.id))
 }
 
-// Sets the approach speed (m/s) above which contacts make hit events (Settings.hit_threshold at creation).
+// Sets the approach speed (m/s) above which contacts make hit events (Settings.hit_event_threshold at creation).
 world_set_hit_event_threshold :: proc(world: ^World, value: f32) {
 	box3d.World_SetHitEventThreshold(world.id, value)
 }
