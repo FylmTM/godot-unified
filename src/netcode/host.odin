@@ -9,7 +9,7 @@ Host_Config :: struct {
 	seed:          u64,
 	ticks:         u32, // 0: endless
 	compat:        u64, // build/game id the relay checks (0: sim.compat_of(game, content))
-	content:       []u8, // the game's content (the level, src/level/SPEC.md); borrowed for the host's lifetime
+	content:       []u8, // the level (src/level/SPEC.md; nil: the game's own, sim.Game.content); borrowed for the host's lifetime
 	player_name:   string, // the host player's display name
 	account:       Account, // optional: the host player's own platform account (borrowed for the host's lifetime)
 	recording:     sim.Log_Sink, // optional: the session's input log (Relay_Config.recording)

@@ -12,18 +12,17 @@ import "unified:headless/scenarios"
 import "unified:physics"
 import "unified:sim"
 
-// A sync-tested run (headless.Run) on the arena, with who sits in each slot and what the plane check saw.
+// A sync-tested run (headless.Run) on the arena, with what the plane check saw.
 Run :: struct {
 	using checked: headless.Run(dr.Game),
 	off_plane:     int, // bodies seen off the plane (z, or a rotation not about Z)
-	seated:        [dr.PLAYERS]int, // the member in each slot (0: empty): a join record when it changes
 	last_warp:     dr.Event_Warped,
 	last_spawn:    dr.Event_Spawned,
 }
 
 start :: proc(players: int) -> (run: Run) {
-	run.checked = headless.run_begin(&dr.GAME, 1, ARENA)
-	for slot in 0 ..< players do run.seated[slot] = slot + 1
+	run.checked = headless.run_begin(&dr.GAME, 1)
+	for slot in 0 ..< players do headless.run_seat(&run.checked, slot, slot + 1)
 	step(&run, {}) // ships join on the first tick
 	return
 }
@@ -32,17 +31,11 @@ finish :: proc(run: ^Run) {
 	headless.run_end(&run.checked)
 }
 
-// One sync-tested tick with these inputs (and slot 0's command, when given), then the plane check. A slot whose seated
-// member isn't the one holding it gets a join record.
+// One sync-tested tick of the seated members (headless.run_seat) with these inputs (and slot 0's command, when given),
+// then the plane check.
 step :: proc(run: ^Run, input: [dr.PLAYERS]dr.Input, command: dr.Cmd = nil) {
-	inputs := dr.Inputs {
-		input = input,
-	}
-	for member, slot in run.seated {
-		if member == 0 do continue
-		inputs.present += {slot}
-		if int(sim.player_in_slot(run.simulation, slot).id) != member do sim.join(&inputs, slot, member)
-	}
+	inputs := headless.run_inputs(&run.checked)
+	inputs.input = input
 	switch value in command {
 	case dr.Cmd_Start:
 		send(&inputs, value)
@@ -67,7 +60,7 @@ count :: proc(run: ^Run, $E: typeid) -> int {
 }
 // Slot 0 sends a command this tick.
 send :: proc(inputs: ^dr.Inputs, value: $T) {
-	ok := sim.add_command(inputs, sim.command_make(dr.Cmd, value))
+	ok := sim.add_command(inputs, 0, value)
 	assert(ok)
 }
 
@@ -151,7 +144,7 @@ a_ship_warps_through_a_gate :: proc(t: ^testing.T) {
 	)
 	// a setup: the ship just short of gate 0, flying into it
 	gate := world.gates[0].pos
-	ship := sim.player_data(&run.simulation.state.players, sim.player_in_slot(run.simulation, 0))
+	ship := sim.slot_data(run.simulation, 0)
 	physics.body_set_transform(world.phys, ship.body, {gate.x - 1.5, gate.y, 0}, {0, 0, 0, 1})
 	physics.body_set_linear_velocity(world.phys, ship.body, {})
 	physics.body_set_angular_velocity(world.phys, ship.body, {})
@@ -197,17 +190,17 @@ owners_follow_the_player_not_the_slot :: proc(t: ^testing.T) {
 	testing.expect(t, sim.get(&state.bullets, bullet) != nil, "slot 0 fired")
 	testing.expect_value(t, sim.player_data(&state.players, first).shots, 1)
 
-	run.seated[0] = 0 // A leaves
+	headless.run_seat(&run.checked, 0, 0) // A leaves
 	step(&run, {})
 	testing.expect_value(t, sim.player_data(&state.players, first).body, physics.Body_Ref{}) // no body while away
 	testing.expect_value(t, sim.get(&state.bullets, bullet).owner, first)
 
-	run.seated[0] = 100 // someone new in A's slot
+	headless.run_seat(&run.checked, 0, 100) // someone new in A's slot
 	step(&run, {})
-	testing.expect_value(t, sim.player_data(&state.players, sim.player_in_slot(run.simulation, 0)).shots, 0)
+	testing.expect_value(t, sim.slot_data(run.simulation, 0).shots, 0)
 	testing.expect_value(t, sim.get(&state.bullets, bullet).owner, first)
 
-	run.seated[2] = 1 // A comes back in another slot
+	headless.run_seat(&run.checked, 2, 1) // A comes back in another slot
 	step(&run, {})
 	ship := sim.player_data(&state.players, first)
 	testing.expect_value(t, ship.shots, 1)

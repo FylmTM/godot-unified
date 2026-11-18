@@ -15,7 +15,7 @@ Lobby_Config :: struct {
 
 // The EOS lobby service. EOS starts on the first open_host or open_join, named after the game (Lobby_Build.game) with
 // the build's version; one per process, so is this lobby.
-lobby :: proc(config: Lobby_Config) -> ^netcode.Lobby {
+lobby :: proc "contextless" (config: Lobby_Config) -> ^netcode.Lobby {
 	lobby_config = config
 	return &LOBBY
 }

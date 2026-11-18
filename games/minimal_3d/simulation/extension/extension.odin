@@ -1,7 +1,5 @@
 package extension
 
-import "base:runtime"
-import "unified:gdext/gdi"
 import "unified:godot"
 
 import g "../minimal_3d"
@@ -14,10 +12,9 @@ GLUE := godot.Glue(g.Game, View, MultiView) {
 
 @(export, link_name = "minimal_3d_init")
 minimal_3d_init :: proc "c" (
-	get_proc_address: gdi.InterfaceGetProcAddress,
-	library: gdi.ClassLibraryPtr,
-	initialization: ^gdi.Initialization,
-) -> gdi.Bool {
-	context = runtime.default_context()
+	get_proc_address: godot.Get_Proc_Address,
+	library: godot.Class_Library,
+	initialization: ^godot.Initialization,
+) -> godot.Init_Result {
 	return godot.init(&g.GAME, GLUE, get_proc_address, library, initialization)
 }

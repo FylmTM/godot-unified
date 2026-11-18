@@ -43,22 +43,9 @@ holding :: proc(character: ^Character) -> bool {
 	return character.held_kind != .None
 }
 
-// The yaw quaternion turning local +z to `facing` (unit x, z), from half-angle identities (sqrt only).
-yaw_quat :: proc(facing: [2]f32) -> [4]f32 {
-	cos_half := dmath.sqrt(dmath.max(0, (1 + facing.y) * 0.5))
-	sin_half := dmath.sqrt(dmath.max(0, (1 - facing.y) * 0.5))
-	if facing.x < 0 do sin_half = -sin_half
-	return {0, sin_half, 0, cos_half}
-}
-
-// An event's `entity` for a level marker: its index + 1 (0: none).
-marker_entity :: proc(marker: int) -> u64 {
-	return u64(marker + 1)
-}
-
 // An event's `entity` for an item: its level marker's.
-item_entity :: proc(world: ^World, item: int) -> u64 {
-	return marker_entity(world.items[item].marker)
+item_entity :: proc(world: ^World, item: int) -> sim.Entity {
+	return sim.entity(world.items[item].marker)
 }
 
 // What a body is, from a query's or a contact's category and tag: an item (its index) or a player (its handle).
@@ -226,7 +213,7 @@ try_grab :: proc(t: ^Tick, player: sim.Player, only_thrown: bool) {
 			distance := dmath.length(offset) - radius
 			if distance > GRAB_RANGE || abs(offset.y) > 1.6 do return
 			flat := dmath.normalize({offset.x, offset.z})
-			if distance > 0.4 && flat.x * forward.x + flat.y * forward.y < GRAB_CONE_COS do return
+			if distance > 0.4 && dmath.dot(flat, forward) < GRAB_CONE_COS do return
 			if distance < best.distance do best^ = {entity, grab_point, distance}
 		}
 		for i in 0 ..< t.world.item_count {
@@ -244,7 +231,7 @@ try_grab :: proc(t: ^Tick, player: sim.Player, only_thrown: bool) {
 				forward,
 			)
 		}
-		others := sim.iterate_present(&t.state.players)
+		others := sim.iterate_present(t)
 		for _, other in sim.next(&others) {
 			if other == player do continue
 			target := Entity {
@@ -280,7 +267,7 @@ grabbable :: proc(t: ^Tick, player: sim.Player, target: Entity, chest: [3]f32, o
 			point_pos :=
 				pos + dmath.quat_rotate(physics.body_rotation(t.world.phys, item.body), grab_point_offset(kind, point))
 			offset := point_pos - chest
-			distance_sq := offset.x * offset.x + offset.y * offset.y + offset.z * offset.z
+			distance_sq := dmath.length_sq(offset)
 			if distance_sq < best_distance_sq do best, best_distance_sq = point, distance_sq
 		}
 		return best
@@ -299,7 +286,7 @@ grabbable :: proc(t: ^Tick, player: sim.Player, target: Entity, chest: [3]f32, o
 hold_frame :: proc(character: ^Character, target: Held_Kind) -> physics.Transform {
 	up: f32 = HOLD_UP + character.aim.y * HOLD_PITCH + (target == .Player ? 0.5 : 0)
 	offset := [3]f32{character.facing.x * HOLD_DIST, up, character.facing.y * HOLD_DIST}
-	return {offset, yaw_quat(character.facing)}
+	return {offset, dmath.quat_yaw(character.facing)}
 }
 
 // Starts a hold: a motor joint from the player's hold point to the target's grab point, its force capped by what
@@ -314,7 +301,7 @@ grab :: proc(t: ^Tick, player: sim.Player, target: Target) {
 	joint_def.linear_damping_ratio = 1
 	joint_def.angular_hertz = 5
 	joint_def.angular_damping_ratio = 1
-	entity: u64
+	entity: sim.Entity
 	switch target.kind {
 	case .Item:
 		item := &t.state.items[target.item]
@@ -377,7 +364,7 @@ drop :: proc(t: ^Tick, player: sim.Player) {
 	if !holding(character) do return
 	physics.destroy_joint(t.world.phys, &character.hold)
 	held_kind, held_player := character.held_kind, character.held_player
-	entity: u64
+	entity: sim.Entity
 	switch held_kind {
 	case .Item:
 		t.state.items[character.held_item].holders[character.grab_point] = {}
@@ -418,7 +405,7 @@ throw :: proc(t: ^Tick, player: sim.Player) {
 		physics.body_linear_velocity(t.world.phys, character.controller.body) + character.aim * speed + {0, 1.5, 0}
 	drop(t, player)
 	body: Body_Ref
-	entity: u64
+	entity: sim.Entity
 	if kind == .Item {
 		item := &t.state.items[index]
 		item.thrown_by = player
@@ -442,7 +429,7 @@ throw :: proc(t: ^Tick, player: sim.Player) {
 
 // Every tick, before the characters: hold points follow facing and aim; holds whose target went away end.
 update_holds :: proc(t: ^Tick) {
-	players := sim.iterate_present(&t.state.players)
+	players := sim.iterate_present(t)
 	for character in sim.next(&players) {
 		if !holding(character) do continue
 		if !physics.joint_valid(t.world.phys, character.hold) {
@@ -467,7 +454,7 @@ player_move :: proc(t: ^Tick, player: sim.Player, input: Input, jump: bool) {
 	if holding(character) {
 		facing := dmath.normalize({character.aim.x, character.aim.z})
 		if facing != {} do character.facing = facing
-	} else if move.x * move.x + move.y * move.y > 0.01 {
+	} else if dmath.length_sq(move) > 0.01 {
 		character.facing = dmath.normalize(move)
 	}
 	scale: f32 = 1
@@ -514,7 +501,7 @@ pad_velocity :: proc(pad: ^Pad_Def, velocity: [3]f32) -> [3]f32 {
 // Launches players whose feet and items whose bottom are inside a jump pad's volume, with a per-body cooldown. The
 // sim checks the volumes itself rather than using Box3D sensors.
 pads :: proc(t: ^Tick) {
-	players := sim.iterate_present(&t.state.players)
+	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
 		if character.pad_cooldown > 0 do character.pad_cooldown -= 1
 		if character.respawn > 0 || character.held_by != {} || character.pad_cooldown > 0 do continue
@@ -580,7 +567,7 @@ knock :: proc(t: ^Tick, player: sim.Player, direction: [2]f32, speed: f32) {
 
 // Knocks a player whose centre is inside a bumper's volume away from the bumper's centre at its strength.
 bumpers :: proc(t: ^Tick) {
-	players := sim.iterate_present(&t.state.players)
+	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
 		if character.stun > 0 || character.respawn > 0 || character.held_by != {} do continue
 		pos := player_pos(t, player)
@@ -631,7 +618,7 @@ hits :: proc(t: ^Tick) {
 			trigger.active = true
 			trigger.cooldown = BELL_COOLDOWN_TICKS
 			sim.emit(t, Event_Bell_Rung {
-				entity   = marker_entity(t.world.triggers[trigger_index].marker),
+				entity   = sim.entity(t.world.triggers[trigger_index].marker),
 				position = sim.Position(hit.point),
 				speed    = hit.speed,
 			})
@@ -664,7 +651,7 @@ plates_and_switches :: proc(t: ^Tick) {
 			pressed := mass >= def.mass
 			if pressed != trigger.active {
 				trigger.active = pressed
-				entity, position := marker_entity(def.marker), sim.Position(def.volume.pos)
+				entity, position := sim.entity(def.marker), sim.Position(def.volume.pos)
 				if pressed {
 					sim.emit(t, Event_Plate_On {
 						entity   = entity,
@@ -688,7 +675,7 @@ plates_and_switches :: proc(t: ^Tick) {
 				if character == nil || character.respawn > 0 || !sim.player_present(t, player) do continue
 				trigger.active = true
 				sim.emit(t, Event_Switch_On {
-					entity   = marker_entity(def.marker),
+					entity   = sim.entity(def.marker),
 					position = sim.Position(def.volume.pos),
 					player   = player,
 				})
@@ -701,10 +688,7 @@ plates_and_switches :: proc(t: ^Tick) {
 				k := int(visitor.tag)
 				if t.world.items[k].kind != .Key || !t.state.items[k].alive do continue
 				trigger.active = true
-				sim.emit(
-					t,
-					Event_Switch_On{entity = marker_entity(def.marker), position = sim.Position(def.volume.pos)},
-				)
+				sim.emit(t, Event_Switch_On{entity = sim.entity(def.marker), position = sim.Position(def.volume.pos)})
 				break
 			}
 		case .Bell:
@@ -714,7 +698,7 @@ plates_and_switches :: proc(t: ^Tick) {
 
 // Counts down stuns; a thrown player gets up as soon as they land. A player whose stun ends stops being limp.
 stuns :: proc(t: ^Tick) {
-	players := sim.iterate_present(&t.state.players)
+	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
 		if character.held_by != {} || character.stun == 0 do continue
 		character.stun -= 1
@@ -740,7 +724,7 @@ stuns :: proc(t: ^Tick) {
 // Takes a player who fell below KILL_Y out for RESPAWN_TICKS (holds released, body parked far below), then brings
 // them back at their respawn point; puts an item that fell back where the level placed it.
 falls :: proc(t: ^Tick) {
-	players := sim.iterate_present(&t.state.players)
+	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
 		if character.respawn > 0 {
 			character.respawn -= 1
@@ -802,7 +786,7 @@ run :: proc(t: ^Tick) {
 	switch t.state.phase {
 	case .Hub:
 		if t.world.start.half == {} do return
-		players := sim.iterate_present(&t.state.players)
+		players := sim.iterate_present(t)
 		for character, player in sim.next(&players) {
 			if character.respawn > 0 do continue
 			if in_volume(t.world.start, player_pos(t, player)) {
@@ -813,7 +797,7 @@ run :: proc(t: ^Tick) {
 			}
 		}
 	case .Run:
-		players := sim.iterate_present(&t.state.players)
+		players := sim.iterate_present(t)
 		for character, player in sim.next(&players) {
 			if character.respawn > 0 do continue
 			pos := player_pos(t, player)
@@ -853,11 +837,11 @@ run :: proc(t: ^Tick) {
 
 // Back to the hub: everyone home, every item, platform and trigger as the level made it.
 reset_route :: proc(t: ^Tick) {
-	holders := sim.iterate_present(&t.state.players)
+	holders := sim.iterate_present(t)
 	for _, player in sim.next(&holders) do release_all(t, player)
 	t.state.phase = .Hub
 	t.state.checkpoint = -1
-	players := sim.iterate_present(&t.state.players)
+	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
 		character.stun = 0
 		character.thrown = false

@@ -6,10 +6,8 @@ package survivor_extension
 
 import "base:runtime"
 import "core:fmt"
-import "core:math"
 import "unified:dmath"
 import "unified:eos"
-import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:physics"
 import "unified:sim"
@@ -19,13 +17,12 @@ import "../survivor"
 
 @(export, link_name = "survivor_init")
 survivor_init :: proc "c" (
-	gpa: gdi.InterfaceGetProcAddress,
-	lib: gdi.ClassLibraryPtr,
-	init: ^gdi.Initialization,
-) -> gdi.Bool {
-	context = runtime.default_context()
-	constants_fill(&CONSTANTS)
-	return godot.init(&survivor.GAME, GLUE, gpa, lib, init, eos.lobby({})) // online play: EOS lobbies and P2P
+	gpa: godot.Get_Proc_Address,
+	lib: godot.Class_Library,
+	init: ^godot.Initialization,
+) -> godot.Init_Result {
+	// online play: EOS lobbies and P2P
+	return godot.init(&survivor.GAME, GLUE, gpa, lib, init, eos.lobby({}), constants = constants)
 }
 
 // ---- the view contract
@@ -61,14 +58,12 @@ Player_View :: struct {
 }
 
 // Events reach views by the host's default routing: a player's events (`player`) its player view, a barrel's
-// explosion (`entity` = item index + 1) the barrel's view (View_Item.entity); enemies and gems are MultiMesh
-// instances, so their events (by handle) reach no view.
+// explosion (`entity`: sim.entity of the item's index) the barrel's view (keyed by that index); enemies and gems are
+// MultiMesh instances, so their events (by handle) reach no view.
 GLUE := godot.Glue(survivor.Game, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame   = fill_frame,
 	data         = Data,
-	constants    = CONSTANTS,
-	bench        = survivor.bench_prepare,
 }
 
 // ---- input (main thread, the one local player)
@@ -92,23 +87,18 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_view(f, {
 			kind   = .Player,
 			player = player,
-			pos    = character.pos,
+			pos    = sim.Position(character.pos),
 		}, Player_View{hp = max(character.hp, 0)})
 	}
 	for i in 0 ..< survivor.ITEM_COUNT {
 		item := &f.state.items[i]
 		if !item.alive do continue
-		body_pos := physics.body_position(f.world.phys, item.body)
-		godot.push_view(
-			f,
-			{
-				key    = u64(i),
-				kind   = item.kind == .Barrel ? .Barrel : .Crate,
-				entity = u64(i + 1), // barrel_exploded's entity: item index + 1 (an entity of 0 routes nowhere)
-				pos    = {body_pos.x, body_pos.y, body_pos.z},
-				rot    = physics.body_rotation(f.world.phys, item.body),
-			},
-		)
+		godot.push_view(f, {
+			key  = u64(i),
+			kind = item.kind == .Barrel ? .Barrel : .Crate,
+			pos  = sim.Position(physics.body_position(f.world.phys, item.body)),
+			rot  = physics.body_rotation(f.world.phys, item.body),
+		})
 	}
 	enemies := sim.iterate(&f.state.enemies)
 	for enemy, handle in sim.next(&enemies) {
@@ -143,14 +133,10 @@ fill_frame :: proc(f: ^Frame) {
 
 HIT_FLASH_S :: 0.15
 
-// The rotation about +Y that turns +Z towards `dir` (x, z on the floor; zero: the identity): the half-way
-// quaternion (0, sin, 0, 1 + cos) normalized, no trigonometry.
+// The rotation about +Y that turns +Z towards `dir` (x, z on the floor, any length; zero: the identity).
 facing :: proc(dir: [2]f32) -> [4]f32 {
-	length := math.sqrt(dir.x * dir.x + dir.y * dir.y)
-	if length == 0 do return {}
-	cos_yaw, sin_yaw := dir.y / length, dir.x / length
-	if cos_yaw < -0.9999 do return {0, 1, 0, 0} // straight back: half a turn
-	return godot.qnormalize({0, sin_yaw, 0, 1 + cos_yaw})
+	unit := dmath.normalize(dir, 0)
+	return unit == {} ? {} : dmath.quat_yaw(unit)
 }
 
 // MultiMesh custom data (the game's shaders): r = hit flash 1 -> 0 over HIT_FLASH_S, g = age in seconds.
@@ -186,20 +172,19 @@ Item_Spot :: struct {
 	kind:     survivor.Item_Kind, // an EnumItemKind value
 }
 
-CONSTANTS := Data_Constants {
-	over_hold_s  = survivor.OVER_HOLD_S,
-	arena_half   = survivor.ARENA_HALF,
-	start_radius = survivor.START_RADIUS,
-	upgrades     = {
-		{upgrade = .Fire_Rate, name = "Fire rate", detail = "Shoot more often"},
-		{upgrade = .Damage, name = "Damage"},
-		{upgrade = .Move_Speed, name = "Move speed"},
-	},
-}
-
-// The constants computed from the sim (the item grid, the details with its numbers), before install copies them.
-// Their strings live as long as the process.
-constants_fill :: proc(constants: ^Data_Constants) {
+// godot.init calls it once: the sizes, the cards (their details with the sim's numbers) and the item grid. Their
+// strings live as long as the process.
+constants :: proc() -> (constants: Data_Constants) {
+	constants = {
+		over_hold_s  = survivor.OVER_HOLD_S,
+		arena_half   = survivor.ARENA_HALF,
+		start_radius = survivor.START_RADIUS,
+		upgrades     = {
+			{upgrade = .Fire_Rate, name = "Fire rate", detail = "Shoot more often"},
+			{upgrade = .Damage, name = "Damage"},
+			{upgrade = .Move_Speed, name = "Move speed"},
+		},
+	}
 	constants.upgrades[survivor.Upgrade.Damage].detail = fmt.aprintf(
 		"+%d damage per shot",
 		survivor.DAMAGE_LEVELUP,
@@ -213,4 +198,5 @@ constants_fill :: proc(constants: ^Data_Constants) {
 	for &spot, i in constants.items {
 		spot = {survivor.item_position(i), survivor.item_kind(i)}
 	}
+	return
 }

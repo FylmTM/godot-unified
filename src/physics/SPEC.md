@@ -13,7 +13,8 @@ create(settings: Settings) -> ^World      // one Box3D world; mutex-guarded (Box
 destroy(world)
 step(world)                                 // one tick: 1 / tick_hz seconds in `substeps` solver substeps
 Settings :: struct {tick_hz, substeps: int, workers: i32, gravity: Maybe([3]f32), hit_event_threshold: f32}
-                                            // tick_hz: the game's; zero: 4 substeps, one thread, Box3D's defaults
+                                            // tick_hz: the game's (its Extra says it: sim.create refuses another);
+                                            // zero: 4 substeps, one thread, Box3D's defaults
 extra(world, State) -> sim.Extra            // the world as rollback state (a game's sim.Game.extra returns it)
 world_anchor(world) -> Body_Link            // a static body every World has (its first): joints that hold a body to the world
 ```

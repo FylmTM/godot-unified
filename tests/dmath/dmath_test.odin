@@ -9,17 +9,17 @@ import "unified:dmath"
 @(test)
 helpers :: proc(t: ^testing.T) {
 	testing.expect_value(t, dmath.length({3, 4}), 5)
-	testing.expect_value(t, dmath.normalize({0, 0}), dmath.Vec2{})
-	testing.expect_value(t, dmath.normalize({0, 0, 2}), dmath.Vec3{0, 0, 1})
-	testing.expect_value(t, dmath.clamp_length2({6, 8}, 5), dmath.Vec2{3, 4})
-	testing.expect_value(t, dmath.clamp_length2({0.6, 0.8}, 5), dmath.Vec2{0.6, 0.8})
+	testing.expect_value(t, dmath.normalize({0, 0}), [2]f32{})
+	testing.expect_value(t, dmath.normalize({0, 0, 2}), [3]f32{0, 0, 1})
+	testing.expect_value(t, dmath.clamp_length2({6, 8}, 5), [2]f32{3, 4})
+	testing.expect_value(t, dmath.clamp_length2({0.6, 0.8}, 5), [2]f32{0.6, 0.8})
 	testing.expect_value(t, dmath.dist_sq2({1, 1}, {4, 5}), 25)
 	testing.expect_value(t, dmath.dot3({1, 2, 3}, {4, -5, 6}), 12)
 	// quat_rotate: identity; half turns about each axis (exact); a quarter turn about +Z, +x to +y
-	testing.expect_value(t, dmath.quat_rotate({0, 0, 0, 1}, {1, 2, 3}), dmath.Vec3{1, 2, 3})
-	testing.expect_value(t, dmath.quat_rotate({1, 0, 0, 0}, {1, 2, 3}), dmath.Vec3{1, -2, -3})
-	testing.expect_value(t, dmath.quat_rotate({0, 1, 0, 0}, {1, 2, 3}), dmath.Vec3{-1, 2, -3})
-	testing.expect_value(t, dmath.quat_rotate({0, 0, 1, 0}, {1, 2, 3}), dmath.Vec3{-1, -2, 3})
+	testing.expect_value(t, dmath.quat_rotate({0, 0, 0, 1}, {1, 2, 3}), [3]f32{1, 2, 3})
+	testing.expect_value(t, dmath.quat_rotate({1, 0, 0, 0}, {1, 2, 3}), [3]f32{1, -2, -3})
+	testing.expect_value(t, dmath.quat_rotate({0, 1, 0, 0}, {1, 2, 3}), [3]f32{-1, 2, -3})
+	testing.expect_value(t, dmath.quat_rotate({0, 0, 1, 0}, {1, 2, 3}), [3]f32{-1, -2, 3})
 	turned := dmath.quat_rotate({0, 0, 0.70710677, 0.70710677}, {1, 0, 0})
 	testing.expect(t, abs(turned.x) < 1e-6 && abs(turned.y - 1) < 1e-6 && turned.z == 0)
 	for k in 0 ..< 8 {
@@ -60,7 +60,7 @@ no_fma_contraction :: proc(t: ^testing.T) {
 		got,
 		got == FUSED ? " but got the fused result 2^-24" : "",
 	)
-	va, vb, vc: dmath.Vec3 = {A, A, A}, {A, A, A}, {C, C, C}
+	va, vb, vc: [3]f32 = {A, A, A}, {A, A, A}, {C, C, C}
 	vgot := mul_add3(intrinsics.volatile_load(&va), intrinsics.volatile_load(&vb), intrinsics.volatile_load(&vc))
 	ARRAY :: "%s = %v, want 0 (unfused): the compiler fused a multiply and an add (FMA contraction) in array arithmetic, which breaks the determinism rule"
 	testing.expectf(t, vgot == {}, ARRAY, "Vec3 a*b + c", vgot)
@@ -83,7 +83,7 @@ mul_add4 :: proc "contextless" (a, b, c: [4]f32) -> [4]f32 {
 	return a * b + c
 }
 
-add_scaled3 :: proc "contextless" (c, a: dmath.Vec3, scale: f32) -> dmath.Vec3 {
+add_scaled3 :: proc "contextless" (c, a: [3]f32, scale: f32) -> [3]f32 {
 	return c + a * scale
 }
 
@@ -91,7 +91,7 @@ mul_add :: proc "contextless" (a, b, c: f32) -> f32 {
 	return a * b + c
 }
 
-mul_add3 :: proc "contextless" (a, b, c: dmath.Vec3) -> dmath.Vec3 {
+mul_add3 :: proc "contextless" (a, b, c: [3]f32) -> [3]f32 {
 	return a * b + c
 }
 
@@ -191,11 +191,11 @@ input_encodings :: proc(t: ^testing.T) {
 	testing.expect_value(t, dmath.axis_i8(-2), -127)
 	testing.expect_value(t, dmath.axis_i8(0.5), 64)
 	testing.expect(t, dmath.length(dmath.stick(127, 127)) <= 1)
-	testing.expect_value(t, dmath.stick(127, 0), dmath.Vec2{1, 0})
+	testing.expect_value(t, dmath.stick(127, 0), [2]f32{1, 0})
 	testing.expect_value(t, dmath.dir2({}), 0)
-	testing.expect_value(t, dmath.dir2_vec(0), dmath.Vec2{})
+	testing.expect_value(t, dmath.dir2_vec(0), [2]f32{})
 	testing.expect_value(t, dmath.dir3({}), dmath.Dir3{})
-	testing.expect_value(t, dmath.dir3_vec({}), dmath.Vec3{})
+	testing.expect_value(t, dmath.dir3_vec({}), [3]f32{})
 	MAX_ERROR :: 0.0002 // radians: ~0.01°
 	for i in 0 ..< 720 {
 		// directions on a spiral over the sphere (sqrt-only construction: no trig in tests either)

@@ -4,7 +4,7 @@
 //   - a class per type of the game's data union (Glue.data: `Data_Hud` -> DataHud, extends Object), one live
 //     instance each, its typed properties read from the newest frame's bytes, a `changed` signal when they change
 //     (fill_frame: push_data), held by `UnifiedData` with a property per type named from it (`Data_Hud` -> hud);
-//   - `UnifiedConstants`: the constants' fields (Glue.constants), one instance filled at load (no fields when the
+//   - `UnifiedConstants`: the constants' fields (godot.init's constants), one instance filled at load (no fields when the
 //     game has none);
 //   - the engine singleton `Unified` (class and singleton, like Godot's Input): `Unified.data`, `Unified.constants`,
 //     `Unified.session`, `Unified.tick_hz` and `Unified.view_scale`;
@@ -110,7 +110,7 @@ data_problems :: proc(data: typeid, constants: typeid, input_values: typeid, pro
 		}
 		for variant in info.variants do struct_problems("data type", variant, true, problems)
 	}
-	if constants != nil do struct_problems("Glue.constants", type_info_of(constants), false, problems)
+	if constants != nil do struct_problems("the constants", type_info_of(constants), false, problems)
 	if input_values != nil do struct_problems("Glue.input_values", type_info_of(input_values), true, problems)
 }
 
@@ -337,7 +337,7 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 			layout.property,
 		)
 	case .Constants:
-		data_class.doc_brief = "The game's constants (Glue.constants): [code]Unified.constants[/code]."
+		data_class.doc_brief = "The game's constants (what godot.init's constants proc returned): [code]Unified.constants[/code]."
 		data_class.doc = "The game's fixed values for its scripts, set once at load (no members when the game has none)."
 	case .Input:
 		data_class.doc_brief = "The game's input values (Glue.input_values): [code]Unified.input[/code]."

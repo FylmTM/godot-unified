@@ -26,8 +26,8 @@ progress_follows_the_player :: proc(t: ^testing.T) {
 	inputs = {}
 	sim.join(&inputs, 0, 2) // someone new takes slot 0
 	sim.step(simulation, &inputs)
-	testing.expect_value(t, in_slot(simulation, 0).level, 1)
-	testing.expect_value(t, in_slot(simulation, 0).damage_bonus, 0)
+	testing.expect_value(t, sim.slot_data(simulation, 0).level, 1)
+	testing.expect_value(t, sim.slot_data(simulation, 0).damage_bonus, 0)
 	away := sim.player_data(players, first)
 	testing.expect(t, away.level == 4 && away.body == {})
 
@@ -41,5 +41,5 @@ progress_follows_the_player :: proc(t: ^testing.T) {
 	testing.expect(t, back.alive && back.body != {} && back.hp == survivor.PLAYER_HP)
 	testing.expect_value(t, back.pos.x, survivor.PLAYER_START[1].x)
 	testing.expect_value(t, back.pos.z, survivor.PLAYER_START[1].z)
-	testing.expect_value(t, in_slot(simulation, 0).level, 1)
+	testing.expect_value(t, sim.slot_data(simulation, 0).level, 1)
 }

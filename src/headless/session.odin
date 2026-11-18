@@ -154,7 +154,6 @@ session_run :: proc(headless: ^Headless($G), cfg: Session_Config) -> (result: Se
 		seed          = cfg.seed,
 		ticks         = cfg.ticks,
 		start_players = cfg.clients - (cfg.late_tick != 0 ? 1 : 0),
-		content       = headless.content,
 		recording     = sim.log_sink_memory(&recording),
 		desync_detail = true,
 	})
@@ -177,7 +176,6 @@ session_run :: proc(headless: ^Headless($G), cfg: Session_Config) -> (result: Se
 		client_cfg := netcode.Client_Config {
 			slot      = slot,
 			join_tick = join,
-			content   = headless.content,
 		}
 		return netcode.client_create(headless.game, client_cfg, link, scripted_hooks(scripted))
 	}

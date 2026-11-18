@@ -122,6 +122,7 @@ Player_Changes :: struct {
 // so an Extra keeps one saved copy per ring slot (at most MAX_RING_SIZE).
 Extra :: struct {
 	data:       rawptr,
+	tick_hz:    int, // its step rate (physics: Settings.tick_hz; 0: none): create refuses another (extra_violation)
 	save:       proc(data: rawptr, slot: int),
 	restore:    proc(data: rawptr, slot: int) -> bool,
 	// Appends the canonical bytes of the current state to `out` (checksum input). On ticks that are a multiple of
@@ -184,6 +185,11 @@ Game :: struct(
 	// play together instead of desyncing.
 	version:           string,
 	tick_hz:           int, // a power of two, 32..128; dt = 1 / tick_hz exactly
+	// Optional: the content the game ships with, its level file's bytes (src/level/SPEC.md), embedded once in the
+	// sim package (`content = #load("../../game/levels/arena.level")`). create, compat_of and from_snapshot use it
+	// when given no content, so every host, run and suite plays it unless given other bytes (a test's own level,
+	// the headless `--level FILE`).
+	content:           []u8,
 
 	// Optional: the World for a session with this seed and content (the level file's bytes, src/level/SPEC.md;
 	// empty when the game has none): physics world, static geometry, scratch buffers. The bytes outlive the World
@@ -205,6 +211,10 @@ Game :: struct(
 	// gives every client of a session and every offline run the same player.
 	scripted_input:    proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
 	scripted_commands: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^Command_Out(Cmd)),
+	// Optional, never called by the sim: fill the initial state with `count` entities and hold that population (the
+	// headless `bench`, Godot's `-- --bench N`). Single player only: it changes the initial state, which every peer
+	// would have to share.
+	bench_prepare:     proc(state: ^State, world: ^World, count: int),
 }
 
 // The command union of a game that has no commands: sim.Game(State, Input, World, Event, sim.No_Commands, PLAYERS).
@@ -248,7 +258,7 @@ Ring_Slot :: struct($State: typeid) {
 Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	game:          ^G,
 	seed:          u64,
-	content:       []u8, // borrowed: the caller of create keeps it alive
+	content:       []u8, // what it plays (create's, or Game.content); borrowed: the caller of create keeps it alive
 	content_hash:  u64, // content_hash(content): recorded in input logs and snapshots
 	compat:        u64, // compat_of(game, content): recorded in snapshots
 	layout:        u64, // layout_hash(State): recorded in snapshots (a constant of the type, derived once)
@@ -281,13 +291,13 @@ hash_bytes :: proc(bytes: []u8) -> u64 {
 // tuning, has its own) and version, the library's (LIBRARY_VERSION) and the unified-box3d pin (box3d_pin):
 // `library` overrides those two (tests: another build's compat; zero fields: this build's). Two builds with the same value run
 // the same simulation, as far as the build can tell. The content's hash goes in too, so peers with different
-// levels refuse to play together.
+// levels refuse to play together (nil: the game's own, Game.content).
 compat_of :: proc(
 	game: ^$G,
 	content: []u8 = nil,
 	library := Library{},
 ) -> u64 where intrinsics.type_is_specialization_of(G, Game) {
-	return compat_with(game, layout_hash(part(G, GAME_STATE)), content, library)
+	return compat_with(game, layout_hash(part(G, GAME_STATE)), game_content(game, content), library)
 }
 
 // compat_of for a caller that has the State's layout hash already (create, from_snapshot): one RTTI walk fewer.
@@ -347,6 +357,11 @@ inputs_same :: proc(a, b: ^Inputs($G)) -> bool {
 	return true
 }
 
+// The content a run of `game` plays: `content`, or the game's own (Game.content) when that is nil.
+game_content :: proc(game: ^$G, content: []u8) -> []u8 where intrinsics.type_is_specialization_of(G, Game) {
+	return content if content != nil else game.content
+}
+
 // The identity of a game's content (src/level/SPEC.md): XXH3 of the bytes, 0 for none.
 content_hash :: proc(content: []u8) -> u64 {
 	return hash_bytes(content) if len(content) > 0 else 0
@@ -402,7 +417,19 @@ declaration_violation :: proc(
 	return ""
 }
 
-// Creates the World and the tick-0 state, allocates the ring and saves tick 0 into it.
+// Why a game's Extra can't run with it ("" when it can; temp-allocated): it steps at another rate than the game.
+extra_violation :: proc(game: ^$G, extra: Extra) -> string where intrinsics.type_is_specialization_of(G, Game) {
+	if extra.tick_hz == 0 || extra.tick_hz == game.tick_hz do return ""
+	return fmt.tprintf(
+		"%s: its Extra steps at %d Hz, the game at %d Hz (physics.Settings.tick_hz must be Game.tick_hz)",
+		game.name,
+		extra.tick_hz,
+		game.tick_hz,
+	)
+}
+
+// Creates the World and the tick-0 state, allocates the ring and saves tick 0 into it. `content`: the level it plays
+// (nil: the game's own, Game.content), borrowed: the caller keeps it alive.
 create :: proc(
 	game: ^$G,
 	seed: u64,
@@ -416,13 +443,14 @@ create :: proc(
 	if reason := game_violation(game); reason != "" {
 		panic(reason)
 	}
+	level := game_content(game, content)
 	simulation := new(Sim(G))
 	simulation.game = game
 	simulation.seed = seed
-	simulation.content = content
-	simulation.content_hash = content_hash(content)
+	simulation.content = level
+	simulation.content_hash = content_hash(level)
 	simulation.layout = layout_hash(State)
-	simulation.compat = compat_with(game, simulation.layout, content, {})
+	simulation.compat = compat_with(game, simulation.layout, level, {})
 	simulation.input_fixable = wire_fixable(type_info_of(Input))
 	simulation.ring = make([]Ring_Slot(State), ring_size(game.tick_hz))
 	for &slot in simulation.ring {
@@ -431,9 +459,12 @@ create :: proc(
 		slot.events.list = make([dynamic]Raw_Event, 0, 8)
 	}
 	simulation.hash_buf = make([dynamic]u8)
-	simulation.world = game.world_create(seed, content) if game.world_create != nil else new(part(G, GAME_WORLD))
+	simulation.world = game.world_create(seed, level) if game.world_create != nil else new(part(G, GAME_WORLD))
 	if game.extra != nil {
 		simulation.extra = game.extra(simulation.world)
+		if reason := extra_violation(game, simulation.extra); reason != "" {
+			panic(reason)
+		}
 	}
 	inputs: Inputs(G)
 	slot := &simulation.ring[0]

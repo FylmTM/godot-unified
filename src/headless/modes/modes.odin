@@ -21,8 +21,8 @@ Mode :: struct($G: typeid) {
 	lobby:   ^netcode.Lobby, // a lobby mode's service (Args.lobby)
 }
 
-// Runs the mode named on the command line on `game` (its scripted player plays the runs). `options`: the binary's
-// content and benchmark (its `game` is `game`). `variants`: other variants of the game (e.g. other tunings), picked
+// Runs the mode named on the command line on `game` (its scripted player plays the runs, on its content). `options`:
+// the binary's benchmark (its `game` is `game`). `variants`: other variants of the game (e.g. other tunings), picked
 // with `--game NAME` (sim.Game.name) on any mode. `lobbies`: lobby services (eos.lobby) for the <name>-host and
 // <name>-client modes; a game opts in, and links the service's SDK. `extra`: the game's own modes.
 run :: proc(
@@ -130,7 +130,10 @@ run :: proc(
 		if err != nil {
 			die("cannot read --level %s", path)
 		}
-		headless.content = data
+		// A copy of the game on that level (it lives until the process exits).
+		on_level := new_clone(headless.game^)
+		on_level.content = data
+		headless.game = on_level
 	}
 	check_known(&args, mode.options)
 	os.exit(mode.run(headless, &args) ? 0 : 1)

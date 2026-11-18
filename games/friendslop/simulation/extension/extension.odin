@@ -4,11 +4,9 @@
 // Built by `uni build friendslop`.
 package friendslop_extension
 
-import "base:runtime"
 import "core:math"
 import "unified:dmath"
 import "unified:eos"
-import "unified:gdext/gdi"
 import "unified:godot"
 import "unified:physics"
 import "unified:sim"
@@ -17,21 +15,20 @@ import fs "../friendslop"
 
 @(export, link_name = "friendslop_init")
 friendslop_init :: proc "c" (
-	gpa: gdi.InterfaceGetProcAddress,
-	lib: gdi.ClassLibraryPtr,
-	init: ^gdi.Initialization,
-) -> gdi.Bool {
-	context = runtime.default_context()
-	constants_fill()
-	return godot.init(&fs.GAME, GLUE, gpa, lib, init, eos.lobby({})) // online play: EOS lobbies and P2P
+	gpa: godot.Get_Proc_Address,
+	lib: godot.Class_Library,
+	init: ^godot.Initialization,
+) -> godot.Init_Result {
+	// online play: EOS lobbies and P2P
+	return godot.init(&fs.GAME, GLUE, gpa, lib, init, eos.lobby({}), constants = constants)
 }
 
 /// ---- glue
 
 // Scene views (the view index: a scene per kind, with a UnifiedView marker). A player's view is keyed by
 // sim.player_key. Every sim object the level placed (items, platforms, bells, plates, switches) is a `marker` view
-// keyed by its level marker index, entity = that index + 1 (the `entity` of its events); the view adopts that
-// marker's visuals.
+// keyed by its level marker index (its events' `entity` is sim.entity of that index); the view adopts that marker's
+// visuals.
 View :: enum u8 {
 	Player,
 	Marker,
@@ -46,10 +43,8 @@ GLUE := godot.Glue(fs.Game, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame   = fill_frame,
 	data         = Data,
-	constants    = CONSTANTS,
 	event_key    = event_key,
 	input_values = Input_Values,
-	level        = "res://game/levels/park.level",
 }
 
 // The session data (Unified.data.hud): fs.Data_Hud, the run and each slot's player, pushed every frame.
@@ -57,12 +52,11 @@ Data :: union {
 	fs.Data_Hud,
 }
 
-// An event about a player goes to that player's view, else one about a level marker to the marker's view. So
-// grabbed, dropped and thrown stay with the holder's view, and a switch a player touched with the player's,
-// where the default routing would send them to the item's or the switch's view. The rest: by their subject.
-event_key :: proc(event: ^sim.Raw_Event, subject: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
+// An event about a player goes to that player's view. So grabbed, dropped and thrown stay with the holder's view, and
+// a switch a player touched with the player's, where the default routing would send them to the item's or the
+// switch's view (its `entity`: the marker view keyed by that marker's index). The rest: by their subject.
+event_key :: proc(_: fs.Event, subject: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
 	if subject.player != {} do return .Player, sim.player_key(subject.player), .View
-	if subject.entity != 0 do return .Marker, subject.entity - 1, .View // the marker index
 	return
 }
 
@@ -112,8 +106,8 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_view(f, {
 			kind   = .Player,
 			player = player,
-			pos    = physics.body_position(f.world.phys, character.controller.body),
-			rot    = fs.yaw_quat(character.facing),
+			pos    = sim.Position(physics.body_position(f.world.phys, character.controller.body)),
+			rot    = dmath.quat_yaw(character.facing),
 		}, Player_View {
 			limp    = character.stun > 0 || character.held_by != {},
 			holding = character.held_kind != .None,
@@ -122,13 +116,11 @@ fill_frame :: proc(f: ^Frame) {
 	}
 	add_body :: proc(f: ^Frame, body: physics.Body_Ref, marker: int) {
 		if body.index1 == 0 do return
-		pos := physics.body_position(f.world.phys, body)
 		godot.push_view(f, {
-			key    = u64(marker),
-			kind   = .Marker,
-			entity = fs.marker_entity(marker),
-			pos    = {pos.x, pos.y, pos.z},
-			rot    = physics.body_rotation(f.world.phys, body),
+			key  = u64(marker),
+			kind = .Marker,
+			pos  = sim.Position(physics.body_position(f.world.phys, body)),
+			rot  = physics.body_rotation(f.world.phys, body),
 		})
 	}
 	for i in 0 ..< f.world.item_count {
@@ -138,11 +130,10 @@ fill_frame :: proc(f: ^Frame) {
 	for i in 0 ..< f.world.trigger_count {
 		marker := f.world.triggers[i].marker
 		godot.push_view(f, {
-			key    = u64(marker),
-			kind   = .Marker,
-			entity = fs.marker_entity(marker),
-			pos    = f.world.triggers[i].volume.pos,
-			rot    = f.world.level.markers[marker].rot,
+			key  = u64(marker),
+			kind = .Marker,
+			pos  = sim.Position(f.world.triggers[i].volume.pos),
+			rot  = f.world.level.markers[marker].rot,
 		})
 	}
 	godot.push_data(f, fs.hud(f.state, f.tick))
@@ -166,21 +157,21 @@ Data_Constants :: struct {
 	item_sizes:         [len(fs.Item_Kind)]Item_Size, // by kind
 }
 
-// Filled before install (constants_fill): the item sizes come from fs.ITEM_SPECS.
-CONSTANTS := Data_Constants {
-	finish_hold_s      = fs.FINISH_HOLD_S,
-	respawn_s          = fs.RESPAWN_S,
-	feet               = fs.FEET,
-	player_radius      = fs.PLAYER_RADIUS,
-	player_half_height = fs.PLAYER_HALF_HEIGHT,
-}
-
-constants_fill :: proc() {
+// godot.init calls it once: the item sizes come from fs.ITEM_SPECS.
+constants :: proc() -> Data_Constants {
+	constants := Data_Constants {
+		finish_hold_s      = fs.FINISH_HOLD_S,
+		respawn_s          = fs.RESPAWN_S,
+		feet               = fs.FEET,
+		player_radius      = fs.PLAYER_RADIUS,
+		player_half_height = fs.PLAYER_HALF_HEIGHT,
+	}
 	for spec, kind in fs.ITEM_SPECS {
 		size := spec.half == {} ? [3]f32{spec.radius, spec.radius, spec.radius} * 2 : spec.half * 2
-		CONSTANTS.item_sizes[int(kind)] = {
+		constants.item_sizes[int(kind)] = {
 			kind = kind,
 			size = size,
 		}
 	}
+	return constants
 }

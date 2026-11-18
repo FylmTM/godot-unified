@@ -12,11 +12,11 @@ BOT_ORBIT :: 14.0 // m: the radius the bot circles at when nothing is near
 
 // The input of the bot in `slot` (zero when nobody holds it or they are dead).
 bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
-	character := sim.player_data(&state.players, sim.player_in_slot(&state.players, slot))
+	character := sim.slot_data(&state.players, slot)
 	if character == nil || !character.alive {
 		return
 	}
-	pos := dmath.Vec2{character.pos.x, character.pos.z}
+	pos := [2]f32{character.pos.x, character.pos.z}
 	if state.phase == .Lobby {
 		direction := slot * 2 % 8 // walk out of the start circle, each slot its own way
 		input.move_x = dmath.axis_i8(dmath.DIR8[direction].x)
@@ -24,12 +24,12 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 		return
 	}
 	// Flee: the sum of (pos - enemy) / d², for enemies in sight.
-	flee: dmath.Vec2
+	flee: [2]f32
 	nearest2: f32 = 1e9
 	enemies := sim.iterate(&state.enemies)
 	for enemy in sim.next(&enemies) {
 		away := pos - enemy.pos
-		distance2 := away.x * away.x + away.y * away.y
+		distance2 := dmath.length_sq(away)
 		if distance2 < BOT_SIGHT * BOT_SIGHT {
 			weight := 1 / (distance2 + 0.25)
 			flee.x += away.x * weight
@@ -38,12 +38,12 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 		nearest2 = dmath.min(nearest2, distance2)
 	}
 	// Gems: head for the nearest one in sight.
-	to_gem: dmath.Vec2
+	to_gem: [2]f32
 	best: f32 = BOT_GEM_SIGHT * BOT_GEM_SIGHT
 	gems := sim.iterate(&state.gems)
 	for gem in sim.next(&gems) {
 		toward := gem.pos - pos
-		distance2 := toward.x * toward.x + toward.y * toward.y
+		distance2 := dmath.length_sq(toward)
 		if distance2 < best {
 			best = distance2
 			to_gem = dmath.normalize(toward)
@@ -52,14 +52,14 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 	// Orbit the centre at BOT_ORBIT (tangent + radial correction), away from walls and pillars.
 	radius := dmath.length(pos)
 	radial := dmath.normalize(pos)
-	tangent := dmath.Vec2{-radial.y, radial.x}
+	tangent := [2]f32{-radial.y, radial.x}
 	if slot % 2 == 1 {
 		tangent = -tangent
 	}
 	orbit := tangent + radial * ((BOT_ORBIT - radius) * 0.15)
 	for k in 0 ..< 8 {
 		away := pos - 14 * dmath.DIR8[k]
-		distance2 := away.x * away.x + away.y * away.y
+		distance2 := dmath.length_sq(away)
 		if distance2 < 9 {
 			orbit += away * (1.5 / (distance2 + 0.25))
 		}
@@ -70,8 +70,8 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 			continue
 		}
 		spot := item_position(i)
-		away := pos - dmath.Vec2{spot.x, spot.z}
-		distance2 := away.x * away.x + away.y * away.y
+		away := pos - [2]f32{spot.x, spot.z}
+		distance2 := dmath.length_sq(away)
 		if distance2 < 2.25 {
 			orbit += away * (1.0 / (distance2 + 0.1))
 		}
@@ -91,7 +91,7 @@ bot_input :: proc(state: ^State, slot: int, tick: u32) -> (input: Input) {
 // session it sees a predicted state a few ticks old, so it may pick more than once for one level-up: the
 // sim ignores a pick with nothing pending.
 bot_commands :: proc(state: ^State, slot: int, tick: u32, out: ^sim.Command_Out(Cmd)) {
-	character := sim.player_data(&state.players, sim.player_in_slot(&state.players, slot))
+	character := sim.slot_data(&state.players, slot)
 	if character != nil && character.alive && character.pending_levelups > 0 {
 		sim.send_command(out, Cmd_Pick{Upgrade((character.level + i32(slot)) % 3)})
 	}
@@ -101,10 +101,7 @@ bot_commands :: proc(state: ^State, slot: int, tick: u32, out: ^sim.Command_Out(
 // free): their inputs and commands, as the tick's record. `out` is scratch (the caller deletes its list).
 bot_tick :: proc(state: ^State, player_count: int, tick: u32, out: ^sim.Command_Out(Cmd)) -> (inputs: Inputs) {
 	for slot in 0 ..< player_count {
-		inputs.present += {slot}
-		if sim.player_in_slot(&state.players, slot) == {} {
-			sim.join(&inputs, slot, slot + 1)
-		}
+		sim.seat(&inputs, &state.players, slot, slot + 1)
 		inputs.input[slot] = bot_input(state, slot, tick)
 		out.slot = slot
 		out.cap = sim.COMMANDS_PER_SLOT

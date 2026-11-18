@@ -27,7 +27,7 @@ RULES := []Rule {
 	{pkg = "physics", kind = .Tick, imports = PHYSICS_IMPORTS, allow_globals = {"world_mutex"}},
 	// Levels: parsed when a World is created; plain data, through unified:wire; the Level keeps its allocator
 	// (base:runtime).
-	{pkg = "level", kind = .Tick, imports = {"unified:wire", "base:runtime"}},
+	{pkg = "level", kind = .Tick, imports = {"unified:wire", "base:runtime", "base:intrinsics"}},
 	// The harness: also walks RTTI, hashes and formats errors.
 	{pkg = "sim", kind = .Tick, imports = SIM_IMPORTS, allow_fields = {"replaced"}}, // it fills and logs Inputs.replaced
 	// Real-time code beside the sim: the encoding, the netcode (its clocks are fine), the EOS transport (its SDK

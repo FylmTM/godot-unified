@@ -13,21 +13,12 @@ import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:sim"
 
-// One event kind (a variant of the game's Event union), read by RTTI.
-Event_Layout :: struct {
-	name:              string, // the type name without `Event_`, lowercased ("coin_picked")
-	type:              ^runtime.Type_Info,
-	player:            int, // offset of the first sim.Player field, -1: none
-	subject:           int, // offset of the first sim.Handle(T) field, or of a u64 field named `entity`; -1: none
-	subject_is_handle: bool,
-}
-
 // What the tracker identifies and the session thread posts: one event of one simulated tick.
 Tick_Event :: struct {
 	tick:   u32,
 	nth:    u32, // among the tick's events of the same kind and subject
 	player: u64, // the subject player's key (sim.player_key; 0: none)
-	entity: u64, // the subject key (a handle's key, or the `entity` field), 0: none
+	entity: u64, // the subject (a handle's key, or a sim.Entity), 0: none
 	raw:    sim.Raw_Event,
 }
 
@@ -58,36 +49,6 @@ to_sim :: #force_inline proc "contextless" (point: [3]f32) -> [3]f32 {
 	return point / api.view_scale
 }
 
-// The layouts of a game's event union, by kind (allocated for the process's lifetime).
-event_layouts :: proc(events: typeid) -> []Event_Layout {
-	context.allocator = runtime.heap_allocator()
-	variants := sim.union_variants(events)
-	layouts := make([]Event_Layout, len(variants))
-	for variant, kind in variants {
-		layout := &layouts[kind]
-		layout^ = {
-			name    = strings.clone(sim.variant_name(variant, sim.EVENT_PREFIX)),
-			type    = variant,
-			player  = -1,
-			subject = -1,
-		}
-		info := runtime.type_info_base(variant).variant.(runtime.Type_Info_Struct)
-		for i in 0 ..< int(info.field_count) {
-			field, offset := info.types[i], int(info.offsets[i])
-			name := info.names[i]
-			switch {
-			case field.id == sim.Player:
-				if layout.player < 0 do layout.player = offset
-			case is_handle(field):
-				if layout.subject < 0 do layout.subject, layout.subject_is_handle = offset, true
-			case name == "entity" && field.id == u64:
-				if layout.subject < 0 do layout.subject = offset
-			}
-		}
-	}
-	return layouts
-}
-
 // The offsets of a struct's sim.Position fields, in nested structs too (what crosses between sim and view units).
 position_offsets :: proc(type: ^runtime.Type_Info, base: int, out: ^[dynamic]int) {
 	info, is_struct := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
@@ -102,47 +63,12 @@ position_offsets :: proc(type: ^runtime.Type_Info, base: int, out: ^[dynamic]int
 	}
 }
 
-// A sim.Handle(T): its RTTI names it "Handle($T=...)" in package sim.
-is_handle :: proc(type: ^runtime.Type_Info) -> bool {
-	named, ok := type.variant.(runtime.Type_Info_Named)
-	return ok && named.pkg == "sim" && strings.has_prefix(named.name, "Handle(") && type.size == 8
-}
-
 is_integer :: proc(type: ^runtime.Type_Info) -> bool {
 	_, ok := runtime.type_info_base(type).variant.(runtime.Type_Info_Integer)
 	return ok
 }
 
-read_uint :: proc(bytes: []u8) -> u64 {
-	value: u64
-	for i := len(bytes) - 1; i >= 0; i -= 1 do value = value << 8 | u64(bytes[i])
-	return value
-}
-
-// The event's subject: its player's key (its first sim.Player field; 0: none) and its key (a handle's key or the
-// `entity` field, 0: none).
-event_subject :: proc(layout: ^Event_Layout, data: []u8) -> (player: u64, entity: u64) {
-	if layout.player >= 0 {
-		player = player_key_of(data[layout.player:][:size_of(sim.Player)])
-	}
-	if layout.subject >= 0 {
-		bytes := data[layout.subject:][:8]
-		if layout.subject_is_handle {
-			index, generation := read_uint(bytes[:4]), read_uint(bytes[4:])
-			entity = generation << 32 | index // sim.handle_key
-		} else {
-			entity = read_uint(bytes)
-		}
-	}
-	return
-}
-
 // ---- the main thread: fields converted by type (field_kind, field_variant; command.odin write_value the other way)
-
-// The key of a sim.Player's bytes (sim.player_key: 0 for nobody).
-player_key_of :: proc(bytes: []u8) -> u64 {
-	return sim.player_key({index = u16(read_uint(bytes[:2])), id = u16(read_uint(bytes[2:4]))})
-}
 
 // The Variant type a field reads as, and its class name: an OBJECT's class (a nested struct's DataX), an ARRAY's
 // element type ("int", "Vector2", "DataHudPlayer"; "": untyped, an array of arrays). By shape: [2]/[3]/[4]f32 a

@@ -17,7 +17,7 @@ Client_Config :: struct {
 	slot:        int, // the slot to ask for; -1: any free one
 	join_tick:   u32, // the earliest tick to become present (0: as soon as possible)
 	compat:      u64, // build/game id the relay checks (0: sim.compat_of(game, content))
-	content:     []u8, // the game's content (the level, src/level/SPEC.md); borrowed for the client's lifetime
+	content:     []u8, // the level (src/level/SPEC.md; nil: the game's own, sim.Game.content); borrowed for the client's lifetime
 	player_name: string, // the player's display name (sent to the relay, shared with everyone)
 	// On a link that vouches for no account (LAN, direct UDP): what the relay recognizes this person by when they
 	// come back (the same member, in any free slot). All zero: none (a new member every time).

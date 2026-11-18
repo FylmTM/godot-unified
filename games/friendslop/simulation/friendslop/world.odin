@@ -26,16 +26,6 @@ Item_Kind :: enum u8 {
 	Trophy,
 }
 
-@(rodata)
-ITEM_KIND_NAMES := [Item_Kind]string {
-	.Crate  = "crate",
-	.Ball   = "ball",
-	.Cube   = "cube",
-	.Key    = "key",
-	.Heavy  = "heavy",
-	.Trophy = "trophy",
-}
-
 Item_Spec :: struct {
 	half:        [3]f32, // box half extents (zero: a sphere)
 	radius:      f32, // sphere radius; for boxes, the grab reach bonus
@@ -206,6 +196,7 @@ GAME := Game {
 	name = "friendslop",
 	version = "4", // 4: plates, switches and locks are sensors (#236)
 	tick_hz = TICK_HZ,
+	content = #load("../../game/levels/park.level"), // the committed export of game/levels/park.tscn (uni bake)
 	world_create = world_create,
 	world_destroy = world_destroy,
 	extra = proc(world: ^World) -> sim.Extra {return physics.extra(world.phys, State)},
@@ -273,11 +264,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 			if slot >= 0 && slot < PLAYERS do world.spawns[slot] = marker.pos
 		case "item":
 			assert(world.item_count < MAX_ITEMS, "friendslop: too many items")
-			kind := Item_Kind.Crate
-			name := level.prop_string(&marker, "kind", "crate")
-			for kind_name, candidate in ITEM_KIND_NAMES {
-				if kind_name == name do kind = candidate
-			}
+			kind := level.prop_enum(&marker, "kind", Item_Kind.Crate) // item.gd's export_enum: the names, lowercased
 			world.items[world.item_count] = {kind, marker.pos, marker.rot, marker.index}
 			world.item_count += 1
 		case "platform":
@@ -289,16 +276,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 			def.marker = marker.index
 			def.trigger = -1
 			if ref := level.prop_ref(&marker, "trigger"); ref >= 0 do def.trigger = trigger_of[ref]
-			switch level.prop_string(&marker, "mode", "ping_pong") {
-			case "loop":
-				def.mode = .Loop
-			case "once":
-				def.mode = .Once
-			case "follow":
-				def.mode = .Follow
-			case:
-				def.mode = .Ping_Pong
-			}
+			def.mode = level.prop_enum(&marker, "mode", Platform_Mode.Ping_Pong) // platform.gd's export_enum
 			seconds := level.prop_f32(&marker, "seconds", 2)
 			wait := level.prop_f32(&marker, "wait", 0.5)
 			def.path.ease = level.prop_bool(&marker, "smooth", true) ? .Smooth : .Linear

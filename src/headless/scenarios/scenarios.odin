@@ -18,8 +18,7 @@ LONG :: #config(UNIFIED_LONG_TESTS, false)
 
 // A game's suite: its headless descriptor and the parameters of its runs.
 Suite :: struct($G: typeid) {
-	game:    ^G, // its scripted player (sim.Game.scripted_input) plays every run
-	content: []u8, // its level (src/level/SPEC.md), if it has one
+	game:    ^G, // its scripted player (sim.Game.scripted_input) plays every run, on its level (sim.Game.content)
 	players: int, // scripted players in offline runs
 	seed:    u64,
 	ticks:   u32, // length of offline runs and sessions
@@ -40,10 +39,10 @@ Reference :: struct {
 	log:           u64, // the hash of the input log's bytes
 }
 
-// The headless runs of a suite's game and content.
+// The headless runs of a suite's game.
 @(private)
 headless_of :: proc(suite: ^Suite($G)) -> headless.Headless(G) {
-	return {game = suite.game, content = suite.content}
+	return {game = suite.game}
 }
 
 // Restoring `window` ticks back and re-simulating, every tick, reproduces every tick's checksum.

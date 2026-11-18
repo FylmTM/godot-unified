@@ -420,6 +420,47 @@ zero_key_player_views_remember_their_own_poses :: proc(t: ^testing.T) {
 	}
 }
 
+// An event's subject is found by type, whatever the field's name: its first handle or sim.Entity field. A u64 named
+// `entity` is just a number.
+@(test)
+event_subjects_by_type :: proc(t: ^testing.T) {
+	Event_Lit :: struct {
+		lamp: sim.Entity,
+		by:   sim.Player,
+	}
+	Event_Counted :: struct {
+		entity: u64,
+	}
+	Event_Moved :: struct {
+		thing: sim.Handle(toy.Thing),
+		to:    sim.Entity,
+	}
+	Events :: union {
+		Event_Lit,
+		Event_Counted,
+		Event_Moved,
+	}
+	layouts := godot.event_layouts(Events)
+	by := sim.Player {
+		index = 1,
+		id    = 2,
+	}
+	lit := Event_Lit {
+		lamp = sim.entity(3),
+		by   = by,
+	}
+	player, subject := godot.event_subject(&layouts[0], ([^]u8)(&lit)[:size_of(lit)])
+	testing.expect_value(t, player, sim.player_key(by))
+	testing.expect_value(t, subject, u64(sim.entity(3)))
+	testing.expect(t, !layouts[0].subject_is_handle)
+	index, ok := sim.entity_index(sim.Entity(subject))
+	testing.expect(t, ok && index == 3, "the lamp's view is the one keyed 3")
+	testing.expect_value(t, layouts[1].subject, -1)
+	testing.expect(t, layouts[2].subject_is_handle, "the first of a handle and an Entity is the subject")
+	_, none := sim.entity_index({})
+	testing.expect(t, !none, "the zero Entity is none")
+}
+
 // The pose memory grows past its starting room (a fill that pushes more than it was made for): every item, the ones
 // remembered before the growth too, finds its tick - 1 pose on the next fill.
 @(test)

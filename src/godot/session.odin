@@ -48,7 +48,7 @@ Args :: struct {
 	quit:      bool, // quit when the session ends, printing its result
 	devui:     bool, // dev UI shown at start
 	lag_ms:    int, // netsim on remote links: this one-way latency, a quarter of it as jitter, 1% loss
-	bench:     int, // single player sessions hold this many entities (Glue.bench)
+	bench:     int, // single player sessions hold this many entities (Game.bench_prepare)
 	online:    bool, // host_online at once
 	join_code: string, // join_online this code at once
 }
@@ -471,16 +471,6 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	request.ticks = u32(max(session.ticks, 0))
 	request.name = session.name
 	request.token = client_token()
-	level: []u8
-	defer delete(level)
-	if api.level != "" {
-		level = read_res_file(api.level)
-		if len(level) == 0 {
-			emit_status(session, .Failed, fmt.tprintf("cannot read the level %s", api.level))
-			return false
-		}
-		request.content = level
-	}
 	views_check_index()
 	data_reset()
 	session.mode = request.mode
@@ -844,16 +834,4 @@ near_miss :: proc(name, flag: string) -> bool {
 		}
 	}
 	return rows[(len(name) + 1) % 3][len(flag)] <= limit
-}
-
-// A file's bytes through Godot's FileAccess (res:// paths work in exported builds); empty if missing.
-@(private)
-read_res_file :: proc(path: string, allocator := context.allocator) -> []u8 {
-	bytes := gd.FileAccess_get_file_as_bytes(path)
-	defer gd.PackedByteArray_destroy(&bytes)
-	size := gd.PackedByteArray_size(&bytes)
-	if size <= 0 do return nil
-	out := make([]u8, size, allocator)
-	copy(out, gdi.packed_byte_array_operator_index(&bytes, 0)[:size])
-	return out
 }

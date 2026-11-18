@@ -41,14 +41,22 @@ GAME := Game{name = "coins", version = "1", tick_hz = 64, tick = tick, scripted_
 
 `sim.Game` itself is the descriptor: `name`, `version` (bump it when `tick` computes differently without a layout
 change: a rule, a constant), `tick_hz` (a power of two, 32..128; `dt = 1/tick_hz` exactly), `tick(t)`, and the
-optional `world_create(seed, content)` (`content`: the level file's bytes, `src/level/SPEC.md`; nil: a zeroed
-World), `world_destroy` (nil: `free`), `extra(world)` (the World's rollback state: physics games return
-`physics.extra(world.phys, State)`), `init(t)` (tick 0: the block is zeroed before, nobody is present; it may emit,
-roll and create bodies), and the **scripted player** `scripted_input(seed, slot, tick, state) -> Input` and
-`scripted_commands(seed, slot, tick, state, out)`: never called by the sim; tests, benchmarks, headless runs and
-Godot's `--scripted` sessions play with it. A script that answers from (seed, slot, tick) alone gives every client
-and every offline run the same player: `script_bits(seed, slot, tick, period)` is a hash that holds for each
-`period`-tick block.
+optional `content` (the level the game ships with, `src/level/SPEC.md`: `#load`ed once in the sim package; below),
+`world_create(seed, content)` (nil: a zeroed World), `world_destroy` (nil: `free`), `extra(world)` (the World's
+rollback state: physics games return `physics.extra(world.phys, State)`), `init(t)` (tick 0: the block is zeroed
+before, nobody is present; it may emit, roll and create bodies), the **scripted player** `scripted_input(seed, slot,
+tick, state) -> Input` and `scripted_commands(seed, slot, tick, state, out)`, and `bench_prepare(state, world,
+count)` (fill the tick-0 state with `count` entities and hold that population: the headless `bench`, Godot's `--bench
+N`, single player only). The last three are never called by the sim: tests, benchmarks, headless runs and Godot's
+`--scripted` sessions play with them. A game without a scripted player plays zero Inputs. A script that answers from
+(seed, slot, tick) alone gives every client and every offline run the same player: `script_bits(seed, slot, tick,
+period)` is a hash that holds for each `period`-tick block.
+
+**Content.** `GAME.content` is the default wherever content is taken: `create`, `compat_of` and `from_snapshot`
+given none (nil) use it (`game_content(&GAME, content)`), so the Godot host, the netcode, the headless runs and the
+suites all play the level the game ships with. Other bytes override it: a test's own level, the headless `--level
+FILE` (a copy of the game with that content). A re-baked level rebuilds the extension (`uni` counts the `.level`
+file as an input).
 
 `game_violation(&GAME) -> string` is "" when the game can run, else why: its tick rate, State (`plain_violation`),
 Input (`wire_violation`) and both unions. `create` panics with it; the Godot host reports it. What the compiler can
@@ -99,7 +107,7 @@ Event :: union {sim.Event_Player_Joined, sim.Event_Player_Left, ...}
 tick :: proc(t: ^Tick) {
 	for player in t.player_changes.left do destroy_ship(t, player)
 	for player in t.player_changes.arrived do spawn_ship(t, player) // new or back, in slot order
-	players := sim.iterate_present(&t.state.players)
+	players := sim.iterate_present(t)
 	for ship, player in sim.next(&players) {
 		if .Fire in sim.buttons(t, player).pressed {...}
 		for sent in sim.commands(t, player) {...}
@@ -123,14 +131,18 @@ tick :: proc(t: ^Tick) {
 - **The library reports; the game decides** what an absent player's things do: an owner is a `Player`, never a
   slot. An absent member's `T` owns nothing outside the block (a body is destroyed at the leave and made again on the
   return), since the table may forget it before any `tick` runs.
-- Queries take the tick or a `Players` (views, tests): `player_data(t, player) -> ^T` (nil when nobody, stale or
+- Queries take the tick or a `Players` (views, tests), `iterate_present(t)` included: `player_data(t, player) -> ^T` (nil when nobody, stale or
   forgotten; valid while absent), `player_slot(t, player) -> (slot, present)` (`slot := ...` is fine: -1 when
   absent), `player_present`, `player_in_slot(t, slot)` (also on a `^Sim`, for drivers outside `tick`),
   `present_count(t)`, `player_known(&players, player)`; `iterate_present` (slot order) and `iterate_known` (member
   order) with `next`; `input(t, player)` (zero when absent), `input_before`, `buttons`, `commands`.
   `player_key(player) -> u64` (0 for nobody) names a player to views and GDScript; `player_of_key` reverses it.
-- Join records come from the relay. Tests and scripts write them with `join(&inputs, slot, member)`; scripted runs
-  give slot i member i + 1.
+- `slot_data(t, slot) -> ^T` (also on a `^Players` or a `^Sim`): the data of whoever holds the slot (nil: nobody), a
+  HUD's row or a test's look at a slot.
+- Join records come from the relay. Tests, tools and bots write them with `seat(&inputs, sim_or_players, slot,
+  member)`: the slot present, with a join record only when someone else holds it in the state the tick steps from (so
+  a slot is never present without one by mistake); `join(&inputs, slot, member)` writes one as it is. Scripted runs
+  give slot i member i + 1; `headless.Run` keeps who sits where (`run_seat`).
 
 ## Commands
 
@@ -159,9 +171,10 @@ for sent in sim.commands(t, player) {               // this player's, in order, 
   `Cmd_<Name>`, event types `Event_<Name>`; the names and Godot classes leave the prefix out (`drop_coin`,
   `CommandDropCoin`).
 - A tick holds at most `COMMANDS_PER_SLOT` of one slot and `TICK_COMMANDS` in all, inline in `Inputs`, so a record
-  has a fixed size and fits a datagram; more wait for the next tick, in order (`add_command(&inputs, raw) -> bool`).
+  has a fixed size and fits a datagram; more wait for the next tick, in order. Tests and tools add one to a tick's
+  record with `add_command(&inputs, slot, value) -> bool`, typed by the game's `Cmd` (or `add_command(&inputs, raw)`).
 - Sources send into a `Command_Out(Cmd)`: `send_command(out, value) -> bool` (false: its `cap` reached).
-  `command_make(Cmd, value)` builds a raw one for tests and tools. Delivery: `src/netcode/SPEC.md`.
+  `command_make(Cmd, value)` builds a raw one. Delivery: `src/netcode/SPEC.md`.
 
 ## Events
 
@@ -174,6 +187,11 @@ those already (`game_violation` refuses them).
 Event_Coin_Picked :: struct {coin: sim.Handle(Coin), player: sim.Player, position: sim.Position, value: u32}
 sim.emit(t, Event_Coin_Picked{coin = handle, player = player, position = {x, y, 0}, value = coin.value})
 ```
+
+A thing that is not a table's item (a level marker, an item of a fixed array) is named in events by an `Entity`
+(`distinct u64`): `entity(index)`, `entity_index(e) -> (index, ok)`; its zero value is none, so index 0 is a thing.
+The Godot host routes an event to the views keyed by its first handle's key or its first `Entity`'s index
+(`src/godot/SPEC.md`), found by type, whatever the field's name.
 
 Each tick's events are kept in the ring as kind + bytes (`Raw_Event`) and emitted again when the tick is
 re-simulated. `events_at(simulation, tick)` reads them back in emission order, `event_value(&raw, Event)` makes one
@@ -218,7 +236,7 @@ Two kinds, on SplitMix64's mixing function, integer-only:
 `Sim(G)` holds the tick counter, the block, the World, the Extra and a ring of saved ticks (the block, the Extra's
 save, the events). Ticks count from 1; tick 0 is the initial state.
 
-- `create(&GAME, seed, content)` (World, Extra, `init`, tick 0 saved), `destroy`.
+- `create(&GAME, seed, content = nil)` (World, Extra, `init`, tick 0 saved; nil content: `GAME.content`), `destroy`.
 - **The ring** keeps about 250 ms at any rate: `ring_size(tick_hz) = tick_hz / 4` (8..32 slots), allocated at
   `create`. It bounds rollback: the netcode predicts at most ring − 2 ticks ahead.
 - `step(simulation, &inputs, save := true)` builds the `Tick`, applies the presence, runs `tick` and saves. `save =
@@ -229,7 +247,9 @@ save, the events). Ticks count from 1; tick 0 is the initial state.
 - `checksum(simulation)`: XXH3-64, one-shot (Odin's streaming XXH3 is wrong for some lengths), over the tick (u32 LE),
   the block, then the Extra's bytes. Peers compare it on finalized ticks.
 - **Extra**: rollback state outside the block, at most one per game (a game with two kinds composes them). The
-  harness asks `Game.extra` for it right after `world_create`, so bodies made there are the World's. `save` and
+  harness asks `Game.extra` for it right after `world_create`, so bodies made there are the World's. Its `tick_hz`
+  is the rate it steps at (physics: `Settings.tick_hz`; 0: none): `create` refuses one other than the game's
+  (`extra_violation`). `save` and
   `restore` take the ring slot; `hash(tick, out)` covers the whole internal state on multiples of
   `DEEP_CHECKSUM_EVERY` (the ticks the netcode compares) and may cover less otherwise; `image(slot, live)` and
   `load(bytes)` are its portable form (`live`: the slot is the current tick's, saved after its last change, so the

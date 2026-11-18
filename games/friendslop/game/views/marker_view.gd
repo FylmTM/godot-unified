@@ -1,6 +1,6 @@
 extends Node3D
 ## A sim object the level placed (item, platform, bell, plate, switch): the view takes over its level marker's
-## visuals (key = marker index, entity = marker index + 1, LevelMarkers order), so the level scene is the only place
+## visuals (key = marker index, LevelMarkers order), so the level scene is the only place
 ## they are authored. The sim moves the view; bells and plates also react to their events.
 
 var _visuals: Array[Node3D] = []
@@ -11,11 +11,11 @@ var _pulse := 0.0
 
 
 func _ready() -> void:
-	var entity := _view_marker.entity
+	var index := _view_marker.key
 	var arena := get_tree().current_scene as Arena
-	var m: Node3D = arena.marker(entity) if arena != null else null
+	var m: Node3D = arena.marker(index) if arena != null else null
 	if m == null:
-		push_warning("marker view: no level marker for entity %d" % entity)
+		push_warning("marker view: no level marker %d" % index)
 		return
 	for c in m.get_children():
 		var visual := c as Node3D

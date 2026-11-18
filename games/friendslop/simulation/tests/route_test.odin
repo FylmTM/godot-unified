@@ -8,6 +8,7 @@ import fs "../friendslop"
 import "unified:headless"
 import "unified:level"
 import "unified:physics"
+import "unified:sim"
 
 // Applies a setup to the current tick and makes it the tick's saved state.
 setup :: proc(run: ^Run, apply: proc(run: ^Run)) {
@@ -73,7 +74,7 @@ put_player :: proc(run: ^Run, slot: int, at: [3]f32) {
 	setup(run, proc(run: ^Run) {
 		physics.character_teleport(
 			run.simulation.world.phys,
-			&character(run, run.setup_index).controller,
+			&sim.slot_data(run.simulation, run.setup_index).controller,
 			run.setup_pos,
 		)
 	})
@@ -222,7 +223,7 @@ route_toss_friend_to_switch :: proc(t: ^testing.T) {
 	put_player(&run, 1, base + {1.2, 0, 0})
 	idle(&run, 32)
 	step(&run, {aim_at(&run, 0, player_pos(&run, 1), {buttons = {.Grab}}), {}, {}, {}})
-	testing.expect_value(t, character(&run, 0).held_kind, fs.Held_Kind.Player)
+	testing.expect_value(t, sim.slot_data(run.simulation, 0).held_kind, fs.Held_Kind.Player)
 	for _ in 0 ..< 24 do step(&run, {aim_at(&run, 0, player_pos(&run, 0) + {1, 0.2, 0}, {}), {}, {}, {}})
 	// Full charge, aimed up and over the perch's edge.
 	for _ in 0 ..< 40 {
@@ -294,7 +295,7 @@ route_resets_when_nobody_is_present :: proc(t: ^testing.T) {
 	})
 	idle(&run, 4)
 	testing.expect_value(t, run.simulation.state.phase, fs.Phase.Run)
-	leave(&run, 0)
+	headless.run_seat(&run.checked, 0, 0)
 	idle(&run, 4)
 	testing.expect_value(t, run.simulation.state.phase, fs.Phase.Hub)
 	testing.expect_value(t, run.simulation.state.checkpoint, -1)

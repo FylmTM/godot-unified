@@ -9,7 +9,7 @@ import "unified:sim"
 tick :: proc(t: ^Tick) {
 	presence(t)
 	commands(t)
-	ships := sim.iterate_present(&t.state.players)
+	ships := sim.iterate_present(t)
 	for ship, player in sim.next(&ships) do pilot(t, ship, player)
 	physics.body_set_linear_velocity_2d(t.world.phys, t.state.station, {})
 	physics.body_set_angular_velocity_2d(t.world.phys, t.state.station, t.state.phase == .Over ? 0 : STATION_SPIN)
@@ -46,7 +46,7 @@ spawn_ship :: proc(t: ^Tick, player: sim.Player) {
 // Applies this tick's commands: `start` begins a match from the lobby, `restart` resets an over match at once.
 // Either is ignored outside its phase.
 commands :: proc(t: ^Tick) {
-	players := sim.iterate_present(&t.state.players)
+	players := sim.iterate_present(t)
 	for _, player in sim.next(&players) {
 		for sent in sim.commands(t, player) {
 			switch _ in sent {
@@ -85,8 +85,8 @@ pilot :: proc(t: ^Tick, ship: ^Ship, player: sim.Player) {
 	spin: f32 = 0
 	aim := dmath.dir2_vec(input.aim)
 	if aim != {} {
-		cross := heading.x * aim.y - heading.y * aim.x
-		dot := heading.x * aim.x + heading.y * aim.y
+		cross := dmath.cross2(heading, aim)
+		dot := dmath.dot(heading, aim)
 		if dot < 0 {
 			spin = cross >= 0 ? TURN_MAX : -TURN_MAX
 		} else {
@@ -239,7 +239,7 @@ warp_ships :: proc(t: ^Tick) {
 	for gate in 0 ..< t.world.gate_count {
 		if t.state.gates[gate].charge > 0 do t.state.gates[gate].charge -= 1
 	}
-	ships := sim.iterate_present(&t.state.players)
+	ships := sim.iterate_present(t)
 	for ship, player in sim.next(&ships) {
 		if ship.gate_cooldown > 0 do continue
 		pos := physics.body_position_2d(t.world.phys, ship.body)
@@ -277,7 +277,7 @@ update_gems :: proc(t: ^Tick) {
 	// the present ships in slot order: the first within reach picks a gem up
 	pickers: [PLAYERS]Gem_Picker
 	picker_count := 0
-	ships := sim.iterate_present(&t.state.players)
+	ships := sim.iterate_present(t)
 	for ship, player in sim.next(&ships) {
 		pos := physics.body_position_2d(t.world.phys, ship.body)
 		pickers[picker_count] = {ship, player, pos}
@@ -355,7 +355,7 @@ reset :: proc(t: ^Tick) {
 	physics.despawn_all(t.world.phys, &t.state.rocks)
 	sim.despawn_all(&t.state.bullets)
 	sim.despawn_all(&t.state.gems)
-	ships := sim.iterate_present(&t.state.players)
+	ships := sim.iterate_present(t)
 	for ship, player in sim.next(&ships) {
 		slot := sim.player_slot(t, player)
 		physics.body_set_transform_2d(t.world.phys, ship.body, t.world.spawns[slot], {0, -1})

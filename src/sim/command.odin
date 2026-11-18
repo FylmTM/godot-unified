@@ -97,9 +97,27 @@ command_make :: proc($Cmd: typeid, value: $T) -> Raw_Command where intrinsics.ty
 	return raw
 }
 
-// Adds a command to a tick's record, after the commands `raw.slot` already has there. False at the
-// limits (COMMANDS_PER_SLOT for the slot, TICK_COMMANDS in all).
-add_command :: proc(inputs: ^Inputs($G), raw: Raw_Command) -> bool {
+// Adds a command to a tick's record (tests, tools, bots): a value of one of the game's command structs sent from `slot`
+// (`sim.add_command(&inputs, 2, Cmd_Pick{upgrade})`: another value does not compile), or a raw command from its own
+// slot. It goes after the commands that slot already has there. False at the limits (COMMANDS_PER_SLOT for the slot,
+// TICK_COMMANDS in all).
+add_command :: proc {
+	add_command_value,
+	add_raw_command,
+}
+
+add_command_value :: proc(
+	inputs: ^Inputs($G),
+	slot: int,
+	value: $T,
+) -> bool where intrinsics.type_is_variant_of(part(G, GAME_CMD), T) {
+	if slot < 0 || slot >= part(G, GAME_PLAYERS) do return false
+	raw := command_make(part(G, GAME_CMD), value)
+	raw.slot = u8(slot)
+	return add_raw_command(inputs, raw)
+}
+
+add_raw_command :: proc(inputs: ^Inputs($G), raw: Raw_Command) -> bool {
 	PLAYERS :: part(G, GAME_PLAYERS)
 	count := inputs.command_count
 	if count >= TICK_COMMANDS ||

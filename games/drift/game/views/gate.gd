@@ -16,7 +16,7 @@ var _burst := 0.0
 
 func _ready() -> void:
 	_r = Unified.constants.gate_radius * Unified.view_scale
-	_t = float(($UnifiedView as UnifiedView).entity) * 1.7  # gates swirl out of step (entity: the gate's index)
+	_t = float(($UnifiedView as UnifiedView).key) * 1.7  # gates swirl out of step (key: the gate's index)
 
 
 func _process(delta: float) -> void:

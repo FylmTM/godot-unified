@@ -8,20 +8,22 @@ fused into a multiply-add.
 ## API
 
 ```odin
-Vec2 :: [2]f32    Vec3 :: [3]f32
 sqrt(x)                                   // hardware, IEEE-exact
 min(a, b) / max(a, b) / clamp(x, lo, hi)  // compare and select, any number type: the same zero on a ±0 tie everywhere
-length(v)                                 // 2D or 3D (length2, length3)
-normalize(v, eps)                         // 2D or 3D, zero when |v| <= eps (normalize2, normalize3)
-dot3(a, b)
-dist_sq2(a, b)                            // squared distance: compare against r * r, no sqrt
-clamp_length2(v, max_len)
+// vectors are [2]f32 / [3]f32; each group takes either (its members: the name plus 2 or 3)
+length(v)  length_sq(v)                   // length_sq: no sqrt, compare against r * r
+dist_sq(a, b)                             // squared distance
+dot(a, b)                                 // components summed in order: x, y (, z)
+cross2(a, b)                              // a.x * b.y - a.y * b.x
+normalize(v, eps)                         // zero when |v| <= eps
+clamp_length(v, max_len)
 quat_rotate(quat, v)                      // v turned by the unit quaternion (x, y, z, w)
+quat_yaw(facing: [2]f32) -> [4]f32        // about +Y, turning +Z toward the unit floor direction (x, z): sqrt only
 to_i32_clamped(x, lo, hi)                 // clamp the f32, then convert; NaN gives lo
-DIR8                                      // [8]Vec2: the 8 compass directions, exact table values (@(rodata))
+DIR8                                      // [8][2]f32: the 8 compass directions, exact table values (@(rodata))
 // input encodings (input.odin): the client quantizes, the sim decodes any bits safely
 axis_i8(x) / axis(i8)                     // −1..1 <-> −127..127 (NaN: 0; −128 reads as −1)
-stick(x, y: i8) -> Vec2                   // two axes, the length clamped to 1
+stick(x, y: i8) -> [2]f32                 // two axes, the length clamped to 1
 Dir2 (u16) / dir2(v) / dir2_vec(d)        // a 2D direction in 2 bytes; 0: none
 Dir3 ({u, v: u16}) / dir3(v) / dir3_vec(d) // a 3D direction in 4 bytes (octahedral); {}: none
 ```

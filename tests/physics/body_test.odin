@@ -299,6 +299,7 @@ body_and_shape_names :: proc(t: ^testing.T) {
 	}
 	named: Named
 	extra := physics.extra(world, Named)
+	testing.expect_value(t, extra.tick_hz, HZ) // its rate: sim.create refuses a game at another (extra_violation)
 	body_def := physics.default_body_def()
 	body_def.name = "crate"
 	named.body = physics.create_body(world, body_def)

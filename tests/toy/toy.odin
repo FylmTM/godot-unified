@@ -130,7 +130,7 @@ Roll :: enum u8 {
 
 tick :: proc(t: ^Tick) {
 	t.world.ticks_run += 1
-	players := sim.iterate_present(&t.state.players)
+	players := sim.iterate_present(t)
 	for data, player in sim.next(&players) {
 		for sent in sim.commands(t, player) {
 			switch command in sent {
@@ -177,7 +177,7 @@ tick :: proc(t: ^Tick) {
 
 // The data of whoever holds `slot` (nil: nobody), for tests that look at a client's own player.
 in_slot :: proc(state: ^State, slot: int) -> ^Player_Data {
-	return sim.player_data(&state.players, sim.player_in_slot(&state.players, slot))
+	return sim.slot_data(&state.players, slot)
 }
 
 // Scripted input: a hash of (seed, slot, tick / 8), so any tick can be asked for in any order.

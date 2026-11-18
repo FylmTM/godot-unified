@@ -16,7 +16,7 @@ Relay_Config :: struct {
 	seed:          u64,
 	ticks:         u32, // session length; 0: endless
 	start_players: int, // slots 0..start_players-1 must connect before the clock starts (>= 1)
-	content:       []u8, // the game's content (the level): its hash is recorded in the input log, and part of compat
+	content:       []u8, // the level (nil: the game's own, sim.Game.content): its hash is recorded in the input log, and part of compat
 	compat:        u64, // build/game id a Hello must carry (0: sim.compat_of(game, content))
 	// Every start player is in-process (a host's own client): tick 1 is due a tick after Welcome. Otherwise
 	// the clock starts START_LEAD_MS after Welcome, so a far start player's first inputs arrive in time.
@@ -185,7 +185,7 @@ relay_create :: proc(game: ^$G, cfg: Relay_Config) -> ^Relay(G) {
 	}
 	header := sim.Log_Header {
 		seed       = cfg.seed,
-		content    = sim.content_hash(cfg.content),
+		content    = sim.content_hash(sim.game_content(game, cfg.content)),
 		compat     = relay.compat,
 		players    = PLAYERS,
 		input_size = size_of(Input),

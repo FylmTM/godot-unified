@@ -10,9 +10,9 @@ suites use; `unified:headless/modes`, a game's headless binary (only binaries im
 
 ## The binary
 
-A game's `simulation/headless/main.odin` calls `modes.run(&GAME, {content, bench, bench_prepare}, variants,
-lobbies, extra)`: a run can pick one of the `variants` (another tuning) by name, a level file replaces the
-content, `lobbies` opts into lobby services (`eos.lobby`: it links the SDK), `extra` adds the game's own modes
+A game's `simulation/headless/main.odin` calls `modes.run(&GAME, {bench}, variants, lobbies, extra)`: a run can pick
+one of the `variants` (another tuning) by name, `--level FILE` plays a copy of the game on that level instead of
+`GAME.content`, `lobbies` opts into lobby services (`eos.lobby`: it links the SDK), `extra` adds the game's own modes
 (`modes.Mode{name, options, help, run}`, parsed and checked like the library's). `uni headless` builds it when stale
 and runs it; the binary's `help` lists every mode and its options.
 The runs are played by the game's scripted player (`sim.Game.scripted_input`, `scripted_commands`).
@@ -25,7 +25,7 @@ The runs are played by the game's scripted player (`sim.Game.scripted_input`, `s
   rollbacks, stalls, step times, each client step's time (p99, worst), bytes per second, a late joiner's join (its
   snapshot's transfer, its catch-up step); a desync fails it. `uni bench` runs it.
 - `relay`, `client`: separate processes over local UDP on the real clock.
-- `bench`: the game's standard benchmark (`Headless.bench`, `bench_prepare` holding its population): step, save,
+- `bench`: the game's standard benchmark (`Headless.bench`, `sim.Game.bench_prepare` holding its population): step, save,
   checksum, a portable snapshot's encode, a restore and a re-sim at the prediction cap every tick. `uni bench` runs
   it.
 - `<lobby>-host`, `<lobby>-client` (a game that opts in): a scripted session over the lobby service, two processes
@@ -43,11 +43,27 @@ Conventions:
 
 ## Runs
 
-`Headless{game, content, bench, bench_prepare}` describes a game's runs. In an offline run (`run_sim`, `run_synctest`,
+`Headless{game, bench}` describes a game's runs (on `game.content`). In an offline run (`run_sim`, `run_synctest`,
 `run_interleaved`, `run_replay`, `run_snapshot`, `run_resume`, the stepped `Run`) slot i is member i + 1 from tick 1,
 joining with its join record (`src/sim/SPEC.md`, Players); `seats` (`Seat{tick, slot, member}`, member 0: nobody)
 change who holds a slot. A tick takes the commands each slot's script sends for it; a script that sends more than a
 tick takes (`sim.COMMANDS_PER_SLOT`) fails the run: offline there is no relay to hold the rest.
+
+The stepped `Run` is a game test's sync-tested run: every step a forward tick, then a restore `window` ticks back and
+a re-simulation compared tick by tick (checksums, events, a NaN scan, the Extra's check). The test plays it with the
+scripted player (`run_scripted(&run, players, seats)`) or its own inputs, and seats people itself:
+
+```odin
+run := headless.run_begin(&GAME, seed)      // nobody seated; content: GAME.content (or a test's own bytes)
+defer headless.run_end(&run)
+headless.run_seat(&run, 0, 1)               // member 1 holds slot 0 from the next step on (0: nobody)
+inputs := headless.run_inputs(&run)         // the seated members present, join records where needed (sim.seat)
+inputs.input[0] = input
+headless.run_step(&run, &inputs)
+ship := sim.slot_data(run.simulation, 0)
+headless.run_pin(&run)                      // the test changed the state: never restore before this tick
+// then: run.mismatches == 0, run.check == "", run.problem == "", run_events(&run, Event_X)
+```
 
 `session_run(&headless, Session_Config{clients, profile, ticks, seed, late_tick, late_slot, late_as_player, churn})`
 runs a relay and scripted clients over loopback on one thread through virtual time (as fast as it computes,
@@ -71,8 +87,7 @@ the template a game's copies, and proves the library: it runs every scenario.
 
 ```odin
 Suite :: struct($G: typeid) {    // G: the game type, a sim.Game
-	game:    ^G, // its scripted player plays every run
-	content: []u8, // its level, if any
+	game:    ^G, // its scripted player plays every run, on its level (sim.Game.content)
 	players: int, // scripted players in offline runs
 	seed:    u64,
 	ticks:   u32, // length of offline runs and sessions

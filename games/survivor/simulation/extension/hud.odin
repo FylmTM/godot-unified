@@ -51,8 +51,7 @@ hud_of :: proc(state: ^survivor.State, tick: u32) -> (hud: Data_Hud) {
 	hud.circle_radius = state.circle_radius
 	hud.matches = state.matches
 	for slot in 0 ..< survivor.PLAYERS {
-		player := sim.player_in_slot(&state.players, slot)
-		character := sim.player_data(&state.players, player)
+		character := sim.slot_data(&state.players, slot)
 		if character == nil do continue
 		hud.players[slot] = {
 			alive            = character.alive,
