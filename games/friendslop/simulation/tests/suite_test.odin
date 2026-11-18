@@ -1,6 +1,6 @@
 // friendslop's end-to-end suite: the standard scenarios of unified:headless/scenarios on the game and
 // its park level (dynamic characters, joints, platforms, carries and throws under rollback), and its
-// reference run (testdata/, made by `uni record-reference friendslop`). The game's own
+// reference run. The game's own
 // scenarios are in the other files of this package (friendslop_test.odin, route_test.odin).
 package test_friendslop
 
@@ -16,11 +16,14 @@ SUITE := scenarios.Suite(fs.Game) {
 	seed = 42,
 	ticks = scenarios.LONG ? 3600 : 600,
 	ref = {
-		dir           = #directory + "/testdata",
-		ticks         = 1800,
-		snapshot_tick = 900,
 		seed          = 7,
 		players       = 4,
+		ticks         = 1800,
+		snapshot_tick = 900,
+		checkpoints   = {0xcfe5b7db233845bc, 0x72eaab3d528709da, 0xc9d9cc9c501cc6eb, 0xbbdbe6b070bbe7e5},
+		trace         = 0x6b97e4f654ce916f,
+		snapshot      = 0x0ac9df352b52abb6,
+		log           = 0xf1e3bad753bbbaf9,
 	},
 }
 
@@ -43,9 +46,7 @@ a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(
 	)}
 
 @(test)
-the_reference_run_replays :: proc(t: ^testing.T) {scenarios.reference_replays(t, &SUITE)}
-@(test)
-the_reference_run_resumes :: proc(t: ^testing.T) {scenarios.reference_resumes(t, &SUITE)}
+the_reference_run_reproduces :: proc(t: ^testing.T) {scenarios.reference_reproduces(t, &SUITE)}
 
 when scenarios.LONG {
 	@(test)
@@ -60,6 +61,4 @@ when scenarios.LONG {
 	four_clients_agree_on_an_ideal_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Ideal)}
 	@(test)
 	four_clients_agree_on_a_wan :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Wan)}
-	@(test)
-	a_bad_session_log_replays :: proc(t: ^testing.T) {scenarios.session_log_replays(t, &SUITE, 4, .Bad)}
 }

@@ -56,7 +56,7 @@ option_forms :: proc(forms: ..Form) -> []Form {
 // needs none of it; this repo registers its test root, its toy game and its Godot test extensions.
 Project_Config :: struct {
 	tests:        string, // the odin suite's root, relative to the project, compiled with -all-packages ("": the game's simulation/tests)
-	headless:     []Extra_Headless, // headless binaries besides the games' (`headless`, `build`, `record-reference`)
+	headless:     []Extra_Headless, // headless binaries besides the games' (`headless`, `build`)
 	vet:          []string, // more packages `vet` checks (no entry point), relative to the project
 	fmt:          []string, // more directories `fmt` formats, relative to the project
 	uses_box3d:   bool, // something besides the games links Box3D (the tests root)
@@ -66,9 +66,8 @@ Project_Config :: struct {
 
 // A headless binary that is no game's (this repo's toy).
 Extra_Headless :: struct {
-	name:  string,
-	pkg:   string, // relative to the project
-	suite: string, // its end-to-end suite, for `record-reference <name>` ("": none)
+	name: string,
+	pkg:  string, // relative to the project
 }
 
 // A `bench` row of the project's own: `run` measures (its files may go in `work`), logs its line and returns what

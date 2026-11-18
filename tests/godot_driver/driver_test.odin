@@ -46,7 +46,6 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 		players := sim.iterate_present(&frame.state.players)
 		for data, player in sim.next(&players) {
 			godot.push_view(frame, {
-				key    = view.Key(sim.player_key(player)),
 				kind   = .Dot,
 				player = player,
 				pos    = {data.pos.x, 0, data.pos.y},

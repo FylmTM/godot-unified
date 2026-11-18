@@ -26,9 +26,7 @@ survivor_init :: proc "c" (
 ) -> gdi.Bool {
 	context = runtime.default_context()
 	constants_fill(&CONSTANTS)
-	godot.install(&survivor.GAME, GLUE)
-	godot.set_transport(godot_eos.transport("survivor")) // online play: EOS lobbies and P2P
-	return godot.entry(gpa, lib, init)
+	return godot.init(&survivor.GAME, GLUE, gpa, lib, init, godot_eos.transport("survivor")) // online play: EOS lobbies and P2P
 }
 
 // ---- the view contract
@@ -93,7 +91,6 @@ fill_frame :: proc(f: ^Frame) {
 	players := sim.iterate_present(&f.state.players)
 	for character, player in sim.next(&players) {
 		godot.push_view(f, {
-			key    = view.Key(sim.player_key(player)),
 			kind   = .Player,
 			player = player,
 			pos    = character.pos,
@@ -106,7 +103,7 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_view(
 			f,
 			{
-				key    = view.Key(i),
+				key    = u64(i),
 				kind   = item.kind == .Barrel ? .Barrel : .Crate,
 				entity = u64(i + 1), // barrel_exploded's entity: item index + 1 (an entity of 0 routes nowhere)
 				pos    = {body_pos.x, body_pos.y, body_pos.z},

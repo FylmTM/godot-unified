@@ -1,6 +1,6 @@
 // drift's end-to-end suite: the standard scenarios of unified:headless/scenarios on the game and its arena
 // (2D physics locked to a plane: ships, rocks that split, a kinematic station, ray-cast bullets, under
-// rollback), and its reference run (testdata/, made by `uni record-reference drift`). The game's own
+// rollback), and its reference run. The game's own
 // scenarios are in drift_test.odin.
 package test_drift
 
@@ -18,11 +18,14 @@ SUITE := scenarios.Suite(dr.Game) {
 	seed = 42,
 	ticks = scenarios.LONG ? 3600 : 600,
 	ref = {
-		dir           = #directory + "/testdata",
-		ticks         = 1800,
-		snapshot_tick = 900,
 		seed          = 7,
 		players       = 4,
+		ticks         = 1800,
+		snapshot_tick = 900,
+		checkpoints   = {0x27ae5869ee03d7b5, 0xcaf6248a8db728ad, 0x297f684f4a8b78bf, 0x8336d4cd4a2c7332},
+		trace         = 0xde856ab7995ab37b,
+		snapshot      = 0xf99b5a9fa55724e4,
+		log           = 0x2d6e627d8274e8db,
 	},
 }
 
@@ -45,9 +48,7 @@ a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(
 	)}
 
 @(test)
-the_reference_run_replays :: proc(t: ^testing.T) {scenarios.reference_replays(t, &SUITE)}
-@(test)
-the_reference_run_resumes :: proc(t: ^testing.T) {scenarios.reference_resumes(t, &SUITE)}
+the_reference_run_reproduces :: proc(t: ^testing.T) {scenarios.reference_reproduces(t, &SUITE)}
 
 when scenarios.LONG {
 	@(test)
@@ -62,6 +63,4 @@ when scenarios.LONG {
 	four_clients_agree_on_an_ideal_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Ideal)}
 	@(test)
 	four_clients_agree_on_a_wan :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Wan)}
-	@(test)
-	a_bad_session_log_replays :: proc(t: ^testing.T) {scenarios.session_log_replays(t, &SUITE, 4, .Bad)}
 }

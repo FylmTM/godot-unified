@@ -141,6 +141,8 @@ tick :: proc(t: ^Tick) {
 			case Cmd_Mark:
 				data.marks += 1
 				data.last_mark = command
+			case:
+				panic("sim.commands yielded a nil entry") // it never does: an undecodable command is left out
 			}
 		}
 		input := sim.input(t, player)

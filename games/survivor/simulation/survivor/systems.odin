@@ -138,6 +138,9 @@ sys_players :: proc(t: ^Tick) {
 	}
 	players := sim.iterate_present(&t.state.players)
 	for character, player in sim.next(&players) {
+		if character.alive && character.hp <= 0 {
+			player_dies(t, character, player) // set from outside a tick (a test): damage_player kills at once
+		}
 		slot := sim.player_slot(t, player)
 		input := sim.input(t, player)
 		if character.dash_cooldown > 0 {
@@ -472,11 +475,8 @@ sys_contact :: proc(t: ^Tick) {
 			dz := character.pos.z - enemy.pos.y
 			reach := enemy.radius + 0.45
 			if dx * dx + dz * dz < reach * reach {
-				character.hp -= enemy.damage
+				damage_player(t, player, enemy.damage)
 				enemy.contact_cooldown = CONTACT_COOLDOWN_TICKS
-				if character.hp <= 0 {
-					player_dies(t, character, player)
-				}
 				break
 			}
 		}
@@ -641,10 +641,7 @@ sys_barrels :: proc(t: ^Tick) {
 			dx := character.pos.x - center.x
 			dz := character.pos.z - center.z
 			if dx * dx + dz * dz < 9 {
-				character.hp -= 15
-				if character.hp <= 0 {
-					player_dies(t, character, player)
-				}
+				damage_player(t, player, 15)
 			}
 		}
 		destroy_body(t.world, &item.body)

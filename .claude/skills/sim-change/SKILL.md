@@ -5,27 +5,23 @@ description: What to do when a change alters what the deterministic simulation c
 
 # Changing what the simulation computes
 
-The committed reference runs and the Box3D golden trace are the proof that every platform computes the same thing.
+The reference runs' constants and the Box3D golden traces are the proof that every platform computes the same thing.
 They change only on purpose, never to make a test pass.
 
 ## When a reference run or the golden trace fails
 
-`./uni test` replays every game's reference run (`games/<game>/simulation/tests/testdata/`, the toy's
-in `tests/scenarios/testdata/`) and checks `GOLDEN` in `tests/b3` (and `GOLDEN_CHARACTERS` and `GOLDEN_FIELD` in `tests/physics`). A mismatch means the
-simulation changed.
+`./uni test` runs every game's reference run (`reference_reproduces`, its constants in the game's
+`simulation/tests/suite_test.odin`, the toy's in `tests/scenarios/suite_test.odin`) and checks `GOLDEN` in
+`tests/b3` (and `GOLDEN_CHARACTERS` and `GOLDEN_FIELD` in `tests/physics`). A mismatch means the simulation changed.
 
 1. **Was it meant to?** A rules, tuning or physics change: yes. A refactor, a tooling change, a view-only change or
    a dependency bump you thought neutral: no, so find the cause. Check main in a throwaway worktree
    (`git worktree add --detach .out/main-check origin/main`, run the check there, `git worktree remove --force .out/main-check`); never
    `git stash`, the stash is shared by every session. A determinism lint failure or a float-order change (summation order, a new `core:math` call) is the usual cause.
-2. **If it was meant to:** regenerate, on any machine, and commit the files with the change that caused them:
-
-   ```
-   ./uni record-reference <game>      # or: record-reference toy
-   ```
-
-   It lists the files that changed. For a Box3D change, update `GOLDEN` in `tests/b3/golden_test.odin` to the
-   value the failing test prints.
+2. **If it was meant to:** paste the `ref = {...}` literal the failing test prints into the suite's `Reference`, and
+   for a Box3D change `GOLDEN` in `tests/b3/golden_test.odin`, in the same commit as the change. Only the `snapshot`
+   and `log` hashes moving (the checkpoints and `trace` unchanged) means the format or compat changed, not the
+   results. To find where two builds part: `./uni headless <game> -- sim --trace FILE` on each, compare the files.
 3. **Say why** in the commit message and the PR: what changed in the simulation and why the old results are no longer
    right.
 4. Run CI on all four platforms before merging (below).

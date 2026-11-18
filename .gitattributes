@@ -1,12 +1,8 @@
 # LF in every checkout, whatever core.autocrlf says: Godot, odinfmt and our tools all write LF, so a CRLF checkout
 # shows every file Godot rewrites as modified.
 * text=auto eol=lf
-# Read byte for byte: exported levels (src/level/SPEC.md) and reference runs (src/headless/SPEC.md).
+# Read byte for byte: exported levels (src/level/SPEC.md).
 *.level binary
-games/*/simulation/tests/testdata/*.log binary
-games/*/simulation/tests/testdata/*.snap binary
-tests/scenarios/testdata/*.log binary
-tests/scenarios/testdata/*.snap binary
 # Godot's API dump (src/gdext/api/README.md): generated, kept out of diffs and language stats.
 src/gdext/api/*.json linguist-generated=true -diff
 # The one exception (src/cli/SPEC.md, Line endings): cmd.exe misreads labels and goto in a batch file with LF line

@@ -1,9 +1,0 @@
-{
-  "made_on": {"os": "Windows", "arch": "amd64", "odin": "dev-2026-11 (9a69916)", "build": "-o:speed -use-separate-modules -debug", "commit": "26ec341c7a5ba9659480cfc191db030a4fad6034+dirty"},
-  "made_at": "2026-11-17T23:49:05Z",
-  "seed": 7,
-  "players": 4,
-  "ticks": 1800,
-  "snapshot_tick": 900,
-  "final_checksum": "bbdbe6b070bbe7e5"
-}

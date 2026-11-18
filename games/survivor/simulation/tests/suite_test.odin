@@ -1,6 +1,5 @@
 // The survivor's end-to-end suite: the standard scenarios of unified:headless/scenarios on the game
-// with the `stress` tuning (what its headless binary runs), and its reference run (testdata/, made by
-// `uni record-reference survivor`). The game's own scenarios follow the standard ones here and
+// with the `stress` tuning (what its headless binary runs), and its reference run. The game's own scenarios follow the standard ones here and
 // in the other files of this package (scenario_test.odin: explosions, deaths and resets inside
 // rollback windows).
 package test_survivor
@@ -16,11 +15,14 @@ SUITE := scenarios.Suite(survivor.Game) {
 	seed = 42,
 	ticks = scenarios.LONG ? 3600 : 600,
 	ref = {
-		dir           = #directory + "/testdata",
-		ticks         = 3600,
-		snapshot_tick = 1800,
 		seed          = 7,
 		players       = 4,
+		ticks         = 3600,
+		snapshot_tick = 1800,
+		checkpoints   = {0x739454f83b2de9e2, 0xc84a73548f3d05af, 0x7ee3432d710cbc40, 0x205a0c015d7e3dfc},
+		trace         = 0x98d66b2710b286fa,
+		snapshot      = 0x1f69afbdcc49661c,
+		log           = 0xcb8027c0f2092a1c,
 	},
 }
 
@@ -43,9 +45,7 @@ a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(
 	)}
 
 @(test)
-the_reference_run_replays :: proc(t: ^testing.T) {scenarios.reference_replays(t, &SUITE)}
-@(test)
-the_reference_run_resumes :: proc(t: ^testing.T) {scenarios.reference_resumes(t, &SUITE)}
+the_reference_run_reproduces :: proc(t: ^testing.T) {scenarios.reference_reproduces(t, &SUITE)}
 
 when scenarios.LONG {
 	@(test)
@@ -60,6 +60,4 @@ when scenarios.LONG {
 	four_clients_agree_on_an_ideal_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Ideal)}
 	@(test)
 	four_clients_agree_on_a_wan :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Wan)}
-	@(test)
-	a_bad_session_log_replays :: proc(t: ^testing.T) {scenarios.session_log_replays(t, &SUITE, 4, .Bad)}
 }

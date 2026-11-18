@@ -5,7 +5,6 @@ package headless
 import "base:intrinsics"
 import "core:fmt"
 import "core:os"
-import "core:strconv"
 import "core:strings"
 
 @(require) import "unified:netcode" // only in generic procs
@@ -45,7 +44,7 @@ prediction_window :: proc(game: ^$G) -> int {
 }
 
 // A run's checksums, one per tick from `first` on: sums[i] is the checksum after tick first + i.
-// On disk (`--trace`, a reference run's ref.trace): one "%06d %016x" line per tick, in order.
+// On disk (`--trace`): one "%06d %016x" line per tick, in order.
 Trace :: struct {
 	first: u32,
 	sums:  [dynamic]u64,
@@ -74,7 +73,7 @@ trace_at :: proc(trace: ^Trace, tick: u32) -> (checksum: u64, ok: bool) {
 	return trace.sums[tick - trace.first], true
 }
 
-// Writes the trace as its on-disk text (`--trace`, a reference run's ref.trace); false if the write failed.
+// Writes the trace as its on-disk text (`--trace`); false if the write failed.
 trace_write :: proc(trace: ^Trace, path: string) -> bool {
 	builder := strings.builder_make(0, len(trace.sums) * 24)
 	defer strings.builder_destroy(&builder)
@@ -82,32 +81,6 @@ trace_write :: proc(trace: ^Trace, path: string) -> bool {
 		fmt.sbprintf(&builder, "%06d %016x\n", trace.first + u32(i), checksum)
 	}
 	return os.write_entire_file(path, builder.buf[:]) == nil
-}
-
-// Reads a trace file; fails on a malformed line or ticks out of order.
-trace_read :: proc(path: string) -> (trace: Trace, ok: bool) {
-	data, err := os.read_entire_file(path, context.allocator)
-	if err != nil {
-		return
-	}
-	defer delete(data)
-	text := string(data)
-	for raw_line in strings.split_lines_iterator(&text) {
-		line := strings.trim_right(raw_line, "\r")
-		if line == "" {
-			continue
-		}
-		space := strings.index_byte(line, ' ')
-		tick, tick_ok := strconv.parse_u64_of_base(line[:max(space, 0)], 10)
-		sum, sum_ok := strconv.parse_u64_of_base(line[space + 1:] if space > 0 else "", 16)
-		in_order := len(trace.sums) == 0 || u32(tick) == trace.first + u32(len(trace.sums))
-		if !tick_ok || !sum_ok || tick > u64(max(u32)) || !in_order {
-			trace_destroy(&trace)
-			return {}, false
-		}
-		trace_add(&trace, u32(tick), sum)
-	}
-	return trace, true
 }
 
 Run_Result :: struct {

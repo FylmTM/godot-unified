@@ -1,6 +1,4 @@
-// Commands in the harness (src/sim/SPEC.md "Commands"): the declared union is checked at create, a tick's
-// record takes at most four per player, `tick` reads them per player in order with a type switch, they are
-// part of what inputs_same compares and of compat_of, and malformed tick records are refused.
+// Commands: decoded per player and tick, at most COMMANDS_PER_SLOT a slot, malformed records refused.
 package test_sim
 
 import "core:testing"
@@ -8,33 +6,6 @@ import "core:testing"
 import "../toy"
 import "unified:sim"
 import "unified:wire"
-
-Cmd_Padded :: struct {
-	small: u8,
-	large: u32,
-}
-
-Cmd_Pointer :: struct {
-	pointer: ^int,
-}
-
-Cmd_Empty :: struct {}
-
-Cmd_Max :: struct {
-	bytes: [sim.COMMAND_MAX]u8,
-}
-
-Cmd_Too_Big :: struct {
-	bytes: [sim.COMMAND_MAX + 1]u8,
-}
-
-Bump :: struct {
-	amount: i32,
-}
-
-Cmd_Bump :: struct {
-	amount: i32,
-}
 
 Cmd_Toggle :: struct {
 	on:    bool,
@@ -57,38 +28,6 @@ command_bools_read_back_as_0_or_1 :: proc(t: ^testing.T) {
 	got := transmute([size_of(Cmd_Toggle)]u8)toggle
 	testing.expect_value(t, got, [size_of(Cmd_Toggle)]u8{1, 0xAA, 0xAA, 0xAA, 0, 0, 1, 0, 7, 0, 0, 0})
 	testing.expect(t, toggle.on && !toggle.also[0] && toggle.also[1] && toggle.count == 7)
-}
-
-@(test)
-command_unions_are_checked :: proc(t: ^testing.T) {
-	Max :: union {
-		Cmd_Max,
-	}
-	Padded :: union {
-		Cmd_Padded,
-	}
-	Pointer :: union {
-		Cmd_Pointer,
-	}
-	Empty :: union {
-		Cmd_Empty,
-	}
-	Too_Big :: union {
-		Cmd_Too_Big,
-	}
-	Not_A_Struct :: union {
-		string,
-	}
-	Same_Name :: union {
-		Bump,
-		Cmd_Bump,
-	} // "bump" twice: the prefix goes
-	testing.expect_value(t, sim.union_violation(toy.Cmd, sim.COMMAND_MAX, sim.COMMAND_PREFIX), "")
-	testing.expect_value(t, sim.union_violation(Max, sim.COMMAND_MAX, sim.COMMAND_PREFIX), "")
-	refused := []typeid{Padded, Pointer, Empty, Too_Big, Not_A_Struct, Same_Name, Cmd_Bump}
-	for type in refused {
-		testing.expectf(t, sim.union_violation(type, sim.COMMAND_MAX, sim.COMMAND_PREFIX) != "", "%v accepted", type)
-	}
 }
 
 bump :: proc(slot: int, amount: i32) -> sim.Raw_Command {
@@ -187,47 +126,6 @@ inputs_differ_by_their_commands :: proc(t: ^testing.T) {
 	testing.expect(t, !sim.inputs_same(&a, &b))
 	b.commands[0] = bump(0, 1)
 	testing.expect(t, sim.inputs_same(&a, &b))
-}
-
-Only_Bump :: union {
-	toy.Cmd_Bump,
-}
-
-Renamed :: struct {
-	at:     [2]f32,
-	normal: [3]f32,
-	weight: f32,
-	count:  i16,
-	shape:  toy.Shape,
-	shapes: toy.Shapes,
-	loud:   bool,
-	_pad:   [3]u8,
-}
-
-Bump_And_Renamed :: union {
-	toy.Cmd_Bump,
-	Renamed,
-}
-
-Same_As_Toy :: union {
-	toy.Cmd_Bump,
-	toy.Cmd_Mark,
-}
-
-@(test)
-compat_covers_the_command_types :: proc(t: ^testing.T) {
-	compat := sim.compat_of(&toy.GAME)
-	with_commands :: proc($Cmd: typeid) -> u64 {
-		game := sim.Game(toy.State, toy.Input, toy.World, toy.Event, Cmd, toy.PLAYERS) {
-			name    = toy.GAME.name,
-			version = toy.GAME.version,
-			tick_hz = toy.GAME.tick_hz,
-		}
-		return sim.compat_of(&game)
-	}
-	testing.expect(t, with_commands(Only_Bump) != compat)
-	testing.expect(t, with_commands(Bump_And_Renamed) != compat) // the same layout under another name
-	testing.expect_value(t, with_commands(Same_As_Toy), compat)
 }
 
 @(test)

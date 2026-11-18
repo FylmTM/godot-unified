@@ -377,7 +377,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) {
 	if glue.event_key != nil {
 		api.event_key = proc(event: ^sim.Raw_Event) -> (u8, view.Key, Event_Route) {
 			kind, key, route := (^This_Glue)(g_glue).event_key(event)
-			return u8(kind), key, route
+			return u8(kind), view.Key(key), route
 		}
 	}
 	api.sample_input = proc() {

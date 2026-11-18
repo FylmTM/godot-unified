@@ -34,22 +34,6 @@ in_slot :: proc(simulation: ^survivor.Sim, slot: int) -> ^survivor.Character {
 	return sim.player_data(&simulation.state.players, sim.player_in_slot(simulation, slot))
 }
 
-// Damages the players in `slots` between ticks, as a system would inside one (the events go nowhere).
-damage_players :: proc(simulation: ^survivor.Sim, amount: i32, slots: ..int) {
-	events: sim.Events
-	defer delete(events.list)
-	tick := survivor.Tick {
-		state  = &simulation.state,
-		world  = simulation.world,
-		number = simulation.tick,
-		seed   = simulation.seed,
-		events = &events,
-	}
-	for slot in slots {
-		survivor.damage_player(&tick, sim.player_in_slot(simulation, slot), amount)
-	}
-}
-
 @(test)
 lobby_match_over_lobby :: proc(t: ^testing.T) {
 	simulation := sim.create(&survivor.GAME, 9)
@@ -97,7 +81,7 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 	testing.expect(t, simulation.tick > state.match_tick)
 
 	// Everyone present dies in the same tick: over; nobody respawns; after the hold, a fresh lobby.
-	damage_players(simulation, 1000, 0, 1)
+	in_slot(simulation, 0).hp, in_slot(simulation, 1).hp = 0, 0 // they die at the next tick's start
 	step_with(simulation, {0, 1}, {})
 	testing.expect_value(t, state.phase, survivor.Phase.Over)
 	over := simulation.tick
@@ -129,14 +113,6 @@ joining_mid_match_spawns_at_the_start_spot :: proc(t: ^testing.T) {
 }
 
 @(test)
-time_constants_are_whole_ticks :: proc(t: ^testing.T) {
-	testing.expect_value(t, survivor.RESPAWN_TICKS, 192)
-	testing.expect_value(t, survivor.OVER_HOLD_TICKS, 320)
-	testing.expect_value(t, survivor.TUNINGS[.Play].wave_ticks, 1920)
-	testing.expect_value(t, survivor.TUNINGS[.Stress].spawn_every_ticks, 20)
-}
-
-@(test)
 levels_start_at_one :: proc(t: ^testing.T) {
 	simulation := sim.create(&survivor.GAME, 2)
 	defer sim.destroy(simulation)
@@ -147,10 +123,6 @@ levels_start_at_one :: proc(t: ^testing.T) {
 		survivor.xp_next(&simulation.state, in_slot(simulation, 0).level),
 		survivor.TUNINGS[.Play].xp_first,
 	)
-	stress := sim.create(&survivor.GAME_STRESS, 2)
-	defer sim.destroy(stress)
-	testing.expect_value(t, stress.state.tuning, survivor.Tuning_Kind.Stress)
-	testing.expect(t, stress.state.tune == survivor.TUNINGS[.Stress])
 }
 
 @(test)

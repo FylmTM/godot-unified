@@ -138,7 +138,7 @@ bench_frame :: proc(f: ^Frame) {
 	for i in 0 ..< BENCH_SCENE_VIEWS {
 		angle := seconds + f32(i) * math.TAU / BENCH_SCENE_VIEWS
 		godot.push_view(f, {
-			key  = view.Key(100 + i),
+			key  = u64(100 + i),
 			kind = .Plain3D,
 			pos  = {math.cos(angle), 0, math.sin(angle)},
 			rot  = view.quat_yaw(angle),
@@ -259,7 +259,7 @@ fill_frame :: proc(f: ^Frame) {
 
 // Expired to the plain2d view keyed 2 (by its subject, a thing, it would reach no view), Joined to none (by its
 // subject: the player's view), the rest by their subject (Spawned: the player's view, its thing having none).
-event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: view.Key, route: godot.Event_Route) {
+event_key :: proc(event: ^sim.Raw_Event) -> (kind: View, key: u64, route: godot.Event_Route) {
 	#partial switch _ in sim.event_value(event, toy.Event) {
 	case toy.Event_Expired:
 		return .Plain2D, 2, .View
@@ -276,6 +276,5 @@ views_test_init :: proc "c" (
 	init: ^gdi.Initialization,
 ) -> gdi.Bool {
 	context = runtime.default_context()
-	godot.install(&toy.GAME, GLUE)
-	return godot.entry(get_proc_address, library, init)
+	return godot.init(&toy.GAME, GLUE, get_proc_address, library, init)
 }

@@ -198,7 +198,7 @@ be asked for in any order:
   ignores it then), so the script depends on (seed, slot, tick) only
 
 Offline modes make slots `< players` present from tick 1 (slot i is member i + 1). In `session` mode each client generates its own player's
-inputs this way and sends them through the netcode. `session_log_replays` compares against the relay's log, not
+inputs this way and sends them through the netcode. A session's check replays the relay's log, not
 against `sim`. Barrels sit off the scripted firing lines, so they rarely explode in scripted runs; physics churn
 inside rollback windows comes from deaths and respawns instead (and from the forced-explosion scenario below).
 

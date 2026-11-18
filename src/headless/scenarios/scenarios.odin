@@ -5,22 +5,13 @@
 package scenarios
 
 import "core:fmt"
-import "core:log"
-import "core:os"
-import "core:strings"
+@(require) import "core:slice" // only in reference_reproduces (generic)
 import "core:testing"
-import "core:time"
 
 import "unified:headless"
 import "unified:netcode"
 import "unified:sim"
 
-// `uni record-reference <game>|toy` runs a suite with -define:UNIFIED_REGEN=true:
-// reference_replays then writes a new reference run (and checks it) instead of only reading it.
-UNIFIED_REGEN :: #config(UNIFIED_REGEN, false)
-// The commit a regenerated reference run is made from (record-reference passes it, "+dirty" when the
-// tree has changes); recorded in ref.json.
-UNIFIED_REGEN_COMMIT :: #config(UNIFIED_REGEN_COMMIT, "unknown")
 // `uni test --long` builds with -define:UNIFIED_LONG_TESTS=true: a game's suite then runs every
 // standard scenario at full length (src/headless/SPEC.md, Running). The toy's suite always does.
 LONG :: #config(UNIFIED_LONG_TESTS, false)
@@ -35,13 +26,18 @@ Suite :: struct($G: typeid) {
 	ref:     Reference,
 }
 
-// A committed run every platform must reproduce: ref.log, ref.trace and ref-<snapshot_tick>.snap
-// in `dir`, with ref.json saying where and how it was made.
+// A run every platform must reproduce, pinned by hashes: the game's scripted run of `ticks` ticks with `players`
+// players and `seed` (run_sim). reference_reproduces prints the literal to paste when a deliberate sim change moves it
+// (the sim-change skill).
 Reference :: struct {
-	dir:                  string, // #directory + "/testdata"
-	ticks, snapshot_tick: u32, // ref.trace covers 1..ticks; ref-<snapshot_tick>.snap
-	seed:                 u64,
-	players:              int,
+	seed:          u64,
+	players:       int,
+	ticks:         u32,
+	snapshot_tick: u32, // the portable snapshot taken there resumes to `ticks`
+	checkpoints:   [4]u64, // the checksum at ticks / 4, ticks / 2, 3 * ticks / 4 and ticks
+	trace:         u64, // the hash of every tick's checksum
+	snapshot:      u64, // the hash of the snapshot's bytes
+	log:           u64, // the hash of the input log's bytes
 }
 
 // The headless runs of a suite's game and content.
@@ -124,7 +120,8 @@ expect_synced :: proc(t: ^testing.T, run: ^headless.Run($G), loc := #caller_loca
 
 // Players come and go under rollback (restore `window` ticks back on every tick, as rollback_every_tick): slot 0's
 // player leaves, someone new takes slot 0, a slot empties and the first player comes back there. Every re-simulated
-// tick matches the forward run, the newcomer is someone else, and the one who came back has their handle again.
+// tick matches the forward run and the Extra agrees after every restore. (What the presence itself does, handles and
+// join events, is sim.Players', proven in tests/sim; a game proves what its own things do.)
 presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 	runs := headless_of(suite)
 	what := fmt.tprintf("presence_churn (window %d; %s)", window, params(suite))
@@ -155,31 +152,7 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 		result.first_tick,
 		result.first_at,
 	)
-	// Forward, the handles: the newcomer is someone else, the one who came back is who they were.
-	simulation := sim.create(suite.game, suite.seed, suite.content)
-	defer sim.destroy(simulation)
-	commands := headless.Scripted_Commands(G) {
-		seats = seats,
-	}
-	defer headless.scripted_commands_destroy(&commands)
-	first: sim.Player
-	for tick in 1 ..= start + 20 {
-		inputs := headless.scripted(&runs, simulation, tick, suite.players, &commands)
-		sim.step(simulation, &inputs)
-		if tick == 1 do first = sim.player_in_slot(simulation, 0)
-	}
-	newcomer := sim.player_in_slot(simulation, 0)
-	testing.expectf(t, newcomer.id == NEWCOMER && newcomer != first, "%s: slot 0 holds %v", what, newcomer)
-	testing.expectf(t, sim.player_in_slot(simulation, back) == first, "%s: %v did not come back", what, first)
-	returned := false
-	joined_kind := sim.variant_kind(sim.part(G, sim.GAME_EVENT), sim.Event_Player_Joined)
-	for &raw in sim.events_at(simulation, start + 20) {
-		if int(raw.kind) == joined_kind {
-			joined := (^sim.Event_Player_Joined)(&raw.data[0])^
-			returned ||= joined.player == first && joined.returning && int(joined.slot) == back
-		}
-	}
-	testing.expectf(t, returned, "%s: no returning join event for %v", what, first)
+	testing.expectf(t, result.check == "", "%s: after restoring tick %d: %s", what, result.check_tick, result.check)
 }
 
 // Two scripted runs with the same parameters compute the same ticks, alive in one process at once: the
@@ -200,61 +173,13 @@ runs_match :: proc(t: ^testing.T, suite: ^Suite($G)) {
 	)
 }
 
-// A session on the virtual clock: no desyncs, every client reaches `ticks` and verifies the same
-// checksums, and rollbacks happen unless the network is ideal.
+// A session on the virtual clock: no desyncs, every client reaches `ticks` and verifies the same checksums, the
+// relay's input log replays offline to them, and rollbacks happen unless the network is ideal.
 session_agrees :: proc(t: ^testing.T, suite: ^Suite($G), clients: int, profile: Profile) {
 	what := fmt.tprintf("session_agrees (%d clients, %s network; %s)", clients, PROFILE_NAMES[profile], params(suite))
 	result := session(suite, clients, profile)
 	defer headless.session_result_destroy(&result)
 	check_session(t, what, suite, &result, profile != .Ideal)
-}
-
-// A session's official input log (the relay's) replays offline to every checksum each client
-// verified.
-session_log_replays :: proc(t: ^testing.T, suite: ^Suite($G), clients: int, profile: Profile) {
-	runs := headless_of(suite)
-	what := fmt.tprintf(
-		"session_log_replays (%d clients, %s network; %s)",
-		clients,
-		PROFILE_NAMES[profile],
-		params(suite),
-	)
-	result := session(suite, clients, profile)
-	defer headless.session_result_destroy(&result)
-	if !testing.expectf(t, result.ok, "%s: the session did not complete", what) ||
-	   !testing.expectf(
-			   t,
-			   len(result.log.ticks) == int(suite.ticks),
-			   "%s: the log has %d ticks",
-			   what,
-			   len(result.log.ticks),
-		   ) {
-		return
-	}
-	trace: headless.Trace
-	defer headless.trace_destroy(&trace)
-	if _, ok := headless.run_replay(&runs, &result.log, &trace);
-	   !testing.expectf(t, ok, "%s: the log does not replay", what) {
-		return
-	}
-	for client in result.clients {
-		for verified in client.checksums {
-			got, _ := headless.trace_at(&trace, u32(verified[0]))
-			if got != verified[1] {
-				testing.expectf(
-					t,
-					false,
-					"%s: the replay differs from client %d first at tick %d: %016x vs verified %016x",
-					what,
-					client.slot,
-					verified[0],
-					got,
-					verified[1],
-				)
-				break
-			}
-		}
-	}
 }
 
 // A session of `suite.players` clients in which `player` joins at `tick` (from a snapshot handed over
@@ -281,119 +206,114 @@ late_join_agrees :: proc(t: ^testing.T, suite: ^Suite($G), profile: Profile, pla
 	check_session(t, what, suite, &result, false, player, tick)
 }
 
-// The replay of the committed ref.log reproduces ref.trace. With UNIFIED_REGEN it first writes a
-// new reference run (and also checks its resume).
-reference_replays :: proc(t: ^testing.T, suite: ^Suite($G)) {
-	when UNIFIED_REGEN {
-		if regenerate(t, suite) {
-			check_replay(t, suite)
-			check_resume(t, suite)
-		}
-	} else {
-		check_replay(t, suite)
-	}
-}
-
-// Resuming the committed snapshot reproduces the rest of ref.trace.
-reference_resumes :: proc(t: ^testing.T, suite: ^Suite($G)) {
-	when UNIFIED_REGEN {
-		regen_note("reference_resumes: skipped while regenerating (reference_replays checks the new snapshot)")
-	} else {
-		check_resume(t, suite)
-	}
-}
-
-@(private)
-check_replay :: proc(t: ^testing.T, suite: ^Suite($G)) {
+// The reference run reproduces on this platform: run_sim gives its checkpoints and every tick's checksums (`trace`),
+// the input log it records encodes to the same bytes and replays to the same checksums, and the snapshot at
+// `snapshot_tick` encodes to the same bytes and resumes to the same checksums. A mismatch prints the new literal: paste
+// it only for a deliberate sim change (the sim-change skill). To find the first tick that differs between two builds,
+// run `uni headless <game> -- sim --trace FILE` on both and compare the files.
+reference_reproduces :: proc(t: ^testing.T, suite: ^Suite($G)) {
 	runs := headless_of(suite)
 	reference := suite.ref
-	what := fmt.tprintf("reference_replays (%s)", ref_params(reference))
-	input_log, ok := headless.log_read(ref_path(reference, "ref.log"), G)
-	if !testing.expectf(t, ok, "%s: cannot read %s", what, ref_path(reference, "ref.log")) {
-		return
-	}
-	defer sim.log_destroy(&input_log)
-	log_players := card(input_log.ticks[0].present) if len(input_log.ticks) > 0 else 0
+	what := fmt.tprintf("reference_reproduces (%s)", ref_params(reference))
 	if !testing.expectf(
 		t,
-		input_log.seed == reference.seed &&
-		len(input_log.ticks) == int(reference.ticks) &&
-		log_players == reference.players,
-		"%s: ref.log is seed %d, %d ticks, %d players",
+		reference.ticks >= 4 && reference.snapshot_tick > 0 && reference.snapshot_tick < reference.ticks,
+		"%s: needs 4 ticks and a snapshot tick inside the run",
 		what,
-		input_log.seed,
-		len(input_log.ticks),
-		log_players,
 	) {
 		return
 	}
-	want, want_ok := read_ref_trace(t, what, reference)
-	defer headless.trace_destroy(&want)
-	if !want_ok {
-		return
+	trace: headless.Trace
+	defer headless.trace_destroy(&trace)
+	input_log: sim.Input_Log(G)
+	defer sim.log_destroy(&input_log)
+	headless.run_sim(&runs, reference.ticks, reference.seed, reference.players, &trace, &input_log)
+	got := reference
+	for &checkpoint, k in got.checkpoints {
+		checkpoint, _ = headless.trace_at(&trace, u32(k + 1) * reference.ticks / 4)
 	}
-	got: headless.Trace
-	defer headless.trace_destroy(&got)
-	if _, replay_ok := headless.run_replay(&runs, &input_log, &got);
-	   !testing.expectf(t, replay_ok, "%s: ref.log does not replay", what) {
-		return
-	}
-	if tick, got_checksum, want_checksum, wrong := first_wrong_tick(&got, &want); wrong {
+	got.trace = sim.hash_bytes(slice.to_bytes(trace.sums[:]))
+	log_bytes := sim.log_encode(&input_log)
+	defer delete(log_bytes)
+	got.log = sim.hash_bytes(log_bytes)
+	snapshot, _ := headless.run_snapshot(&runs, reference.snapshot_tick, reference.seed, reference.players)
+	defer delete(snapshot)
+	got.snapshot = sim.hash_bytes(snapshot)
+	if got != reference {
 		testing.expectf(
 			t,
 			false,
-			"%s: the replay differs from ref.trace first at tick %d: %016x vs %016x",
+			"%s: this platform computes another run%s. If the sim changed on purpose, the suite's reference is now:\n" +
+			"ref = {{seed = %d, players = %d, ticks = %d, snapshot_tick = %d, checkpoints = {{0x%016x, 0x%016x, 0x%016x, " +
+			"0x%016x}}, trace = 0x%016x, snapshot = 0x%016x, log = 0x%016x}}",
 			what,
-			tick,
-			got_checksum,
-			want_checksum,
+			first_checkpoint(reference, got),
+			got.seed,
+			got.players,
+			got.ticks,
+			got.snapshot_tick,
+			got.checkpoints[0],
+			got.checkpoints[1],
+			got.checkpoints[2],
+			got.checkpoints[3],
+			got.trace,
+			got.snapshot,
+			got.log,
 		)
 	}
+	// The log, decoded, replays to the run's checksums; the snapshot resumes to them.
+	decoded, decoded_ok := sim.log_decode(log_bytes, G)
+	defer sim.log_destroy(&decoded)
+	replayed: headless.Trace
+	defer headless.trace_destroy(&replayed)
+	if _, replay_ok := headless.run_replay(&runs, &decoded, &replayed);
+	   testing.expectf(t, decoded_ok && replay_ok, "%s: the log does not decode and replay", what) {
+		expect_trace(t, what, "the replay", &replayed, &trace)
+	}
+	resumed: headless.Trace
+	defer headless.trace_destroy(&resumed)
+	resume_ticks := reference.ticks - reference.snapshot_tick
+	if result, resume_ok := headless.run_resume(&runs, snapshot, resume_ticks, reference.players, &resumed);
+	   testing.expectf(
+		   t,
+		   resume_ok && result.final_tick == reference.ticks,
+		   "%s: the snapshot does not resume to tick %d",
+		   what,
+		   reference.ticks,
+	   ) {
+		expect_trace(t, what, "the resume", &resumed, &trace)
+	}
 }
 
+// Where a run first left its reference: the first checkpoint that differs, else the hash that does (temp-allocated).
 @(private)
-check_resume :: proc(t: ^testing.T, suite: ^Suite($G)) {
-	runs := headless_of(suite)
-	reference := suite.ref
-	what := fmt.tprintf("reference_resumes (%s)", ref_params(reference))
-	if !testing.expectf(
-		t,
-		reference.snapshot_tick > 0 && reference.snapshot_tick < reference.ticks,
-		"%s: no snapshot tick",
-		what,
-	) {
-		return
+first_checkpoint :: proc(want, got: Reference) -> string {
+	for checkpoint, k in got.checkpoints {
+		if checkpoint != want.checkpoints[k] {
+			return fmt.tprintf(" (by tick %d)", u32(k + 1) * want.ticks / 4)
+		}
 	}
-	snapshot_path := ref_path(reference, fmt.tprintf("ref-%d.snap", reference.snapshot_tick))
-	data, err := os.read_entire_file(snapshot_path, context.allocator)
-	if !testing.expectf(t, err == nil, "%s: cannot read %s", what, snapshot_path) {
-		return
+	switch {
+	case got.trace != want.trace:
+		return " (between its checkpoints)"
+	case got.snapshot != want.snapshot:
+		return " (its snapshot's bytes)"
+	case got.log != want.log:
+		return " (its log's bytes)"
 	}
-	defer delete(data)
-	want, want_ok := read_ref_trace(t, what, reference)
-	defer headless.trace_destroy(&want)
-	if !want_ok {
-		return
-	}
-	got: headless.Trace
-	defer headless.trace_destroy(&got)
-	resumed := reference.ticks - reference.snapshot_tick
-	result, ok := headless.run_resume(&runs, data, resumed, reference.players, &got)
-	if !testing.expectf(
-		t,
-		ok && result.final_tick == reference.ticks,
-		"%s: the snapshot does not resume to tick %d",
-		what,
-		reference.ticks,
-	) {
-		return
-	}
-	if tick, got_checksum, want_checksum, wrong := first_wrong_tick(&got, &want); wrong {
+	return ""
+}
+
+// Every tick of `got` has the checksum `want` has for it.
+@(private)
+expect_trace :: proc(t: ^testing.T, what, which: string, got, want: ^headless.Trace) {
+	if tick, got_checksum, want_checksum, wrong := first_wrong_tick(got, want); wrong {
 		testing.expectf(
 			t,
 			false,
-			"%s: the resume differs from ref.trace first at tick %d: %016x vs %016x",
+			"%s: %s differs from the run first at tick %d: %016x vs %016x",
 			what,
+			which,
 			tick,
 			got_checksum,
 			want_checksum,
@@ -417,26 +337,6 @@ ref_params :: proc(reference: Reference) -> string {
 		reference.ticks,
 		reference.snapshot_tick,
 	)
-}
-
-@(private)
-ref_path :: proc(reference: Reference, name: string) -> string {
-	return strings.concatenate({reference.dir, "/", name}, context.temp_allocator)
-}
-
-@(private)
-read_ref_trace :: proc(t: ^testing.T, what: string, reference: Reference) -> (trace: headless.Trace, ok: bool) {
-	trace, ok = headless.trace_read(ref_path(reference, "ref.trace"))
-	ok = testing.expectf(t, ok, "%s: cannot read ref.trace in %s", what, reference.dir)
-	ok &&= testing.expectf(
-		t,
-		trace.first == 1 && len(trace.sums) == int(reference.ticks),
-		"%s: ref.trace covers ticks %d..%d",
-		what,
-		trace.first,
-		int(trace.first) + len(trace.sums) - 1,
-	)
-	return
 }
 
 // The first tick of `got` whose checksum isn't `want`'s for that tick (one `want` lacks counts).
@@ -477,7 +377,8 @@ session :: proc(
 
 // A session's results agree: no desyncs; every client verified every tick; the starting clients'
 // checksums cover every 16th tick and are equal; a late joiner's are contiguous from its first one
-// (at or after its join tick) and equal the others'; rollbacks happened if `need_rollbacks`.
+// (at or after its join tick) and equal the others'; the relay's input log replays offline to every checksum a
+// client verified; rollbacks happened if `need_rollbacks`.
 @(private)
 check_session :: proc(
 	t: ^testing.T,
@@ -541,6 +442,7 @@ check_session :: proc(
 		}
 	}
 	testing.expectf(t, result.ok, "%s: the session did not complete cleanly", what)
+	expect_log_replays(t, what, suite, result)
 	if joiner < 0 || baseline < 0 || joiner >= len(result.clients) || !result.clients[joiner].ok {
 		return
 	}
@@ -577,103 +479,41 @@ check_session :: proc(
 	}
 }
 
-// Writes a new reference run into suite.ref.dir: ref.log and ref.trace from run_sim, the snapshot from
-// run_snapshot, and ref.json (where, when and how it was made). A run that reproduces the committed one byte for byte
-// leaves ref.json alone too, so the directory shows no change (`uni record-reference` says "nothing changed").
+// The relay's input log of a session replays offline to every checksum each client verified.
 @(private)
-regenerate :: proc(t: ^testing.T, suite: ^Suite($G)) -> bool {
+expect_log_replays :: proc(t: ^testing.T, what: string, suite: ^Suite($G), result: ^headless.Session_Result(G)) {
 	runs := headless_of(suite)
-	reference := suite.ref
 	if !testing.expectf(
 		t,
-		reference.snapshot_tick > 0 && reference.snapshot_tick < reference.ticks,
-		"regen: no snapshot tick",
+		len(result.log.ticks) == int(suite.ticks),
+		"%s: the relay's log has %d ticks",
+		what,
+		len(result.log.ticks),
 	) {
-		return false
+		return
 	}
-	os.make_directory(reference.dir)
 	trace: headless.Trace
 	defer headless.trace_destroy(&trace)
-	input_log: sim.Input_Log(G)
-	defer sim.log_destroy(&input_log)
-	result := headless.run_sim(&runs, reference.ticks, reference.seed, reference.players, &trace, &input_log)
-	snapshot, _ := headless.run_snapshot(&runs, reference.snapshot_tick, reference.seed, reference.players)
-	defer delete(snapshot)
-	snapshot_path := ref_path(reference, fmt.tprintf("ref-%d.snap", reference.snapshot_tick))
-	files := [3]string{ref_path(reference, "ref.trace"), ref_path(reference, "ref.log"), snapshot_path}
-	before: [3]string
-	for file, i in files {
-		before[i] = read_or_empty(file)
+	if _, ok := headless.run_replay(&runs, &result.log, &trace);
+	   !testing.expectf(t, ok, "%s: the relay's log does not replay", what) {
+		return
 	}
-	ok := headless.trace_write(&trace, files[0])
-	ok &&= headless.log_write(files[1], &input_log)
-	ok &&= os.write_entire_file(files[2], snapshot) == nil
-	reproduced := ok && os.is_file(ref_path(reference, "ref.json"))
-	for file, i in files {
-		reproduced &&= before[i] != "" && read_or_empty(file) == before[i]
+	for client in result.clients {
+		for verified in client.checksums {
+			got, _ := headless.trace_at(&trace, u32(verified[0]))
+			if got != verified[1] {
+				testing.expectf(
+					t,
+					false,
+					"%s: the log's replay differs from client %d first at tick %d: %016x vs verified %016x",
+					what,
+					client.slot,
+					verified[0],
+					got,
+					verified[1],
+				)
+				break
+			}
+		}
 	}
-	if !reproduced {
-		meta := ref_json(reference, result.final_checksum)
-		ok &&= os.write_entire_file(ref_path(reference, "ref.json"), transmute([]u8)meta) == nil
-	}
-	regen_note(
-		fmt.tprintf(
-			"regen: %s %s (final checksum %016x)",
-			reproduced ? "reproduced the reference run in" : "wrote a reference run into",
-			reference.dir,
-			result.final_checksum,
-		),
-	)
-	return testing.expectf(t, ok, "regen: cannot write the reference run into %s", reference.dir)
-}
-
-// Not generic, so always type-checked: the imports they use count as used in a build without
-// UNIFIED_REGEN too.
-@(private)
-regen_note :: proc(message: string) {
-	log.info(message)
-}
-
-// A file's bytes ("" when it can't be read; temp-allocated).
-@(private)
-read_or_empty :: proc(path: string) -> string {
-	data, err := os.read_entire_file(path, context.temp_allocator)
-	return err == nil ? string(data) : ""
-}
-
-// ref.json: where, when and how a reference run was made, and its parameters (temp-allocated).
-@(private)
-ref_json :: proc(reference: Reference, final_checksum: u64) -> string {
-	made, _ := time.time_to_rfc3339(time.now(), include_nanos = false, allocator = context.temp_allocator)
-	build := strings.to_lower(fmt.tprintf("-o:%v", ODIN_OPTIMIZATION_MODE), context.temp_allocator)
-	when ODIN_USE_SEPARATE_MODULES {build = strings.concatenate(
-			{build, " -use-separate-modules"},
-			context.temp_allocator,
-		)}
-	when ODIN_DEBUG {build = strings.concatenate({build, " -debug"}, context.temp_allocator)}
-	when ODIN_NO_BOUNDS_CHECK {build = strings.concatenate({build, " -no-bounds-check"}, context.temp_allocator)}
-	return fmt.tprintf(
-		`{{
-  "made_on": {{"os": "%v", "arch": "%v", "odin": "%s (%s)", "build": "%s", "commit": "%s"}},
-  "made_at": "%s",
-  "seed": %d,
-  "players": %d,
-  "ticks": %d,
-  "snapshot_tick": %d,
-  "final_checksum": "%016x"
-}}
-`,
-		ODIN_OS,
-		ODIN_ARCH,
-		ODIN_VERSION,
-		ODIN_VERSION_HASH,
-		build,
-		UNIFIED_REGEN_COMMIT,
-		made,
-		reference.seed,
-		reference.players,
-		reference.ticks,
-		reference.snapshot_tick,
-		final_checksum,
-	)
 }
