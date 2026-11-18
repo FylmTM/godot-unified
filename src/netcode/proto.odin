@@ -2,6 +2,8 @@
 // are little-endian with explicit sizes; inputs travel as the game's plain-data bytes.
 package netcode
 
+import "core:fmt"
+
 import "unified:sim"
 import "unified:wire"
 
@@ -259,6 +261,39 @@ FINALIZED_HEAD :: 22 // type u8, relay time i64, input ack u32, command ack u32,
 INPUTS_HEAD :: 10 // type u8, finalized ack u32, first u32, count u8 (asserted in send_inputs)
 COMMANDS_HEAD :: 5 // first seq u32, count u8
 COMMAND_SEND_HEAD :: 6 // wanted tick u32, kind u8, size u8
+
+// The fewest ticks at their widest (window_tick_max_bytes: every Input byte changed, every slot joining) a Finalized
+// message must hold. The relay streams a client one message of ticks per broadcast and a second for ticks no
+// broadcast carried yet; fewer ticks per message leave too little room to make up a lost one, and clients on a lossy
+// network stall on most ticks.
+TICKS_PER_MESSAGE_MIN :: 4
+
+// Why the relay can't carry a game's ticks ("" when it can; temp-allocated): fewer than TICKS_PER_MESSAGE_MIN of its
+// widest ticks fit a Finalized message (its players times its Input's bytes is too wide). relay_create panics with
+// it; the Godot host reports it with sim.game_violation's.
+game_violation :: proc(game: ^$G) -> string {
+	Input :: sim.part(G, sim.GAME_INPUT)
+	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
+	return width_violation(game.name, PLAYERS, size_of(Input), window_tick_max_bytes(Input, PLAYERS, nil))
+}
+
+// game_violation's body (a non-generic home for its import: -vet).
+@(private)
+width_violation :: proc(name: string, players, input_bytes, tick_bytes: int) -> string {
+	fit := (MAX_MESSAGE - FINALIZED_HEAD) / tick_bytes
+	if fit >= TICKS_PER_MESSAGE_MIN {
+		return ""
+	}
+	return fmt.tprintf(
+		"%s: a tick of %d players with %d-byte Inputs takes up to %d bytes, so %d fit a message and the relay needs %d: fewer players or a narrower Input",
+		name,
+		players,
+		input_bytes,
+		tick_bytes,
+		fit,
+		TICKS_PER_MESSAGE_MIN,
+	)
+}
 
 // The bytes a finalized tick's commands may take (their count byte aside), so that the tick alone always fits one
 // message however much it changed (window_tick_max_bytes). A packet holds up to WINDOW_MAX ticks, as many as fit.

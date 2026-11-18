@@ -51,10 +51,11 @@ level included, the project's stamped version, the player count), so a joiner on
 before it joins. `godot.init` is `install` (the game, its Glue and its constants; tests call it alone), the lobby and
 `entry` (the extension's callbacks for Godot), in their one valid order.
 
-**`install` never stops the load.** The editor loads the extension too, so a problem is reported, not a panic:
-`install` collects every one (no `sample_input` or `fill_frame`, a View / MultiView enum that doesn't count up from
-0, `sim.game_violation`, a Glue struct type that isn't plain, a field of one of Godot's own types) and registers
-nothing of the game. They are printed when the extension loads, and starting a session fails with the first one.
+**`install` never stops the load.** The editor loads the extension too, so a problem is reported, not a panic: `install`
+collects every one (no `sample_input` or `fill_frame`, a View / MultiView enum that doesn't count up from 0,
+`sim.game_violation`, `netcode.game_violation` (a tick too wide for the relay), a Glue struct type that isn't plain, a
+field of one of Godot's own types) and registers nothing of the game. They are printed when the extension loads, and
+starting a session fails with the first one.
 
 ### Input
 

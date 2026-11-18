@@ -165,3 +165,41 @@ sessions_play_at_32_64_and_128_hz :: proc(t: ^testing.T) {
 		}
 	}
 }
+
+Plain_8x24 :: sim.Game(Plain_State(24, 8), Plain_Input(24), sim.No_World, Wide_Event, sim.No_Commands, 8)
+Plain_32x4 :: sim.Game(Plain_State(4, 32), Plain_Input(4), sim.No_World, Wide_Event, sim.No_Commands, 32)
+
+// The widest ticks the relay accepts (netcode.game_violation: TICKS_PER_MESSAGE_MIN of them per message), every Input
+// byte changing every tick, on `bad`: everyone verifies every tick, and stalls stay a small share of the ticks.
+@(test)
+the_widest_accepted_ticks_play_on_a_bad_network :: proc(t: ^testing.T) {
+	check :: proc(t: ^testing.T, name: string, result: ^headless.Session_Result($G), stalls, players: int) {
+		share := f64(stalls) / f64(players * 900)
+		log.infof(
+			"%s on bad: stall ticks %d (%.1f%%), %d B per client per tick, %d inputs replaced",
+			name,
+			stalls,
+			100 * share,
+			result.relay_net.bytes_sent / players / 900,
+			result.replaced,
+		)
+		testing.expectf(t, result.ok, "%s: not ok", name)
+		testing.expectf(t, share < 0.1, "%s: %d stall ticks of %d", name, stalls, players * 900)
+	}
+	cfg := headless.Session_Config {
+		clients = 8,
+		profile = netcode.PROFILES[.Bad],
+		ticks   = 900,
+		seed    = 1,
+	}
+	wide, wide_stalls := plain_session(Plain_8x24, 0, 64, cfg)
+	defer headless.session_result_destroy(&wide)
+	check(t, "8 x 24 B", &wide, wide_stalls, 8)
+	testing.expectf(t, wide.replaced == 0, "8 x 24 B: %d inputs replaced", wide.replaced)
+	// (32 start players on `bad`: a Welcome lost and resent can come after the start lead, and a player's first
+	// inputs with it. That is the start, not the stream: inputs are not checked here.)
+	cfg.clients = 32
+	many, many_stalls := plain_session(Plain_32x4, 0, 64, cfg)
+	defer headless.session_result_destroy(&many)
+	check(t, "32 x 4 B", &many, many_stalls, 32)
+}

@@ -269,6 +269,9 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	if reason := sim.game_violation(game); reason != "" {
 		append(&problems, strings.clone(reason))
 	}
+	if reason := netcode.game_violation(game); reason != "" {
+		append(&problems, strings.clone(reason))
+	}
 	data_problems(glue.data, constants.id, glue.input_values, &problems)
 	if len(problems) > 0 {
 		api = {
