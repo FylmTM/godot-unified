@@ -10,7 +10,7 @@ import "core:os"
 import "core:slice"
 import "core:time"
 
-import "unified:b3"
+import box3d "box3d:bindings"
 import "unified:physics"
 
 BODIES_SIDE :: 8 // an 8 x 8 x 8 stack: 512 boxes
@@ -37,15 +37,15 @@ stat_json :: proc(stat: Stat) -> string {
 	return fmt.tprintf(`{{"mean":%.2f,"p99":%.2f}}`, stat.mean, stat.p99)
 }
 
-add_box :: proc(world: ^physics.World, pos, half: [3]f32, type: b3.Body_Type) {
-	body_def := b3.default_body_def()
+add_box :: proc(world: ^physics.World, pos, half: [3]f32, type: physics.Body_Type) {
+	body_def := physics.default_body_def()
 	body_def.type = type
 	body_def.position = pos
 	body_def.enable_sleep = false // every tick costs the same: the whole pile stays awake
-	id := b3.create_body(world.id, &body_def)
-	shape_def := b3.default_shape_def()
-	hull := b3.make_box_hull(half.x, half.y, half.z)
-	b3.create_hull_shape(id, &shape_def, &hull.base)
+	body := physics.create_body(world, &body_def)
+	shape_def := physics.default_shape_def()
+	hull := physics.make_box_hull(half.x, half.y, half.z)
+	physics.create_hull_shape(world, body, &shape_def, &hull.base)
 }
 
 main :: proc() {
@@ -63,9 +63,9 @@ main :: proc() {
 	for _ in 0 ..< SETTLE_TICKS {
 		physics.step(world, DT, SUBSTEPS)
 	}
-	ring: [RING]b3.World_Snapshot
+	ring: [RING]box3d.WorldSnapshot
 	defer {
-		for &snapshot in ring do b3.destroy_world_snapshot(&snapshot)
+		for &snapshot in ring do box3d.DestroyWorldSnapshot(&snapshot)
 	}
 	step_us, save_us, hash_us, restore_us, rays_us: [TICKS]f64
 	micros :: proc(from, to: time.Tick) -> f64 {return time.duration_microseconds(time.tick_diff(from, to))}
@@ -75,18 +75,18 @@ main :: proc() {
 		start := time.tick_now()
 		physics.step(world, DT, SUBSTEPS)
 		stepped := time.tick_now()
-		b3.world_save_snapshot(world.id, slot)
+		box3d.World_SaveSnapshot(world.id, slot)
 		saved := time.tick_now()
-		hash := b3.world_hash_state(world.id)
+		hash := box3d.World_HashState(world.id)
 		hashed := time.tick_now()
-		restored_ok := b3.world_restore_snapshot(world.id, slot)
+		restored_ok := box3d.World_RestoreSnapshot(world.id, slot)
 		restored := time.tick_now()
 		for ray in 0 ..< RAYS {
 			origin := [3]f32{f32(ray % 8) * 0.8 - 2.8, 20, f32(ray / 8) * 0.8 - 2.8}
 			if _, ok := physics.world_cast_ray_closest(world, origin, {0, -30, 0}); ok do hits += 1
 		}
 		raycast := time.tick_now()
-		if !restored_ok || b3.world_hash_state(world.id) != hash {
+		if !restored_ok || box3d.World_HashState(world.id) != hash {
 			mismatches += 1 // a restore that doesn't give the saved world back
 		}
 		step_us[tick] = micros(start, stepped)

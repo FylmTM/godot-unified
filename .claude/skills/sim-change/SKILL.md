@@ -1,6 +1,6 @@
 ---
 name: sim-change
-description: What to do when a change alters what the deterministic simulation computes - a reference run or the Box3D golden trace no longer reproduces, a game's rules or tuning change, the state layout, input, command or snapshot format changes, or the netcode wire protocol changes. Covers regenerating reference runs, the golden trace, protocol bumps, and the benchmarks. Use before committing any change to a sim package, src/physics, src/b3, src/netcode or the unified-box3d pin, and whenever uni test reports a reference run or golden trace mismatch.
+description: What to do when a change alters what the deterministic simulation computes - a reference run or the Box3D golden trace no longer reproduces, a game's rules or tuning change, the state layout, input, command or snapshot format changes, or the netcode wire protocol changes. Covers regenerating reference runs, the golden trace, protocol bumps, and the benchmarks. Use before committing any change to a sim package, src/physics, src/netcode or the unified-box3d pin, and whenever uni test reports a reference run or golden trace mismatch.
 ---
 
 # Changing what the simulation computes
@@ -11,15 +11,15 @@ They change only on purpose, never to make a test pass.
 ## When a reference run or the golden trace fails
 
 `./uni test` runs every game's reference run (`reference_reproduces`, its constants in the game's
-`simulation/tests/suite_test.odin`, the toy's in `tests/scenarios/suite_test.odin`) and checks `GOLDEN` in
-`tests/b3` (and `GOLDEN_CHARACTERS` and `GOLDEN_FIELD` in `tests/physics`). A mismatch means the simulation changed.
+`simulation/tests/suite_test.odin`, the toy's in `tests/scenarios/suite_test.odin`) and checks the golden
+traces in `tests/physics` (`BOX3D_GOLDEN`, Box3D alone; `GOLDEN_CHARACTERS` and `GOLDEN_FIELD`). A mismatch means the simulation changed.
 
 1. **Was it meant to?** A rules, tuning or physics change: yes. A refactor, a tooling change, a view-only change or
    a dependency bump you thought neutral: no, so find the cause. Check main in a throwaway worktree
    (`git worktree add --detach .out/main-check origin/main`, run the check there, `git worktree remove --force .out/main-check`); never
    `git stash`, the stash is shared by every session. A determinism lint failure or a float-order change (summation order, a new `core:math` call) is the usual cause.
 2. **If it was meant to:** paste the `ref = {...}` literal the failing test prints into the suite's `Reference`, and
-   for a Box3D change `GOLDEN` in `tests/b3/golden_test.odin`, in the same commit as the change. Only the `snapshot`
+   for a Box3D change `BOX3D_GOLDEN` in `tests/physics/box3d_test.odin`, in the same commit as the change. Only the `snapshot`
    and `log` hashes moving (the checkpoints and `trace` unchanged) means the format or compat changed, not the
    results. To find where two builds part: `./uni headless <game> -- sim --trace FILE` on each, compare the files.
 3. **Say why** in the commit message and the PR: what changed in the simulation and why the old results are no longer
@@ -30,7 +30,7 @@ Details: `src/headless/SPEC.md` (End-to-end suites, Reference runs).
 
 ## Full CI before merging
 
-A PR that touches `src/physics`, `src/b3`, the `[box3d]` pin or a game's sim runs CI on all four platforms before it
+A PR that touches `src/physics`, the `[box3d]` pin or a game's sim runs CI on all four platforms before it
 merges, whether or not its results changed:
 
 ```
@@ -57,7 +57,7 @@ tuning, `src/physics`, `src/netcode` or the rollback path also runs the long var
   snapshot from another build is refused. Nothing to bump by hand. Reference runs are regenerated (above), since the
   log and snapshot carry compat.
 - **A game's rules or tuning** (it computes differently with the same layouts): bump that game's `Game.version`.
-- **The library's own simulation** (`src/sim`, `src/dmath`, `src/physics`, `src/b3`): when a change makes a reference
+- **The library's own simulation** (`src/sim`, `src/dmath`, `src/physics`): when a change makes a reference
   run or a golden trace compute differently, bump `sim.LIBRARY_VERSION` (`src/sim/sim.odin`) with a note on what
   changed, in the same PR. A refactor, a comment or a tooling change that reproduces every reference run and golden
   doesn't bump it.

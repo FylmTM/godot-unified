@@ -8,7 +8,6 @@
 // `odin test games/survivor/simulation/tests -collection:unified=src`.
 package tests
 
-@(require) import "b3"
 @(require) import "cli"
 @(require) import "dmath"
 @(require) import "eos"

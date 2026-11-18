@@ -1,5 +1,5 @@
 // The character's golden trace: our own physics code (the character, kinematic paths, the Extra's hash)
-// pinned on every platform, like Box3D's results are in tests/b3 (GOLDEN there).
+// pinned on every platform, like Box3D's results are in box3d_test.odin (BOX3D_GOLDEN).
 package test_physics
 
 import "core:testing"
@@ -20,7 +20,7 @@ GOLDEN_TICKS :: 512 // 8 s: the platform's whole ping-pong cycle
 GOLDEN_EVERY :: 128
 
 // A change to src/physics, Box3D or the build flags that alters any of these fails here. If the
-// change is intended, update the values in the same commit (with tests/b3's GOLDEN and the
+// change is intended, update the values in the same commit (with BOX3D_GOLDEN and the
 // games' reference runs when they change too).
 GOLDEN_CHARACTERS := [GOLDEN_TICKS / GOLDEN_EVERY]u64 {
 	0x82a758bfac90b21f,
