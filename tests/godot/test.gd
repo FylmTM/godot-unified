@@ -1,8 +1,6 @@
 # Binding tests for unified:gdext, and unified:level's exporter on levels/ (src/level/SPEC.md): run headless by
 # `uni test --suite godot-bindings`. Prints one line per check and "GDEXT TESTS: <n> failed"; exits with the failure
-# count. After changing the exporter or levels/level_2d.tscn on purpose, rewrite levels/level_2d.level (from
-# tests/godot, once this has run): godot --headless --path . -s res://.out/tools/level_export.gd -- \
-#   --scene=res://levels/level_2d.tscn
+# count. After changing the exporter or levels/level_2d.tscn on purpose, `uni bake` rewrites levels/level_2d.level.
 extends SceneTree
 
 var failed := 0
@@ -167,18 +165,12 @@ func press_fires(at: Vector2) -> bool:
 	return fired
 
 
-## The level exporter, installed as the tools install it into a game and run in its own Godot process: the 2D
+## The level exporter, mirrored here as into a game (res://addons/unified/) and run in its own Godot process: the 2D
 ## fixture exports to the committed file (tests/level reads it), and an unsupported shape fails naming the node.
 func check_level_export() -> void:
-	var repo := ProjectSettings.globalize_path("res://").path_join("../..").simplify_path()
-	var src := FileAccess.get_file_as_bytes(repo.path_join("src/level/godot/level_export.gd"))
-	DirAccess.make_dir_recursive_absolute(ProjectSettings.globalize_path("res://.out/tools"))
-	var f := FileAccess.open("res://.out/tools/level_export.gd", FileAccess.WRITE)
-	f.store_buffer(src)
-	f.close()
 	var out := []
 	var code := OS.execute(OS.get_executable_path(), ["--headless", "--path", ProjectSettings.globalize_path("res://"),
-			"-s", "res://.out/tools/level_export.gd", "--", "--check", "--scene=res://levels/level_2d.tscn",
+			"-s", "res://addons/unified/level_export.gd", "--", "--check", "--scene=res://levels/level_2d.tscn",
 			"--scene=res://levels/bad_2d.tscn"], out, true)
 	var data = null
 	for line in "".join(out).split("\n"):

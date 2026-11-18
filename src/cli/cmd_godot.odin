@@ -671,7 +671,7 @@ cmd_coop :: proc(args: []string) -> Result {
 
 @(private)
 Bake_Opts :: struct {
-	game:  string `args:"pos=0" usage:"a game (default: every game)"`,
+	game:  string `args:"pos=0" usage:"a game (default: every game, then the project's own level scenes)"`,
 	check: bool `usage:"write nothing; fail when the view index or a .level file is stale"`,
 }
 
@@ -688,9 +688,20 @@ cmd_bake :: proc(args: []string) -> Result {
 		}
 		count += 1
 	}
+	if opts.game == "" {
+		for target in state.config.bake {
+			ok = bake_project(join(state.project.root, target.dir), target.scenes, opts.check).ok && ok
+		}
+	}
 	return {
 		ok      = ok,
-		summary = aprintf("bake%s: %d game(s) %s", opts.check ? " --check" : "", count, ok ? "ok" : "FAILED"),
+		summary = aprintf(
+			"bake%s: %d game(s)%s %s",
+			opts.check ? " --check" : "",
+			count,
+			opts.game == "" && len(state.config.bake) > 0 ? " and the project's own levels" : "",
+			ok ? "ok" : "FAILED",
+		),
 	}
 }
 
@@ -786,21 +797,27 @@ godot_scenes :: proc(dir: string) -> []string {
 	return out[:]
 }
 
-// Runs unified's level exporter (src/level/godot/level_export.gd, copied into <game>/.out/tools/) on the game's
+// Runs unified's level exporter (src/godot/tools/level_export.gd, mirrored as res://addons/unified/) on the game's
 // level scenes (src/level/SPEC.md). `quiet`: name only the levels that changed.
 bake :: proc(game: Game, check: bool, quiet := false) -> Tool_Result {
-	ensure_game(game) // the game's scripts name its library's classes
-	copy_file(
-		join(game.dir, ".out", "tools", "level_export.gd"),
-		join(state.project.unified, "src", "level", "godot", "level_export.gd"),
-	)
+	ensure_game(game) // the game's scripts name its library's classes, and the exporter reads its view_scale
+	return bake_project(game.dir, nil, check, quiet)
+}
+
+// Runs the level exporter on a Godot project (imported first): `scenes` (res:// paths), or every
+// res://game/levels/*.tscn.
+bake_project :: proc(dir: string, scenes: []string, check: bool, quiet := false) -> Tool_Result {
+	ensure_imported(dir)
+	args: [dynamic]string
+	if check do append(&args, "--check")
+	for scene in scenes do append(&args, aprintf("--scene=%s", scene))
 	result := run_tool({
-			dir     = game.dir,
-			script  = "res://.out/tools/level_export.gd",
-			args    = check ? strs("--check") : nil,
-			timeout = 60,
-			quiet   = true,
-		})
+		dir     = dir,
+		script  = aprintf("res://%s/level_export.gd", TOOLS_DIR),
+		args    = args[:],
+		timeout = 60,
+		quiet   = true,
+	})
 	if obj, ok := result.result.(json.Object); ok {
 		if levels, isa := obj["levels"].(json.Array); isa {
 			for level_value in levels {

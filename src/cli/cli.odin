@@ -62,6 +62,13 @@ Project_Config :: struct {
 	uses_box3d:   bool, // something besides the games links Box3D (the tests root)
 	vet_template: bool, // `vet` also checks `uni init`'s template, written for a game named template_game
 	bench:        []Bench_Row, // more `bench` rows, after the games'
+	bake:         []Bake_Target, // more level scenes `bake` exports when run without a game
+}
+
+// Level scenes outside the games that `bake` exports (this repo: the 2D fixture tests/level reads).
+Bake_Target :: struct {
+	dir:    string, // the Godot project, relative to the project
+	scenes: []string, // res:// paths
 }
 
 // A headless binary that is no game's (this repo's toy).

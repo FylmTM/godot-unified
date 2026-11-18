@@ -10,7 +10,8 @@ import "core:strings"
 
 SHARED_SOURCE :: "games/shared"
 SHARED_DIR :: "addons/shared"
-// unified's library tooling (src/godot/SPEC.md): the tool base and the validate step, mirrored into every game.
+// unified's library tooling (src/godot/SPEC.md): the tool base, the validate step and the level exporter, mirrored
+// into every Godot project the CLI runs Godot on.
 TOOLS_SOURCE :: "src/godot/tools"
 TOOLS_DIR :: "addons/unified"
 // What the mirror wrote last (path and SHA-256 per file), to tell an in-place edit from a stale copy.
@@ -31,8 +32,8 @@ sync_shared :: proc(dir: string) {
 	if uses_shared(dir) {
 		mirror_tree(join(state.project.root, SHARED_SOURCE), join(dir, SHARED_DIR), SHARED_SOURCE)
 	}
-	// every game (a Godot project with game/): unified's tool scripts
-	if os.is_directory(join(dir, "game")) {
+	// every Godot project: unified's tool scripts
+	if os.is_file(join(dir, "project.godot")) {
 		mirror_tree(join(state.project.unified, TOOLS_SOURCE), join(dir, TOOLS_DIR), TOOLS_SOURCE)
 	}
 }
