@@ -33,7 +33,10 @@ Relay_Config :: struct {
 RELAY_RING :: 2048 // finalized ticks the relay keeps: a client further behind can't be streamed to (FIN_RING)
 #assert(CATCHUP_TICKS < RELAY_RING)
 INPUT_RING :: 256
-CHECK_RING :: 64
+// Checksum ticks whose reports the relay keeps: a joiner's check of its snapshot's tick S may come as late as it can
+// be streamed to (FIN_RING - 64 past S, then RELAY_RING more), and must still find the others' reports of S.
+CHECK_RING :: 256
+#assert(CHECK_RING * CHECKSUM_EVERY >= FIN_RING - 64 + RELAY_RING)
 JOIN_LEAD_MS :: 500 // a joiner becomes present this long after the relay clock at its Hello
 START_LEAD_MS :: 500 // the clock starts (tick 0 is due) this long after Welcome, unless local_start
 BROADCAST_GAP :: 0.75 // ticks at least between two Finalized broadcasts that only carry new ticks (a heartbeat waits a tick)
@@ -99,7 +102,7 @@ Seat :: struct($Input: typeid) {
 	input_tick:  [INPUT_RING]u32, // which tick inputs[k] holds
 	recv_upto:   u32, // every input up to this tick is in
 	client_ack:  u32, // the newest finalized tick the client acked
-	rotate:      u32, // which window of a long backlog the next broadcast carries
+	resume:      u32, // the tick after the last one a broadcast that stopped short carried (0: start at the oldest)
 	cmd_recv:    u32, // the command ack: every seq up to this one is received
 	cmd_wait:    [dynamic]Wait_Command, // received, not finalized yet, in seq order (its buffer outlives resets)
 	// late join: who sends the joiner its snapshot, and the check of the snapshot before the joiner plays
@@ -950,7 +953,6 @@ take_commands :: proc(relay: ^Relay($G), tick: u32, tick_inputs: ^sim.Inputs(G))
 
 @(private)
 broadcast :: proc(relay: ^Relay($G), now: i64) {
-	window := u32(WINDOW_MAX)
 	relay.broadcast_us = now
 	relay.broadcast_to = relay.finalized
 	for &seat, slot in relay.seats {
@@ -964,22 +966,23 @@ broadcast :: proc(relay: ^Relay($G), now: i64) {
 		wire.w_u32(writer, seat.cmd_recv)
 		first := seat.client_ack + 1
 		last := first - 1
+		newest := last // the newest tick this client is streamed
 		if seat.base_known {
-			// A backlog longer than a window (catching up after a stall, a late join) goes out one
-			// window per broadcast in turn, so it streams at a window per tick instead of a window
-			// per round trip.
-			backlog := min(relay.finalized + 1 - first, CATCHUP_TICKS)
-			if windows := (backlog + window - 1) / window; windows > 1 {
-				seat.rotate = (seat.rotate + 1) % windows
-				first += seat.rotate * window
+			// The unacked ticks, up to CATCHUP_TICKS of them. When they don't fit one message (WINDOW_MAX ticks, or
+			// MAX_MESSAGE bytes), each broadcast carries on where the one before stopped, and starts again at the
+			// oldest once one reached the newest: the client gets a message of ticks per broadcast, not one per round
+			// trip (its ack is what moves the oldest).
+			newest = min(relay.finalized, seat.client_ack + CATCHUP_TICKS)
+			if seat.resume > first && seat.resume <= newest {
+				first = seat.resume
 			}
-			last = min(relay.finalized, first + window - 1)
+			last = min(newest, first + WINDOW_MAX - 1)
 		}
 		wire.w_u32(writer, first)
 		count_at := len(writer.buf)
 		assert(count_at + 1 == FINALIZED_HEAD)
 		wire.w_u8(writer, 0)
-		written := 0
+		written: u32 = 0
 		base: ^sim.Inputs(G) // the tick before in this packet (nil: the empty tick)
 		for tick := first; tick <= last; tick += 1 {
 			tick_inputs := relay_tick(relay, tick)
@@ -987,7 +990,7 @@ broadcast :: proc(relay: ^Relay($G), now: i64) {
 				break
 			}
 			// Ticks with commands or many changes are larger: stop at the message limit (every tick alone
-			// fits, see tick_command_budget), the rest goes in a later packet.
+			// fits, see tick_command_budget), the rest goes in the next broadcast.
 			before := len(writer.buf)
 			window_write_tick(writer, tick_inputs, base)
 			if len(writer.buf) > MAX_MESSAGE {
@@ -998,6 +1001,7 @@ broadcast :: proc(relay: ^Relay($G), now: i64) {
 			written += 1
 		}
 		writer.buf[count_at] = u8(written)
+		seat.resume = first + written <= newest ? first + written : 0
 		relay_send(relay, slot, writer, .Unreliable, now)
 	}
 }
@@ -1118,6 +1122,9 @@ forward_snapshot :: proc(relay: ^Relay($G), slot: int, kind: Msg, reader: ^wire.
 		seat.snap_total = total
 		seat.snap_sent = 0
 		seat.snap_tick = tick
+		// A snapshot that replaces this one is never older: the joiner keeps the finalized ticks streamed to it from
+		// here on, and acks of them may still be on their way when the next Snap_Begin is forwarded.
+		seat.snap_min = tick
 		seat.snap_from = slot
 		seat.snap_have = false
 		// Stream finalized ticks from the snapshot's tick on (that tick's inputs seed the joiner's

@@ -27,7 +27,8 @@ GAME := Game{name = "coins", version = "1", tick_hz = 64, tick = tick, scripted_
   machine and is compared and logged as raw bytes: a bool's byte may hold neither 0 nor 1 there (use a bit_set), a
   float may be a NaN (quantize: `dmath.axis_i8`, a `dmath.Dir2` / `Dir3`). Enums and bit_sets are fine: `tick` reads
   an enum outside its declared values as its zero value and a bit_set without the bits of no element, on every peer
-  alike (the caller's `Inputs` stay as sent). The netcode may repeat or substitute
+  alike (the caller's `Inputs` stay as sent). So an Input's enum must declare a member of value 0, which an absent
+  player's all-zero input holds too (`game_violation` refuses one that doesn't). The netcode may repeat or substitute
   it, so it is the controls' state, never a one-shot: buttons are a bit_set field named `buttons` holding what is
   down, and `buttons(t, player)` gives `down`, `pressed` and `released` against the slot's input of the tick before
   (`input_before(t, player)`). A one-shot value is a command.

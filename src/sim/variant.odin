@@ -117,7 +117,7 @@ union_value :: proc(kind: int, bytes: []u8, $U: typeid) -> (value: U) {
 @(private)
 Wire_Kind :: enum u8 {
 	Command, // an enum outside its values or a non-finite float rejects the whole command
-	Input, // an enum outside its values reads as its zero value (an Input holds no floats or bools)
+	Input, // an enum outside its values reads as 0, a declared member (wire_violation; an Input holds no floats or bools)
 }
 
 // Reads a plain value from another machine the way every peer reads it, in place when `apply`: a bool as 0 or 1, a
@@ -140,10 +140,7 @@ wire_fix :: proc(data: rawptr, type: ^runtime.Type_Info, kind: Wire_Kind, apply:
 		bits := (^u32)(data)^ // f32 only (plain_violation)
 		rejected = bits & 0x7F80_0000 == 0x7F80_0000 // an infinity or a NaN
 	case runtime.Type_Info_Enum:
-		value := read_integer(data, info.base)
-		declared := false
-		for allowed in info.values do declared ||= i64(allowed) == value
-		if !declared {
+		if !enum_declares(info, read_integer(data, info.base)) {
 			changed = true
 			if kind == .Command do rejected = true
 			else if apply do runtime.mem_zero(data, type.size)
@@ -183,6 +180,13 @@ bit_set_holds :: proc(info: runtime.Type_Info_Bit_Set, element: i64) -> bool {
 		return false
 	}
 	return true
+}
+
+// Whether `value` is one of an enum's declared values.
+@(private)
+enum_declares :: proc(info: runtime.Type_Info_Enum, value: i64) -> bool {
+	for declared in info.values do if i64(declared) == value do return true
+	return false
 }
 
 // An integer of `type` (a sized integer: plain_violation) at `data`, as i64.
