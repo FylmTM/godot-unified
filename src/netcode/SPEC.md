@@ -63,7 +63,9 @@ driver, or directly in its tests) and `headless.session_run`; it implements no t
 
 - **Datagram**: a tag byte (`0x80 | PROTOCOL_VERSION`), the sender's epoch and the peer's last seen, seq, ack and a
   32-bit ack history, the datagram that arrived last (back from the ack) with how long it waited there, a chunk
-  count, chunks (`u8 kind, [u32 id], u16 len, bytes`). Two builds never parse each other's datagrams: a datagram whose
+  count, chunks (`u8 kind, [u32 id], u16 len, bytes`): unreliable, reliable, or the *older acks*, up to
+  `ACK_EXT_WORDS` u32 of bits for the 256 seqs before the header's 33. A receiver adds the older acks (when they fit)
+  for `ACK_EXT_HOLD_US` after seqs more than 32 behind its newest arrived, so outside a burst they cost nothing. Two builds never parse each other's datagrams: a datagram whose
   tag has the top bit and another version is answered with a 5-byte *notice* (our tag, a zero epoch), which no
   version ever answers; a client that gets one from its relay fails at once ("a different game build").
 - **Round trip**: one measure, the channel's. Each datagram's ack names the datagram that arrived last and how long
@@ -78,9 +80,11 @@ driver, or directly in its tests) and `headless.session_run`; it implements no t
 
 Every datagram acks; a reliable message rides until a datagram carrying it is acked, is resent after
 `1.5 × srtt + 15 ms` (clamped), and is delivered once, in order; unreliable ones as they come. At most
-`REL_IN_FLIGHT` datagrams carrying reliable messages are in flight past the peer's newest ack, so one ack covers a
-whole burst (a snapshot is never resent though it arrived); at most `REL_WINDOW` reliable messages past the oldest
-unacked one, and a receiver drops anything further ahead; messages over `MAX_MESSAGE` are refused (`channel_send`
+`REL_IN_FLIGHT` (288) datagrams carrying reliable messages are in flight past the peer's newest ack, so one ack and
+its older acks cover a whole burst (a snapshot is never resent though it arrived); reliable bytes to a peer are paced
+by a token bucket (`REL_BURST` at once, refilled at `REL_RATE`, 1 MB/s): a fixed pace, not congestion control, so a
+burst never floods a home uplink; at most `REL_WINDOW` reliable messages past the oldest unacked one, and a receiver
+drops anything further ahead; messages over `MAX_MESSAGE` are refused (`channel_send`
 false). A keepalive keeps idle peers connected; a peer is dropped after `DISCONNECT_US` of silence, or
 `FIRST_ANSWER_US` for one that never answered (a transport like EOS sets up its path after the first hello). Each
 side's connection has an epoch, sent (and the peer's echoed) in every datagram: a restarted peer on the same address

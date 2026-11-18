@@ -196,3 +196,104 @@ a_live_netsim_passes_through_while_ideal :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(g_forgot), 2)
 	netcode.link_close(&link)
 }
+
+// A snapshot-sized burst (400 datagrams) over a 50 ms path whose jitter reorders it: the older acks chunk describes
+// the seqs more than 32 behind the newest, so nothing that arrived is resent, and the burst goes at the pace
+// (REL_RATE) plus a few round trips (one ack covers REL_IN_FLIGHT datagrams), not one round trip per 32 datagrams.
+@(test)
+a_reordered_burst_is_acked_in_full :: proc(t: ^testing.T) {
+	hub := netcode.hub_create(2)
+	defer netcode.hub_destroy(hub)
+	clock := netcode.Virtual_Clock {
+		now = 1_000_000,
+	}
+	path := netcode.Profile {
+		name    = "far",
+		latency = 50_000,
+		jitter  = 15_000,
+	}
+	sender := netcode.channel_make()
+	defer netcode.channel_destroy(sender)
+	receiver := netcode.channel_make()
+	defer netcode.channel_destroy(receiver)
+	// The receiver's link carries the path both ways (as a session's client link does).
+	to_receiver := netcode.channel_peer(sender, netcode.channel_add_link(sender, netcode.loopback_link(hub, 0)), 1)
+	netcode.channel_add_link(receiver, netcode.netsim_wrap(netcode.loopback_link(hub, 1), path, 13, &clock))
+	MESSAGES :: 400
+	chunk: [1000]u8
+	for k in 0 ..< MESSAGES {
+		chunk[0], chunk[1] = u8(k), u8(k >> 8)
+		netcode.channel_send(sender, to_receiver, chunk[:], .Reliable, clock.now)
+	}
+	start := clock.now
+	got := 0
+	for clock.now - start < 5_000_000 {
+		clock.now += 1000 // both sides flush every millisecond, as a session thread does
+		netcode.channel_flush(sender, clock.now)
+		netcode.channel_poll(sender, clock.now)
+		for event in netcode.channel_poll(receiver, clock.now) {
+			if event.kind == .Message {
+				testing.expect_value(t, int(event.data[0]) | int(event.data[1]) << 8, got)
+				got += 1
+			}
+		}
+		netcode.channel_flush(receiver, clock.now)
+		if got == MESSAGES && netcode.channel_idle(sender, to_receiver) {
+			break
+		}
+	}
+	testing.expect_value(t, got, MESSAGES)
+	testing.expect_value(t, sender.stats.resends, 0)
+	took := clock.now - start
+	paced := i64(MESSAGES * len(chunk)) * 1_000_000 / netcode.REL_RATE
+	testing.expectf(
+		t,
+		took < paced + 300_000,
+		"the burst took %d ms (paced: %d ms, a 100 ms round trip)",
+		took / 1000,
+		paced / 1000,
+	)
+}
+
+// Reliable bytes to a peer are paced even when its acks come at once: at most REL_BURST at first, then REL_RATE (a
+// big snapshot never floods the uplink), and the whole burst still arrives without a resend.
+@(test)
+reliable_sends_are_paced :: proc(t: ^testing.T) {
+	hub := netcode.hub_create(2)
+	defer netcode.hub_destroy(hub)
+	sender := netcode.channel_make()
+	defer netcode.channel_destroy(sender)
+	receiver := netcode.channel_make()
+	defer netcode.channel_destroy(receiver)
+	to_receiver := netcode.channel_peer(sender, netcode.channel_add_link(sender, netcode.loopback_link(hub, 0)), 1)
+	netcode.channel_add_link(receiver, netcode.loopback_link(hub, 1))
+	MESSAGES :: 300
+	chunk: [1000]u8
+	start: i64 = 1_000_000
+	for _ in 0 ..< MESSAGES {
+		netcode.channel_send(sender, to_receiver, chunk[:], .Reliable, start)
+	}
+	got := 0
+	for now := start; now < start + 2_000_000 && got < MESSAGES; now += 1000 {
+		netcode.channel_flush(sender, now)
+		netcode.channel_poll(sender, now)
+		for event in netcode.channel_poll(receiver, now) {
+			if event.kind == .Message do got += 1
+		}
+		netcode.channel_flush(receiver, now)
+		allowed := netcode.REL_BURST + (now - start) * netcode.REL_RATE / 1_000_000
+		sent := i64(sender.stats.bytes_sent - sender.stats.datagrams_sent * netcode.HEADER_BYTES)
+		if !testing.expectf(
+			t,
+			sent <= allowed,
+			"%d bytes sent after %d ms (allowed %d)",
+			sent,
+			(now - start) / 1000,
+			allowed,
+		) {
+			break
+		}
+	}
+	testing.expect_value(t, got, MESSAGES)
+	testing.expect_value(t, sender.stats.resends, 0)
+}
