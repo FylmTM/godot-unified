@@ -90,3 +90,17 @@ an_input_seen_the_host_cannot_fill_is_refused :: proc(t: ^testing.T) {
 	nested := seen_violation_of(Nested_Seen_Input)
 	testing.expectf(t, strings.contains(nested, "`aim` holds a sim.Seen"), "%q", nested)
 }
+
+// Every host plays a scripted player through sim.scripted_player_input: a script that writes a Seen has it cleared (a
+// script saw no screen), the rest of its input kept; a game without a script plays zero Inputs.
+@(test)
+a_scripted_input_has_no_seen :: proc(t: ^testing.T) {
+	game := toy.GAME
+	game.scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+		return {dx = 7, seen = 9}
+	}
+	state: toy.State
+	testing.expect_value(t, sim.scripted_player_input(&game, 1, 0, 5, &state), toy.Input{dx = 7})
+	game.scripted_input = nil
+	testing.expect_value(t, sim.scripted_player_input(&game, 1, 0, 5, &state), toy.Input{})
+}

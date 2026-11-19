@@ -27,11 +27,7 @@ input_sample: struct {
 		bytes: [MAX_INPUT_BYTES]u8, // the newest sample
 		seq:   u64, // the newest stored sample's number (guarded)
 		taken: u64, // the newest sample a tick took (atomic)
-		shown: u32, // `shown` when it was sampled (guarded)
 	},
-	// The tick of the frame on screen + 1 (0: none yet; main thread): api.front sets it, each sample keeps it, the
-	// session thread stamps the input's sim.Seen from it.
-	shown:    u32,
 	sampling: u64, // the sample the main thread is making (main thread only)
 	current:  int, // the local player sample_input is filling (main thread)
 	active:   [LOCAL_MAX]bool, // the local players sample_input fills (main thread; local player 0 always)
@@ -129,19 +125,15 @@ input_sample_store :: proc(local: int, bytes: []u8) {
 	sync.guard(&input_sample.mu)
 	copy(input_sample.locals[local].bytes[:], bytes)
 	input_sample.locals[local].seq = input_sample.sampling
-	input_sample.locals[local].shown = input_sample.shown
 }
 
 // Session thread: local player `local`'s newest sample's bytes (every tick that samples gets it, also when several take
-// one), marking it taken (its latches are then cleared), and the tick of the frame on screen when it was sampled
-// (`shown` false: none yet).
+// one), marking it taken (its latches are then cleared).
 @(private)
-input_sample_take :: proc(local: int, out: []u8) -> (shown_tick: u32, shown: bool) {
+input_sample_take :: proc(local: int, out: []u8) {
 	sync.guard(&input_sample.mu)
 	copy(out, input_sample.locals[local].bytes[:len(out)])
 	sync.atomic_store(&input_sample.locals[local].taken, input_sample.locals[local].seq)
-	stored := input_sample.locals[local].shown
-	return stored - 1, stored != 0
 }
 
 // A new session: nothing sampled for it yet.
@@ -150,10 +142,8 @@ input_sample_reset :: proc() {
 	sync.guard(&input_sample.mu)
 	for &local in input_sample.locals {
 		local.bytes = {}
-		local.shown = 0
 		sync.atomic_store(&local.taken, local.seq)
 	}
-	input_sample.shown = 0
 	for &latch in input_sample.latches do latch.latched = false
 }
 

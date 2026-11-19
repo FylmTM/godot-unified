@@ -543,7 +543,6 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		if g_driver == nil do return nil, false
 		frame, fresh := triple_front(&(^This_Driver)(g_driver).frames)
 		if frame.published == 0 do return nil, false
-		input_sample.shown = frame.tick + 1 // what the next samples were acted on (sim.Seen)
 		return frame, fresh
 	}
 	api.pop = proc() -> (Message, bool) {
@@ -1088,16 +1087,11 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 			driver := (^This_Driver)(user)
 			if driver.req.scripted && driver.game.scripted_input != nil {
 				// a joiner before its snapshot has no state: the script is never handed a nil one
-				if state == nil do return {}
-				input := driver.game.scripted_input(driver.req.seed, slot, tick, state)
-				sim.seen_stamp(&input, 0) // a script saw no screen
-				return input
+				return state != nil ? sim.scripted_player_input(driver.game, driver.req.seed, slot, tick, state) : {}
 			}
 			input: Input
-			// the Seen: how far the picture the player acted on lagged this tick (a script's stays 0)
-			if shown_tick, shown := input_sample_take(local, ([^]u8)(&input)[:size_of(Input)]); shown {
-				sim.seen_stamp(&input, sim.seen_of(tick, shown_tick))
-			}
+			input_sample_take(local, ([^]u8)(&input)[:size_of(Input)])
+			sim.seen_stamp(&input, netcode.client_seen(driver.client, tick))
 			return input
 		},
 		// Commands sent from GDScript (send_command), in order; what the client can't take yet stays queued.

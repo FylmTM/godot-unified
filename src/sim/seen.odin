@@ -1,25 +1,46 @@
 // What a player saw (src/sim/README.md, Input): an Input's Seen, how many ticks the picture its player acted on lagged
-// the tick the input is for, which the host stamps when it samples, and seen_rewind, the rewind a shot asks the world
-// for (physics.world_cast_ray_closest_rewound).
+// the tick the input is for, which the host stamps when it samples (scripted input: 0, scripted_player_input), and
+// seen_rewind, the rewind a shot asks the world for (physics.world_cast_ray_closest_rewound).
 package sim
 
+import "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
 
-// How many ticks the stamping client's screen lagged the tick its input is for: the tick minus the newest predicted
-// tick of the frame on screen when the input was sampled, plus one (the screen interpolates up to that tick, so it
-// shows about half a tick before it). 0 is unknown: a script, a headless run, a host that showed nothing yet. An Input
-// holds at most one, as a field of its own (found by its type, whatever its name, as the Clock is); the host fills it,
-// never the game. Whole ticks on purpose: it changes only when the delay does, so it doesn't make an input differ from
-// the one before (a remote player's misprediction) every tick.
+// How many ticks the picture a player acted on lagged the tick its input is for, as the stamping client knows it: the
+// ticks from its newest prediction (the frame on its way to the screen, which interpolates up to it) to the input's
+// tick, plus one; so it follows the input delay and any stall (netcode.client_seen). It is the input delay, not
+// the measured render latency (when a frame actually showed): that one moves with every frame and below the tick rate
+// grows with every tick a sample feeds, so the input bytes would change all the time and every peer would mispredict
+// the player. The input delay changes only when the link does, and its error, a fraction of a tick, is what
+// seen_rewind's half tick averages out. 0 is unknown: a script, a headless run, a client whose sim doesn't exist yet.
+// An Input holds at most one, as a field of its own (found by its type, whatever its name, as the Clock is); the host
+// fills it, never the game.
 Seen :: distinct u8
 
-// The Seen of an input sampled for `tick` while the screen showed the frame of tick `shown`: tick − shown + 1, held to
-// 1..255. For hosts (a host that has shown no frame stamps nothing: 0).
-seen_of :: proc "contextless" (tick, shown: u32) -> Seen {
-	if tick < shown do return 1
-	behind := tick - shown
+// The Seen of an input for `tick` sampled when the client's newest predicted tick was `predicted` (the frame on its
+// way to the screen): tick − predicted + 1, held to 1..255. For hosts (netcode.client_seen passes the client's).
+seen_of :: proc "contextless" (tick, predicted: u32) -> Seen {
+	if tick < predicted do return 1
+	behind := tick - predicted
 	return Seen(behind + 1 if behind < 254 else 255)
+}
+
+// A scripted player's input (Game.scripted_input; a zero Input without one) with its Seen 0, whatever the script wrote:
+// a script saw no screen, so a session, an offline run and a Godot `--scripted` session play the same bytes. What every
+// host calls instead of the game's script.
+scripted_player_input :: proc(
+	game: ^$G,
+	seed: u64,
+	slot: int,
+	tick: u32,
+	state: ^$State,
+) -> (
+	input: part(G, GAME_INPUT),
+) where intrinsics.type_is_specialization_of(G, Game) {
+	if game.scripted_input != nil do input = game.scripted_input(seed, slot, tick, state)
+	seen_stamp(&input, 0)
+	return
 }
 
 // Writes `seen` into the Input's Seen field; nothing for an Input without one. For hosts, when they sample.

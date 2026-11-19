@@ -147,24 +147,13 @@ recording_replays :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(input_log.ticks), int(info.to - info.from))
 	testing.expect_value(t, input_log.from, info.from)
 	testing.expect_value(t, len(input_log.checkpoints), info.checkpoints)
-	// The ticks sampled before a frame was shown (if the recording holds any) have no Seen. The sample taken after one carries the lag, a few ticks,
-	// and since it is the last sample it feeds every tick after it, each a tick further from that frame.
-	unseen, seen_ticks, previous := 0, 0, sim.Seen(0)
+	// The session thread stamps every input it samples with its Seen (netcode.client_seen) once its sim exists.
+	stamped := 0
 	for &logged in input_log.ticks {
-		lag := logged.input[0].seen
-		if lag == 0 {
-			testing.expect(t, seen_ticks == 0, "a Seen once stamped stays stamped")
-			unseen += 1
-		} else if seen_ticks == 0 {
-			testing.expectf(t, lag <= 8, "the first Seen: %v ticks", lag)
-			seen_ticks += 1
-		} else {
-			testing.expectf(t, lag == previous + 1, "a Seen of %v after %v", lag, previous)
-			seen_ticks += 1
-		}
-		previous = lag
+		if logged.input[0].seen != 0 do stamped += 1
+		testing.expect(t, logged.input[0].seen != 0 || stamped == 0, "a Seen once stamped stays stamped")
 	}
-	testing.expectf(t, seen_ticks > 0, "%v ticks without a Seen, then %v with", unseen, seen_ticks)
+	testing.expectf(t, stamped > 0, "%v of %v inputs carry a Seen", stamped, len(input_log.ticks))
 	result, ok := headless.run_replay(&toy.GAME, &input_log, snapshot = snapshot[:])
 	testing.expectf(t, ok && result.checkpoints == info.checkpoints && result.diverged_tick == 0, "%v", result)
 	testing.expect_value(t, result.final_tick, info.to)
@@ -257,12 +246,6 @@ driver_sessions :: proc(t: ^testing.T) {
 		})
 		testing.expect(t, ok, err)
 		godot.api.sample_input() // the main thread's sample (the session took none yet: a start clears it)
-		// once a frame is on screen, the samples carry how far it lagged (sim.Seen, stamped by the session thread)
-		for frame_wait := time.tick_now(); time.duration_seconds(time.tick_since(frame_wait)) < 5; {
-			if frame, _ := godot.api.front(); frame != nil do break
-			time.sleep(time.Millisecond)
-		}
-		godot.api.sample_input()
 		for amount in ([]i32{3, -1, 8}) {
 			command := sim.command_make(toy.Cmd, toy.Cmd_Bump{amount})
 			testing.expect(t, godot.api.send(command, 0))
