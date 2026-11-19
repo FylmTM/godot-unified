@@ -130,6 +130,7 @@ V: struct {
 	hooks:       map[u8]View_Hooks, // per scene view kind, at its first spawn
 	reported:    map[string]bool, // warnings and errors given once per process
 	stats:       Sync_Stats,
+	epoch:       u32, // the shown timeline's (Frame_Data.epoch): a new one snaps every view
 }
 
 // The main thread's view-sync cost, summed over frames until a script takes it (UnifiedSession.take_sync_stats:
@@ -599,6 +600,12 @@ views_root_changed :: proc() {
 views_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 	V.frame += 1
 	started := time.tick_now()
+	if frame.epoch != V.epoch {
+		// the timeline jumped (a replay's seek): nothing interpolates or glides across it
+		V.epoch = frame.epoch
+		for _, &entry in V.set.entries do if entry.view != nil do entry.view.track = {}
+		for &multi in V.multis do clear(&multi.tracks)
+	}
 	if root.ptr == nil {
 		if len(V.set.entries) > 0 do views_root_changed()
 	} else {

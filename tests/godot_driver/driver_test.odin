@@ -148,6 +148,69 @@ recording_replays :: proc(t: ^testing.T) {
 	result, ok := headless.run_replay(&toy.GAME, &input_log, snapshot = snapshot[:])
 	testing.expectf(t, ok && result.checkpoints == info.checkpoints && result.diverged_tick == 0, "%v", result)
 	testing.expect_value(t, result.final_tick, info.to)
+	// kept as a session recording's folder for replay_plays
+	_ = os.remove_all(REPLAY_DIR)
+	_ = os.make_directory_all(REPLAY_DIR)
+	_ = os.write_entire_file(REPLAY_DIR + "/snapshot.unis", snapshot[:])
+	_ = os.write_entire_file(REPLAY_DIR + "/inputs.unil", log_bytes[:])
+	recorded_range = {info.from, info.to}
+}
+
+@(private = "file")
+REPLAY_DIR :: #directory + "/../../.out/test/replay"
+@(private = "file")
+recorded_range: [2]u32
+
+// The newest Frame's tick and replay view (waits up to `ms` for `done`).
+@(private = "file")
+replay_wait :: proc(ms: int, done: proc(frame: ^godot.Frame_Data) -> bool) -> (frame: ^godot.Frame_Data, ok: bool) {
+	start := time.tick_now()
+	for time.duration_milliseconds(time.tick_since(start)) < f64(ms) {
+		if front, _ := godot.api.front(); front != nil {
+			frame = front
+			if done(front) do return frame, true
+		}
+		time.sleep(2 * time.Millisecond)
+	}
+	return
+}
+
+// The replay session (replay.odin) on the recording recording_replays kept: it plays from the recording's first tick
+// to its last, every tick final, the checkpoints agreeing; a step back inside the ring and a seek past it land on
+// their ticks; the timeline's epoch moves with a jump; the session ends with a replay result.
+@(private = "file")
+replay_plays :: proc(t: ^testing.T) {
+	ok, err := godot.api.start({mode = .Replay, arg = REPLAY_DIR, name = "viewer"})
+	if !testing.expectf(t, ok, "replay start: %s", err) do return
+	first, last := recorded_range[0], recorded_range[1]
+	_, at_end := replay_wait(5000, proc(frame: ^godot.Frame_Data) -> bool {
+		return frame.replay.active && frame.replay.paused && frame.tick == frame.replay.last
+	})
+	frame, _ := godot.api.front()
+	if !testing.expect(t, at_end && frame != nil, "the replay plays to its last tick and pauses") do return
+	testing.expect(t, frame.replay.first == first && frame.replay.last == last, "the recording's range")
+	testing.expect_value(t, frame.verified, frame.tick) // every tick final
+	testing.expectf(t, frame.replay.checkpoints > 0 && frame.replay.diverged == 0, "checkpoints: %v", frame.replay)
+	epoch := frame.epoch
+	testing.expect(t, godot.api.replay_control({kind = .Step, value = -2}))
+	stepped, step_ok := replay_wait(
+		2000,
+		proc(frame: ^godot.Frame_Data) -> bool {return frame.tick == frame.replay.last - 2},
+	)
+	testing.expect(t, step_ok && stepped.epoch != epoch, "two ticks back, a new epoch")
+	testing.expect(t, godot.api.replay_control({kind = .Seek, value = i64(first + 1)}))
+	_, seek_ok := replay_wait(
+		2000,
+		proc(frame: ^godot.Frame_Data) -> bool {return frame.tick == frame.replay.first + 1},
+	)
+	testing.expect(t, seek_ok, "a seek back past the ring lands on its tick")
+	godot.api.stop()
+	messages: [dynamic]godot.Message
+	defer delete(messages)
+	testing.expect(t, drain(&messages, 3000, is_result), "a replay ends with a result")
+	for godot.api.running() do time.sleep(time.Millisecond)
+	testing.expectf(t, strings.contains(godot.api.result(), `"mode":"replay"`), "%s", godot.api.result())
+	godot.api.wait()
 }
 
 @(test)
@@ -243,6 +306,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		for godot.api.running() do time.sleep(time.Millisecond)
 		godot.api.wait()
 		testing.expect(t, !godot.api.running())
+		replay_plays(t)
 	}
 
 	// A tick's events are queued before its Frame is published: the main thread, showing an older Frame, must not get
