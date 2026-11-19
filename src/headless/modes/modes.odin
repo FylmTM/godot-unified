@@ -167,11 +167,39 @@ run :: proc(
 		with_setup.setup = setup
 		game = with_setup
 	}
+	if text := any_mode.player_profile; text != "" {
+		game = with_player_profile(game, text)
+	}
 	os.exit(mode.run(game, &args) ? 0 : 1)
 }
 
+// A copy of the game whose scripted players join with `text`'s assignments (`key=value,...`, sim.struct_from_text)
+// over the Profile its script gives them (Game.scripted_profile; none: the zero Profile): the --player-profile of
+// every mode. Exits through die on assignments the Profile does not take.
 @(private)
-ANY_MODE :: "  any mode: [--game NAME] a variant of the game (e.g. its play tuning); [--level NAME=FILE] play the level NAME from FILE (default: the levels the game embeds); [--setup key=value,...] the session's Setup (default: the game's, Game.setup)"
+with_player_profile :: proc(game: ^$G, text: string) -> ^G {
+	Profile :: sim.part(G, sim.GAME_PROFILE)
+	// What the copy's scripted_profile reads: one game per process, set once before any mode runs.
+	@(static) chosen: struct {
+		script: proc(seed: u64, slot: int) -> Profile,
+		text:   string,
+	}
+	if _, problem := sim.struct_from_text(Profile{}, text); problem != "" {
+		die("--player-profile %s: %s", text, problem)
+	}
+	chosen.script, chosen.text = game.scripted_profile, text
+	with := new_clone(game^)
+	with.scripted_profile = proc(seed: u64, slot: int) -> Profile {
+		start: Profile
+		if chosen.script != nil do start = chosen.script(seed, slot)
+		profile, _ := sim.struct_from_text(start, chosen.text)
+		return profile
+	}
+	return with
+}
+
+@(private)
+ANY_MODE :: "  any mode: [--game NAME] a variant of the game (e.g. its play tuning); [--level NAME=FILE] play the level NAME from FILE (default: the levels the game embeds); [--setup key=value,...] the session's Setup (default: the game's, Game.setup); [--player-profile key=value,...] over every scripted player's Profile (default: Game.scripted_profile's)"
 
 @(private)
 print_usage :: proc(table: []Mode($G), to: ^os.File) {

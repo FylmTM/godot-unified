@@ -244,7 +244,8 @@ Game :: struct(
 	scripted_input:        proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
 	scripted_commands:     proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^Command_Out(Cmd)),
 	// Optional, never called by the sim: the Profile a scripted player in `slot` joins with (without one: the zero
-	// Profile). A script that answers from (seed, slot) alone gives every client and offline run the same players.
+	// Profile; the headless `--player-profile` assigns fields over it). A script that answers from (seed, slot) alone
+	// gives every client and offline run the same players.
 	scripted_profile:      proc(seed: u64, slot: int) -> Profile,
 	// Optional, never called by the sim: fill the initial state with `count` entities and hold that population (the
 	// headless `bench`, Godot's `-- --bench N`). Single player only: it changes the initial state, which every peer
