@@ -239,6 +239,9 @@ Start :: struct {
 	scripted: bool, // scripted input instead of the InputMap (headless checks)
 	bench:    int, // Single only: Game.bench_prepare(count) after the game's init (dev benchmarks)
 	token:    netcode.Token, // what the relay knows this player by when they come back over LAN (user://)
+	// Dev UI builds: watch the session thread for a freeze (watchdog.odin), dumping into `dumps` (<user data>/feedback)
+	watchdog: bool,
+	dumps:    string,
 }
 
 @(private)

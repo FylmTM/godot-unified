@@ -213,6 +213,12 @@ that every `View` member has a scene and every indexed kind is a member.
   view space under `view_root` on every fresh frame (`debug_draw.odin`: 3D, one line mesh over everything and
   billboard texts; 2D, a canvas item on top), so `uni tool --shots` captures them, and the zones are the `sim`
   group's stacked graph. They show the tick the views interpolate toward, as predicted.
+- **The watchdog** (dev UI builds, `watchdog.odin`). A thread beside the session's watches its step counter by its
+  own polls, never the wall clock, so a suspended laptop or a debugger's pause is not a freeze. A step stuck for
+  `watchdog_polls` polls writes `<user data>/feedback/freeze-<time>/`: where it froze (the tick, `fill_frame` or the
+  tick, the zone stack), the recording plus the inputs the client stepped after the last verified tick, so the
+  folder replays headless into the frozen tick, which a deterministic sim reproduces under a debugger (on Windows a
+  minidump too); then the process aborts.
 - **Leave, then host or join.** `leave` asks the session to end; it says goodbye on its thread, up to 3 s (a host
   waiting for peers that don't answer). A start during the goodbye waits and starts as soon as the old session is
   gone (the goodbye cut to 1 s); a `leave` before that cancels it.

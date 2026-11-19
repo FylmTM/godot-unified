@@ -13,6 +13,42 @@ foreign import kernel32 "system:Kernel32.lib"
 @(default_calling_convention = "system")
 foreign kernel32 {
 	SetProcessInformation :: proc(process: win.HANDLE, class: c.int, info: rawptr, size: u32) -> win.BOOL ---
+	IsDebuggerPresent :: proc() -> win.BOOL ---
+}
+
+foreign import dbghelp "system:Dbghelp.lib"
+
+@(default_calling_convention = "system")
+foreign dbghelp {
+	MiniDumpWriteDump :: proc(process: win.HANDLE, process_id: win.DWORD, file: win.HANDLE, dump_type: u32, exception: rawptr, user_stream: rawptr, callback: rawptr) -> win.BOOL ---
+}
+
+// Whether a debugger is attached (the watchdog stays quiet under one).
+debugger_attached :: proc() -> bool {return bool(IsDebuggerPresent())}
+
+// A freeze's dump of every thread's stack (MiniDumpWithThreadInfo), for a debugger; best effort.
+write_minidump :: proc(path: string) {
+	file := win.CreateFileW(
+		win.utf8_to_wstring(path, context.temp_allocator),
+		win.GENERIC_WRITE,
+		0,
+		nil,
+		win.CREATE_ALWAYS,
+		win.FILE_ATTRIBUTE_NORMAL,
+		nil,
+	)
+	if file == win.INVALID_HANDLE_VALUE do return
+	defer win.CloseHandle(file)
+	MINI_DUMP_WITH_THREAD_INFO :: 0x1000
+	_ = MiniDumpWriteDump(
+		win.GetCurrentProcess(),
+		win.GetCurrentProcessId(),
+		file,
+		MINI_DUMP_WITH_THREAD_INFO,
+		nil,
+		nil,
+		nil,
+	)
 }
 
 Power_Throttling_State :: struct {

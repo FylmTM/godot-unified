@@ -104,3 +104,10 @@ session_power_end :: proc() {
 	intrinsics.objc_send(nil, power_activity, "release")
 	power_activity = nil
 }
+
+// Whether a debugger is attached (the watchdog stays quiet under one): not asked on macOS, where a process stopped in
+// a debugger also stops the watchdog's own clock.
+debugger_attached :: proc() -> bool {return false}
+
+// A freeze's dump of every thread: macOS writes its own crash report, with every thread's backtrace, at the abort.
+write_minidump :: proc(path: string) {}
