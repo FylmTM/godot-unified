@@ -11,7 +11,7 @@ launch_from_pads :: proc(t: ^Tick) {
 		if character.pad_cooldown > 0 do character.pad_cooldown -= 1
 		if character.respawn > 0 || character.held_by != {} || character.pad_cooldown > 0 do continue
 		feet := player_pos(t, player) - {0, FEET - PAD_PROBE_UP, 0}
-		for &pad in sim.slice(&t.world.pads) {
+		for &pad in sim.slice(&places(t).pads) {
 			if !in_volume(pad.volume, feet) do continue
 			launch(t.world, &pad, character.controller.body)
 			physics.character_launch(t.world.phys, &character.controller)
@@ -20,21 +20,21 @@ launch_from_pads :: proc(t: ^Tick) {
 			break
 		}
 	}
-	for i in 0 ..< t.world.item_count {
+	for i in 0 ..< places(t).item_count {
 		item := &t.state.items[i]
 		if item.pad_cooldown > 0 do item.pad_cooldown -= 1
 		if item.holders != {} || item.pad_cooldown > 0 do continue
 		bottom :=
 			physics.body_position(t.world.phys, item.body) -
-			{0, ITEM_SPECS[t.world.items[i].kind].radius * PAD_ITEM_PROBE, 0}
-		for &pad in sim.slice(&t.world.pads) {
+			{0, ITEM_SPECS[places(t).items[i].kind].radius * PAD_ITEM_PROBE, 0}
+		for &pad in sim.slice(&places(t).pads) {
 			if !in_volume(pad.volume, bottom) do continue
 			launch(t.world, &pad, item.body)
 			item.pad_cooldown = PAD_COOLDOWN_TICKS
-			sim.emit(
-				t,
-				Event_Launched{entity = sim.entity(t.world.items[i].marker), position = sim.Position(pad.volume.pos)},
-			)
+			sim.emit(t, Event_Launched {
+				entity   = sim.entity(places(t).items[i].marker),
+				position = sim.Position(pad.volume.pos),
+			})
 			break
 		}
 	}

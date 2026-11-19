@@ -7,14 +7,14 @@ import "unified:sim"
 // threshold, and a switch (a player in it) or a lock (the key in it) latches on. Bells ring on hits (apply_hits); their
 // cooldown runs out here.
 press_triggers :: proc(t: ^Tick) {
-	for i in 0 ..< t.world.trigger_count {
-		def := &t.world.triggers[i]
+	for i in 0 ..< places(t).trigger_count {
+		def := &places(t).triggers[i]
 		trigger := &t.state.triggers[i]
 		if trigger.cooldown > 0 do trigger.cooldown -= 1
 		entity, position := sim.entity(def.marker), sim.Position(def.volume.pos)
 		switch def.kind {
 		case .Plate:
-			mass := sensor_mass(t.world, def.sensor)
+			mass := sensor_mass(t.world, t.state.triggers[i].sensor)
 			pressed := mass >= def.mass
 			if pressed == trigger.active do continue
 			trigger.active = pressed
@@ -25,7 +25,7 @@ press_triggers :: proc(t: ^Tick) {
 			}
 		case .Switch:
 			if trigger.active do continue
-			physics.shape_sensor_data(t.world.phys, def.sensor, &t.world.overlaps)
+			physics.shape_sensor_data(t.world.phys, t.state.triggers[i].sensor, &t.world.overlaps)
 			for visitor in t.world.overlaps {
 				player := sim.player_of_key(visitor.tag)
 				character := sim.player_data(t, player)
@@ -36,10 +36,10 @@ press_triggers :: proc(t: ^Tick) {
 			}
 		case .Lock:
 			if trigger.active do continue
-			physics.shape_sensor_data(t.world.phys, def.sensor, &t.world.overlaps)
+			physics.shape_sensor_data(t.world.phys, t.state.triggers[i].sensor, &t.world.overlaps)
 			for visitor in t.world.overlaps {
 				index := int(visitor.tag)
-				if t.world.items[index].kind != .Key do continue
+				if places(t).items[index].kind != .Key do continue
 				trigger.active = true
 				sim.emit(t, Event_Switch_On{entity = entity, position = position})
 				break

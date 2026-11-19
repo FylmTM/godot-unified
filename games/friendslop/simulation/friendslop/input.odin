@@ -23,8 +23,16 @@ Input :: struct {
 }
 #assert(size_of(Input) == 8)
 
-// The game has no commands (sim.Game's Cmd).
-Cmd :: sim.No_Commands
+// Takes the team to a level (the pause menu's "Back to hub"): the hub ends a run, the route starts one. Nothing when
+// the team is there already.
+Cmd_Travel :: struct {
+	to: Level_Id,
+}
+
+// The game's commands (sim.Game's Cmd).
+Cmd :: union {
+	Cmd_Travel,
+}
 
 // A tick's inputs and commands, by slot.
 Inputs :: sim.Inputs(Game)

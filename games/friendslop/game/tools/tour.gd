@@ -70,7 +70,9 @@ func _marker_positions() -> Dictionary[int, Vector3]:
 
 ## The view of a level marker by its node name (a marker view's key is its marker index).
 func _marker_view(marker_name: String) -> Node3D:
-	var markers: Array[Node] = current_scene.markers
+	if session.level_scene == null:
+		return null
+	var markers: Array[Node] = Unified.level_markers(session.level_scene)
 	for i in markers.size():
 		if markers[i].name == marker_name:
 			return session.get_view(EnumView.MARKER, i) as Node3D
@@ -95,7 +97,7 @@ static func _key(v: Node) -> int:
 
 ## A level marker's position by its node name.
 func _marker(marker_name: String) -> Vector3:
-	for m: Node in current_scene.markers:
+	for m: Node in Unified.level_markers(session.level_scene):
 		if m.name == marker_name:
 			return (m as Node3D).global_position
 	fail("no marker " + marker_name)

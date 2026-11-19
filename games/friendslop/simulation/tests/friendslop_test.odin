@@ -17,6 +17,22 @@ import g "../friendslop"
 // A sync-tested run on the park (g.GAME's level).
 Run :: headless.Run(g.Game)
 
+// The active level's places (the World's list for the level the team is in).
+places_of :: proc(run: ^Run) -> ^g.Places {
+	return &run.simulation.world.places[run.simulation.state.level.id]
+}
+
+// A run whose team is in the route from tick 1 (slot 0 sent Cmd_Travel), the tick re-saved: what the route's beats
+// start from.
+route_begin :: proc(seated: int) -> Run {
+	run := headless.run_begin(&g.GAME, 1, seated = seated)
+	inputs := headless.run_inputs(&run)
+	sim.add_command(&inputs, 0, g.Cmd_Travel{.Route})
+	headless.run_step(&run, &inputs)
+	headless.run_pin(&run)
+	return run
+}
+
 // One sync-tested tick of the seated members (headless.run_seat) with these inputs (by slot).
 step :: proc(run: ^Run, inputs_by_slot: [g.PLAYERS]g.Input) {
 	inputs := headless.run_inputs(run)
@@ -35,8 +51,8 @@ item_pos :: proc(run: ^Run, item: int) -> [3]f32 {
 // The nth item of a kind, in level order.
 item_of :: proc(run: ^Run, kind: g.Item_Kind, nth := 0) -> int {
 	seen := 0
-	for i in 0 ..< run.simulation.world.item_count {
-		if run.simulation.world.items[i].kind == kind {
+	for i in 0 ..< places_of(run).item_count {
+		if places_of(run).items[i].kind == kind {
 			if seen == nth do return i
 			seen += 1
 		}
@@ -183,13 +199,14 @@ platforms_carry_players :: proc(t: ^testing.T) {
 	run := headless.run_begin(&g.GAME, 1, seated = 2)
 	defer headless.run_end(&run)
 	world := run.simulation.world
+	places := places_of(&run)
 	lift, ferry := platform_at_marker(&run, "Lift"), platform_at_marker(&run, "Ferry")
 	testing.expect(t, lift >= 0 && ferry >= 0)
 	if lift < 0 || ferry < 0 do return
-	lift_at := world.platforms[lift].origin
-	ferry_at := world.platforms[ferry].origin
+	lift_at := places.platforms[lift].origin
+	ferry_at := places.platforms[ferry].origin
 	// Wait at the bottom: the lift comes back down every cycle.
-	cycle := int(physics.path_duration_ticks(&world.platforms[lift].path, g.TICK_HZ))
+	cycle := int(physics.path_duration_ticks(&places.platforms[lift].path, g.TICK_HZ))
 	on_lift := false
 	top: f32 = 0
 	for _ in 0 ..< 2 * cycle {
@@ -216,7 +233,7 @@ platforms_carry_players :: proc(t: ^testing.T) {
 pad_launches_player :: proc(t: ^testing.T) {
 	run := headless.run_begin(&g.GAME, 1, seated = 1)
 	defer headless.run_end(&run)
-	pad := sim.slice(&run.simulation.world.pads)[0].volume.pos
+	pad := sim.slice(&places_of(&run).pads)[0].volume.pos
 	peak: f32 = 0
 	for _ in 0 ..< 200 {
 		step(&run, {walk(&run, 0, pad, 0.05), {}, {}, {}})

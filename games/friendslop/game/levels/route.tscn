@@ -1,0 +1,52 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://game/levels/parts/route.tscn" id="1_route"]
+[ext_resource type="Script" path="res://game/levels/markers/volumes.gd" id="2_volumes"]
+
+[sub_resource type="Environment" id="env"]
+background_mode = 1
+background_color = Color(0.55, 0.75, 0.95, 1)
+ambient_light_source = 2
+ambient_light_color = Color(0.75, 0.8, 0.95, 1)
+ambient_light_energy = 0.6
+tonemap_mode = 2
+glow_enabled = true
+glow_intensity = 0.5
+glow_hdr_threshold = 1.0
+
+[node name="RouteLevel" type="Node3D"]
+
+[node name="Env" type="WorldEnvironment" parent="."]
+environment = SubResource("env")
+
+[node name="Sun" type="DirectionalLight3D" parent="."]
+transform = Transform3D(0.8660254, -0.35355338, 0.35355338, 0, 0.70710677, 0.70710677, -0.5, -0.61237246, 0.61237246, 0, 12, 0)
+light_energy = 1.2
+shadow_enabled = true
+directional_shadow_max_distance = 80.0
+
+[node name="Route" parent="." instance=ExtResource("1_route")]
+
+[node name="Spawn0" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -2.25, 1.2, -18)
+script = ExtResource("2_volumes")
+unified_kind = "spawn"
+slot = 0
+
+[node name="Spawn1" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.75, 1.2, -18)
+script = ExtResource("2_volumes")
+unified_kind = "spawn"
+slot = 1
+
+[node name="Spawn2" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0.75, 1.2, -18)
+script = ExtResource("2_volumes")
+unified_kind = "spawn"
+slot = 2
+
+[node name="Spawn3" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 2.25, 1.2, -18)
+script = ExtResource("2_volumes")
+unified_kind = "spawn"
+slot = 3

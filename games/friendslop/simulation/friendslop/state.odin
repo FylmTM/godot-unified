@@ -6,7 +6,7 @@ import "unified:sim"
 // The whole simulation state: one pointer-free block (checked by sim.create). Items, platforms and triggers are
 // indexed like the World's lists of them (the level's markers, in level order).
 State :: struct {
-	level:       sim.Active_Level(Level_Id), // the park, entered by init
+	level:       sim.Active_Level(Level_Id), // the hub or the route (enter_level)
 	players:     sim.Players(Character, sim.No_Profile, Input, PLAYERS),
 	items:       [MAX_ITEMS]Item,
 	platforms:   [MAX_PLATFORMS]Platform,
@@ -74,6 +74,8 @@ Platform :: struct {
 }
 
 Trigger :: struct {
+	body:     physics.Body_Ref, // its static body: a sensor box, a bell's sphere (create_trigger_body)
+	sensor:   physics.Shape_Ref, // plates, switches, locks: the volume's sensor
 	active:   bool, // plates: pressed now; bells, switches and locks: fired (latched)
 	_pad:     u8,
 	cooldown: u16, // bells: no ring again before this runs out

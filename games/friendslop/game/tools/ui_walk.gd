@@ -8,8 +8,9 @@ extends MenuTool
 ##
 ## Its play scene (`_walk_play()`), on the real session (single player), steered
 ## as a player would (turning the camera rig, holding forward): the hub (the player's view, the marker views) -> walk
-## to a crate, grab it, charge and throw it (it flies at least 2 m). The jump pad and the rest of the route: the full
-## tour (`uni tool friendslop tour`).
+## to a crate, grab it, charge and throw it (it flies at least 2 m) -> travel to the route and back with the pause
+## menu's "Back to hub" (`_walk_travel()`). The jump pad and the rest of the route: the full tour
+## (`uni tool friendslop tour`).
 
 const Steering := preload("res://game/tools/steering.gd")
 
@@ -36,6 +37,7 @@ func _run() -> void:
 		"the controls list labels Move with its bindings (InputMap): %s" % move_keys)
 	step("single player")
 	await _walk_play()
+	await _walk_travel()
 	await _walk_pause_menu()
 	await click(find(find(current_scene, ^"PauseMenu"), ^"%Leave") as Control)
 	await wait_for_scene("MainMenu", 5.0)
@@ -143,6 +145,27 @@ func _walk_pad() -> void:
 
 
 ## The Esc menu opens over the play and closes; the sim keeps running under it.
+## The level change: a travel command takes the team to the route (its scene swapped in under the arena's level root,
+## the marker views the route's), then the pause menu's "Back to hub" brings it back.
+func _walk_travel() -> void:
+	if failed():
+		return
+	var travel := CommandTravel.new()
+	travel.to = EnumLevelId.ROUTE
+	expect(session.send_command(travel), "a travel command is taken")
+	await wait_for(func() -> bool: return session.level == EnumLevelId.ROUTE, 8.0, "the route on screen")
+	await wait_for(func() -> bool: return _marker_view("Trophy") != null, 5.0, "the route's marker views")
+	await shot("02b_route")
+	step("route: %d markers adopted" % views(EnumView.MARKER).size())
+	var pause := find(current_scene, ^"PauseMenu") as CanvasLayer
+	await press_action(&"menu")
+	await click(find(pause, ^"%Hub") as Control)
+	await wait_for(func() -> bool: return session.level == EnumLevelId.HUB, 8.0, "back in the hub")
+	await wait_for(func() -> bool: return _marker_view("Crate1") != null, 5.0, "the hub's marker views")
+	expect(not pause.visible, "Back to hub closes the menu")
+	step("back to the hub")
+
+
 func _walk_pause_menu() -> void:
 	var pause := find(current_scene, ^"PauseMenu") as CanvasLayer
 	if failed():
@@ -186,7 +209,9 @@ func _moved_most(before: Dictionary[int, Vector3]) -> float:
 
 ## The view of a level marker by its node name (a marker view's key is its marker index).
 func _marker_view(marker_name: String) -> Node3D:
-	var markers: Array[Node] = current_scene.markers
+	if session.level_scene == null:
+		return null
+	var markers: Array[Node] = Unified.level_markers(session.level_scene)
 	for i in markers.size():
 		if markers[i].name == marker_name:
 			return session.get_view(EnumView.MARKER, i) as Node3D
