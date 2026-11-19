@@ -25,11 +25,16 @@ Host_Config :: struct($G: typeid) {
 // The relay and the host player's own client in one process (host_create), joined by a loopback hub. Driven by
 // host_step.
 Host :: struct($G: typeid) {
-	relay:   ^Relay(G),
-	client:  ^Client(G),
-	hub:     ^Hub,
-	waiting: [dynamic]Link, // remote links added before the host's player is in (host_add_link)
-	linked:  bool, // a remote link was added (host_solo)
+	relay:        ^Relay(G),
+	client:       ^Client(G),
+	hub:          ^Hub,
+	waiting:      [dynamic]Link, // remote links added before the host's player is in (host_add_link)
+	linked:       bool, // a remote link was added (host_solo); it also ends a single-player pause
+	// The single-player pause (host_set_paused): the relay and the client run on session time, `now` less the time
+	// spent paused, so from their side no time passed.
+	paused:       bool,
+	paused_at:    i64, // the `now` the pause began
+	paused_total: i64, // µs spent paused before the current pause
 }
 
 // Whether the host never had a remote link: single player as it started (a pause that stops the clock is legal only
@@ -103,8 +108,12 @@ host_add_link :: proc(host: ^Host($G), link: Link) {
 
 // Steps the relay and the host's client; returns the earlier of their wake times. What one of them sends the other
 // is taken in the same call (they talk in-process), so the host's own inputs and finalized ticks never wait for a
-// wake, and a single-player host wakes only at its deadlines.
-host_step :: proc(host: ^Host($G), now: i64) -> i64 {
+// wake, and a single-player host wakes only at its deadlines. `real_now` and the wake are the caller's clock; the relay
+// and the client run on session time (host_session_time), which a single-player pause stops (host_set_paused).
+host_step :: proc(host: ^Host($G), real_now: i64) -> i64 {
+	if host.paused && host.linked do host_set_paused(host, false, real_now)
+	if host.paused do return real_now + PAUSE_POLL_US
+	now := real_now - host.paused_total // session time: the relay and the client never see a pause
 	relay_wake := relay_step(host.relay, now)
 	client_wake := client_step(host.client, now)
 	for _ in 0 ..< 4 { 	// inputs -> finalized tick -> its ack: a few rounds at most
@@ -121,12 +130,39 @@ host_step :: proc(host: ^Host($G), now: i64) -> i64 {
 		clear(&host.waiting)
 		relay_wake = now // serve them at once
 	}
-	return min(relay_wake, client_wake)
+	return min(relay_wake, client_wake) + host.paused_total
+}
+
+// host_step's wake while paused: how soon a loop that sleeps until it notices a resume.
+PAUSE_POLL_US :: 10_000
+
+// Pauses or resumes a single-player session (`now` on the clock host_step is given): while paused host_step steps
+// nothing, and on resume the relay and the client go on from where they stopped, as if no time had passed. It is exact
+// because nobody else waits: the same ticks get the same inputs, and the log is byte for byte the one an unpaused run
+// records. Refused once the host has a remote link (online a pause is state, src/sim/README.md, Game time), and a link
+// added while paused resumes at the next host_step. Returns whether the host is paused now.
+host_set_paused :: proc(host: ^Host($G), paused: bool, now: i64) -> bool {
+	if paused == host.paused do return host.paused
+	if paused {
+		if !host_solo(host) do return false
+		host.paused, host.paused_at = true, now
+	} else {
+		host.paused = false
+		host.paused_total += now - host.paused_at
+	}
+	return host.paused
+}
+
+// The session time at `now`: `now` less the time spent paused (frozen while paused). What the relay's and the
+// client's times (a tick's due time) are measured on.
+host_session_time :: proc(host: ^Host($G), now: i64) -> i64 {
+	return (host.paused_at if host.paused else now) - host.paused_total
 }
 
 // Ends the session for everyone. Keep stepping until host_finished.
 host_stop :: proc(host: ^Host($G), now: i64) {
-	relay_stop(host.relay, now)
+	host_set_paused(host, false, now) // a stop while paused resumes first
+	relay_stop(host.relay, host_session_time(host, now))
 }
 
 // Whether the session is over on both halves: the relay finished and the host's client disconnected or failed.

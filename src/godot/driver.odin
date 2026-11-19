@@ -111,6 +111,13 @@ lobby: ^netcode.Lobby // the game's lobby service (godot.init; online play); nil
 @(private)
 want_state: bool
 
+// UnifiedSession.paused (atomics): the main thread's request, which the session thread applies to its host
+// (netcode.host_set_paused, single player only), and whether the session is paused now, which the property reads.
+@(private)
+pause_want: bool
+@(private)
+pause_on: bool
+
 // The debug draw groups the main thread shows (dev UI builds; atomic): applied to the session's sim before each step
 // (sim.dev_enable), so the following ticks keep those groups' draws.
 @(private)
@@ -990,7 +997,8 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 			out.verified_level = driver.verified_level
 			out.tick_hz = u32(driver.game.tick_hz)
 			copy(out.setup[:], sim.bytes_of(&simulation.setup))
-			out.due_us = i64(client.next_tick_us - client.tm.tick_us)
+			out.due_us = i64(client.next_tick_us - client.tm.tick_us) // session time ...
+			if driver.host != nil do out.due_us += driver.host.paused_total // ... back on the real clock, for alpha
 			slots := current.players.slots
 			local := client.slot >= 0 ? slots[client.slot] : {}
 			out.local_player = sim.player_key(local)
@@ -1134,6 +1142,8 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 	context.allocator = driver.alloc // (the temp allocator stays this thread's own)
 	set_realtime_thread(driver.game.tick_hz)
 	session_power_begin()
+	sync.atomic_store(&pause_on, false) // a session starts unpaused, whatever the last one asked
+	sync.atomic_store(&pause_want, false)
 	if !driver_open(driver) {
 		driver_close(driver)
 		session_power_end() // before finished: the next session's thread may begin its own right after
@@ -1165,6 +1175,13 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 			else do netcode.client_stop(driver.client, now)
 		}
 		wake: i64
+		if driver.host != nil {
+			// the single-player pause: refused (stays off) once the session has a remote link
+			if want := sync.atomic_load(&pause_want); want != driver.host.paused {
+				netcode.host_set_paused(driver.host, want && !driver.stopping, now)
+			}
+			sync.atomic_store(&pause_on, driver.host.paused)
+		}
 		sync.atomic_add(&driver.step_seq, 1) // odd: in a step (the watchdog)
 		if driver.host != nil {
 			wake = netcode.host_step(driver.host, now)
@@ -1334,6 +1351,8 @@ lobby_failed :: proc(driver: ^Driver($G, $View, $MultiView), reason, fallback: s
 
 @(private)
 driver_close :: proc(driver: ^Driver($G, $View, $MultiView)) {
+	sync.atomic_store(&pause_on, false)
+	sync.atomic_store(&pause_want, false)
 	if driver.host != nil {
 		netcode.host_destroy(driver.host)
 	} else if driver.client != nil {
