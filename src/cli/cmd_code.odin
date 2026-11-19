@@ -412,7 +412,6 @@ test_builds :: proc(opts: Test_Options) -> []Build {
 		pkg   = root,
 		out   = join(state.project.out, "test", aprintf("%s_tests%s%s", name, opts.bless ? "_bless" : "", EXE)),
 		flags = flags[:],
-		own   = true,
 	})
 	if unoptimized := unoptimized_test_root(opts.game); unoptimized != "" {
 		unoptimized_flags: [dynamic]string
@@ -423,7 +422,6 @@ test_builds :: proc(opts: Test_Options) -> []Build {
 			out     = join(state.project.out, "test", aprintf("%s_%s_tests%s", name, os.base(unoptimized), EXE)),
 			flags   = unoptimized_flags[:],
 			unkeyed = strs(aprintf("-thread-count:%d", max(1, os.get_processor_core_count() / 4))),
-			own     = true,
 		})
 	}
 	return builds[:]
@@ -470,7 +468,7 @@ ensure_test_binaries :: proc(opts: Test_Options) -> (exes: []string, ok: bool) {
 @(private)
 suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 	exes, ok := ensure_test_binaries(opts)
-	return ok && run_test_binaries(exes, suite_timeout("odin", opts))
+	return ok && run_test_binaries(exes)
 }
 
 // The odin suite's binaries again, next to Box3D's debug library in a folder of their own (the debug library has the
@@ -495,5 +493,5 @@ suite_box3d_debug :: proc(games: []Game, opts: Test_Options) -> bool {
 		debug_exes[i] = join(dir, os.base(exe))
 		copy_file(debug_exes[i], exe)
 	}
-	return run_test_binaries(debug_exes, suite_timeout("box3d-debug", opts))
+	return run_test_binaries(debug_exes)
 }

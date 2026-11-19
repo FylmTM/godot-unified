@@ -16,8 +16,8 @@ For every upgrade:
 2. `./uni verify --long` (every suite's long variant). Every game's reference run must still reproduce byte for byte: if one changes, the simulation
    changed, and the `sim-change` skill applies. Say in the commit why it changed.
 3. `./uni selftest` (a fresh clone and a new game repo, end to end).
-4. Run CI on the branch on all four platforms: `gh workflow run ci.yml --ref <branch> -f macos=true` (macOS doesn't
-   block the merge; `main`'s run after it does, per AGENTS.md).
+4. The PR's own CI (Linux x64 and arm64, Windows x64) is the check before merging; `main`'s run after the merge
+   covers macOS (AGENTS.md, Workflow).
 5. The PR names the old and new version and what changed upstream that matters to us.
 
 ## Box3D (unified-box3d)
@@ -38,9 +38,8 @@ For every upgrade:
   snapshot carry a new compat: paste each suite's new `REFERENCE` literal (the games' and the toy's), with the bump. The
   results are unchanged when only the `snapshot` and `log` hashes moved; a changed checkpoint or `trace` is a sim
   change.
-- CI on all four platforms proves each platform's library (they must agree on every golden value and reference run):
-  the run of step 4 is required before merging, as for any PR touching `src/physics` or a game's sim
-  (`sim-change`, Full CI before merging). `verify` also runs the odin suite against the release's debug library
+- CI proves each platform's library (they must agree on every golden value and reference run): the PR's own run
+  before merging, `main`'s after it for macOS (`sim-change`, CI). `verify` also runs the odin suite against the release's debug library
   (the `box3d-debug` suite), whose asserts catch misused ids.
 - Speed: compare `./uni bench`'s `physics` row (`.out/bench.json`'s `rows.physics`: through the plug-in, step, save,
   restore, both hashes, image and load, and rays on a pile of 512 awake boxes, plus 64 character updates;

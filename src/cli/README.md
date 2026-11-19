@@ -76,19 +76,9 @@ the command accepts. Every command rejects unknown arguments. Progress goes to s
 or one JSON object (`Result`). The command lines it runs are echoed only when verbose, and when one fails. Exit 0 ok,
 1 failed, 2 usage.
 
-**Budgets.** Every command has a budget, the seconds a warm run may take (`test`'s: its suites' sum), or says why it
-has none (interactive, networked, the mode decides). A warm run over its budget prints `OVER BUDGET`: not a failure
-(machines vary), but a bug to find (AGENTS.md, Non-negotiables). CI allows `CI_BUDGET_SCALE` times the budget, or a
-command's or suite's own `ci_budget` when that is more (`ci_allowance`): a budget is set on a developer's 16+ thread
-machine, and work that fills every core (the odin suite's optimised compile and its tests) costs more than 3x that on
-CI's 4-core runners. A CI budget is sized from the slowest runner's warm cost with a small margin, so a regression
-still trips it. A cold run is
-exempt and says so: it fetched a dependency, generated the Godot bindings, imported a project, or built something it
-needed first (`cold`; the command's own product, such as `test`'s binary, counts against the budget: `Build.own`).
-Work the CLI runs beside other work it started (a suite beside the others, the godot suite's games and lanes) is
-exempt too and says so (`BESIDE_ENV`): its time says how busy the machine was, not how fast the work is. The run that
-started it is held to its budget instead; in `test`, a suite is held to its own only when it had the machine to
-itself.
+**Timings.** Every command prints how long it took, and `test` each suite's time: that is how a slowdown shows
+(AGENTS.md, Non-negotiables). Nothing is held to a wall-clock budget: one machine's busy minute or a slower CI runner
+would make it noise. The simulation's own speed is `bench`'s, judged against the frame (`BENCH_TARGET_US`).
 
 **Builds** go through manifests: an output records the sizes and times of every source file and directory it was
 built from, the odin executable, and its command line as the key (`stale`, `finish_build`). Every command builds only
@@ -129,11 +119,10 @@ headless run has Godot's debugger on and a `quit` line on its stdin, so a script
 
 ## Test suites
 
-`test` runs suites (`Suite`): the public ones (`public_suites`) and a project's own (`add_suites`), each with its own
-budget and, optionally, a long variant (by hand, never in CI). `test` passes each the run's options (`Test_Options`)
-and reports its budget in its `Result`, so a `test` that `verify` nests keeps its own. A suite that mostly waits
-(`Suite.beside`) runs beside the others in a child `uni test --suite <name>`, started once its `prepare` has made
-current what it shares with them. Suites are quiet on success: a passing one prints only warnings, and a passing
+`test` runs suites (`Suite`): the public ones (`public_suites`) and a project's own (`add_suites`), each optionally
+with a long variant (by hand, never in CI). `test` passes each the run's options (`Test_Options`), so a `test` that
+`verify` nests keeps its own. A suite that mostly waits (`Suite.beside`) runs beside the others in a child `uni test
+--suite <name>`, started once its `prepare` has made current what it shares with them. Suites are quiet on success: a passing one prints only warnings, and a passing
 child's log is cut to its warnings (`child_log`).
 
 - `odin`: every test package, or the named game's tests only (the inner loop of game work), built through their
@@ -142,7 +131,7 @@ child's log is cut to its warnings (`child_log`).
   a quarter of the cores, since its tests run as fast without optimisation and optimising them would be a third of
   the optimised compile; both binaries then run at once. A binary never runs bare: Odin's runner freezes a crashed
   test's thread, so a lock it held stays held and the run never ends; a watchdog kills it shortly after a crash or
-  at the suite's CI allowance, and names the crashed and still-running tests (`run_test_binaries`).
+  when it has hung (`TEST_HANG_TIMEOUT`), and names the crashed and still-running tests (`run_test_binaries`).
 - `box3d-debug`: the odin suite's binaries again, against Box3D's debug library, whose asserts trap what the release
   library lets through.
 - `godot`: each game under headless Godot, the games in parallel (`suite_godot`, `GODOT_STEPS`), without the EOS

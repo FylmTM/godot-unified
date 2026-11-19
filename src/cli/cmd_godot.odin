@@ -89,17 +89,7 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 		lane: Maybe(Proc)
 		if len(apart) > 0 && len(rest) > 0 && os.get_processor_core_count() >= GODOT_LANE_MIN_CORES {
 			cmd: [dynamic]string
-			append(
-				&cmd,
-				self_exe(),
-				"test",
-				game.name,
-				"--suite",
-				"godot",
-				"--json",
-				"--only",
-				strings.join(apart[:], ","),
-			)
+			append(&cmd, self_exe(), "test", game.name, "--suite", "godot", "--only", strings.join(apart[:], ","))
 			if opts.long {
 				append(&cmd, "--long")
 			}
@@ -110,7 +100,6 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 				capture = true,
 				quiet   = true,
 				timeout = 900 * time.Second,
-				env     = beside_env(),
 			})
 			only = rest[:]
 		}
@@ -172,9 +161,6 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 		if running, apart_lane := lane.?; apart_lane {
 			ran := wait(&running)
 			child_log(ran.stderr, ran.ok)
-			if report, found := last_json_object(ran.stdout); found {
-				adopt_cold(report)
-			}
 			ok = ran.ok && ok
 		}
 	}
@@ -210,8 +196,7 @@ godot_shared :: proc(games: []Game, only: []string) {
 }
 
 // Every game at once, each in a child `uni test <game> --suite godot` (its log printed when it ends, in game
-// order; what it built or fetched makes this run cold too). What the games share is made current here first, so
-// the children never race on it.
+// order). What the games share is made current here first, so the children never race on it.
 @(private)
 godot_in_parallel :: proc(games: []Game, opts: Test_Options) -> bool {
 	only := opts.only
@@ -220,7 +205,7 @@ godot_in_parallel :: proc(games: []Game, opts: Test_Options) -> bool {
 	runs := make([]Run, len(games))
 	for game, i in games {
 		cmd: [dynamic]string
-		append(&cmd, exe, "test", game.name, "--suite", "godot", "--json")
+		append(&cmd, exe, "test", game.name, "--suite", "godot")
 		if len(only) > 0 {
 			append(&cmd, "--only", strings.join(only, ","))
 		}
@@ -233,16 +218,12 @@ godot_in_parallel :: proc(games: []Game, opts: Test_Options) -> bool {
 			capture = true,
 			quiet   = true,
 			timeout = 900 * time.Second,
-			env     = beside_env(),
 		}
 	}
 	if state.verbose do log("uni: godot: %d games in parallel", len(games))
 	ok := true
 	for result, i in run_all(runs) {
 		child_log(result.stderr, result.ok)
-		if report, found := last_json_object(result.stdout); found {
-			adopt_cold(report)
-		}
 		if !result.ok {
 			log("uni: %s: the godot suite FAILED%s", games[i].name, result.timed_out ? " (timed out)" : "")
 			ok = false

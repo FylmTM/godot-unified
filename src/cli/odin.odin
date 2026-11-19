@@ -237,9 +237,6 @@ Build :: struct {
 	flags:    []string, // mode, defines, -build-mode:dll ...
 	unkeyed:  []string, // flags outside the manifest's key (an extension's build tag: it changes every build)
 	dir:      string, // working directory ("": ours)
-	// The command's own product (the test binary), held to its budget; any other build a command runs first makes
-	// the run cold (finish_build).
-	own:      bool,
 	manifest: string, // where its manifest goes ("": <out>.inputs; an extension builds to a temporary file)
 }
 
@@ -290,7 +287,7 @@ start_build :: proc(build: Build) -> Proc {
 }
 
 // Waits for a build start_build started and, when it succeeded, writes its manifest from odin's dependency list
-// so `stale` can judge it next time. A build that ran makes the run cold unless it is the command's own (Build.own).
+// so `stale` can judge it next time.
 // Returns how it ran: the caller decides what a failure means.
 finish_build :: proc(build: Build, child: ^Proc) -> Ran {
 	ran := wait(child)
@@ -298,9 +295,6 @@ finish_build :: proc(build: Build, child: ^Proc) -> Ran {
 	if ran.ok {
 		files, odin_path := read_deps(deps)
 		write_manifest(manifest_path(build), build_key(build), files, odin_path)
-		if !build.own {
-			cold(os.base(strings.trim_suffix(manifest_path(build), ".inputs")))
-		}
 	}
 	os.remove(deps)
 	return ran
@@ -319,8 +313,7 @@ odin_build :: proc(build: Build, what: string) -> f64 {
 // --- the headless binaries --------------------------------------------------------------------------------------
 
 // Builds every headless binary into .out/<mode>/ in parallel (only the stale ones unless `force`), with the Box3D
-// library beside them when one links it. Building makes the run cold (finish_build: a suite or bench that needs them
-// isn't held to its budget for the build).
+// library beside them when one links it.
 build_headless :: proc(mode: Mode, force := false) -> (built: int) {
 	builds := start_headless(mode, force = force)
 	return finish_headless(&builds)

@@ -86,13 +86,12 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 			dir  = game,
 			env  = env,
 		},
-		// the first build generates the Godot bindings: a cold run, not one over its budget
+		// the first build generates the Godot bindings (the extension builds against them)
 		Step {
-			what   = "build the game",
-			cmd    = shim(game, "build", "--json"),
-			dir    = game,
-			env    = env,
-			expect = `"Godot bindings"`,
+			what = "build the game",
+			cmd  = shim(game, "build"),
+			dir  = game,
+			env  = env,
 		},
 		Step {
 			what   = "the headless binary through uni",
@@ -373,5 +372,5 @@ missing_path :: proc(root, text: string) -> string {
 }
 
 // How long the crash check may take, the clone's test compile included: the watchdog kills the run 3 s after the
-// crash (a hang would last the suite's CI allowance).
+// crash (a hang would last cli.TEST_HANG_TIMEOUT).
 CRASH_CHECK_SECONDS :: 30.0

@@ -27,22 +27,15 @@ traces in `tests/physics` (`BOX3D_GOLDEN`, Box3D alone; `GOLDEN_CHARACTERS`, `GO
    results. To find where two builds part: `./uni headless <game> -- sim --trace FILE` on each, compare the files.
 3. **Say why** in the commit message and the PR: what changed in the simulation and why the old results are no longer
    right.
-4. Run CI on all four platforms before merging (below).
+4. The PR's own CI is the cross-platform check (below).
 
 Details: `src/headless/README.md` (End-to-end suites, Reference runs).
 
-## Full CI before merging
+## CI
 
-A PR that touches `src/physics`, the `[box3d]` pin or a game's sim runs CI on all four platforms before it
-merges, whether or not its results changed:
-
-```
-gh workflow run ci.yml --ref <branch> -f macos=true
-```
-
-The goldens and reference runs must reproduce on Linux x64 and arm64, Windows x64 and macOS ARM64, and a PR's own CI
-skips macOS. Wait for the run to pass on the other three and link it in the PR; macOS doesn't block the merge (its
-runners often never start). After the merge, `main`'s run covers macOS: if it fails there, fix it first.
+The goldens and reference runs must reproduce on Linux x64 and arm64, Windows x64 and macOS ARM64. The PR's own run
+covers the first three and is the check before merging: no extra dispatch. macOS doesn't block the merge: `main`'s
+run after it covers macOS, and if it fails there, fix it first (AGENTS.md, Workflow).
 
 ## The long suites
 

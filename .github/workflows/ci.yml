@@ -9,7 +9,7 @@
 #   nightly (schedule)           macos-arm64, only if main moved since the last nightly (the `nightly` job): the
 #                                safety net when a push's macOS job never got a runner
 #   manual dispatch              all on main; elsewhere the four above, plus macos-arm64 with `-f macos=true`
-#                                (sim changes and dependency upgrades)
+#                                (to re-check something on demand, never routine)
 #   release tag (release.yml)    all: release.yml calls this workflow as the check of a library release (a tag push
 #                                is a push); its manual runs pass `macos` through
 #
@@ -32,7 +32,7 @@ on:
   workflow_dispatch:
     inputs:
       macos:
-        description: "Also test macos-arm64 (always on for main; agents pass it for sim changes and upgrades)"
+        description: "Also test macos-arm64 (always on for main)"
         type: boolean
         default: false
   workflow_call:

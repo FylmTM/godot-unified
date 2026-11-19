@@ -69,29 +69,6 @@ usage_lines_come_from_the_options :: proc(t: ^testing.T) {
 	testing.expect(t, !strings.contains(help, "internal"), help)
 }
 
-// CI allows CI_BUDGET_SCALE times a budget, or a CI budget when that is more (never less: `--long` keeps its own
-// scale), and -h says which.
-@(test)
-ci_allowance_is_3x_or_the_ci_budget :: proc(t: ^testing.T) {
-	context.allocator = context.temp_allocator
-	testing.expect_value(t, cli.ci_allowance(10), 10 * cli.CI_BUDGET_SCALE)
-	testing.expect_value(t, cli.ci_allowance(6, 45), 45)
-	testing.expect_value(t, cli.ci_allowance(20, 45), 20 * cli.CI_BUDGET_SCALE)
-	suite := cli.Suite {
-		budget      = 6,
-		long_budget = 20,
-		ci_budget   = 45,
-	}
-	testing.expect_value(t, cli.suite_ci_budget(&suite, {}), 45)
-	testing.expect_value(t, cli.suite_ci_budget(&suite, {long = true}), 20 * cli.CI_BUDGET_SCALE)
-	testing.expect_value(
-		t,
-		cli.budget_text({budget = 6, ci_budget = 45}),
-		"budget: 6s for a warm run (45s in CI: its 4-core runners)",
-	)
-	testing.expect_value(t, cli.budget_text({budget = 6}), "budget: 6s for a warm run (3x in CI)")
-}
-
 // A passing test run shows the runner's warnings with the lines under them, and its last line; nothing else.
 @(test)
 passing_run_shows_warnings_only :: proc(t: ^testing.T) {

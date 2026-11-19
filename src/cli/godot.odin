@@ -35,7 +35,6 @@ godot :: proc() -> string {
 	}
 	dir, exe, asset, sha256 := godot_download()
 	if !os.is_file(exe) {
-		cold("Godot download")
 		// Unpacked beside its final place and renamed into it: another checkout may be fetching it at the same time
 		// (the first rename wins), and a half-unpacked editor never sits at the final path.
 		tmp := aprintf("%s.%d.tmp", dir, os.get_pid())
@@ -222,7 +221,6 @@ ensure_imported :: proc(dir: string) -> []string {
 		fatal("the Godot import of %s failed (exit %d)", rel(dir), result.exit_code)
 	}
 	import_mark_current(dir) // after the import: it may have added .uid files
-	cold(aprintf("Godot import of %s", os.base(dir)))
 	log("uni: imported %s in %.1fs", rel(dir), seconds_since(start))
 	return exts
 }
