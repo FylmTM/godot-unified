@@ -18,6 +18,7 @@ View :: enum u8 {
 	Decoy2D,
 	Card, // a Control: data only, never posed
 	Scripted3D, // posed by its script (GLUE.view_policy)
+	Bench2D, // the view benchmark's player view: no data (typed2d's data leaves a field out on purpose)
 }
 
 // The decoy views' subject: another table's handle, given each thing's key (fill_frame).
@@ -174,10 +175,10 @@ bench_prepare :: proc(state: ^toy.State, world: ^toy.World, count: int) {
 	bench_instances = count
 }
 
-// The benchmark's frame: the local player's typed2d view (the player's events reach it), BENCH_SCENE_VIEWS plain3d views circling, and the instances on a grid, each turning and bobbing (every value
+// The benchmark's frame: the local player's bench2d view (the player's events reach it), BENCH_SCENE_VIEWS plain3d views circling, and the instances on a grid, each turning and bobbing (every value
 // changes every tick, so nothing is the same as the tick before).
 bench_frame :: proc(f: ^Frame) {
-	godot.push_view(f, f.local_players[0], {kind = .Typed2D}, Typed2D_Data{})
+	godot.push_view(f, f.local_players[0], {kind = .Bench2D})
 	seconds := f32(f.tick) / toy.HZ
 	for i in 0 ..< BENCH_SCENE_VIEWS {
 		angle := seconds + f32(i) * math.TAU / BENCH_SCENE_VIEWS
