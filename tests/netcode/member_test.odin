@@ -405,6 +405,313 @@ a_leaving_client_never_reports_connected :: proc(t: ^testing.T) {
 	}
 }
 
+// A client stopped while the relay's refusal is on its way (here: another build; the session is full) finishes "left"
+// instead of failing with the refusal's reason: no error for a join the player cancelled.
+@(test)
+a_leaving_client_never_reports_failed :: proc(t: ^testing.T) {
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	net_join(&session, 0, .Ideal)
+	net_run(&session, 1)
+	link := netcode.netsim_wrap(
+		netcode.loopback_link(session.hub, 2),
+		{name = "slow", latency = 120_000},
+		7,
+		&session.clock,
+	)
+	client := netcode.client_create(&toy.GAME, {slot = -1, compat = 12345}, link, hooks_for(&session.watch[2]))
+	append(&session.clients, client)
+	net_run(&session, 0.05)
+	netcode.client_stop(client, session.clock.now)
+	net_run(&session, 3)
+	statuses := session.watch[2].statuses[:]
+	testing.expectf(
+		t,
+		client.status == .Disconnected && client.detail == "left" && !slice_has(statuses, .Failed),
+		"a client stopped before the relay's Reject arrived: %v (%s), statuses %v",
+		client.status,
+		client.detail,
+		statuses,
+	)
+	// Its Leave came after the refusal: the relay frees the connection at once, not DISCONNECT_US later (a full
+	// session keeps only netcode.PEERS_SPARE connections for peers it seats nowhere).
+	open := 0
+	for peer in 0 ..< netcode.MAX_PEERS do open += int(netcode.channel_connected(session.relay.ch, netcode.Peer(peer)))
+	testing.expectf(t, open == 1, "3 s later the relay holds %d connections (the host's: 1)", open)
+}
+
+// A client stopped before its first step (a player who cancels at once; the Godot driver checks for a stop before it
+// steps the client) never told the relay anything: it sends nothing, its Hello included, and is finished at once,
+// "left". It used to send its Hello on the next step anyway and leave a member nobody is behind for DISCONNECT_US.
+@(test)
+a_client_stopped_before_its_first_step_seats_nobody :: proc(t: ^testing.T) {
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	net_join(&session, 0, .Ideal)
+	net_run(&session, 1)
+	early := far_join(&session, 30)
+	netcode.client_stop(early, session.clock.now)
+	testing.expectf(
+		t,
+		netcode.client_finished(early) && early.detail == "left",
+		"stopped before its first step: %v (%s)",
+		early.status,
+		early.detail,
+	)
+	net_run(&session, 2)
+	testing.expectf(
+		t,
+		!session.relay.seats[1].connected && len(session.relay.members) == 1,
+		"2 s after a client stopped before its first step, slot 1 connected %v (member %d), %d members",
+		session.relay.seats[1].connected,
+		session.relay.seats[1].member,
+		len(session.relay.members),
+	)
+}
+
+// The same with a retry at once on a nearer path, same token: the stopped client's Hello, arriving after the retry's,
+// used to replace the retry as the member's newest connection.
+@(test)
+a_retry_is_not_replaced_by_a_client_stopped_before_its_first_step :: proc(t: ^testing.T) {
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	net_join(&session, 0, .Ideal)
+	net_run(&session, 1)
+	early := far_join(&session, 80, RETRY_TOKEN)
+	netcode.client_stop(early, session.clock.now)
+	again := far_join(&session, 20, RETRY_TOKEN)
+	net_run(&session, 4)
+	testing.expectf(
+		t,
+		again.status == .Connected && session.relay.seats[1].connected && !session.relay.seats[2].connected,
+		"the retry is %v (%s); seats 1 and 2 connected %v %v",
+		again.status,
+		again.detail,
+		session.relay.seats[1].connected,
+		session.relay.seats[2].connected,
+	)
+}
+
+RETRY_TOKEN :: netcode.Token {
+	0 = 7,
+	5 = 9,
+}
+
+// A remote client asking for any slot behind a live netsim (the test changes its profiles), with `token`.
+retry_join :: proc(session: ^Net, up, down: netcode.Profile, token := RETRY_TOKEN) -> (^Client, ^netcode.Net_Sim) {
+	endpoint := len(session.clients) + 1
+	link, netsim := netcode.netsim_live(
+		netcode.loopback_link(session.hub, netcode.Peer(endpoint)),
+		u32(endpoint) * 7919,
+		&session.clock,
+	)
+	netcode.netsim_set(netsim, up, down)
+	client := netcode.client_create(
+		&toy.GAME,
+		{slot = -1, player_name = "Linus", token = token},
+		link,
+		hooks_for(&session.watch[min(endpoint, 7)]),
+	)
+	append(&session.clients, client)
+	return client, netsim
+}
+
+// Newest wins by when each try's Hello went out, not by which arrives last. The first try's first Hello is lost (one
+// datagram; 8% of them on `bad`); the player cancels 120 ms later and tries again at once with the same token. The
+// second try's Hello arrives and is seated; then the first try's resent Hello arrives, its Leave behind it. It used
+// to replace the second try, whose connection the Leave then dropped: the player's real connection ended by their
+// own cancelled one.
+@(test)
+a_retry_is_not_replaced_when_the_first_trys_hello_was_lost :: proc(t: ^testing.T) {
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	net_join(&session, 0, .Ideal)
+	net_run(&session, 1)
+	far := netcode.Profile {
+		name    = "120 ms",
+		latency = 120_000,
+	}
+	lost := netcode.Profile {
+		name    = "lost",
+		latency = 120_000,
+		loss    = 1000,
+	}
+	first, first_net := retry_join(&session, lost, far)
+	net_run(&session, 0.05) // its Hello went out and is lost
+	netcode.netsim_set(first_net, far, far)
+	net_run(&session, 0.07)
+	netcode.client_stop(first, session.clock.now) // 120 ms after its Hello: cancel
+	second, _ := retry_join(&session, far, far) // and try again
+	net_run(&session, 3)
+	testing.expectf(
+		t,
+		second.status == .Connected && session.relay.seats[1].connected && len(session.relay.members) == 2,
+		"the second try is %v (%s), statuses %v; slot 1 connected %v; the first try %v (%s); the relay knows %d members",
+		second.status,
+		second.detail,
+		session.watch[3].statuses[:],
+		session.relay.seats[1].connected,
+		first.status,
+		first.detail,
+		len(session.relay.members),
+	)
+	testing.expectf(t, first.detail == "left", "the first try finished %v (%s)", first.status, first.detail)
+}
+
+// The same with no loss: the first try's Hello is only slower than the second's (120 ms against 60 ms; the second try
+// starts 30 ms after the first, the first is cancelled 10 ms later). The second's Hello arrives first.
+@(test)
+a_retry_is_not_replaced_when_the_first_trys_hello_was_slower :: proc(t: ^testing.T) {
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	net_join(&session, 0, .Ideal)
+	net_run(&session, 1)
+	slow := netcode.Profile {
+		name    = "120 ms",
+		latency = 120_000,
+	}
+	fast := netcode.Profile {
+		name    = "60 ms",
+		latency = 60_000,
+	}
+	first, _ := retry_join(&session, slow, slow)
+	net_run(&session, 0.03)
+	second, _ := retry_join(&session, fast, fast)
+	net_run(&session, 0.01)
+	netcode.client_stop(first, session.clock.now)
+	net_run(&session, 3)
+	testing.expectf(
+		t,
+		second.status == .Connected && session.relay.seats[1].connected && len(session.relay.members) == 2,
+		"the second try is %v (%s), statuses %v; slot 1 connected %v; the first try %v (%s); the relay knows %d members",
+		second.status,
+		second.detail,
+		session.watch[3].statuses[:],
+		session.relay.seats[1].connected,
+		first.status,
+		first.detail,
+		len(session.relay.members),
+	)
+	testing.expectf(t, first.detail == "left", "the first try finished %v (%s)", first.status, first.detail)
+}
+
+// The order's bound: an earlier try's Hello is refused only while the seated connection is live (heard within
+// netcode.SEATED_LIVE_US). A seated connection gone silent (a crashed game; another machine, whose clock says nothing
+// about this one's) is replaced by any try of the same person. And an earlier try that is not leaving is told why.
+@(test)
+an_earlier_try_replaces_a_silent_connection_and_is_told_otherwise :: proc(t: ^testing.T) {
+	for seated_silent in ([]bool{false, true}) {
+		session: Net
+		net_make_relay(&session, 1, 0)
+		net_join(&session, 0, .Ideal)
+		net_run(&session, 1)
+		slow := netcode.Profile {
+			name    = "1.5 s",
+			latency = 1_500_000,
+		}
+		fast := netcode.Profile {
+			name    = "20 ms",
+			latency = 20_000,
+		}
+		earlier, _ := retry_join(&session, slow, slow)
+		net_run(&session, 0.01)
+		later, later_net := retry_join(&session, fast, fast)
+		net_run(&session, 0.2) // the later try is seated, the earlier one's Hello is on its way
+		testing.expect(t, session.relay.seats[1].connected)
+		if seated_silent {
+			// the later try's game hangs: nothing of it reaches the relay any more
+			netcode.netsim_set(later_net, {name = "gone", loss = 1000}, fast)
+		}
+		net_run(&session, 10)
+		if seated_silent {
+			testing.expectf(
+				t,
+				earlier.status == .Connected && session.relay.seats[1].connected,
+				"a silent seated connection: the earlier try is %v (%s), slot 1 connected %v",
+				earlier.status,
+				earlier.detail,
+				session.relay.seats[1].connected,
+			)
+		} else {
+			testing.expectf(
+				t,
+				later.status == .Connected &&
+				earlier.status == .Failed &&
+				earlier.detail == "this player is in the session on a newer connection",
+				"a live seated connection: the later try %v (%s), the earlier %v (%s)",
+				later.status,
+				later.detail,
+				earlier.status,
+				earlier.detail,
+			)
+		}
+		net_destroy(&session)
+	}
+}
+
+LONG :: #config(UNIFIED_LONG_TESTS, false) // `uni test --long`
+
+// How often a retry is lost, over seeds (long only): the player cancels `cancel_ms` after the first try's Hello and
+// retries at once, both tries on `wan` or `bad` with the same token. The retry is Connected 4 s later in every round.
+when LONG {
+	retries_are_never_replaced :: proc(t: ^testing.T, network: netcode.Network) {
+		for cancel_ms in ([]int{30, 80, 120}) {
+			failed, rounds := 0, 30
+			for seed in 0 ..< rounds {
+				session: Net
+				net_make_relay(&session, 1, 0)
+				net_join(&session, 0, .Ideal)
+				net_run(&session, 1 + f64(seed) * 0.0137)
+				try_join :: proc(session: ^Net, profile: netcode.Profile, seed: u32) -> ^Client {
+					endpoint := len(session.clients) + 1
+					link := netcode.netsim_wrap(
+						netcode.loopback_link(session.hub, netcode.Peer(endpoint)),
+						profile,
+						seed,
+						&session.clock,
+					)
+					client := netcode.client_create(
+						&toy.GAME,
+						{slot = -1, player_name = "Linus", token = RETRY_TOKEN},
+						link,
+						hooks_for(&session.watch[min(endpoint, 7)]),
+					)
+					append(&session.clients, client)
+					return client
+				}
+				profile := netcode.PROFILES[network]
+				first := try_join(&session, profile, 2 * 7919 + u32(seed) * 104729 + 1)
+				net_run(&session, f64(cancel_ms) / 1000)
+				netcode.client_stop(first, session.clock.now)
+				second := try_join(&session, profile, 3 * 15485863 + u32(seed) * 31337 + 7)
+				net_run(&session, 4)
+				if second.status != .Connected || !session.relay.seats[1].connected {
+					failed += 1
+				}
+				net_destroy(&session)
+			}
+			testing.expectf(
+				t,
+				failed == 0,
+				"%v, cancelled %d ms after the Hello and retried at once: the retry is not Connected in %d of %d rounds",
+				network,
+				cancel_ms,
+				failed,
+				rounds,
+			)
+		}
+	}
+	@(test)
+	retries_on_wan_are_never_replaced :: proc(t: ^testing.T) {retries_are_never_replaced(t, .Wan)}
+	@(test)
+	retries_on_bad_are_never_replaced :: proc(t: ^testing.T) {retries_are_never_replaced(t, .Bad)}
+}
+
 slice_has :: proc(statuses: []netcode.Status, wanted: netcode.Status) -> bool {
 	for status in statuses do if status == wanted do return true
 	return false

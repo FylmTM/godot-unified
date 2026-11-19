@@ -78,10 +78,15 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
   with the peer's last one seen. A datagram echoing an epoch other than ours was meant for an earlier connection: it
   is dropped unread while a newer connection runs, and otherwise answered by a new connection, whose epoch ends the
   sender's stale side at once, so no side sits half-open. A new epoch from an active peer means it started over (a
-  restarted program on the same address): the old connection ends with `Disconnected` and the datagram opens the
-  new one.
-- **Goodbye.** A connection dropped after a goodbye (or replaced) never comes back: its last datagram acks the
-  goodbye, and a datagram of it arriving later (a Hello resent before the Leave) is never read.
+  restarted program on the same address, or on a link that numbers a person, not a socket: EOS): the old connection
+  ends with `Disconnected` and the datagram opens the new one. The old connection's messages read in the same poll
+  are not delivered: they would reach the new connection, which has its peer number (its Leave would end it).
+- **Goodbye.** A connection dropped after a goodbye, or replaced (by the relay, or by the peer starting over), never
+  comes back: its last datagram acks the goodbye, and a datagram of it arriving later (a Hello resent before the
+  Leave, a duplicate) is never read.
+- **Connections.** A channel holds one per seat of the largest game and a few that seat nobody (`MAX_PEERS`): a peer
+  being refused, one opened only to tell a peer its connection ended. Without them a full session answers nobody
+  else.
 - A datagram whose header doesn't validate never gets a connection (or a transport peer number).
 
 ## Relay
@@ -109,9 +114,10 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
 - **The window** (`window.odin`): Finalized and Inputs write each tick or input as its changes from the one before it
   in the same packet, so every packet decodes on its own. A tick's commands are budgeted so it fits a packet alone
   however much it changed. A client's Inputs carries its newest unacked inputs, as many as fit beside a command with
-  every byte changed (`inputs_window`): each input rides in that many consecutive packets, whatever the round trip. A
-  step that generates more inputs than that (the clock's first step samples the input delay's ticks; a jump of the
-  delay or the clock) sends the burst in messages of its own beside the next that many packets.
+  every byte changed (`inputs_window`): each input rides in that many packets, whatever the round trip. Inputs the main
+  message moved past before they had (a step that generated several at once: the clock's first step samples the input
+  delay's ticks; a jump of the delay or the clock; a client stepped late) ride in messages of their own beside it
+  until they have, while they can still be in time, so a starved client sends a bounded few per step.
 
 ## Members
 
@@ -128,7 +134,11 @@ A player is a session **member**, the person, not a slot (the sim's side: `src/s
 - **Newest wins**: a Hello from a member who is still seated replaces their old connection once the new one is
   accepted. The slot is absent from the next tick, and the new connection joins as the same member at a later tick, in
   the lowest free slot (its old one counts as free): a restarted game is back at once instead of after the old
-  connection's timeout.
+  connection's timeout. Newest by when each try's Hello went out (Hello carries its client's clock), not by which
+  arrives last: a cancelled try whose Hello comes late (lost once, or on a slower path) is refused
+  (`Newer_Connection`) while the seated connection is live, instead of replacing the try its player made next. A
+  silent seated connection is replaced whatever the order (a crashed game): one person's tries on one machine share a
+  clock, tries from two machines don't, so between two live ones there the order says nothing.
 - **The roster** is one reliable `Roster` message per member change (`Roster_Entry`: the vouched account, never a
   token). Everyone connected gets each change; a joiner gets every entry. Departed members' entries stay (not
   connected, no slot): a "left" message can name them after they are gone. The client keeps them by member id

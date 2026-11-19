@@ -17,6 +17,7 @@ package netcode
 import "base:runtime"
 import "core:fmt"
 
+import "unified:sim"
 import "unified:wire"
 
 // How channel_send delivers a message: as it comes (maybe lost, duplicated or reordered), or once and in order.
@@ -40,7 +41,11 @@ Event :: struct {
 	data: []u8, // valid until the next channel_poll
 }
 
-MAX_PEERS :: 32
+// The connections a channel holds: one for each player of the largest game, and PEERS_SPARE that seat nobody: a peer
+// being refused (the session is full), and one opened only to tell a peer its old connection ended (it lives
+// DISCONNECT_US). Without them a full session answers nobody else, and a freed seat waits for one to time out.
+MAX_PEERS :: sim.MAX_PLAYERS + PEERS_SPARE
+PEERS_SPARE :: 4
 POOL_RESERVE :: 32 // message slots a channel (and a netsim) has from the start (37 kB): what usual traffic holds
 SENT_RING :: 1024 // per active connection, allocated when it opens
 MAX_IDS_PER_PACKET :: 64
@@ -79,9 +84,9 @@ Channel :: struct {
 	ended:  Ended_Epochs,
 }
 
-// The peers' epochs of the last ENDED_EPOCHS connections dropped (channel_drop): a connection that said goodbye
-// never comes back. A datagram of one is never read, so a Hello it resent before its Leave, arriving after it, seats
-// nobody.
+// The peers' epochs of the last ENDED_EPOCHS connections dropped (channel_drop) or replaced by the peer starting over:
+// a connection that ended so never comes back. A datagram of one is never read, so a Hello it resent before its Leave,
+// arriving after it, seats nobody, and a straggler of a replaced connection never ends the one that replaced it.
 @(private)
 Ended_Epochs :: struct {
 	conns: [ENDED_EPOCHS]struct {
@@ -91,7 +96,7 @@ Ended_Epochs :: struct {
 	next:  int,
 }
 
-ENDED_EPOCHS :: 64 // twice MAX_PEERS: a whole session leaving at once, and its stragglers
+ENDED_EPOCHS :: 2 * MAX_PEERS // every connection ending at once, twice: a whole session leaving, and its stragglers
 
 // A channel's datagrams and bytes sent and received since it was made, and its reliable resends (Client_Stats.net).
 Channel_Stats :: struct {
@@ -253,15 +258,21 @@ channel_drop :: proc(channel: ^Channel, peer: Peer, now: i64) {
 		begin_packet(&builder, conn, now)
 		end_packet(channel, &builder, conn, peer, now)
 		channel.tx = builder.w
-		if conn.peer_epoch != 0 {
-			channel.ended.conns[channel.ended.next] = {conn.link, conn.peer_epoch}
-			channel.ended.next = (channel.ended.next + 1) % ENDED_EPOCHS
-		}
+		ended_add(channel, conn.link, conn.peer_epoch)
 	}
 	conn_release(channel, peer)
 }
 
-// Whether `epoch` is a peer's on `link` whose connection was dropped (channel_drop).
+// Remembers a peer's epoch on `link` as ended (0: none to remember): its datagrams are never read again.
+@(private)
+ended_add :: proc(channel: ^Channel, link: int, epoch: u32) {
+	if epoch != 0 {
+		channel.ended.conns[channel.ended.next] = {link, epoch}
+		channel.ended.next = (channel.ended.next + 1) % ENDED_EPOCHS
+	}
+}
+
+// Whether `epoch` is a peer's on `link` whose connection ended for good (ended_add).
 @(private)
 epoch_ended :: proc(channel: ^Channel, link: int, epoch: u32) -> bool {
 	for ended in channel.ended.conns {
@@ -388,6 +399,15 @@ channel_rtt :: proc(channel: ^Channel, peer: Peer) -> (us: f64, samples: int) {
 		return 0, 0
 	}
 	return channel.conns[peer].rtt_last_us, channel.conns[peer].rtt_samples
+}
+
+// How long `peer`'s connection has been silent at `now`: since a datagram of it was last read (max(i64): it is not
+// open).
+channel_silence_us :: proc(channel: ^Channel, peer: Peer, now: i64) -> i64 {
+	if int(peer) < 0 || int(peer) >= MAX_PEERS || !channel.conns[peer].active {
+		return max(i64)
+	}
+	return now - channel.conns[peer].last_recv
 }
 
 // True when every reliable message to `peer` has been acknowledged.
@@ -588,7 +608,17 @@ accept_epoch :: proc(channel: ^Channel, from: Peer, header: Dgram_Header, now: i
 		return nil, false
 	}
 	if old.active && old.peer_epoch != 0 && old.peer_epoch != header.epoch {
-		// The peer started over: end the old connection; this datagram opens the new one.
+		// The peer started over: end the old connection; this datagram opens the new one. On a link that numbers a
+		// person, not a socket (EOS), the old connection's last datagrams and the new one's first can arrive in one
+		// poll: the old one's messages read in this poll go with it (a Leave there must not end the new connection,
+		// which has its peer number; its Disconnected empties its seat), and it never comes back (a straggler of it
+		// must not end the new one in turn).
+		for i := len(channel.events) - 1; i >= 0; i -= 1 {
+			if channel.events[i].peer == from && channel.events[i].kind == .Message {
+				ordered_remove(&channel.events, i)
+			}
+		}
+		ended_add(channel, old.link, old.peer_epoch)
 		link, link_peer := old.link, old.lpeer
 		conn_reset(channel, old)
 		old.used, old.link, old.lpeer = true, link, link_peer
