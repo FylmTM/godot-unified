@@ -84,7 +84,7 @@ sweep_leave :: proc(net: ^Sweep_Net($G), client: ^netcode.Client(G)) {
 	slot := client.slot
 	netcode.client_stop(client, net.clock.now)
 	for _ in 0 ..< 1500 {
-		if slot >= 0 && !net.relay.seats[slot].connected do break
+		if slot >= 0 && net.relay.seats[slot].conn < 0 do break
 		if slot < 0 && netcode.client_finished(client) do break
 		sweep_run(net, 0.002)
 	}
@@ -333,7 +333,7 @@ sweep_leaves :: proc(t: ^testing.T, $G: typeid, name: string) {
 					if retry do again = token_join(net, network, token)
 					sweep_run(net, 9)
 					connected := 0
-					for seat in net.relay.seats do connected += int(seat.connected)
+					for seat in net.relay.seats do connected += int(seat.conn >= 0)
 					want := starters + (retry ? 1 : 0)
 					testing.expectf(t, connected == want, "%s: %d seats connected, want %d", what, connected, want)
 					testing.expectf(

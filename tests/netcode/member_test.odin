@@ -176,7 +176,7 @@ the_newest_connection_of_a_member_wins :: proc(t: ^testing.T) {
 	netcode.client_destroy(crashed)
 	ordered_remove(&session.clients, 0)
 	net_run(&session, 0.5)
-	testing.expect(t, session.host.relay.seats[1].connected)
+	testing.expect(t, session.host.relay.seats[1].conn >= 0)
 	restarted := member_join(&session, session.hub, 2, "Cy", token)
 	net_run(&session, 3) // far below the channel's 10 s timeout
 	testing.expect_value(t, restarted.status, netcode.Status.Connected)
@@ -184,7 +184,7 @@ the_newest_connection_of_a_member_wins :: proc(t: ^testing.T) {
 	back, _ := host_player(&session, restarted.slot)
 	testing.expect_value(t, back, player)
 	connected := 0
-	for slot in 0 ..< toy.PLAYERS do connected += int(session.host.relay.seats[slot].connected)
+	for slot in 0 ..< toy.PLAYERS do connected += int(session.host.relay.seats[slot].conn >= 0)
 	testing.expect_value(t, connected, 2) // the host and Cy's new connection
 	expect_agree(t, &session)
 }
@@ -263,7 +263,7 @@ a_client_that_leaves_before_the_relay_answered_leaves_no_member_behind :: proc(t
 	testing.expect(t, netcode.client_finished(first))
 	testing.expectf(
 		t,
-		!session.relay.seats[1].connected,
+		session.relay.seats[1].conn < 0,
 		"3 s after it left, slot 1 is held by member %d (the relay knows %d members: the host and one joiner make 2); the host's sim has %v present",
 		session.relay.seats[1].member,
 		len(session.relay.members),
@@ -309,7 +309,7 @@ a_second_try_is_not_replaced_by_the_first_trys_hello :: proc(t: ^testing.T) {
 			second.status,
 			second.detail,
 			len(session.relay.members),
-			session.relay.seats[1].connected,
+			session.relay.seats[1].conn >= 0,
 		)
 		testing.expect(t, netcode.client_finished(first))
 		net_destroy(&session)
@@ -335,11 +335,11 @@ a_leave_inside_the_first_round_trip_leaves_no_member_behind :: proc(t: ^testing.
 			net_run(&session, 3)
 			testing.expectf(
 				t,
-				!session.relay.seats[1].connected && len(session.relay.members) == 2,
+				session.relay.seats[1].conn < 0 && len(session.relay.members) == 2,
 				"round trip %d ms, left %d ms after its Hello: slot 1 connected %v, %d members",
 				2 * latency,
 				leave_ms,
-				session.relay.seats[1].connected,
+				session.relay.seats[1].conn >= 0,
 				len(session.relay.members),
 			)
 			testing.expectf(
@@ -369,9 +369,9 @@ a_leaving_client_never_reports_connected :: proc(t: ^testing.T) {
 		joiner := far_join(&session, 60)
 		// the relay checked its snapshot and sent Snap_Ok, which is on its way
 		net_run(&session, 5, proc(session: ^Net) -> bool {
-			return session.clients[1].checking && !session.relay.seats[1].checking
+			return session.clients[1].checking && !conn_in(session.relay, 1).checking
 		})
-		testing.expect(t, joiner.checking && session.relay.seats[1].connected)
+		testing.expect(t, joiner.checking && session.relay.seats[1].conn >= 0)
 		netcode.client_stop(joiner, session.clock.now)
 		net_run(&session, 3)
 		statuses := session.watch[2].statuses[:]
@@ -463,9 +463,9 @@ a_client_stopped_before_its_first_step_seats_nobody :: proc(t: ^testing.T) {
 	net_run(&session, 2)
 	testing.expectf(
 		t,
-		!session.relay.seats[1].connected && len(session.relay.members) == 1,
+		session.relay.seats[1].conn < 0 && len(session.relay.members) == 1,
 		"2 s after a client stopped before its first step, slot 1 connected %v (member %d), %d members",
-		session.relay.seats[1].connected,
+		session.relay.seats[1].conn >= 0,
 		session.relay.seats[1].member,
 		len(session.relay.members),
 	)
@@ -486,12 +486,12 @@ a_retry_is_not_replaced_by_a_client_stopped_before_its_first_step :: proc(t: ^te
 	net_run(&session, 4)
 	testing.expectf(
 		t,
-		again.status == .Connected && session.relay.seats[1].connected && !session.relay.seats[2].connected,
+		again.status == .Connected && session.relay.seats[1].conn >= 0 && session.relay.seats[2].conn < 0,
 		"the retry is %v (%s); seats 1 and 2 connected %v %v",
 		again.status,
 		again.detail,
-		session.relay.seats[1].connected,
-		session.relay.seats[2].connected,
+		session.relay.seats[1].conn >= 0,
+		session.relay.seats[2].conn >= 0,
 	)
 }
 
@@ -549,12 +549,12 @@ a_retry_is_not_replaced_when_the_first_trys_hello_was_lost :: proc(t: ^testing.T
 	net_run(&session, 3)
 	testing.expectf(
 		t,
-		second.status == .Connected && session.relay.seats[1].connected && len(session.relay.members) == 2,
+		second.status == .Connected && session.relay.seats[1].conn >= 0 && len(session.relay.members) == 2,
 		"the second try is %v (%s), statuses %v; slot 1 connected %v; the first try %v (%s); the relay knows %d members",
 		second.status,
 		second.detail,
 		session.watch[3].statuses[:],
-		session.relay.seats[1].connected,
+		session.relay.seats[1].conn >= 0,
 		first.status,
 		first.detail,
 		len(session.relay.members),
@@ -587,12 +587,12 @@ a_retry_is_not_replaced_when_the_first_trys_hello_was_slower :: proc(t: ^testing
 	net_run(&session, 3)
 	testing.expectf(
 		t,
-		second.status == .Connected && session.relay.seats[1].connected && len(session.relay.members) == 2,
+		second.status == .Connected && session.relay.seats[1].conn >= 0 && len(session.relay.members) == 2,
 		"the second try is %v (%s), statuses %v; slot 1 connected %v; the first try %v (%s); the relay knows %d members",
 		second.status,
 		second.detail,
 		session.watch[3].statuses[:],
-		session.relay.seats[1].connected,
+		session.relay.seats[1].conn >= 0,
 		first.status,
 		first.detail,
 		len(session.relay.members),
@@ -622,7 +622,7 @@ an_earlier_try_replaces_a_silent_connection_and_is_told_otherwise :: proc(t: ^te
 		net_run(&session, 0.01)
 		later, later_net := retry_join(&session, fast, fast)
 		net_run(&session, 0.2) // the later try is seated, the earlier one's Hello is on its way
-		testing.expect(t, session.relay.seats[1].connected)
+		testing.expect(t, session.relay.seats[1].conn >= 0)
 		if seated_silent {
 			// the later try's game hangs: nothing of it reaches the relay any more
 			netcode.netsim_set(later_net, {name = "gone", loss = 1000}, fast)
@@ -631,11 +631,11 @@ an_earlier_try_replaces_a_silent_connection_and_is_told_otherwise :: proc(t: ^te
 		if seated_silent {
 			testing.expectf(
 				t,
-				earlier.status == .Connected && session.relay.seats[1].connected,
+				earlier.status == .Connected && session.relay.seats[1].conn >= 0,
 				"a silent seated connection: the earlier try is %v (%s), slot 1 connected %v",
 				earlier.status,
 				earlier.detail,
-				session.relay.seats[1].connected,
+				session.relay.seats[1].conn >= 0,
 			)
 		} else {
 			testing.expectf(
@@ -690,7 +690,7 @@ when LONG {
 				netcode.client_stop(first, session.clock.now)
 				second := try_join(&session, profile, 3 * 15485863 + u32(seed) * 31337 + 7)
 				net_run(&session, 4)
-				if second.status != .Connected || !session.relay.seats[1].connected {
+				if second.status != .Connected || session.relay.seats[1].conn < 0 {
 					failed += 1
 				}
 				net_destroy(&session)

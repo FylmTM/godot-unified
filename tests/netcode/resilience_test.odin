@@ -83,7 +83,7 @@ one_way_outage_ends_the_client_session :: proc(t: ^testing.T) {
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	gate.block_out = true
 	net_run(&session, 12) // the relay times the player out after 10 s
-	testing.expect(t, !session.host.relay.seats[client.slot].connected)
+	testing.expect(t, session.host.relay.seats[client.slot].conn < 0)
 	gate.block_out = false
 	net_run(&session, 3)
 	testing.expect_value(t, client.status, netcode.Status.Disconnected)
