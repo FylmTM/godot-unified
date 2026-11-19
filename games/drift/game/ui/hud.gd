@@ -4,6 +4,10 @@ extends CanvasLayer
 ## (`restart`); banners for waves and the match's start and end; the session panel (code + players) and the
 ## controls list. It follows the HUD data (`changed`), the roster and the input device.
 
+## Directions that make one control in the controls list (ControlsPanel.refresh).
+const MOVE: Array[StringName] = [&"move_up", &"move_left", &"move_down", &"move_right"]
+const AIM: Array[StringName] = [&"aim_up", &"aim_left", &"aim_down", &"aim_right"]
+
 var _phase_shown := -1  ## the phase the controls list is for
 var _hp_target := 1.0  ## the fraction the HP bar eases to
 var _hp_tween: Tween
@@ -30,7 +34,7 @@ func _ready() -> void:
 	Unified.session.roster_changed.connect(_refresh_players)
 	Unified.session.sim_event.connect(_on_sim_event)
 	Game.input_device_changed.connect(_on_input_device_changed)
-	Game.lobby_code_changed.connect(_on_lobby_code_changed)
+	Unified.session.join_code_changed.connect(_refresh_players.unbind(1))
 	get_viewport().size_changed.connect(_refresh_controls)  # the controls list keeps to the bottom-right corner
 	_on_hud_changed()
 
@@ -54,7 +58,7 @@ func _start_or_restart() -> void:
 
 func _on_hud_changed() -> void:
 	var h: DataHud = Unified.data.hud
-	var keys := Game.hint("Enter", "X")
+	var keys := Game.input_label(&"start")
 	match h.phase:
 		EnumPhase.MATCH:
 			_phase.text = "WAVE %d  ·  next wave in %d s" % [h.wave, ceili(h.next_wave_s)]
@@ -102,10 +106,6 @@ func _on_input_device_changed(_pad: bool) -> void:
 	_refresh_controls()
 
 
-func _on_lobby_code_changed(_code: String) -> void:
-	_refresh_players()
-
-
 ## The session panel: every player with their gems.
 func _refresh_players() -> void:
 	var slots := Unified.data.hud.players
@@ -114,20 +114,16 @@ func _refresh_players() -> void:
 		var info := slots[Unified.session.get_player_slot(player)] as DataHudPlayer
 		rows.append({"player": player, "name": Unified.session.get_player_name(player), "status": "%d gems" % info.gems})
 	_session.refresh(rows, Unified.data.hud.phase == EnumPhase.LOBBY,
-		"Press %s or click Start when everyone is in." % Game.hint("Enter", "X"))
+		"Press %s or click Start when everyone is in." % Game.input_label(&"start"))
 
 
 ## The controls list for the phase and the device in use.
 func _refresh_controls() -> void:
-	var kb := [["WASD", "Move"], ["Mouse", "Aim"], ["LMB / Space", "Fire"], ["RMB / Shift", "Boost"]]
-	var pad := [["Left stick", "Move"], ["Right stick", "Aim"], ["RT", "Fire"], ["LT / A", "Boost"]]
+	var rows := [[MOVE, "Move"], [AIM, "Aim", "Mouse"], [&"fire", "Fire"], [&"boost", "Boost"]]
 	if _phase_shown != EnumPhase.MATCH:
-		var start := "Start" if _phase_shown == EnumPhase.LOBBY else "Restart"
-		kb.append(["Enter", start])
-		pad.append(["X", start])
-	kb.append(["Esc", "Menu"])
-	pad.append(["Start", "Menu"])
-	_controls.refresh(kb, pad)
+		rows.append([&"start", "Start" if _phase_shown == EnumPhase.LOBBY else "Restart"])
+	rows.append([&"menu", "Menu"])
+	_controls.refresh(rows)
 
 
 ## Banners and the best time, once an event's tick is confirmed.

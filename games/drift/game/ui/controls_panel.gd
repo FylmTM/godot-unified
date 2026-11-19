@@ -1,8 +1,8 @@
 class_name ControlsPanel
 extends PanelContainer
 ## The HUD's controls list, bottom-right: one row per binding, key on the left, action on the right, for the
-## device the player is using (keyboard and mouse, or pad). Always shown while playing. The game passes the bindings
-## for the current context (different keys while holding something, say); the panel rebuilds only when they change.
+## device the player is using (keyboard and mouse, or pad). Always shown while playing. The game passes the actions
+## for the current context (others while holding something, say); the panel rebuilds only when the rows change.
 ## Built in code.
 
 const MARGIN := 20.0
@@ -32,14 +32,19 @@ func _ready() -> void:
 	get_viewport().size_changed.connect(_place)
 
 
-## Called by the game's HUD when the context or the input device changes, with [[key, action], ...] for each device;
-## shows the one in use. The panel keeps its corner when the window is resized.
-func refresh(keys: Array, pad: Array) -> void:
-	var want: Array = pad if Game.using_pad else keys
+## Called by the game's HUD when the context or the input device changes, with [[input, action], ...]: `input` an
+## input action, or the actions that make one control, labelled with what they are bound to on the device in use
+## (`Game.input_label`); a third element is shown where `input` has no binding on that device ([look, "Look",
+## "Mouse"]: mouse look is no action). The panel keeps its corner when the window is resized.
+func refresh(rows: Array) -> void:
+	var want: Array = []
+	for row: Array in rows:
+		var fallback: String = row[2] if row.size() > 2 else ""
+		want.append([Game.input_label(row[0], fallback), row[1]])
 	_place()
 	if want == _shown:
 		return
-	_shown = want.duplicate(true)
+	_shown = want
 	for c in _grid.get_children():
 		_grid.remove_child(c)
 		c.free()
