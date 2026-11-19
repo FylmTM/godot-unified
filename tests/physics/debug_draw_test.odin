@@ -33,7 +33,7 @@ draw_world_create :: proc(seed: u64, _: []sim.Level_File, _: sim.No_Setup) -> ^R
 
 draw_tick :: proc(t: ^Rig_Tick) {
 	rig_tick(t)
-	physics.debug_draw(t.world.phys, t, draw_flags)
+	physics.debug_draw(t, t.world.phys, draw_flags)
 }
 
 drawing_rig :: proc() -> Rig_Game {
@@ -164,7 +164,7 @@ debug_draw_shapes :: proc(t: ^testing.T) {
 			free(shapes_world)
 		},
 		extra = proc(shapes_world: ^Shapes_World) -> sim.Extra {return physics.extra(shapes_world.phys, Shapes_State)},
-		tick = proc(tick: ^sim.Tick(Shapes_Game)) {physics.debug_draw(tick.world.phys, tick, {.Shapes})},
+		tick = proc(tick: ^sim.Tick(Shapes_Game)) {physics.debug_draw(tick, tick.world.phys, {.Shapes})},
 	}
 	simulation := sim.create(&game, 1)
 	defer sim.destroy(simulation)

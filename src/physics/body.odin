@@ -30,18 +30,36 @@ body_transform :: proc(world: ^World, ref: Body_Ref) -> Transform {
 	return transmute(Transform)box3d.Body_GetTransform(body_id(world, ref))
 }
 
-// Moves the body (teleports it: respawns, resets); its velocities are kept (body_set_linear_velocity to stop it).
+// Moves the body (teleports it: respawns, resets, a warp gate); its velocities are kept (body_set_linear_velocity to
+// stop it). Its warp epoch moves on (body_warp): its view snaps.
 body_set_transform :: proc(world: ^World, ref: Body_Ref, position: [3]f32, rotation: [4]f32) {
 	box3d.Body_SetTransform(body_id(world, ref), transmute(box3d.Vec3)position, transmute(box3d.Quat)rotation)
+	warp_bump(world, ref)
 }
 
-// Moves the body and stops it: its velocities zeroed (respawns, resets, putting a thing back). A character has its own
-// (character_teleport).
+// Moves the body and stops it: its velocities zeroed (respawns, resets, putting a thing back), its warp epoch moved on
+// (body_warp). A character has its own (character_teleport).
 body_teleport :: proc(world: ^World, ref: Body_Ref, position: [3]f32, rotation := [4]f32{0, 0, 0, 1}) {
 	id := body_id(world, ref)
 	box3d.Body_SetTransform(id, transmute(box3d.Vec3)position, transmute(box3d.Quat)rotation)
 	box3d.Body_SetLinearVelocity(id, {})
 	box3d.Body_SetAngularVelocity(id, {})
+	warp_bump(world, ref)
+}
+
+// The body's warp epoch: a counter every teleport moves on (body_teleport(_2d), body_set_transform(_2d),
+// character_teleport), kept in physics' rolled-back body table. A view pushes it (godot.View_Item.warp) to snap, not
+// glide, across a teleport: `warp = physics.body_warp(f.world.phys, ship.body)`. A body made anew starts at 0, so a
+// thing whose body is re-created (a respawn that makes a new body) keeps an epoch of its own.
+body_warp :: proc(world: ^World, ref: Body_Ref) -> u8 {
+	if ref.index1 == 0 || int(ref.index1) > len(world.bodies) do return 0
+	return world.bodies[ref.index1 - 1].warp
+}
+
+// A teleport of the body: its warp epoch moves on (wrapping).
+@(private)
+warp_bump :: proc(world: ^World, ref: Body_Ref) {
+	world.bodies[ref.index1 - 1].warp += 1
 }
 
 // Sets a kinematic body's velocities so it reaches `target` in `time_step` (a moving platform's next pose: `t.dt`).

@@ -49,8 +49,8 @@ fill_frame :: proc(f: ^Frame) {
 	fill_frame_hud(f)
 }
 
-// A capsule per present player. Nothing here teleports; a thing that does keeps a warp epoch in the state and pushes
-// it (View_Item.warp), or its view glides across the map (GUIDE.md).
+// A capsule per present player. Nothing here teleports; a body that does pushes its warp epoch
+// (`warp = physics.body_warp(f.world.phys, body)`), or its view glides across the map (GUIDE.md).
 fill_frame_players :: proc(f: ^Frame) {
 	players := sim.iterate_present(&f.state.players)
 	for data, player in sim.next(&players) {

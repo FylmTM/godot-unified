@@ -58,21 +58,25 @@ body_rotation_2d :: proc(world: ^World, ref: Body_Ref) -> [2]f32 {
 	return rot_2d(transmute([4]f32)box3d.Body_GetRotation(body_id(world, ref)))
 }
 
-// Moves a plane-locked body (teleports it); `rot` as body_def_2d's. Its velocities are kept.
+// Moves a plane-locked body (teleports it); `rot` as body_def_2d's. Its velocities are kept; its warp epoch moves on
+// (body_warp).
 body_set_transform_2d :: proc(world: ^World, ref: Body_Ref, pos: [2]f32, rot := [2]f32{1, 0}) {
 	box3d.Body_SetTransform(
 		body_id(world, ref),
 		transmute(box3d.Vec3)[3]f32{pos.x, pos.y, 0},
 		transmute(box3d.Quat)quat_2d(rot),
 	)
+	warp_bump(world, ref)
 }
 
-// Moves a plane-locked body and stops it: its velocities zeroed (respawns, resets), as body_teleport does in 3D.
+// Moves a plane-locked body and stops it: its velocities zeroed (respawns, resets), its warp epoch moved on, as
+// body_teleport does in 3D.
 body_teleport_2d :: proc(world: ^World, ref: Body_Ref, pos: [2]f32, rot := [2]f32{1, 0}) {
 	id := body_id(world, ref)
 	box3d.Body_SetTransform(id, transmute(box3d.Vec3)[3]f32{pos.x, pos.y, 0}, transmute(box3d.Quat)quat_2d(rot))
 	box3d.Body_SetLinearVelocity(id, {})
 	box3d.Body_SetAngularVelocity(id, {})
+	warp_bump(world, ref)
 }
 
 // A plane-locked body's linear velocity in the plane (m/s).

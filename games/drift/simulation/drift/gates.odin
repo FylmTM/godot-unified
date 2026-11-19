@@ -16,8 +16,7 @@ warp_ships :: proc(t: ^Tick) {
 			if dmath.dist_sq(pos, gate_def.pos) > GATE_RADIUS * GATE_RADIUS do continue
 			to := sim.slice(&t.world.gates)[gate_def.pair].pos
 			heading := physics.body_rotation_2d(t.world.phys, ship.body)
-			physics.body_set_transform_2d(t.world.phys, ship.body, to, heading) // its velocities are kept
-			ship.warp += 1
+			physics.body_set_transform_2d(t.world.phys, ship.body, to, heading) // its velocities are kept; its view snaps
 			sim.timer_start_ticks(t, &t.state.gates[gate].charge, GATE_CHARGE_TICKS)
 			sim.timer_start_ticks(t, &t.state.gates[gate_def.pair].charge, GATE_CHARGE_TICKS)
 			sim.timer_start_ticks(t, &ship.gate_cooldown, GATE_CHARGE_TICKS)

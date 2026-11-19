@@ -755,7 +755,7 @@ the_live_image_is_the_slots :: proc(t: ^testing.T) {
 // The field's golden trace: plane-locked bodies, polygon hulls, splits and rays pinned on every
 // platform. A change to src/physics, Box3D or the build flags that alters any of these fails here;
 // if it is intended, update the values in the same commit.
-GOLDEN_FIELD :: [4]u64{0x578f7068c8690caa, 0x4989b17bb35ae9e3, 0x5d6ca0117e2c9798, 0x93d1bc45aae956e0}
+GOLDEN_FIELD :: [4]u64{0xa7d1ee7965dbe1af, 0xe7ebd3f18970839d, 0x911de59c28649976, 0x98d69a7877a4a448}
 
 // On 1 and on 4 workers: the same values.
 @(test)

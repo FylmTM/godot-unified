@@ -156,8 +156,47 @@ point_of :: #force_inline proc "contextless" (point: $P) -> [3]f32 where P == Po
 	return ([3]f32)(point)
 }
 
-// Draws a line from tick code (in the zone's group): `sim.debug_line(t, enemy.pos, target.pos, .Yellow)`.
-debug_line :: proc(
+// Draws a line: from tick code, in the zone's group (`sim.debug_line(t, enemy.pos, target.pos, .Yellow)`), or into a
+// library's group (a Debug_Sink: `sim.debug_line(sink, a, b, color)`). The six draws (line, point, sphere, capsule,
+// box, text) each take either target.
+debug_line :: proc {
+	debug_line_tick,
+	debug_line_sink,
+}
+
+// Draws a point (`size` sim units across).
+debug_point :: proc {
+	debug_point_tick,
+	debug_point_sink,
+}
+
+// Draws a sphere's outline.
+debug_sphere :: proc {
+	debug_sphere_tick,
+	debug_sphere_sink,
+}
+
+// Draws a capsule's outline (the segment a to b, swept by `radius`).
+debug_capsule :: proc {
+	debug_capsule_tick,
+	debug_capsule_sink,
+}
+
+// Draws a box's edges (`half` its half extents, `rot` a unit quaternion; zero: identity).
+debug_box :: proc {
+	debug_box_tick,
+	debug_box_sink,
+}
+
+// Draws text at a point: from tick code formatted like fmt.printf (`sim.debug_text(t, pos, "hp %d", hp, color =
+// .Red)`; at most 96 bytes; a hidden group formats nothing), into a sink as given.
+debug_text :: proc {
+	debug_text_tick,
+	debug_text_sink,
+}
+
+// debug_line from tick code.
+debug_line_tick :: proc(
 	t: ^Tick($G),
 	a: $A,
 	b: $B,
@@ -167,8 +206,8 @@ debug_line :: proc(
 	when DEV do if group := draw_group(t.dev); group >= 0 do dev_shape(t.dev, {kind = .Line, group = u8(group), color = u32(color), a = point_of(a), b = point_of(b)})
 }
 
-// Draws a point (`size` sim units across) from tick code.
-debug_point :: proc(
+// debug_point from tick code.
+debug_point_tick :: proc(
 	t: ^Tick($G),
 	point: $P,
 	color := Debug_Color.White,
@@ -178,8 +217,8 @@ debug_point :: proc(
 	when DEV do if group := draw_group(t.dev); group >= 0 do dev_shape(t.dev, {kind = .Point, group = u8(group), color = u32(color), a = point_of(point), size = size})
 }
 
-// Draws a sphere's outline from tick code.
-debug_sphere :: proc(
+// debug_sphere from tick code.
+debug_sphere_tick :: proc(
 	t: ^Tick($G),
 	centre: $P,
 	radius: f32,
@@ -189,8 +228,8 @@ debug_sphere :: proc(
 	when DEV do if group := draw_group(t.dev); group >= 0 do dev_shape(t.dev, {kind = .Sphere, group = u8(group), color = u32(color), a = point_of(centre), size = radius})
 }
 
-// Draws a capsule's outline (the segment a to b, swept by `radius`) from tick code.
-debug_capsule :: proc(
+// debug_capsule from tick code.
+debug_capsule_tick :: proc(
 	t: ^Tick($G),
 	a: $A,
 	b: $B,
@@ -201,8 +240,8 @@ debug_capsule :: proc(
 	when DEV do if group := draw_group(t.dev); group >= 0 do dev_shape(t.dev, {kind = .Capsule, group = u8(group), color = u32(color), a = point_of(a), b = point_of(b), size = radius})
 }
 
-// Draws a box's edges (`half` its half extents, `rot` a unit quaternion; zero: identity) from tick code.
-debug_box :: proc(
+// debug_box from tick code.
+debug_box_tick :: proc(
 	t: ^Tick($G),
 	centre: $P,
 	half: [3]f32,
@@ -213,14 +252,20 @@ debug_box :: proc(
 	when DEV do if group := draw_group(t.dev); group >= 0 do dev_shape(t.dev, {kind = .Box, group = u8(group), color = u32(color), a = point_of(centre), b = half, rot = rot})
 }
 
-// Draws text at a point from tick code, formatted like fmt.printf (`sim.debug_text(t, pos, "hp %d", hp)`; at most
-// 96 bytes); a hidden group formats nothing.
-debug_text :: proc(t: ^Tick($G), pos: $P, format: string, args: ..any) where P == Position || P == [3]f32 {
+// debug_text from tick code.
+debug_text_tick :: proc(
+	t: ^Tick($G),
+	pos: $P,
+	format: string,
+	args: ..any,
+	color := Debug_Color.White,
+) where P == Position ||
+	P == [3]f32 {
 	when DEV {
 		group := draw_group(t.dev)
 		if group < 0 do return
 		buffer: [96]u8
-		dev_text(t.dev, u8(group), point_of(pos), fmt.bprintf(buffer[:], format, ..args), u32(Debug_Color.White))
+		dev_text(t.dev, u8(group), point_of(pos), fmt.bprintf(buffer[:], format, ..args), u32(color))
 	}
 }
 
@@ -250,7 +295,7 @@ Debug_Sink :: struct {
 }
 
 // The library draw group named `name` (lowercase, no spaces: "physics_shapes"; registered on first use, at most DEBUG_GROUPS - DEBUG_GROUP_OTHER - 1 of
-// them), and whether it is kept this tick: draw into it with the sink_* procs only when `shown`.
+// them), and whether it is kept this tick: draw into it (`sim.debug_line(sink, ...)`) only when `shown`.
 debug_sink :: proc(t: ^Tick($G), name: string) -> (sink: Debug_Sink, shown: bool) {
 	when !DEV do return
 	dev := t.dev
@@ -272,34 +317,34 @@ debug_sink :: proc(t: ^Tick($G), name: string) -> (sink: Debug_Sink, shown: bool
 	return {dev, u8(group)}, dev.draws != nil && dev.enabled & (1 << uint(group)) != 0
 }
 
-// A line in a sink's group.
-sink_line :: proc(sink: Debug_Sink, a, b: [3]f32, color: u32) {
-	dev_shape(sink.dev, {kind = .Line, group = sink.group, color = color, a = a, b = b})
+// debug_line into a sink's group.
+debug_line_sink :: proc(sink: Debug_Sink, a, b: [3]f32, color := Debug_Color.White) {
+	dev_shape(sink.dev, {kind = .Line, group = sink.group, color = u32(color), a = a, b = b})
 }
 
-// A point in a sink's group.
-sink_point :: proc(sink: Debug_Sink, point: [3]f32, size: f32, color: u32) {
-	dev_shape(sink.dev, {kind = .Point, group = sink.group, color = color, a = point, size = size})
+// debug_point into a sink's group.
+debug_point_sink :: proc(sink: Debug_Sink, point: [3]f32, color := Debug_Color.White, size: f32 = 0.1) {
+	dev_shape(sink.dev, {kind = .Point, group = sink.group, color = u32(color), a = point, size = size})
 }
 
-// A sphere in a sink's group.
-sink_sphere :: proc(sink: Debug_Sink, centre: [3]f32, radius: f32, color: u32) {
-	dev_shape(sink.dev, {kind = .Sphere, group = sink.group, color = color, a = centre, size = radius})
+// debug_sphere into a sink's group.
+debug_sphere_sink :: proc(sink: Debug_Sink, centre: [3]f32, radius: f32, color := Debug_Color.White) {
+	dev_shape(sink.dev, {kind = .Sphere, group = sink.group, color = u32(color), a = centre, size = radius})
 }
 
-// A capsule in a sink's group.
-sink_capsule :: proc(sink: Debug_Sink, a, b: [3]f32, radius: f32, color: u32) {
-	dev_shape(sink.dev, {kind = .Capsule, group = sink.group, color = color, a = a, b = b, size = radius})
+// debug_capsule into a sink's group.
+debug_capsule_sink :: proc(sink: Debug_Sink, a, b: [3]f32, radius: f32, color := Debug_Color.White) {
+	dev_shape(sink.dev, {kind = .Capsule, group = sink.group, color = u32(color), a = a, b = b, size = radius})
 }
 
-// A box in a sink's group (`rot` a unit quaternion).
-sink_box :: proc(sink: Debug_Sink, centre, half: [3]f32, rot: [4]f32, color: u32) {
-	dev_shape(sink.dev, {kind = .Box, group = sink.group, color = color, a = centre, b = half, rot = rot})
+// debug_box into a sink's group.
+debug_box_sink :: proc(sink: Debug_Sink, centre, half: [3]f32, rot: [4]f32 = {}, color := Debug_Color.White) {
+	dev_shape(sink.dev, {kind = .Box, group = sink.group, color = u32(color), a = centre, b = half, rot = rot})
 }
 
-// Text in a sink's group.
-sink_text :: proc(sink: Debug_Sink, pos: [3]f32, text: string, color: u32) {
-	dev_text(sink.dev, sink.group, pos, text, color)
+// debug_text into a sink's group: the text as given (a library formats its own).
+debug_text_sink :: proc(sink: Debug_Sink, pos: [3]f32, text: string, color := Debug_Color.White) {
+	dev_text(sink.dev, sink.group, pos, text, u32(color))
 }
 
 // ---- zones (tick code)

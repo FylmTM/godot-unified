@@ -116,7 +116,7 @@ tick :: proc(t: ^Tick) {
 		sim.zone(t, Zone.Phase)
 		advance_phase(t)
 	}
-	physics.debug_draw(t.world.phys, t, {.Shapes, .Contacts, .Sleep}) // nothing unless the dev UI shows them
+	physics.debug_draw(t, t.world.phys, {.Shapes, .Contacts, .Sleep}) // nothing unless the dev UI shows them
 }
 
 // The dev commands (input.odin), first in the tick, by whoever sent them: a build without the dev UI never gets one

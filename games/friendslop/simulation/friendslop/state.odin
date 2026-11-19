@@ -63,8 +63,7 @@ Item :: struct {
 	pad_cooldown:   sim.Timer, // no pad launch while it runs (PAD_COOLDOWN_TICKS)
 	// The thrower's body and this item's don't touch from the throw until the item is clear of them (release_throws).
 	thrower_ignore: physics.Filter_Joint_Ref,
-	warp:           u8, // bumped where the item is sent home: its view snaps (godot.View_Item.warp)
-	_pad:           [3]u8,
+	_pad:           [4]u8,
 }
 
 // A moving platform: its pose is a pure function of `phase` (physics.path_sample).

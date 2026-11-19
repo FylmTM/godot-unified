@@ -154,3 +154,51 @@ zones_without_a_clock_still_group :: proc(t: ^testing.T) {
 	testing.expect(t, len(totals.ns) == 3 && totals.ns[0] == 0 && totals.calls[0] == 2, "counted, not timed")
 	testing.expect_value(t, sim.debug_draws(simulation, 2).shapes[1].group, u8(Test_Zone.Inner))
 }
+
+// Each of the six draws, from tick code and into a library's sink: one shape of its kind with its colour and
+// measures, the tick's in the "other" group, the sink's in the library group it named.
+every_draw_tick :: proc(t: ^toy.Tick) {
+	sim.debug_line(t, sim.Position{1, 0, 0}, [3]f32{2, 0, 0}, .Red)
+	sim.debug_point(t, [3]f32{3, 0, 0}, .Green, 0.5)
+	sim.debug_sphere(t, sim.Position{4, 0, 0}, 1.5, .Blue)
+	sim.debug_capsule(t, [3]f32{5, 0, 0}, [3]f32{5, 1, 0}, 0.25, .Cyan)
+	sim.debug_box(t, sim.Position{6, 0, 0}, {1, 2, 3}, {0, 0, 0, 1}, .Magenta)
+	sim.debug_text(t, sim.Position{7, 0, 0}, "hp %d", 9, color = .Orange)
+	sink, shown := sim.debug_sink(t, "test_sink")
+	if !shown do return
+	sim.debug_line(sink, {1, 0, 0}, {2, 0, 0}, .Red)
+	sim.debug_point(sink, {3, 0, 0}, .Green, 0.5)
+	sim.debug_sphere(sink, {4, 0, 0}, 1.5, .Blue)
+	sim.debug_capsule(sink, {5, 0, 0}, {5, 1, 0}, 0.25, .Cyan)
+	sim.debug_box(sink, {6, 0, 0}, {1, 2, 3}, {0, 0, 0, 1}, .Magenta)
+	sim.debug_text(sink, {7, 0, 0}, "hp 9", .Orange)
+}
+
+@(test)
+every_draw_from_tick_code_and_into_a_sink :: proc(t: ^testing.T) {
+	game := toy.GAME
+	game.tick = every_draw_tick
+	simulation := sim.create(&game, 3)
+	defer sim.destroy(simulation)
+	if sim.dev_attach(simulation) == nil do return // a build without the dev UI draws nothing
+	sim.dev_enable(simulation, max(u64))
+	run(simulation, 2)
+	draws := sim.debug_draws(simulation, 2)
+	if !testing.expect(t, draws != nil && len(draws.shapes) == 12, "six draws from each target") do return
+	kinds := [6]sim.Debug_Kind{.Line, .Point, .Sphere, .Capsule, .Box, .Text}
+	colors := [6]sim.Debug_Color{.Red, .Green, .Blue, .Cyan, .Magenta, .Orange}
+	sizes := [6]f32{0, 0.5, 1.5, 0.25, 0, 0}
+	xs := [6]f32{1, 3, 4, 5, 6, 7}
+	for shape, i in draws.shapes {
+		k := i % 6
+		testing.expectf(t, shape.kind == kinds[k], "draw %d: %v", i, shape.kind)
+		testing.expectf(t, shape.color == u32(colors[k]), "draw %d: colour %x", i, shape.color)
+		testing.expectf(t, shape.a.x == xs[k], "draw %d: at %v", i, shape.a)
+		testing.expectf(t, shape.size == sizes[k], "draw %d: size %v", i, shape.size)
+		testing.expectf(t, (shape.group == sim.DEBUG_GROUP_OTHER) == (i < 6), "draw %d: group %d", i, shape.group)
+		if shape.kind == .Text do testing.expect_value(t, string(draws.text[shape.text[1]:][:shape.text[0]]), "hp 9")
+	}
+	testing.expect_value(t, draws.shapes[3].b, [3]f32{5, 1, 0})
+	testing.expect_value(t, draws.shapes[4].b, [3]f32{1, 2, 3})
+	testing.expect_value(t, draws.shapes[4].rot, [4]f32{0, 0, 0, 1})
+}

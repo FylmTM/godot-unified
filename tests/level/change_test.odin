@@ -543,3 +543,17 @@ a_level_shape_made_in_a_tick_is_built_once :: proc(t: ^testing.T) {
 	hit, ok := physics.world_cast_ray_closest(run.simulation.world.phys, {2, 10, 2}, {0, -20, 0})
 	testing.expect(t, ok && hit.body == physics.link(run.simulation.state.piece), "the ramp is there")
 }
+
+// A game with levels whose init enters none would run with no static geometry (everything falls through the floor
+// the host shows): its first physics.step says so.
+@(test)
+a_world_with_levels_steps_only_after_a_level_change :: proc(t: ^testing.T) {
+	context.allocator = runtime.default_allocator() // the assert ends the test before the world is freed: untracked
+	world := pit_world_create(1, pit_levels[:])
+	defer PIT.world_destroy(world)
+	testing.expect_assert_message(
+		t,
+		"physics: the game has levels but its init entered none (physics.level_change(t, world, Level_Id.X))",
+	)
+	physics.step(world.phys)
+}
