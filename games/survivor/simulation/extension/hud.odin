@@ -15,7 +15,9 @@ Data :: union {
 
 Hud_Player :: struct {
 	alive:            bool,
-	_pad:             [3]u8,
+	offer_a:          g.Upgrade, // the oldest pending level-up's two offers (g.upgrade_offers; pending_levelups > 0)
+	offer_b:          g.Upgrade,
+	_pad:             u8,
 	hp:               i32,
 	hp_max:           i32,
 	xp:               i32,
@@ -35,7 +37,7 @@ Data_Hud :: struct {
 	players:       [g.PLAYERS]Hud_Player,
 }
 
-hud_of :: proc(state: ^g.State, tick: u32) -> (hud: Data_Hud) {
+hud_of :: proc(state: ^g.State, tick: u32, seed: u64) -> (hud: Data_Hud) {
 	hud.phase = state.phase
 	switch state.phase {
 	case .Lobby:
@@ -60,6 +62,10 @@ hud_of :: proc(state: ^g.State, tick: u32) -> (hud: Data_Hud) {
 			level            = character.level,
 			pending_levelups = character.pending_levelups,
 			respawn_s        = character.alive ? 0 : sim.seconds(character.respawn, g.TICK_HZ),
+		}
+		if character.pending_levelups > 0 { 	// the roll the sim makes for the pick, peeked: nothing in the block changes
+			offers := g.upgrade_offers(seed, state.players.slots[slot], g.oldest_pending_level(character))
+			hud.players[slot].offer_a, hud.players[slot].offer_b = offers[0], offers[1]
 		}
 	}
 	return

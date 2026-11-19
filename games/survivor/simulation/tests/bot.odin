@@ -71,11 +71,11 @@ bot_input :: proc(seed: u64, slot: int, tick: u32, state: ^g.State) -> (input: g
 	}
 	orbit := tangent + radial * ((BOT_ORBIT - dmath.length(pos)) * BOT_ORBIT_PULL)
 	// Crates and barrels, at their spots (most barely move).
-	for &item, i in state.items[:bot_world.item_count] {
+	for &item, i in state.items[:bot_world.items.count] {
 		if !item.alive {
 			continue
 		}
-		away := pos - bot_world.items[i].pos.xz
+		away := pos - sim.slice(&bot_world.items)[i].pos.xz
 		distance_sq := dmath.length_sq(away)
 		if distance_sq < BOT_ITEM_REACH * BOT_ITEM_REACH {
 			orbit += away * (1 / (distance_sq + BOT_ITEM_SOFTEN))

@@ -47,7 +47,22 @@ update_players :: proc(t: ^Tick) {
 	}
 }
 
-// Level-up picks (Cmd_Pick, each delivered once): each takes one pending level-up.
+// The two upgrades a player's level-up to `level` offers. A keyed roll that names no tick (tick 0), only the player
+// and the level, so the HUD computes the same offer from the state it shows, whenever it asks (sim.roll_below_at:
+// src/sim/README.md, Random numbers).
+upgrade_offers :: proc(seed: u64, player: sim.Player, level: i32) -> [2]Upgrade {
+	key := sim.player_key(player)
+	first := sim.roll_below_at(seed, 0, len(Upgrade), Roll.Upgrade_Offer, key, int(level) * 2)
+	skip := sim.roll_below_at(seed, 0, len(Upgrade) - 1, Roll.Upgrade_Offer, key, int(level) * 2 + 1)
+	return {Upgrade(first), Upgrade((first + 1 + skip) % len(Upgrade))}
+}
+
+// The level the oldest of a character's pending level-ups reached: the one a pick goes to.
+oldest_pending_level :: proc(character: ^Character) -> i32 {
+	return character.level - character.pending_levelups + 1
+}
+
+// Level-up picks (Cmd_Pick, each delivered once): each takes the oldest pending level-up if it is one of its offers.
 pick_upgrades :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
@@ -55,6 +70,10 @@ pick_upgrades :: proc(t: ^Tick) {
 			pick := sent.(Cmd_Pick) or_continue
 			if character.pending_levelups <= 0 {
 				continue // nothing to pick
+			}
+			offers := upgrade_offers(t.seed, player, oldest_pending_level(character))
+			if pick.upgrade != offers[0] && pick.upgrade != offers[1] {
+				continue // not offered
 			}
 			switch pick.upgrade {
 			case .Fire_Rate:
@@ -98,7 +117,8 @@ collect_gems :: proc(t: ^Tick) {
 	targets := targets_of(t)
 	gems := sim.iterate(&t.state.gems)
 	for gem, handle in sim.next(&gems) {
-		for character, k in targets.characters[:targets.count] {
+		for target in sim.slice(&targets) {
+			character := target.character
 			if !character.alive || dmath.dist_sq(character.pos.xz, gem.pos) >= GEM_REACH * GEM_REACH {
 				continue
 			}
@@ -107,7 +127,7 @@ collect_gems :: proc(t: ^Tick) {
 				gem      = handle,
 				position = sim.position_floor(gem.pos),
 				xp       = gem.value,
-				player   = targets.players[k],
+				player   = target.player,
 			})
 			sim.despawn(&t.state.gems, handle)
 			break
@@ -133,20 +153,18 @@ level_up :: proc(t: ^Tick) {
 
 // The alive present players, in slot order, taken once for a pass over many enemies or gems instead of walking the
 // presence for each (a pass that can kill checks `alive` again).
-Targets :: struct {
-	characters: [PLAYERS]^Character,
-	players:    [PLAYERS]sim.Player,
-	count:      int,
+Targets :: sim.List(Target, PLAYERS)
+
+// An alive present player and their data.
+Target :: struct {
+	character: ^Character,
+	player:    sim.Player,
 }
 
 targets_of :: proc(t: ^Tick) -> (targets: Targets) {
 	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
-		if character.alive {
-			targets.characters[targets.count] = character
-			targets.players[targets.count] = player
-			targets.count += 1
-		}
+		if character.alive do sim.append(&targets, Target{character, player})
 	}
 	return
 }
@@ -154,7 +172,8 @@ targets_of :: proc(t: ^Tick) -> (targets: Targets) {
 // The nearest alive target to `pos` on the ground (the lowest slot on ties); nil if none.
 nearest_target :: proc(targets: ^Targets, pos: [2]f32) -> (best: ^Character) {
 	best_distance_sq: f32
-	for character in targets.characters[:targets.count] {
+	for target in sim.slice(targets) {
+		character := target.character
 		if !character.alive {
 			continue
 		}

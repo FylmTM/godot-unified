@@ -55,12 +55,12 @@ spawn_enemy :: proc(state: ^State, kind: Enemy_Kind, pos: [2]f32, tick: u32) -> 
 // or barrel is slowed by CLIMB_SLOWDOWN (a ray down, every CLIMB_CHECK_TICKS, only where an item stands).
 steer_enemies :: proc(t: ^Tick) {
 	scratch := &t.world.scratch
-	grid_build(&scratch.grid, &t.state.enemies)
+	enemy_grid_build(&scratch.grid, &t.state.enemies)
 	item_footprints(t)
 	targets := targets_of(t)
 	enemies := sim.iterate(&t.state.enemies)
 	for enemy, handle in sim.next(&enemies) {
-		if (handle.index + t.number) % CLIMB_CHECK_TICKS == 0 {
+		if sim.due(t, handle.index, CLIMB_CHECK_TICKS) {
 			enemy.climbing = standing_on_item(t, enemy.pos)
 		}
 		speed := enemy.climbing ? enemy.speed * CLIMB_SLOWDOWN : enemy.speed
@@ -71,7 +71,7 @@ steer_enemies :: proc(t: ^Tick) {
 		}
 		if enemy.climbing && sim.drawing(t) do sim.debug_sphere(t, sim.position_floor(enemy.pos), enemy.radius, .Red)
 		separation: [2]f32
-		for row in grid_near(&scratch.grid, enemy.pos) {
+		for row in sim.grid_near(&scratch.grid, enemy.pos) {
 			for other_index in row {
 				if other_index == i32(handle.index) {
 					continue
@@ -92,7 +92,7 @@ steer_enemies :: proc(t: ^Tick) {
 	for enemy, handle in sim.next(&enemies) {
 		enemy.vel = scratch.new_vel[handle.index]
 		pos := enemy.pos + enemy.vel * t.dt
-		for &pillar in t.world.pillars[:t.world.pillar_count] {
+		for &pillar in sim.slice(&t.world.pillars) {
 			pos = push_out(pos, pillar, enemy.radius)
 		}
 		limit := t.world.arena_inner - enemy.radius
@@ -119,7 +119,7 @@ push_out :: #force_inline proc(pos: [2]f32, box: Box2, radius: f32) -> [2]f32 {
 
 // Each alive item's position on the ground this tick, for standing_on_item.
 item_footprints :: proc(t: ^Tick) {
-	for &item, i in t.state.items[:t.world.item_count] {
+	for &item, i in t.state.items[:t.world.items.count] {
 		if item.alive {
 			t.world.scratch.items[i] = physics.body_position(t.world.phys, item.body).xz
 		}
@@ -130,8 +130,8 @@ item_footprints :: proc(t: ^Tick) {
 // item's footprint (its widest reach, however it lies) covers `pos`, so the result is the ray's every time.
 standing_on_item :: proc(t: ^Tick, pos: [2]f32) -> bool {
 	under := false
-	for &item, i in t.state.items[:t.world.item_count] {
-		reach: f32 = t.world.items[i].kind == .Barrel ? BARREL_REACH : CRATE_REACH
+	for &item, i in t.state.items[:t.world.items.count] {
+		reach: f32 = sim.slice(&t.world.items)[i].kind == .Barrel ? BARREL_REACH : CRATE_REACH
 		offset := pos - t.world.scratch.items[i]
 		if item.alive && abs(offset.x) <= reach && abs(offset.y) <= reach {
 			under = true
@@ -159,10 +159,11 @@ hurt_players :: proc(t: ^Tick) {
 			enemy.contact_cooldown -= 1
 			continue
 		}
-		for character, k in targets.characters[:targets.count] {
+		for target in sim.slice(&targets) {
+			character := target.character
 			reach := enemy.radius + PLAYER_RADIUS
 			if character.alive && dmath.dist_sq(character.pos.xz, enemy.pos) < reach * reach {
-				damage_player(t, targets.players[k], enemy.damage)
+				damage_player(t, target.player, enemy.damage)
 				enemy.contact_cooldown = CONTACT_COOLDOWN_TICKS
 				break
 			}

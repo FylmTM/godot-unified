@@ -7,6 +7,8 @@ extends MenuTool
 ## banner size, the first hit on the player and a barrel explosion, for the first-use hitches.
 
 const HUD_PANELS: Array[NodePath] = [^"LevelUp", ^"GameOver", ^"Respawn"]
+## The level-up keys by card (the HUD's PICKS).
+const LEVELUP_KEYS: Array[StringName] = [&"levelup_1", &"levelup_2", &"levelup_3"]
 const MOVES: Array[StringName] = [&"move_left", &"move_right", &"move_forward", &"move_back"]
 ## Kiting in a big circle, so the auto-attack works and gems get collected.
 const KITE: Array[Array] = [[&"move_right"], [&"move_right", &"move_back"], [&"move_back"],
@@ -72,10 +74,11 @@ func _run() -> void:
 			await seconds(0.3)
 			await shot("r05_levelup")
 			var pending := _me().pending_levelups
-			await press_action(&"levelup_2")  # an input event: the HUD picks in _unhandled_input
+			var key := _offered_key(_me().offer_a)
+			await press_action(key)  # an input event: the HUD picks in _unhandled_input
 			await wait_for(func() -> bool: return _me() == null or _me().pending_levelups < pending, 2.0,
-				"key 2 picks an upgrade")
-			step("level-up offered and chosen (key 2)")
+				"the first offer's key picks an upgrade")
+			step("level-up offered and chosen (%s)" % key)
 		if (leveled and shot_fight and i > 150) or Unified.data.hud.phase != EnumPhase.MATCH or failed():
 			break
 		if _me() != null and not _me().alive and not shot_dead:
@@ -104,6 +107,15 @@ func _run() -> void:
 ## The local player's HUD row (null until the session assigns one).
 func _me() -> DataHudPlayer:
 	return local_row()
+
+
+## The level-up key of the card for `upgrade` (an EnumUpgrade value; the cards are in Unified.constants.upgrades order).
+func _offered_key(upgrade: int) -> StringName:
+	var cards := Unified.constants.upgrades
+	for i in cards.size():
+		if (cards[i] as DataUpgradeCard).upgrade == upgrade:
+			return LEVELUP_KEYS[i]
+	return &"levelup_1"
 
 
 func _release_all() -> void:

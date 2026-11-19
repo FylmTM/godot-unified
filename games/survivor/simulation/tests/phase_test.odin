@@ -194,9 +194,9 @@ when scenarios.LONG {
 the_world_reads_the_arena_from_the_level :: proc(t: ^testing.T) {
 	world := g.world_create(1, g.GAME.levels, {})
 	defer g.world_destroy(world)
-	testing.expect_value(t, world.pillar_count, 8)
+	testing.expect_value(t, len(sim.slice(&world.pillars)), 8)
 	testing.expect_value(t, world.arena_inner, 30)
-	for pillar in world.pillars[:world.pillar_count] {
+	for pillar in sim.slice(&world.pillars) {
 		ring := pillar.center.x * pillar.center.x + pillar.center.y * pillar.center.y
 		testing.expectf(t, abs(ring - 14 * 14) < 0.01 && pillar.half == {1, 1}, "pillar %v", pillar)
 	}

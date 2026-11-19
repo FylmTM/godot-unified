@@ -124,6 +124,8 @@ func _on_hud_changed() -> void:
 
 	var pending := me.pending_levelups if me != null else 0
 	var choosing := pending > 0 and playing and alive
+	if choosing:
+		_show_offers(me)
 	if choosing and not _levelup.visible:
 		_pop_levelup()
 	if choosing != _choosing:
@@ -243,6 +245,15 @@ func _label_keys() -> void:
 	_show_controls()
 
 
+## Only the oldest pending level-up's two offers (the roll the sim makes for the pick, which the HUD data peeks) can
+## be picked: the third card hides, and its key does nothing.
+func _show_offers(me: DataHudPlayer) -> void:
+	var cards := Unified.constants.upgrades
+	for i in mini(_options.get_child_count(), cards.size()):
+		var card: DataUpgradeCard = cards[i]
+		(_options.get_child(i) as Button).visible = card.upgrade == me.offer_a or card.upgrade == me.offer_b
+
+
 func _pop_levelup() -> void:
 	for button: Button in _options.get_children():
 		button.modulate = Color.WHITE
@@ -257,6 +268,8 @@ func _pop_levelup() -> void:
 ## with card `index`'s upgrade.
 func _choose(index: int) -> void:
 	var button := _options.get_child(index) as Button
+	if not button.visible:
+		return  # not offered: the sim would ignore it
 	button.pivot_offset = button.size / 2.0
 	button.modulate = Color(1.6, 1.4, 0.6)
 	var tween := button.create_tween()

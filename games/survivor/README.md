@@ -34,8 +34,10 @@ rotation locked, created at their slot's spot when they become present.
 - Players are session members: a player who leaves loses their body and keeps their progress (level, XP, upgrades,
   pending level-ups); someone new starts fresh; both get a body at their slot's start spot with full HP
   (`PLAYER_HP`). Everything per player is by player, not slot.
-- `Cmd_Pick`: one pending level-up goes to the fire rate, damage or move speed (`FIRE_LEVELUP_TICKS`,
-  `DAMAGE_LEVELUP`, `SPEED_LEVELUP`). A pick with nothing pending is ignored.
+- `Cmd_Pick`: the oldest pending level-up goes to the fire rate, damage or move speed (`FIRE_LEVELUP_TICKS`,
+  `DAMAGE_LEVELUP`, `SPEED_LEVELUP`) when it is one of that level's two offers, a keyed roll of the player and the
+  level (`upgrade_offers`) that the HUD peeks to show only those cards. A pick with nothing pending, or not
+  offered, is ignored.
 
 ## Phases
 
@@ -60,10 +62,11 @@ end-to-end suite and the bench run (`GAME_STRESS`), `bench` an endless match hol
 
 1. `update_players`: leaves, joins and returns; respawns after `PLAYER_RESPAWN_TICKS`; movement at the player's
    speed, `DASH_SPEEDUP` times it while dashing (`DASH_TICKS`, then `DASH_COOLDOWN_TICKS`).
-2. `pick_upgrades`: each pick, in order.
+2. `pick_upgrades`: each pick, in order, if it is one of the oldest pending level-up's two offers (`upgrade_offers`).
 3. `spawn_waves` (match only): a burst on `SPAWN_RING`, its kinds from `SPAWN_KINDS` (`ENEMY_STATS`), by keyed rolls.
 4. `steer_enemies`: each seeks the nearest alive player, kept apart from its neighbours (`SEPARATION`), moves, and
-   is pushed out of the pillars and kept inside the walls; one standing on a crate or barrel is slowed
+   is pushed out of the pillars and kept inside the walls (the neighbours from a `sim.Grid` of `GRID_CELL` cells); one
+   standing on a crate or barrel is slowed, checked for each enemy every `CLIMB_CHECK_TICKS` (`sim.due`)
    (`CLIMB_SLOWDOWN`).
 5. `hurt_players`: an enemy touching an alive player deals its damage, then waits `CONTACT_COOLDOWN_TICKS`.
 6. `fire`: each alive player, every fire interval (`FIRE_INTERVAL_TICKS`, down to `FIRE_INTERVAL_MIN_TICKS`), shoots
@@ -103,7 +106,7 @@ samples at another tick, and lives with the tests (`simulation/tests/bot.odin`).
 - MultiMesh views: `grunt`, `runner`, `brute` (in `Enemy_Kind`'s order), `projectile`, `gem`, keyed by handle, on the
   ground plane facing their velocity; custom data r = hit flash, g = age in seconds.
 - Session data `Data_Hud` (`Unified.data.hud`): the phase, the match time and wave, enemies alive, the time until the
-  reset, and each slot's player.
+  reset, and each slot's player (with their oldest pending level-up's offers).
 - Constants (`Unified.constants`): `start_radius`, `blast_radius`, the three level-up cards.
 - Events: effects, sounds, shake and rumble on EMITTED (a prediction too; a cancelled one is left as it played);
   banners and the best time on CONFIRMED.

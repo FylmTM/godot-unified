@@ -46,7 +46,7 @@ advance_phase :: proc(t: ^Tick) {
 // present players at their start spots, in slot order); everyone's progress starts fresh, absent players' too;
 // enemies, projectiles and gems go.
 reset_world :: proc(t: ^Tick) {
-	for &item in t.state.items[:t.world.item_count] {
+	for &item in t.state.items[:t.world.items.count] {
 		physics.destroy_body(t.world.phys, &item.body)
 	}
 	known := sim.iterate_known(t)
@@ -54,7 +54,7 @@ reset_world :: proc(t: ^Tick) {
 		physics.destroy_body(t.world.phys, &character.body)
 		character_reset(character)
 	}
-	for i in 0 ..< t.world.item_count {
+	for i in 0 ..< int(t.world.items.count) {
 		item_reset(t.state, t.world, i)
 	}
 	for slot in 0 ..< PLAYERS {

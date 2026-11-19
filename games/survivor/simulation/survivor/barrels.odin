@@ -8,17 +8,17 @@ import "unified:sim"
 // (items and players within BLAST_RADIUS), damage to the enemies within it and to the players within
 // BLAST_PLAYER_RADIUS.
 explode_barrels :: proc(t: ^Tick) {
-	for &item, i in t.state.items[:t.world.item_count] {
-		if t.world.items[i].kind == .Barrel && !item.alive && item.respawn_tick == t.number {
+	for &item, i in t.state.items[:t.world.items.count] {
+		if sim.slice(&t.world.items)[i].kind == .Barrel && !item.alive && item.respawn_tick == t.number {
 			item_reset(t.state, t.world, i)
 		}
 	}
-	for &item, i in t.state.items[:t.world.item_count] {
-		if t.world.items[i].kind != .Barrel || !item.alive || item.hp > 0 {
+	for &item, i in t.state.items[:t.world.items.count] {
+		if sim.slice(&t.world.items)[i].kind != .Barrel || !item.alive || item.hp > 0 {
 			continue
 		}
 		center := physics.body_position(t.world.phys, item.body)
-		for &other, j in t.state.items[:t.world.item_count] {
+		for &other, j in t.state.items[:t.world.items.count] {
 			if j != i && other.alive {
 				blast(t.world, center, other.body)
 			}
