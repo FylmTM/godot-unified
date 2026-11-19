@@ -73,7 +73,7 @@ RIG := Rig_Game {
 	name = "rig",
 	version = "1",
 	tick_hz = HZ,
-	world_create = proc(seed: u64, _: []u8, _: sim.No_Setup) -> ^Rig_World {return rig_world_create(1)},
+	world_create = proc(seed: u64, _: []sim.Level_File, _: sim.No_Setup) -> ^Rig_World {return rig_world_create(1)},
 	world_destroy = proc(rig_world: ^Rig_World) {
 		physics.destroy(rig_world.phys)
 		delete(rig_world.scratch)
@@ -116,7 +116,9 @@ rig_world_create :: proc(workers: i32) -> ^Rig_World {
 // The rig with its world stepped on 4 workers: every checksum must match the 1-worker rig's.
 rig_on_4_workers :: proc() -> Rig_Game {
 	game := RIG
-	game.world_create = proc(seed: u64, _: []u8, _: sim.No_Setup) -> ^Rig_World {return rig_world_create(4)}
+	game.world_create = proc(seed: u64, _: []sim.Level_File, _: sim.No_Setup) -> ^Rig_World {return rig_world_create(
+			4,
+		)}
 	return game
 }
 

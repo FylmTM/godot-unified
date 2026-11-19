@@ -1,0 +1,11 @@
+[gd_scene format=3]
+
+[node name="Cave" type="Node2D"]
+
+[node name="Torch" type="Node2D" parent="."]
+position = Vector2(0, 64)
+metadata/unified_kind = "torch"
+
+[node name="Gem" type="Node2D" parent="."]
+position = Vector2(64, 64)
+metadata/unified_kind = "gem"

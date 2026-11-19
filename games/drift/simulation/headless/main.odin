@@ -1,5 +1,5 @@
 // drift's headless binary: the modes of src/headless/README.md on the game (`-- help` lists them), through
-// unified:headless/modes, on the level the game embeds (GAME.content); `--level FILE` loads another.
+// unified:headless/modes, on the levels the game embeds (GAME.levels); `--level NAME=FILE` replaces one.
 package main
 
 import g "../drift"

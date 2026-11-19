@@ -39,11 +39,7 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	// struct; a join record 3
 	command_bytes := 10 * (2 * sim.COMMAND_HEAD + size_of(toy.Cmd_Bump) + size_of(toy.Cmd_Mark))
 	tick_bytes := 10 + size_of([toy.PLAYERS]toy.Input)
-	testing.expect_value(
-		t,
-		len(data),
-		sim.LOG_HEADER + size_of(toy.Setup) + 50 * tick_bytes + command_bytes + 2 * sim.JOIN_BYTES,
-	)
+	testing.expect_value(t, len(data), sim.LOG_HEADER + 50 * tick_bytes + command_bytes + 2 * sim.JOIN_BYTES)
 	back, ok := sim.log_decode(data, toy.Game)
 	defer sim.log_destroy(&back)
 	testing.expect(t, ok)
@@ -71,8 +67,11 @@ an_unended_log_with_a_cut_tail_keeps_its_whole_ticks :: proc(t: ^testing.T) {
 	recording: [dynamic]u8
 	defer delete(recording)
 	stream: sim.Log_Stream
-	setup := toy.Setup{}
-	sim.log_stream_begin(&stream, sim.log_sink_memory(&recording), sim.log_header(&toy.GAME, 1, &setup, 0, 0))
+	sim.log_stream_begin(
+		&stream,
+		sim.log_sink_memory(&recording),
+		{seed = 1, players = toy.PLAYERS, input_size = size_of(toy.Input)},
+	)
 	defer delete(stream.writer.buf)
 	for k in 0 ..< 20 {
 		inputs: toy.Inputs
@@ -217,76 +216,73 @@ imaging_game :: proc() -> toy.Game {
 }
 
 // Every reason a snapshot doesn't restore is a value: a cut or foreign header, another format version, another
-// layout or block size, other content, another build (game version, library), a damaged payload, an Extra's image
+// layout or block size, other levels, another build (game version, library), a damaged payload, an Extra's image
 // the game can't take. Logs of another format version are refused too.
 @(test)
 snapshot_errors_are_values :: proc(t: ^testing.T) {
-	level := []u8{1, 2, 3}
-	simulation := sim.create(&toy.GAME, 7, level)
+	simulation := sim.create(&toy.GAME, 7)
 	defer sim.destroy(simulation)
 	run(simulation, 20, 3)
 	good := sim.snapshot_encode(simulation, 20)
 	defer delete(good)
 	other_version := toy.GAME
 	other_version.version = "another"
+	other_levels := toy.GAME
+	other_levels.levels = {{"meadow", {1, 2, 4}}, toy.GAME.levels[1]}
+	renamed_levels := toy.GAME
+	renamed_levels.levels = {toy.GAME.levels[1], toy.GAME.levels[0]}
 	imaging := imaging_game()
-	with_image := sim.create(&imaging, 7, level)
+	with_image := sim.create(&imaging, 7)
 	defer sim.destroy(with_image)
 	image_snapshot := sim.snapshot_encode(with_image, 0)
 	defer delete(image_snapshot)
 	Case :: struct {
-		what:    string,
-		game:    ^toy.Game,
-		content: []u8,
-		patch:   proc(data: []u8),
-		bytes:   []u8, // instead of a patched copy of `good`
-		want:    sim.Snap_Error,
+		what:  string,
+		game:  ^toy.Game,
+		patch: proc(data: []u8),
+		bytes: []u8, // instead of a patched copy of `good`
+		want:  sim.Snap_Error,
 	}
 	cases := []Case {
-		{"intact", &toy.GAME, level, nil, nil, .None},
-		{"cut short", &toy.GAME, level, nil, good[:10], .Bad_Header},
-		{"another magic", &toy.GAME, level, proc(data: []u8) {data[0] = 'X'}, nil, .Bad_Header},
+		{"intact", &toy.GAME, nil, nil, .None},
+		{"cut short", &toy.GAME, nil, good[:10], .Bad_Header},
+		{"another magic", &toy.GAME, proc(data: []u8) {data[0] = 'X'}, nil, .Bad_Header},
 		{
 			"another format version",
 			&toy.GAME,
-			level,
 			proc(data: []u8) {data[4] = u8(sim.SNAP_VERSION - 1)},
 			nil,
 			.Bad_Header,
 		},
-		{"another layout", &toy.GAME, level, proc(data: []u8) {data[sim.SNAP_HEADER - 17] ~= 1}, nil, .Layout_Differs},
+		{"another layout", &toy.GAME, proc(data: []u8) {data[sim.SNAP_HEADER - 17] ~= 1}, nil, .Layout_Differs},
 		{
 			"another block size",
 			&toy.GAME,
-			level,
 			proc(data: []u8) {data[sim.SNAP_HEADER - 28] ~= 4},
 			nil,
 			.Layout_Differs,
 		},
-		{"other content", &toy.GAME, []u8{1, 2, 4}, nil, nil, .Content_Differs},
-		{"no content", &toy.GAME, nil, nil, nil, .Content_Differs},
-		{"another game version", &other_version, level, nil, nil, .Build_Differs},
+		{"other level bytes", &other_levels, nil, nil, .Content_Differs},
+		{"the levels in another order", &renamed_levels, nil, nil, .Content_Differs},
+		{"another game version", &other_version, nil, nil, .Build_Differs},
 		{
 			"another library version",
 			&toy.GAME,
-			level,
 			proc(data: []u8) {
-				another := transmute([8]u8)u64le(
-					sim.compat_of(&toy.GAME, []u8{1, 2, 3}, {version = sim.LIBRARY_VERSION + 1}),
-				)
+				another := transmute([8]u8)u64le(sim.compat_of(&toy.GAME, {version = sim.LIBRARY_VERSION + 1}))
 				copy(data[sim.SNAP_HEADER - 16:], another[:]) // the compat, before the payload digest
 			},
 			nil,
 			.Build_Differs,
 		},
-		{"a damaged payload", &toy.GAME, level, proc(data: []u8) {data[len(data) - 1] ~= 1}, nil, .Checksum_Mismatch},
-		{"an image the game has no Extra for", &toy.GAME, level, nil, image_snapshot, .Extra_Rejected},
+		{"a damaged payload", &toy.GAME, proc(data: []u8) {data[len(data) - 1] ~= 1}, nil, .Checksum_Mismatch},
+		{"an image the game has no Extra for", &toy.GAME, nil, image_snapshot, .Extra_Rejected},
 	}
 	for test_case in cases {
 		data := slice.clone(test_case.bytes != nil ? test_case.bytes : good)
 		defer delete(data)
 		if test_case.patch != nil do test_case.patch(data)
-		restored, err := sim.from_snapshot(test_case.game, data, test_case.content)
+		restored, err := sim.from_snapshot(test_case.game, data)
 		testing.expectf(t, err == test_case.want, "%s: %v, wanted %v", test_case.what, err, test_case.want)
 		if restored != nil do sim.destroy(restored)
 	}

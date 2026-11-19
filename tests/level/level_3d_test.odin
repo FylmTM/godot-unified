@@ -1,6 +1,6 @@
 // src/level/README.md, Authoring: the exporter's 3D fixture (tests/godot/levels/shapes_3d.tscn, exported by `uni test
 // --suite godot-bindings`) holds every 3D shape kind Godot can author, surfaces of the body's and of their own, and a
-// Curve property; physics.create_static builds it where the scene drew it.
+// Curve property; physics builds it where the scene drew it.
 package test_level
 
 import "core:testing"
@@ -114,16 +114,13 @@ fixture_3d_records :: proc(t: ^testing.T) {
 	}
 }
 
-// physics.create_static on the 3D fixture: the deck mesh collides from above, the cylinder is round, and the height
+// The 3D fixture built as a level: the deck mesh collides from above, the cylinder is round, and the height
 // field stands where Godot's physics puts the height map (tests/godot/test.gd probes the same points).
 @(test)
-create_static_3d :: proc(t: ^testing.T) {
-	loaded, ok := level.load(FIXTURE_3D)
-	defer level.destroy(&loaded)
-	testing.expect(t, ok)
-	world := physics.create({tick_hz = 64})
-	defer physics.destroy(world)
-	testing.expect_value(t, physics.create_static(world, &loaded), "")
+level_bodies_3d :: proc(t: ^testing.T) {
+	session := show(FIXTURE_3D)
+	defer show_end(session)
+	world := session.world.phys
 	top :: proc(world: ^physics.World, x, z: f32) -> (y: f32, normal: [3]f32, material: u64) {
 		hit, ok := physics.world_cast_ray_closest(world, {x, 10, z}, {0, -20, 0})
 		if !ok do return -100, {}, 0

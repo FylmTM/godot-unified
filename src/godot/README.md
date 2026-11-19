@@ -10,8 +10,8 @@ is the reference for every GDScript-facing class and member: each is documented 
 ## A game's extension
 
 The extension fills frames and samples input; its Godot calls go in GDScript or through `unified:godot` helpers, so it
-never imports `unified:gdext` (`godot` names the entry point's types). The level the session plays is the game's
-(`sim.Game.content`, embedded in the extension).
+never imports `unified:gdext` (`godot` names the entry point's types). The levels the session plays are the game's
+(`sim.Game.levels`, embedded in the extension).
 
 **Online play** goes through the `netcode.Lobby` the game passes to `godot.init`: `unified:godot` never imports a
 platform SDK. The session opens the lobby with a `netcode.Lobby_Build` (the game's name, its build id

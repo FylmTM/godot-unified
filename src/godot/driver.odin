@@ -493,8 +493,13 @@ record_tick :: proc(
 		if sim.state_at(simulation, tick) == nil do return
 		recording.snapshot = sim.snapshot_encode(simulation, tick)
 		recording.from, recording.last = tick, tick
-		compat := driver_compat(driver)
-		header := sim.log_header(simulation.game, simulation.seed, &simulation.setup, simulation.content_hash, compat)
+		header := sim.Log_Header {
+			seed       = simulation.seed,
+			content    = simulation.content_hash,
+			compat     = driver_compat(driver),
+			players    = PLAYERS,
+			input_size = size_of(Input),
+		}
 		sim.log_stream_begin(&recording.stream, sim.log_sink_memory(&recording.log), header)
 		return
 	}

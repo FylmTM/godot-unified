@@ -35,7 +35,7 @@ MAX_PLAYERS :: 32
 // run or a golden trace compute differently because of the library, not a game's rules (the sim-change skill). Part of
 // compat_of, so builds on other library versions refuse each other instead of desyncing; a game's own changes bump
 // its Game.version.
-LIBRARY_VERSION :: 4
+LIBRARY_VERSION :: 5
 
 // The library's part of a build's identity (compat_of): its sim version and the unified-box3d pin.
 Library :: struct {
@@ -207,20 +207,20 @@ Game :: struct(
 	// play together instead of desyncing.
 	version:               string,
 	tick_hz:               int, // a power of two, 32..128; dt = 1 / tick_hz exactly
-	// Optional: the content the game ships with, its level file's bytes (src/level/README.md), embedded once in the
-	// sim package (`content = #load("../../game/levels/arena.level")`). create, compat_of and from_snapshot use it
-	// when given no content, so every host, run and suite plays it unless given other bytes (a test's own level,
-	// the headless `--level FILE`).
-	content:               []u8,
-	// The Setup of a session started without one, the way `content` is the default level: create, the netcode's
-	// hosts and the headless runs play it unless given another (a menu's, the headless `--setup`). Zero unless set; a
-	// variant of the game is a copy of the descriptor with another Setup. It must read as sent (game_violation).
+	// Optional: the game's levels (src/sim/README.md, Levels), embedded once in the sim package, in the order of its
+	// level enum (`levels = {{"hub", #load("../../game/levels/hub.level")}, {"route", ...}}`): every host, run and
+	// suite plays them, and compat_of covers all of them. A run on other levels plays a copy of the game with other
+	// levels (the headless `--level NAME=FILE`).
+	levels:                []Level_File,
+	// The Setup of a session started without one: create, the netcode's hosts and the headless runs play it unless
+	// given another (a menu's, the headless `--setup`). Zero unless set; a variant of the game is a copy of the
+	// descriptor with another Setup. It must read as sent (game_violation).
 	setup:                 Setup,
 
-	// Optional: the World for a session with this seed, content (the level file's bytes, src/level/README.md; empty
-	// when the game has none) and Setup: physics world, static geometry, scratch buffers. The bytes outlive the World
-	// (the caller of create owns them). nil: a zeroed World (a game without one names sim.No_World).
-	world_create:          proc(seed: u64, content: []u8, setup: Setup) -> ^World,
+	// Optional: the World for a session with this seed and Setup, given the game's levels (Game.levels): physics
+	// world, every level parsed and built, scratch buffers. The levels outlive the World. nil: a zeroed World (a game
+	// without one names sim.No_World).
+	world_create:          proc(seed: u64, levels: []Level_File, setup: Setup) -> ^World,
 	// Optional: frees what world_create made (nil: free(world)).
 	world_destroy:         proc(world: ^World),
 	// The World's rollback state (nil: none), asked for right after world_create, so bodies made there are the
@@ -265,7 +265,7 @@ No_Commands :: union {}
 // The World of a game that keeps nothing outside the block: sim.Game(State, Input, sim.No_World, ...).
 No_World :: struct {}
 
-// The Setup of a game whose sessions differ only by seed and content: sim.Game(..., Cmd, sim.No_Setup, Profile, ...).
+// The Setup of a game whose sessions differ only by seed: sim.Game(..., Cmd, sim.No_Setup, Profile, ...).
 // Zero bytes everywhere.
 No_Setup :: struct {}
 
@@ -313,9 +313,8 @@ Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	game:         ^G,
 	seed:         u64,
 	setup:        part(G, GAME_SETUP), // the session's, fixed at create: outside the block, never rolled back
-	content:      []u8, // what it plays (create's, or Game.content); borrowed: the caller of create keeps it alive
-	content_hash: u64, // content_hash(content): recorded in input logs and snapshots
-	compat:       u64, // compat_of(game, content): recorded in snapshots
+	content_hash: u64, // content_hash(game.levels): recorded in input logs and snapshots
+	compat:       u64, // compat_of(game): recorded in snapshots
 	layout:       u64, // layout_hash(State): recorded in snapshots (a constant of the type, derived once)
 	tick:         u32,
 	state:        part(G, GAME_STATE),
@@ -346,14 +345,10 @@ hash_bytes :: proc(bytes: []u8) -> u64 {
 // is in the State's and the inputs'), the command and event types, the player count, the tick rate, the game's name (each variant, e.g. a
 // tuning, has its own) and version, the library's (LIBRARY_VERSION) and the unified-box3d pin (box3d_pin):
 // `library` overrides those two (tests: another build's compat; zero fields: this build's). Two builds with the same value run
-// the same simulation, as far as the build can tell. The content's hash goes in too, so peers with different
-// levels refuse to play together (nil: the game's own, Game.content).
-compat_of :: proc(
-	game: ^$G,
-	content: []u8 = nil,
-	library := Library{},
-) -> u64 where intrinsics.type_is_specialization_of(G, Game) {
-	return compat_with(game, layout_hash(part(G, GAME_STATE)), game_content(game, content), library)
+// the same simulation, as far as the build can tell. Every level's hash goes in too (content_hash), so peers with
+// different levels refuse to play together, and nothing is checked when a session changes level.
+compat_of :: proc(game: ^$G, library := Library{}) -> u64 where intrinsics.type_is_specialization_of(G, Game) {
+	return compat_with(game, layout_hash(part(G, GAME_STATE)), library)
 }
 
 // compat_of for a caller that has the State's layout hash already (create, from_snapshot): one RTTI walk fewer.
@@ -361,7 +356,6 @@ compat_of :: proc(
 compat_with :: proc(
 	game: ^$G,
 	state_layout: u64,
-	content: []u8,
 	library: Library,
 ) -> u64 where intrinsics.type_is_specialization_of(G, Game) {
 	Input :: part(G, GAME_INPUT)
@@ -378,7 +372,7 @@ compat_with :: proc(
 		inputs   = layout_hash(Inputs(G)),
 		name     = hash_bytes(transmute([]u8)game.name),
 		version  = hash_bytes(transmute([]u8)game.version),
-		content  = content_hash(content),
+		content  = content_hash(game.levels),
 		commands = union_hash(Cmd, COMMAND_PREFIX),
 		events   = union_hash(Event, EVENT_PREFIX),
 		box3d    = hash_bytes(transmute([]u8)(library.box3d != "" ? library.box3d : box3d_pin())),
@@ -423,20 +417,22 @@ inputs_same :: proc(a, b: ^Inputs($G)) -> bool {
 	return true
 }
 
-// The content a run of `game` plays: `content`, or the game's own (Game.content) when that is nil.
-game_content :: proc(game: ^$G, content: []u8) -> []u8 where intrinsics.type_is_specialization_of(G, Game) {
-	return content if content != nil else game.content
-}
-
-// The identity of a game's content (src/level/README.md): XXH3 of the bytes, 0 for none.
-content_hash :: proc(content: []u8) -> u64 {
-	return hash_bytes(content) if len(content) > 0 else 0
+// The identity of a game's levels (Game.levels): XXH3 over each level's name hash and bytes hash, in order, 0 for
+// none. Every level's name, bytes and place count.
+content_hash :: proc(levels: []Level_File) -> u64 {
+	if len(levels) == 0 do return 0
+	hashes := make([]u64, 2 * len(levels), context.temp_allocator)
+	for file, i in levels {
+		hashes[2 * i] = hash_bytes(transmute([]u8)file.name)
+		hashes[2 * i + 1] = hash_bytes(file.bytes)
+	}
+	return hash_bytes(([^]u8)(raw_data(hashes))[:len(hashes) * size_of(u64)])
 }
 
 // Why a game can't run ("" when it can; temp-allocated): its tick rate, its State (plain data: plain_violation), its
 // Input (wire_violation), its command and event unions, its Setup and Profile (plain structs without padding, at most
-// SETUP_MAX and PROFILE_MAX bytes) and its default Setup (Game.setup must read as sent: setup_violation). create
-// panics with it; the Godot host reports it. What the compiler can check (the State's `players`, the library's events
+// SETUP_MAX and PROFILE_MAX bytes), its default Setup (Game.setup must read as sent: setup_violation) and its levels
+// (levels_violation). create panics with it; the Godot host reports it. What the compiler can check (the State's `players`, the library's events
 // in the Event union) doesn't compile instead.
 game_violation :: proc(game: ^$G) -> string where intrinsics.type_is_specialization_of(G, Game) {
 	State :: part(G, GAME_STATE)
@@ -447,6 +443,7 @@ game_violation :: proc(game: ^$G) -> string where intrinsics.type_is_specializat
 	Profile :: part(G, GAME_PROFILE)
 	reason := declaration_violation(game.name, game.tick_hz, type_info_of(State), type_info_of(Input), Cmd, Event)
 	if reason != "" do return reason
+	if reason = levels_violation(game.name, type_info_of(State), game.levels); reason != "" do return reason
 	setup := game.setup
 	return choices_violation(game.name, type_info_of(Setup), type_info_of(Profile), &setup)
 }
@@ -556,19 +553,15 @@ extra_violation :: proc(game: ^$G, extra: Extra) -> string where intrinsics.type
 
 // Creates the World and the tick-0 state, allocates the ring and saves tick 0 into it: `create(&GAME, seed)` plays the
 // game's default Setup (Game.setup), `create(&GAME, seed, Setup{...})` this session's (a Setup of another type does not
-// compile). `content`: the level it plays (nil: the game's own, Game.content), borrowed: the caller keeps it alive.
+// compile). The World gets the game's levels (Game.levels).
 create :: proc {
 	create_default,
 	create_with_setup,
 }
 
 // create with the game's default Setup (Game.setup).
-create_default :: proc(
-	game: ^$G,
-	seed: u64,
-	content: []u8 = nil,
-) -> ^Sim(G) where intrinsics.type_is_specialization_of(G, Game) {
-	return create_with_setup(game, seed, game.setup, content)
+create_default :: proc(game: ^$G, seed: u64) -> ^Sim(G) where intrinsics.type_is_specialization_of(G, Game) {
+	return create_with_setup(game, seed, game.setup)
 }
 
 // create with this session's Setup; panics when it does not read as sent (setup_violation: a caller holding bytes
@@ -577,7 +570,6 @@ create_with_setup :: proc(
 	game: ^$G,
 	seed: u64,
 	setup: $S,
-	content: []u8 = nil,
 ) -> ^Sim(G) where intrinsics.type_is_specialization_of(G, Game) &&
 	S == part(G, GAME_SETUP) {
 	State :: part(G, GAME_STATE)
@@ -589,15 +581,13 @@ create_with_setup :: proc(
 	if reason := setup_violation(game, &checked); reason != "" {
 		panic(fmt.tprintf("%s: the session's Setup %s", game.name, reason))
 	}
-	level := game_content(game, content)
 	simulation := new(Sim(G))
 	simulation.game = game
 	simulation.seed = seed
 	simulation.setup = setup
-	simulation.content = level
-	simulation.content_hash = content_hash(level)
+	simulation.content_hash = content_hash(game.levels)
 	simulation.layout = layout_hash(State)
-	simulation.compat = compat_with(game, simulation.layout, level, {})
+	simulation.compat = compat_with(game, simulation.layout, {})
 	simulation.input_check = wire_check_make(type_info_of(Input))
 	simulation.ring = make([]Ring_Slot(State), ring_size(game.tick_hz))
 	for &slot in simulation.ring {
@@ -606,7 +596,8 @@ create_with_setup :: proc(
 		slot.events.list = make([dynamic]Raw_Event, 0, 8)
 	}
 	simulation.hash_buf = make([dynamic]u8)
-	simulation.world = game.world_create(seed, level, setup) if game.world_create != nil else new(part(G, GAME_WORLD))
+	simulation.world =
+		game.world_create(seed, game.levels, setup) if game.world_create != nil else new(part(G, GAME_WORLD))
 	if game.extra != nil {
 		simulation.extra = game.extra(simulation.world)
 		if reason := extra_violation(game, simulation.extra); reason != "" {

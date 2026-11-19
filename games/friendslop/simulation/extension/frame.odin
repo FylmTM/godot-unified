@@ -57,7 +57,7 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_view(f, sim.entity(marker), {
 			kind = .Marker,
 			pos  = sim.Position(f.world.triggers[i].volume.pos),
-			rot  = f.world.level.markers[marker].rot,
+			rot  = physics.level_data(f.world.phys, g.Level_Id.Park).markers[marker].rot,
 		})
 	}
 	godot.push_data(f, hud_of(f.state, f.tick))

@@ -17,7 +17,7 @@ import "unified:sim"
 draw_flags: physics.Debug_Draw_Flags
 
 // The rig's world plus three revolute joints (the World's: made in world_create).
-draw_world_create :: proc(seed: u64, _: []u8, _: sim.No_Setup) -> ^Rig_World {
+draw_world_create :: proc(seed: u64, _: []sim.Level_File, _: sim.No_Setup) -> ^Rig_World {
 	rig_world := rig_world_create(1)
 	for i in 0 ..< 3 {
 		hinge_a, hinge_b := joint_pair(rig_world.phys, {f32(i) * 3 - 3, 3, -4})
@@ -145,7 +145,7 @@ debug_draw_shapes :: proc(t: ^testing.T) {
 		name = "shapes",
 		version = "1",
 		tick_hz = HZ,
-		world_create = proc(_: u64, _: []u8, _: sim.No_Setup) -> ^Shapes_World {
+		world_create = proc(_: u64, _: []sim.Level_File, _: sim.No_Setup) -> ^Shapes_World {
 			shapes_world := new(Shapes_World)
 			shapes_world.phys = physics.create({tick_hz = HZ})
 			def := physics.default_shape_def()

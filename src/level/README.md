@@ -2,7 +2,7 @@
 
 A level is authored as a Godot scene, exported to a small binary file (`uni bake`), and loaded by the sim when its
 World is created. The scene is also the view: its meshes render as they are, its markers hide themselves. It imports
-only `unified:wire`; `unified:physics` builds a level's static bodies (`physics.create_static`), and the
+only `unified:wire`; `unified:physics` builds a level's static bodies (`physics.level_change`), and the
 Godot host finds a marker's node by its index (`Unified.level_markers`).
 
 ## Authoring
@@ -73,11 +73,11 @@ re-baked with the exporter that writes it.
 
 ## A level's identity
 
-A level's identity is `sim.content_hash(bytes)`: the log, the snapshot and the netcode's compat carry it, so a replay
-or a peer with another level is refused (`src/sim/README.md`). A game embeds the level it ships with once,
-`sim.Game.content = #load(...)`, which every host, run and suite plays; a headless run can take another file
-(`uni help`). A game's World gets the bytes from `world_create(seed, content, setup)` and loads them there
-(`physics.create_with_level` for a physics game).
+A game embeds its levels once, `sim.Game.levels` (`src/sim/README.md`, Levels), which every host, run and suite
+plays; a headless run can replace one from a file (`uni help`). Their identity is `sim.content_hash` over every
+level's name and bytes: the log, the snapshot and the netcode's compat carry it, so a replay or a peer with other
+levels is refused. A game's World gets the levels from `world_create` and parses them there
+(`physics.create_with_levels` for a physics game).
 
 ## Baking
 

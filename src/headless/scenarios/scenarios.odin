@@ -18,7 +18,7 @@ LONG :: #config(UNIFIED_LONG_TESTS, false)
 
 // A game's suite: the game and the parameters of its runs.
 Suite :: struct($G: typeid) {
-	game:    ^G, // its scripted player (sim.Game.scripted_input) plays every run, on its level (sim.Game.content)
+	game:    ^G, // its scripted player (sim.Game.scripted_input) plays every run, on its levels (sim.Game.levels)
 	players: int, // scripted players in offline runs
 	seed:    u64,
 	ticks:   u32, // length of offline runs and sessions

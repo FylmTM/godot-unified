@@ -6,6 +6,7 @@ import "unified:sim"
 // The whole simulation state: one pointer-free block (checked by sim.create). The bodies are Box3D's, which
 // physics.extra snapshots with it.
 State :: struct {
+	level:          sim.Active_Level(Level_Id), // the arena, entered by init
 	station:        physics.Body_Ref,
 	station_hp:     i32,
 	phase:          Phase,

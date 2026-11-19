@@ -5,6 +5,7 @@ import "unified:sim"
 
 // The whole simulation state: one pointer-free block (checked by sim.create).
 State :: struct {
+	level:       sim.Active_Level(Level_Id), // the arena, entered by init
 	phase:       Phase,
 	_pad:        [3]u8,
 	match_tick:  u32, // the tick the current match started (0: lobby)

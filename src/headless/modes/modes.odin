@@ -6,6 +6,8 @@ package modes
 // Used only inside generic procs (see netmodes.odin).
 @(require) import "core:fmt"
 @(require) import "core:os"
+@(require) import "core:slice"
+@(require) import "core:strings"
 
 // Imported as `uheadless`: `headless` reads as a run's name in the modes.
 import uheadless "unified:headless"
@@ -21,11 +23,11 @@ Mode :: struct($G: typeid) {
 	lobby:   ^netcode.Lobby, // a lobby mode's service (Args.lobby)
 }
 
-// Runs the mode named on the command line on `game` (its scripted player plays the runs, on its content). `bench`:
+// Runs the mode named on the command line on `game` (its scripted player plays the runs, on its levels). `bench`:
 // the game's standard benchmark, what `bench` runs without options (`uni bench`); none (zero): `bench` without
 // options runs nothing, and `uni bench` has no row for the game. `variants`: other variants of the game (e.g. other
-// tunings), picked with `--game NAME` (sim.Game.name) on any mode; `--level FILE` on any mode plays a copy of the
-// game on that level instead of its content. `lobbies`: lobby services (eos.lobby) for the
+// tunings), picked with `--game NAME` (sim.Game.name) on any mode; `--level NAME=FILE` on any mode plays a copy of the
+// game with that level replaced. `lobbies`: lobby services (eos.lobby) for the
 // <name>-host and <name>-client modes; a game opts in, and links the service's SDK. `own_modes`: the game's own modes.
 run :: proc(
 	game: ^$G,
@@ -130,35 +132,32 @@ run :: proc(
 			die("unknown --game %q", name)
 		}
 	}
-	if path, has := args.opts["level"]; has {
+	if pair, has := args.opts["level"]; has {
 		delete_key(&args.opts, "level")
+		name, _, path := strings.partition(pair, "=")
+		index := -1
+		for file, i in game.levels do if file.name == name do index = i
+		if path == "" || index < 0 {
+			known := make([dynamic]string, context.temp_allocator)
+			for file in game.levels do append(&known, file.name)
+			die("--level %q: NAME=FILE, NAME one of the game's levels (%s)", pair, strings.join(known[:], ", "))
+		}
 		data, err := os.read_entire_file(path, context.allocator)
 		if err != nil {
 			die("cannot read --level %s", path)
 		}
-		// A copy of the game on that level (it lives until the process exits).
+		// A copy of the game with that level replaced (it lives until the process exits).
 		on_level := new_clone(game^)
-		on_level.content = data
+		on_level.levels = slice.clone(game.levels)
+		on_level.levels[index].bytes = data
 		game = on_level
-	}
-	if text, has := args.opts["setup"]; has {
-		delete_key(&args.opts, "setup")
-		setup, problem := sim.struct_from_text(game.setup, text)
-		if problem == "" do problem = sim.setup_violation(game, &setup)
-		if problem != "" {
-			die("--setup %s: %s", text, problem)
-		}
-		// A copy of the game with that Setup, as --level makes one with that content: every mode plays it.
-		with_setup := new_clone(game^)
-		with_setup.setup = setup
-		game = with_setup
 	}
 	check_known(&args, mode.options)
 	os.exit(mode.run(game, &args) ? 0 : 1)
 }
 
 @(private)
-ANY_MODE :: "  any mode: [--game NAME] a variant of the game (e.g. its play tuning); [--level FILE] the level file (default: the one the game embeds); [--setup key=value,...] the session's Setup (default: the game's, Game.setup)"
+ANY_MODE :: "  any mode: [--game NAME] a variant of the game (e.g. its play tuning); [--level NAME=FILE] play the level NAME from FILE (default: the levels the game embeds)"
 
 @(private)
 print_usage :: proc(table: []Mode($G), to: ^os.File) {

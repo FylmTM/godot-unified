@@ -22,7 +22,6 @@ HEXAGON := [6][2]f32{{1, 0}, {0.5, 0.8660254}, {-0.5, 0.8660254}, {-1, 0}, {-0.5
 // The world outside the block: the physics world and what the sim reads of the level's markers.
 World :: struct {
 	phys:          ^physics.World,
-	level:         level.Level,
 	spawns:        [PLAYERS][2]f32, // by slot
 	station:       [2]f32,
 	gates:         [MAX_GATES]Gate_Def,
@@ -52,20 +51,21 @@ Roll :: enum u8 {
 // The physics world with the level's static geometry (src/level/README.md, 2D levels), then its markers: a `spawn` per
 // slot, the `station`, `gate`s (`pair`: the other gate) and `rock_spawn`s (`dir`: the drift direction). The bodies the
 // block owns (the station, ships, rocks) are made by init and the tick.
-world_create :: proc(seed: u64, content: []u8, _: sim.No_Setup) -> ^World {
+world_create :: proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^World {
 	world := new(World)
 	problem: string
-	world.phys, world.level, problem = physics.create_with_level(
+	world.phys, problem = physics.create_with_levels(
 		{tick_hz = TICK_HZ, gravity = [3]f32{0, 0, 0}, workers = PHYSICS_WORKERS},
-		content,
+		levels,
 		CAT_STATIC,
 	)
 	assert(problem == "", problem) // a missing level, or a hole in its collision
-	assert(world.level.px_per_m > 0, "drift: the level is not a 2D level (src/level/README.md)")
+	arena := physics.level_data(world.phys, Level_Id.Arena)
+	assert(arena.px_per_m > 0, "drift: the level is not a 2D level (src/level/README.md)")
 
 	spawn_count := 0
 	gate_markers: [MAX_GATES]int // each gate's marker index
-	for &marker in world.level.markers {
+	for &marker in arena.markers {
 		pos := marker.pos.xy
 		switch marker.kind {
 		case "spawn":
@@ -100,14 +100,16 @@ world_create :: proc(seed: u64, content: []u8, _: sim.No_Setup) -> ^World {
 	return world
 }
 
-// Frees what world_create made: the physics world, the loaded level and the World itself.
+// Frees what world_create made: the physics world (the level with it) and the World itself.
 world_destroy :: proc(world: ^World) {
-	physics.destroy_with_level(world.phys, &world.level)
+	physics.destroy(world.phys)
 	free(world)
 }
 
-// The tick-0 state (GAME.init): the station at full HP, its kinematic hexagon at the station marker, turning.
+// The tick-0 state (GAME.init): the arena's static geometry, the station at full HP, its kinematic hexagon at the
+// station marker, turning.
 init :: proc(t: ^Tick) {
+	physics.level_change(t, t.world.phys, Level_Id.Arena)
 	t.state.station_hp = STATION_HP
 	corners: [6][2]f32
 	for corner, k in HEXAGON do corners[k] = corner * STATION_RADIUS

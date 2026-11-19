@@ -64,7 +64,7 @@ PICK := Pick {
 	version = "1",
 	tick_hz = 64,
 	setup = {mode = .Calm, waves = 3},
-	world_create = proc(seed: u64, content: []u8, setup: Pick_Setup) -> ^Pick_World {
+	world_create = proc(seed: u64, levels: []sim.Level_File, setup: Pick_Setup) -> ^Pick_World {
 		world := new(Pick_World)
 		world.setup = setup
 		return world
@@ -226,117 +226,4 @@ no_profile_takes_no_bytes :: proc(t: ^testing.T) {
 	With :: sim.Players(u32, Pick_Profile, toy.Input, 3)
 	testing.expect_value(t, offset_of(With, data) % 8, 0)
 	testing.expect_value(t, sim.plain_violation(type_info_of(With)), "")
-}
-
-// The log carries the Setup in its header and each join's Profile beside its record: a replay is the session again.
-// A log whose Setup does not read on this build, or of another Profile size, is refused.
-@(test)
-the_log_carries_the_setup_and_each_joins_profile :: proc(t: ^testing.T) {
-	setup := Pick_Setup {
-		mode  = .Wild,
-		waves = 7,
-		scale = 2,
-	}
-	simulation := sim.create(&PICK, 4, setup)
-	defer sim.destroy(simulation)
-	input_log := sim.Input_Log(Pick) {
-		seed  = 4,
-		setup = setup,
-	}
-	defer sim.log_destroy(&input_log)
-	joins := [3]Pick_Join{{0, 1, {kind = .Tank}}, {1, 2, {kind = .Runner, hue = 3}}, {2, 3, {}}}
-	for k in 0 ..< 30 {
-		inputs: sim.Inputs(Pick)
-		inputs.present = {0, 1} if k < 10 else {0, 1, 2}
-		if k == 0 do for join in joins[:2] do sim.join(&inputs, join.slot, join.member, join.profile)
-		if k == 10 do sim.join(&inputs, joins[2].slot, joins[2].member, joins[2].profile)
-		sim.log_append(&input_log, &inputs)
-		sim.step(simulation, &inputs)
-	}
-	data := sim.log_encode(&input_log)
-	defer delete(data)
-	back, ok := sim.log_decode(data, Pick)
-	defer sim.log_destroy(&back)
-	testing.expect(t, ok)
-	testing.expect_value(t, back.setup, setup)
-	replay := sim.create(&PICK, back.seed, back.setup)
-	defer sim.destroy(replay)
-	for k in 0 ..< len(back.ticks) {
-		inputs := sim.log_inputs(&back, k)
-		sim.step(replay, &inputs)
-	}
-	testing.expect_value(t, sim.checksum(replay), sim.checksum(simulation))
-	runner := sim.player_in_slot(replay, 1)
-	testing.expect_value(t, sim.player_profile(replay, runner), Pick_Profile{kind = .Runner, hue = 3})
-	testing.expect_value(t, replay.state.world_mode, Pick_Mode.Wild)
-
-	bad := make([]u8, len(data))
-	defer delete(bad)
-	copy(bad, data)
-	bad[sim.LOG_HEADER + offset_of(Pick_Setup, mode)] = 9 // no Pick_Mode
-	_, bad_ok := sim.log_decode(bad, Pick)
-	testing.expect(t, !bad_ok, "a Setup that does not read")
-	copy(bad, data)
-	bad[sim.LOG_HEADER - 3] += 1 // the profile size
-	_, bad_ok = sim.log_decode(bad, Pick)
-	testing.expect(t, !bad_ok, "another Profile size")
-}
-
-// A snapshot carries the session's Setup: from_snapshot builds the World from it (a late joiner's is everyone's), and
-// refuses one that does not read on this build.
-@(test)
-a_snapshot_carries_the_setup :: proc(t: ^testing.T) {
-	simulation := sim.create(&PICK, 5, Pick_Setup{mode = .Wild, waves = 2})
-	defer sim.destroy(simulation)
-	pick_step(simulation, {0}, {0, 1, {kind = .Tank}})
-	data := sim.snapshot_encode(simulation, 1)
-	defer delete(data)
-	restored, err := sim.from_snapshot(&PICK, data)
-	testing.expect_value(t, err, sim.Snap_Error.None)
-	if restored == nil do return
-	defer sim.destroy(restored)
-	testing.expect_value(t, restored.setup, simulation.setup)
-	testing.expect_value(t, restored.world.setup.mode, Pick_Mode.Wild)
-	testing.expect_value(t, sim.checksum(restored), sim.checksum(simulation))
-	testing.expect_value(t, sim.player_profile(restored, sim.player_in_slot(restored, 0)).kind, Pick_Kind.Tank)
-
-	data[sim.SNAP_HEADER + 2 + offset_of(Pick_Setup, mode)] = 9
-	digest := transmute([8]u8)u64le(sim.hash_bytes(data[sim.SNAP_HEADER:]))
-	copy(data[sim.SNAP_HEADER - 8:], digest[:]) // an intact digest over a Setup this build can't read
-	_, err = sim.from_snapshot(&PICK, data)
-	testing.expect_value(t, err, sim.Snap_Error.Bad_Header)
-}
-
-// struct_from_text reads key=value by RTTI: integers, floats, bools, enums by name, nested paths; a key or value it
-// can't read is a problem and leaves the start value.
-@(test)
-a_struct_from_text :: proc(t: ^testing.T) {
-	Inner :: struct {
-		level: i16,
-		_pad:  [2]u8,
-	}
-	Nested :: struct {
-		kinds:  [3]Pick_Kind,
-		shapes: toy.Shapes,
-		inner:  Inner,
-	}
-	setup, problem := sim.struct_from_text(PICK.setup, "mode=WILD, waves=9,loud=true,scale=0.5")
-	testing.expect_value(t, problem, "")
-	testing.expect_value(t, setup, Pick_Setup{mode = .Wild, waves = 9, loud = true, scale = 0.5})
-	nested: Nested
-	nested, problem = sim.struct_from_text(Nested{}, "kinds[2]=tank,shapes=dot|star,inner.level=-3")
-	testing.expect_value(t, problem, "")
-	testing.expect_value(t, nested.kinds[2], Pick_Kind.Tank)
-	testing.expect_value(t, nested.shapes, toy.Shapes{.Dot, .Star})
-	testing.expect_value(t, nested.inner.level, -3)
-	for text in ([]string{"speed=3", "waves=300", "mode=fast", "waves", "loud=maybe"}) {
-		_, problem = sim.struct_from_text(Pick_Setup{}, text)
-		testing.expectf(t, problem != "", "%q parsed", text)
-	}
-	_, problem = sim.struct_from_text(Nested{}, "kinds[3]=tank")
-	testing.expect(t, problem != "", "an element past the array")
-	unread: Pick_Setup
-	unread, problem = sim.struct_from_text(Pick_Setup{}, "mode=7") // an undeclared value parses ...
-	testing.expect_value(t, problem, "")
-	testing.expect(t, sim.setup_violation(&PICK, &unread) != "") // ... and setup_violation refuses it
 }

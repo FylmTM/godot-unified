@@ -220,8 +220,8 @@ despawn_all :: proc(world: ^World, table: ^sim.Table($T, $N)) {
 }
 
 // "" when every body, shape and joint ref in the block names something alive (or is zero) and no body is an orphan
-// (alive, not the World's, and owned by no Body_Ref in the block: a despawn that forgot its body); else the first
-// problem. The Extra's check, so scenarios.rollback_every_tick runs it after every restore. Needs `extra` first.
+// (alive, neither the World's nor the active level's, and owned by no Body_Ref in the block: a despawn that forgot
+// its body); else the first problem. The Extra's check, so scenarios.rollback_every_tick runs it after every restore. Needs `extra` first.
 check_refs :: proc(world: ^World, state: rawptr) -> string {
 	base := ([^]u8)(state)
 	resize(&world.owned, len(world.bodies))
@@ -248,7 +248,7 @@ check_refs :: proc(world: ^World, state: rawptr) -> string {
 		}
 	}
 	for entry, index in world.bodies {
-		if .Alive in entry.flags && .World not_in entry.flags && !world.owned[index] {
+		if .Alive in entry.flags && entry.flags & {.World, .Level} == {} && !world.owned[index] {
 			return fmt.tprintf(
 				"body %d (tag %d) is an orphan: alive, but no Body_Ref in the block owns it (physics.despawn or destroy_refs frees an item's bodies)",
 				index,

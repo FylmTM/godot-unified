@@ -17,6 +17,11 @@ PLAYERS :: 4 // input slots: the most players in the game at once
 // tick computes without changing the State or Input layout.
 VERSION :: "4"
 
+// The game's levels, in GAME.levels' order (the State's `level` says which is active).
+Level_Id :: enum u8 {
+	Arena,
+}
+
 Game :: sim.Game(State, Input, World, Event, Cmd, sim.No_Setup, sim.No_Profile, PLAYERS)
 Tick :: sim.Tick(Game)
 
@@ -25,7 +30,7 @@ GAME := Game {
 	name              = "drift",
 	version           = VERSION,
 	tick_hz           = TICK_HZ,
-	content           = #load("../../game/levels/arena.level"), // the export of game/levels/arena.tscn (uni bake)
+	levels            = {{"arena", #load("../../game/levels/arena.level")}}, // game/levels/arena.tscn's (uni bake)
 	world_create      = world_create,
 	world_destroy     = world_destroy,
 	extra             = extra,

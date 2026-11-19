@@ -501,7 +501,11 @@ FIELD := Field_Game {
 	name = "field",
 	version = "1",
 	tick_hz = HZ,
-	world_create = proc(seed: u64, _: []u8, _: sim.No_Setup) -> ^Field_World {return field_world_create(1)},
+	world_create = proc(
+		seed: u64,
+		_: []sim.Level_File,
+		_: sim.No_Setup,
+	) -> ^Field_World {return field_world_create(1)},
 	world_destroy = proc(field_world: ^Field_World) {
 		physics.destroy(field_world.phys)
 		free(field_world)
@@ -541,7 +545,11 @@ field_world_create :: proc(workers: i32) -> ^Field_World {
 // The field with its world stepped on 4 workers: every checksum must match the 1-worker field's.
 field_on_4_workers :: proc() -> Field_Game {
 	game := FIELD
-	game.world_create = proc(seed: u64, _: []u8, _: sim.No_Setup) -> ^Field_World {return field_world_create(4)}
+	game.world_create = proc(
+		seed: u64,
+		_: []sim.Level_File,
+		_: sim.No_Setup,
+	) -> ^Field_World {return field_world_create(4)}
 	return game
 }
 
