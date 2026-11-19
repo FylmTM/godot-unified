@@ -156,7 +156,8 @@ a_repin_writes_the_file_that_holds_it :: proc(t: ^testing.T) {
 	_ = os.write_entire_file(other, transmute([]u8)string("package fixture\n\nNONE :: [2]u64{1, 2}\n"))
 	file, changes, problem := scenarios.repin(dir, REFERENCE_OLD, REFERENCE_NEW)
 	testing.expect_value(t, problem, "")
-	testing.expect_value(t, file, pins)
+	// By name: repin resolves the directory, and macOS's temp directory is a symlink (/var -> /private/var).
+	testing.expect_value(t, filepath.base(file), "pins.odin")
 	testing.expect_value(t, len(changes), 3)
 	written, _ := os.read_entire_file(pins, context.temp_allocator)
 	first, _, _, _ := scenarios.pin_rewrite(FIXTURE, REFERENCE_OLD, REFERENCE_NEW)
