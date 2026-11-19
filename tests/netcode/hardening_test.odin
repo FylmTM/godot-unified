@@ -931,10 +931,11 @@ a_replaced_input_does_not_hold_the_input_ack_back :: proc(t: ^testing.T) {
 	)
 }
 
-// A client that stops acking finalized ticks is refused (Too_Far_Behind) once the ticks it hasn't acked leave the
-// relay's ring: they can't be streamed to it any more. The others play on.
+// A client that stops acking finalized ticks is re-anchored once the ticks it hasn't acked leave the relay's ring
+// (they can't be streamed to it any more): it is sent a majority player's recent snapshot (Resync). One that never
+// answers with what it restored is refused (Desynced) after IMAGE_GIVE_UP_MS. The others play on.
 @(test)
-a_client_that_stops_acking_is_refused_as_too_far_behind :: proc(t: ^testing.T) {
+a_client_that_stops_acking_is_reanchored_then_refused :: proc(t: ^testing.T) {
 	session: Net
 	net_make_relay(&session, 2, 0)
 	defer net_destroy(&session)
@@ -942,9 +943,12 @@ a_client_that_stops_acking_is_refused_as_too_far_behind :: proc(t: ^testing.T) {
 	evil_seat(&evil, &session, 7, 1) // never acks a finalized tick (acking false), but its channel stays connected
 	defer evil_destroy(&evil)
 	honest := net_join(&session, 0)
-	reject := evil_run(&evil, &session, f64(netcode.RELAY_RING) / toy.HZ + 3, .Reject)
-	testing.expect(t, len(reject) == 3 && netcode.Reject_Reason(reject[1]) == .Too_Far_Behind, "a Too_Far_Behind")
+	resync := evil_run(&evil, &session, f64(netcode.RELAY_RING) / toy.HZ + 3, .Resync)
+	testing.expect(t, len(resync) > 0, "a Resync")
 	testing.expect(t, session.relay.finalized > netcode.RELAY_RING)
+	testing.expect(t, session.relay.seats[1].conn >= 0, "still seated while its snapshot is on its way")
+	reject := evil_run(&evil, &session, netcode.IMAGE_GIVE_UP_MS / 1000 + 2, .Reject)
+	testing.expect(t, len(reject) == 3 && netcode.Reject_Reason(reject[1]) == .Desynced, "a Desynced")
 	testing.expect(t, session.relay.seats[1].conn < 0)
 	net_run(&session, 1)
 	testing.expect_value(t, honest.status, netcode.Status.Connected)

@@ -41,6 +41,9 @@ Status :: enum u8 {
 	// connection (RECONNECT_US at most), resuming from its own verified tick while the relay still holds the ticks
 	// after it, else as a late joiner with a snapshot. Connected again once it is back at the live tick.
 	Reconnecting,
+	// In the session, the state being replaced: the relay sends a majority player's snapshot to resync it (it diverged,
+	// or fell behind the relay's ring). The view holds; the player's inputs still count. Then Connected again.
+	Recovering,
 }
 
 RECONNECT_US :: 30_000_000 // how long after losing its relay a client keeps asking to come back
@@ -152,6 +155,7 @@ Local_Seat :: struct($G: typeid) {
 	own_cmds:   [dynamic]Own_Command, // sent (until acked) and predicted until a verified tick carries them, seq order
 	cmd_seq:    u32, // the last seq given
 	cmd_acked:  u32, // the relay has every seq up to this one
+	cmd_final:  u32, // the newest seq a verified tick carries (the relay places them in seq order, without gaps)
 }
 
 // A joiner waiting for our snapshot: of the first checksum tick >= min_tick we verify.
@@ -202,6 +206,7 @@ Client_Stats :: struct {
 	desyncs:        int, // desync reports from the relay
 	reconnects:     int, // times the connection was lost and a new one asked to come back
 	resumes:        int, // ... and the relay took our own verified tick (no snapshot)
+	resyncs:        int, // times the relay replaced our state (a desync, or fell behind its ring)
 	own_replaced:   int, // finalized ticks where the relay replaced our input (it arrived too late)
 	steps:          [Step_Kind]int, // ticks stepped, by kind
 	step_us:        [Step_Kind]i64, // time spent stepping them (saves included), µs
@@ -237,6 +242,8 @@ Client :: struct($G: typeid) {
 	link_index:     int, // the relay's link in the channel (a reconnect opens a new connection on it)
 	reconnect_us:   i64, // when the connection was lost (0: not reconnecting)
 	rehello:        bool, // a resumed Welcome this client could not take: reconnect without resume after the poll
+	resync_tick:    u32, // the relay is sending a snapshot of this tick to replace our state (Resync; 0: none)
+	resync_placed:  [LOCAL_MAX]u32, // each local player's newest command that tick holds (Resync)
 	// from Welcome
 	welcomed:       bool,
 	slot:           int, // local player 0's (-1: not seated)
@@ -611,6 +618,7 @@ fin_have :: #force_inline proc(client: ^Client($G), tick: u32) -> bool {
 // The base the finalized ring is anchored to: ticks beyond base + FIN_RING are not accepted yet.
 @(private)
 fin_base :: proc(client: ^Client($G)) -> u32 {
+	if client.resync_tick != 0 do return client.resync_tick // its stream starts over there
 	return client.sim != nil ? client.verified : client.snap_tick
 }
 
@@ -794,8 +802,10 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 			detail = "the session takes no new players"
 		case .Newer_Connection:
 			detail = "this player is in the session on a newer connection"
+		case .Desynced:
+			detail = "diverged from the other players and could not be resynced"
 		}
-		set_status(client, why == .Too_Far_Behind ? .Disconnected : .Failed, detail)
+		set_status(client, why == .Too_Far_Behind || why == .Desynced ? .Disconnected : .Failed, detail)
 	case .Finalized:
 		on_finalized(client, &reader, now)
 	case .Seated:
@@ -841,7 +851,7 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 		offset := int(wire.r_u32(&reader))
 		bytes := reader.data[reader.pos:]
 		if !reader.ok ||
-		   client.sim != nil ||
+		   (client.sim != nil && client.resync_tick == 0) ||
 		   client.snap_total == 0 ||
 		   offset != len(client.snap_buf) ||
 		   len(bytes) > client.snap_total - offset {
@@ -849,7 +859,34 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 		}
 		append(&client.snap_buf, ..bytes)
 		if len(client.snap_buf) == client.snap_total {
-			load_snapshot(client, now)
+			if client.resync_tick != 0 {
+				load_resync(client, now)
+			} else {
+				load_snapshot(client, now)
+			}
+		}
+	case .Resync:
+		tick := wire.r_u32(&reader)
+		total := int(wire.r_u32(&reader))
+		placed: [LOCAL_MAX]u32 // a local player the relay names not: none of its commands is in the tick
+		seats := int(wire.r_u8(&reader))
+		for _ in 0 ..< seats {
+			local := wire.r_u8(&reader)
+			seq := wire.r_u32(&reader)
+			if local < LOCAL_MAX do placed[local] = seq
+		}
+		if !reader.ok || client.sim == nil || client.checking || !client.welcomed || total == 0 || tick == 0 {
+			return
+		}
+		// Frozen until the snapshot is in and checked: nothing verified or predicted, the inputs still sent.
+		client.checking = true
+		client.resync_tick = tick
+		client.resync_placed = placed
+		client.snap_total = total
+		client.snap_begin_us = now
+		clear(&client.snap_buf)
+		if !client.leaving {
+			set_status(client, .Recovering, "resyncing")
 		}
 	case .Snap_Ok:
 		tick := wire.r_u32(&reader)
@@ -934,6 +971,61 @@ load_snapshot :: proc(client: ^Client($G), now: i64) {
 	client.snap_buf = nil
 }
 
+// The snapshot the relay resyncs us from is complete (Resync): our state is replaced by it, and what it restores to is
+// checked like a joiner's (Snap_Ok). Our commands up to the one the tick holds are final in it; the finalized ticks
+// after it are streamed again (those the ring holds already stay).
+@(private)
+load_resync :: proc(client: ^Client($G), now: i64) {
+	client.received_work = true
+	base := client.resync_tick
+	client.resync_tick = 0
+	client.snap_total = 0
+	sim, err := usim.from_snapshot(client.game, client.snap_buf[:])
+	if err != .None || sim.tick != base {
+		if sim != nil {
+			usim.destroy(sim)
+		}
+		set_status(client, .Failed, fmt.tprintf("the resync snapshot does not restore: %v", err))
+		return
+	}
+	for &seat, local in client.locals {
+		k := 0
+		for k < len(seat.own_cmds) && seat.own_cmds[k].seq <= client.resync_placed[local] {
+			k += 1
+		}
+		remove_range(&seat.own_cmds, 0, k)
+		seat.cmd_final = client.resync_placed[local] // the ticks after the base are verified again, counting on from it
+		if seat.state != .Seated do continue
+		seat.own_last = max(seat.own_last, base)
+		seat.own_acked = max(seat.own_acked, base) // finalized: nothing of them to send
+	}
+	usim.destroy(client.sim)
+	client.sim = sim
+	if client.cfg.dev do usim.dev_attach(client.sim, zone_clock)
+	client.kept_ticks = {} // they were the old sim's
+	client.verified, client.predicted = base, base
+	client.fin_upto = base
+	for fin_have(client, client.fin_upto + 1) {
+		client.fin_upto += 1
+	}
+	for len(client.checksums) > 0 && client.checksums[len(client.checksums) - 1][0] >= u64(base) {
+		pop(&client.checksums) // the old state's
+	}
+	value := usim.checksum(client.sim)
+	client.chk[(base / CHECKSUM_EVERY) % CHK_RING] = {base, value}
+	writer := msg_begin(&client.w, .Checksum)
+	wire.w_u32(writer, base)
+	wire.w_u64(writer, value)
+	csend(client, writer, .Reliable, now)
+	client.stats.resyncs += 1
+	log.infof("resynced from the snapshot of tick %d (%d bytes)", base, len(client.snap_buf))
+	delete(client.snap_buf)
+	client.snap_buf = nil
+	if client.hooks.restored != nil {
+		client.hooks.restored(client.hooks.user, client.sim, base)
+	}
+}
+
 // Inputs for predicting `tick`: own input and commands, the others' latest finalized input repeated, or the game's
 // guess from it (sim.Game.predict_input); their commands are unknown until finalized: none.
 @(private)
@@ -982,13 +1074,17 @@ predicted_inputs :: proc(client: ^Client($G), tick: u32, out: ^usim.Inputs(G)) {
 	}
 }
 
-// A verified tick carries the own commands the relay put in it: they are no longer predicted.
+// A verified tick carries the own commands the relay put in it: they are no longer predicted. Dropped by seq, not by
+// count: after a resync the ticks past its base are verified a second time, and their commands left own_cmds the
+// first time.
 @(private)
 drop_verified_commands :: proc(client: ^Client($G), tick: u32) {
 	for &seat in client.locals {
 		if seat.state != .Seated || tick < seat.first_tick do continue
-		carried := len(usim.slot_commands(&client.fin[tick % FIN_RING], seat.slot))
-		remove_range(&seat.own_cmds, 0, min(carried, len(seat.own_cmds)))
+		seat.cmd_final += u32(len(usim.slot_commands(&client.fin[tick % FIN_RING], seat.slot)))
+		k := 0
+		for k < len(seat.own_cmds) && seat.own_cmds[k].seq <= seat.cmd_final do k += 1
+		remove_range(&seat.own_cmds, 0, k)
 	}
 }
 
@@ -1623,12 +1719,13 @@ reconnect :: proc(client: ^Client($G), lost_us: i64) {
 		seat.join_tick = 0
 		seat.slot = -1
 		clear(&seat.own_cmds)
-		seat.cmd_seq, seat.cmd_acked = 0, 0
+		seat.cmd_seq, seat.cmd_acked, seat.cmd_final = 0, 0, 0
 	}
 	client.slot = -1
 	clear(&client.snap_reqs)
 	client.snap_total = 0
 	clear(&client.snap_buf)
+	client.resync_tick = 0
 	if client.checking {
 		usim.destroy(client.sim) // a snapshot not checked yet is no state to resume from
 		client.sim = nil
@@ -1804,7 +1901,7 @@ client_json :: proc(result: Client_Result) -> string {
 		append(&zones, ..transmute([]u8)fmt.tprintf(`"%s":%.2f`, zone.name, zone.us))
 	}
 	return fmt.tprintf(
-		`{{"slot":%d,"member":%d,"final_tick":%d,"checksums":[%s],"client_step_us":{{"p99":%d,"max":%d,"count":%d}},"snapshot_bytes":%d,"snapshot_ms":%.1f,"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"desyncs":%d,"reconnects":%d,"resumes":%d,"ok":%v,"net":%s,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"zones":{{%s}}}}`,
+		`{{"slot":%d,"member":%d,"final_tick":%d,"checksums":[%s],"client_step_us":{{"p99":%d,"max":%d,"count":%d}},"snapshot_bytes":%d,"snapshot_ms":%.1f,"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"desyncs":%d,"reconnects":%d,"resumes":%d,"resyncs":%d,"ok":%v,"net":%s,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"zones":{{%s}}}}`,
 		result.slot,
 		result.member,
 		result.final_tick,
@@ -1826,6 +1923,7 @@ client_json :: proc(result: Client_Result) -> string {
 		result.desyncs,
 		result.reconnects,
 		result.resumes,
+		result.resyncs,
 		result.ok,
 		channel_stats_json(result.net),
 		result.steps[.Verified],
