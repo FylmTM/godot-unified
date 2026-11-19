@@ -13,6 +13,14 @@ const ANGLE_2D := 0.5
 const POS_3D := Vector3(1, 2, 3)
 const YAW_3D := 0.75
 const TUMBLE_3D := 0.3
+# ext/ext.odin's remote walk, in view units (x VIEW_SCALE)
+const REMOTE_SPEED := 0.1
+const REMOTE_JUMP := 20.0
+const REMOTE_PERIOD := 64
+const REMOTE_PLAYER_KEY := (77 << 16) | 3  # sim.player_key(REMOTE_PLAYER)
+const REMOTE_BLINK_KEY := (78 << 16) | 2  # sim.player_key(REMOTE_BLINK)
+const REMOTE_BLINK_FROM := 60
+const REMOTE_BLINK_TO := 100
 
 var failed := 0
 
@@ -124,6 +132,8 @@ func _initialize() -> void:
 	var blink_despawned := false
 	var blink_kept := false
 	var card: Control = null  # the thing's data-only view, followed until it is freed
+	var remote_blink: Node3D = null  # ext/ext.odin's REMOTE_BLINK's remote3d view, followed until it despawns
+	var remote_blink_seen := {}
 	var card_seen := {}  # what it showed while alive
 	for i in 150:  # up to ~3 s
 		await create_timer(0.02).timeout
@@ -140,6 +150,14 @@ func _initialize() -> void:
 		elif is_instance_valid(blink) and blink.get("despawns") == 1:
 			blink_despawned = true
 			blink_kept = blink_kept or blink.position == Vector2(999, 999)  # the host no longer sets its pose
+		if remote_blink == null:
+			for child in views.get_children():
+				var view_marker := child.get_node_or_null(^"UnifiedView") as UnifiedView
+				if view_marker != null and view_marker.kind == "remote3d" and view_marker.key == REMOTE_BLINK_KEY:
+					remote_blink = child as Node3D
+		if remote_blink != null and is_instance_valid(remote_blink):
+			for field: String in ["shown_early", "poses", "despawns", "despawn_tick", "despawn_session_tick"]:
+				remote_blink_seen[field] = remote_blink.get(field)
 		if card == null:
 			card = child_of_kind(hand, "card") as Control
 			if card != null:
@@ -156,7 +174,8 @@ func _initialize() -> void:
 			press(&"ui_accept", false)
 		if typed != null and typed.get("updates") > 1 and typed.get("ticks_sets") > 2 \
 				and typed_multi.visible_instance_count == 2 and blink_despawned and not is_instance_valid(blink) \
-				and card != null and not is_instance_valid(card) and events.any(func(e: Array) -> bool:
+				and card != null and not is_instance_valid(card) and remote_blink_seen.get("despawns", 0) > 0 \
+				and events.any(func(e: Array) -> bool:
 					return e[0] is EventExpired and e[1] == UnifiedSession.EVENT_CONFIRMED):
 			break
 	check("typed 2D view spawned from the index", typed != null, typed)
@@ -226,6 +245,7 @@ func _initialize() -> void:
 	check_players(session, me, roster_changes[0])
 	check_view_lookup(session, typed, plain, me)
 	await check_hand(session, hand, me)
+	check_remote_blink(remote_blink_seen)
 	await check_remote_views(session, views, me)
 
 	# 2D, colors + custom: stride 16 = transform (8) + color (4) + custom (4)
@@ -311,25 +331,27 @@ func _initialize() -> void:
 	quit(failed)
 
 
-# Remote3D and Rider3D (ext/ext.odin's remote_walk: one walk shown by a remote player, the local player, and a thing
-# whose player alternates each period): the remote player's view is posed from the verified timeline, a few ticks behind the local
-# player's, which is posed from the prediction; it snaps across each jump (a warp: no glide through the gap between the
-# walk's two stretches); and the thing's view follows the remote timeline while it shows the remote player, the
-# prediction while it shows the local one.
+# The remote walk (ext/ext.odin's remote_walk): one walk shown by a remote player, the local player, a predicted3d view of
+# the remote player, and a thing whose player alternates each half period. The remote player's view is posed from the
+# verified timeline, a few ticks behind the local player's, which is posed from the prediction; it snaps across each
+# jump (a warp: no glide through the gap between the walk's two stretches); its data is its sample's; its events
+# arrive CONFIRMED only, when its pose reaches their tick. The predicted3d kind keeps the remote player on the
+# prediction; the thing's view follows the remote timeline while it shows the remote player, the prediction while it
+# shows the local one.
 func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
-	const SPEED := 0.1  # view units a tick (REMOTE_SPEED x VIEW_SCALE)
-	const PERIOD := 128
 	var remote: Node3D = null
 	var local: Node3D = null
+	var predicted: Node3D = null
 	var thing: Node3D = null
 	var lags: Array[float] = []
+	var predicted_off: Array[float] = []  # predicted3d x away from the local player's view's (the same walk)
 	var off_walk: Array[float] = []  # remote x outside the walk's two stretches: a glide across a jump
 	var thing_remote := [0, 0]  # frames the thing matched the remote view / were compared, showing the remote player
 	var thing_local := [0, 0]  # and the local view, showing the local player
 	var start := session.tick
-	for i in 400:  # up to ~8 s, until two periods have passed
+	for i in 200:  # up to ~4 s, until a period has passed
 		await create_timer(0.02).timeout
-		if session.tick > start + 2 * PERIOD + 16:
+		if session.tick > start + REMOTE_PERIOD + 8:
 			break
 		for child in views.get_children():
 			var view_marker := child.get_node_or_null(^"UnifiedView") as UnifiedView
@@ -337,33 +359,94 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 				continue
 			if view_marker.kind == "rider3d":
 				thing = child as Node3D
+			elif view_marker.kind == "predicted3d":
+				predicted = child as Node3D
 			elif view_marker.kind == "remote3d" and view_marker.key == me:
 				local = child as Node3D
-			elif view_marker.kind == "remote3d":
+			elif view_marker.kind == "remote3d" and view_marker.key != REMOTE_BLINK_KEY:
 				remote = child as Node3D
-		if remote == null or local == null or thing == null:
+		if remote == null or local == null or thing == null or predicted == null:
 			continue
 		var x := remote.position.x
-		if not (x > -0.01 and x < 6.41) and not (x > 26.39 and x < 32.71):
+		if not (x > -0.01 and x < 3.11) and not (x > 23.19 and x < 26.31):
 			off_walk.append(x)
-		var phase := session.tick % (PERIOD / 2)
-		if phase < 24 or phase > 60:
-			continue  # near a jump the two views may stand on either side of it
-		lags.append((local.position.x - x) / SPEED)
-		var showing_remote := (session.tick / PERIOD) % 2 == 0
-		if showing_remote:
+		var phase := session.tick % (REMOTE_PERIOD / 2)
+		if phase < 14 or phase > 30:
+			continue  # near a jump the views may stand on either side of it
+		lags.append((local.position.x - x) / REMOTE_SPEED)
+		if absf(predicted.position.x - local.position.x) > 0.01:
+			predicted_off.append(predicted.position.x - local.position.x)
+		if session.tick % REMOTE_PERIOD < REMOTE_PERIOD / 2:
 			thing_remote[1] += 1
 			thing_remote[0] += int(absf(thing.position.x - x) < 0.01)
 		else:
 			thing_local[1] += 1
 			thing_local[0] += int(absf(thing.position.x - local.position.x) < 0.01)
-	check("remote3d and rider3d: a remote player's, the local player's and a thing's views", remote != null and local != null 		and thing != null, [remote, local, thing])
+	check("the remote walk: a remote player's, the local player's, a predicted3d and a thing's views", remote != null \
+		and local != null and predicted != null and thing != null, [remote, local, predicted, thing])
+	if remote == null or local == null:
+		return
 	var lags_ok := not lags.is_empty() and lags.all(func(lag: float) -> bool: return lag > 1.5 and lag < 12.0)
 	check("a remote player's view of a Remote.Verified kind runs a few ticks behind the local player's", lags_ok,
 		[lags.min() if lags else null, lags.max() if lags else null])
+	check("a Remote.Predicted kind showing the remote player stays on the prediction: no lag",
+		not lags.is_empty() and predicted_off.is_empty(), predicted_off)
 	check("it snaps across a warp: never posed between the walk's two stretches", off_walk.is_empty(), off_walk)
 	check("a thing's view showing the remote player is on the verified timeline, the local player on the prediction",
-		thing_remote[1] > 10 and thing_local[1] > 10 and thing_remote[0] == thing_remote[1] 		and thing_local[0] == thing_local[1], [thing_remote, thing_local])
+		thing_remote[1] > 5 and thing_local[1] > 5 and thing_remote[0] == thing_remote[1] \
+		and thing_local[0] == thing_local[1], [thing_remote, thing_local])
+	check("hidden until its first sample: never shown without data", not remote.get("shown_early"),
+		remote.get("shown_early"))
+	# its data is its sample's: the pose is that tick's, or between it and the next (away from the jumps)
+	var data_off: Array = []
+	var compared := 0
+	for pose: Array in remote.get("poses"):
+		var data_tick: int = pose[1]
+		var phase: int = data_tick % (REMOTE_PERIOD / 2)
+		if phase < 2 or phase > REMOTE_PERIOD / 2 - 3:
+			continue
+		compared += 1
+		var ahead: float = ((pose[0] as float) - remote_x(data_tick)) / REMOTE_SPEED  # ticks past its data's
+		if ahead < -0.01 or ahead > 1.01:
+			data_off.append([data_tick, ahead])
+	check("its view data is its verified sample's: the data's tick is the pose's", compared > 20 and data_off.is_empty(),
+		[compared, data_off.slice(0, 5)])
+	var remote_events: Array = remote.get("events")
+	var too_early := remote_events.filter(func(e: Array) -> bool:
+		var ahead: float = ((e[2] as float) - (e[0] as EventSpawned).position.x) / REMOTE_SPEED
+		return ahead < -0.01 or ahead > 4.0)
+	check("its events arrive CONFIRMED only, when its pose reaches their tick (never before)",
+		remote_events.size() >= 2 and remote_events.all(func(e: Array) -> bool:
+			return e[1] == UnifiedSession.EVENT_CONFIRMED) and too_early.is_empty(),
+		[remote_events.size(), too_early.map(func(e: Array) -> Array: return [e[1], e[2], e[0].position.x])])
+	var stray := (local.get("events") as Array).filter(func(e: Array) -> bool: return e[0].get("player") != me)
+	check("its events are the remote player's, none reach the local player's view of the kind", stray.is_empty() \
+		and remote_events.all(func(e: Array) -> bool: return e[0].get("player") == REMOTE_PLAYER_KEY), stray)
+
+
+# A remote player's view whose key leaves (ext/ext.odin's REMOTE_BLINK, ticks REMOTE_BLINK_FROM ..< REMOTE_BLINK_TO):
+# hidden until its first sample, it keeps playing after the prediction dropped it and despawns once its pose reached
+# its last tick.
+func check_remote_blink(seen: Dictionary) -> void:
+	check("a remote player's view that leaves: seen, then despawned", seen.get("despawns", 0) == 1, seen.keys())
+	if seen.get("despawns", 0) != 1:
+		return
+	var poses: Array = seen.poses
+	check("hidden until its first sample", not seen.shown_early and poses.size() > 0
+		and poses[0][1] >= REMOTE_BLINK_FROM, poses.slice(0, 2))
+	var last: Array = poses[-1] if poses.size() > 0 else [0.0, 0]
+	# its last sample is of one of its last ticks (a step that computes two ticks fills only the second)
+	var despawn_tick: int = seen.despawn_tick
+	check("it despawns only once its pose showed its last sample, not when the prediction dropped it",
+		despawn_tick >= REMOTE_BLINK_TO - 3 and despawn_tick < REMOTE_BLINK_TO and last[1] == despawn_tick \
+		and seen.despawn_session_tick > REMOTE_BLINK_TO \
+		and near(last[0], REMOTE_SPEED * (despawn_tick - REMOTE_BLINK_FROM)),
+		[despawn_tick, seen.despawn_session_tick, last])
+
+
+func remote_x(tick: int) -> float:
+	var phase := tick % REMOTE_PERIOD
+	return REMOTE_SPEED * phase + (REMOTE_JUMP if phase >= REMOTE_PERIOD / 2 else 0.0)
 
 
 # The sim's debug draws (ext/ext.odin's drawn_tick: a line and a text a tick): none until a group is shown, then the
@@ -527,7 +610,7 @@ func check_events(events: Array[Array], typed: Node, me: int) -> void:
 	check("every event has an id", not ids.has(0), ids)
 	check("PlayerJoined: one id in both states (new objects)", joined.size() == 2 \
 		and joined[0][0].id == joined[1][0].id and joined[0][0] != joined[1][0], ids)
-	var spawned := events.filter(func(e: Array) -> bool: return e[0] is EventSpawned)
+	var spawned := events.filter(func(e: Array) -> bool: return e[0] is EventSpawned and e[0].player == me)
 	var first := spawned[0][0] as EventSpawned if spawned.size() > 0 else null
 	check("Spawned: a handle as its key, the position a Vector2 in view units, the enum an int",
 		first != null and first.thing > 0 and first.position.x > 1 and first.shape in [EnumShape.DOT, EnumShape.RING, EnumShape.STAR] \

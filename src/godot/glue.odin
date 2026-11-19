@@ -223,9 +223,12 @@ Remote :: enum u8 {
 	// From the prediction, like every view: at once, corrected when a rollback says otherwise. The default.
 	Predicted,
 	// From final ticks only, played back VERIFIED_DELAY_TICKS behind the newest verified tick (verified_players.odin):
-	// a few ticks late (about the round trip more), and never corrected, so another player never snaps back. For a
-	// game whose remote players' movements are hard to predict (a shooter's teammates). Costs a sample of each player
-	// view per verified tick.
+	// a few ticks late (about the round trip more), and never corrected, so another player never snaps back; its
+	// view data and events come on the same clock. For a game whose remote players' movements are hard to predict (a
+	// shooter's teammates). The cost, on the session thread: every tick stepped as final runs one more full
+	// fill_frame (nearly twice the fill cost while remote players mispredict), and a third with an `appear =
+	// .Verified` kind (that fill remembers poses, this one doesn't: they aren't shared), plus a copy of each such
+	// player view per fill. With no .Verified kind, a release build pays a nil check.
 	Verified,
 }
 

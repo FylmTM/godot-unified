@@ -128,13 +128,14 @@ only while some kind asks for it. The main thread creates the view once the newe
 such a view is never cancelled.
 
 **Remote players on the verified timeline** (`Remote.Verified`, `verified_players.odin`): a kind whose views of other
-players must never snap back, at the price of showing them late. A view of such a kind that shows a player who isn't
-local is posed from final ticks only, played back a few ticks behind the newest verified one (about the round trip
-more); everything else stays on the prediction, the local players' views included, and the things a remote player
-carries (a game wanting those late too gives them a kind of their own that shows the player). The session thread
-sends a sample of each player view per verified tick while some kind asks for it; the switch between the timelines
-(a view's player becoming local, or not) is a snap. Predicted is the default: a remote player in a co-op game is
-usually predicted well enough, and late is worse than corrected where players interact closely.
+players must never snap back, at the price of showing them late. Only that: a view of such a kind that shows a player
+who isn't local plays final ticks; the local players' views, the things a remote player carries and MultiMesh
+instances stay on the prediction (a game wanting a carried thing late too gives it a kind of its own that shows the
+player). Such a view's data and events follow its pose: an event reaches it when playback reaches the event's tick,
+CONFIRMED only, never ahead of the body it belongs to, while the session's `sim_event` signal still has it on the
+prediction. A view whose player becomes local, or stops being, snaps between the timelines. Predicted is the default:
+a remote player in a co-op game is usually predicted well enough, and late is worse than corrected where players
+interact closely.
 
 **What a player sees is the game's choice, not a secret** (`src/sim/README.md`, Hidden information): every client
 holds the whole state, and `fill_frame` decides what is shown. A card in an ally's hand pushed face down

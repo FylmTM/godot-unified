@@ -1203,7 +1203,7 @@ route_event :: proc(session: ^Session_Node, message: Event_Message) {
 	gd.unref(transmute(gd.RefCounted)event)
 	state := i64(message.action)
 	V.stats.events += 1
-	views_event(layout, &raw, state, held)
+	views_event(layout, &raw, state, held, message.tick)
 	gd.emit_signal(session.obj, NAMES.sim_event, held, state)
 	dev_event(message.tick, message.id, message.action, layout, raw.data[:raw.size])
 	control_event(message.tick, message.id, message.action, int(raw.kind), layout, raw.data[:raw.size])

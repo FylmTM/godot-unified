@@ -628,27 +628,28 @@ smoothing_ramp :: proc(t: ^testing.T) {
 	}
 }
 
-// ---- other players on the verified timeline (a dev option): history, playback pose and clock
+// ---- other players on the verified timeline (Remote.Verified): history, playback pose and clock
 
 @(test)
 verified_pose_interpolates_between_final_ticks :: proc(t: ^testing.T) {
 	history: godot.Verified_History
-	_, empty := godot.verified_pose_at(&history, 10, 4)
+	_, empty, _ := godot.verified_pose_at(&history, 10, 4)
 	testing.expect(t, !empty)
 	godot.verified_history_push(&history, {tick = 10, pose = {pos = {0, 0, 0}, rot = godot.IDENTITY}})
 	godot.verified_history_push(&history, {tick = 12, pose = {pos = {2, 0, 0}, rot = godot.IDENTITY}}) // 11: no sample
-	pose, ok := godot.verified_pose_at(&history, 11.5, 4)
+	pose, ok, at := godot.verified_pose_at(&history, 11.5, 4)
 	testing.expect(t, ok)
 	testing.expect(t, math.abs(pose.pos.x - 1.5) < 1e-5) // across the missing tick
-	before, _ := godot.verified_pose_at(&history, 3, 4)
+	testing.expect(t, at != nil && at.tick == 10) // the sample whose data shows: the one at or before the clock
+	before, _, _ := godot.verified_pose_at(&history, 3, 4)
 	testing.expect_value(t, before.pos.x, 0) // before the oldest: the oldest
-	after, _ := godot.verified_pose_at(&history, 20, 4)
+	after, _, _ := godot.verified_pose_at(&history, 20, 4)
 	testing.expect_value(t, after.pos.x, 2) // past the newest: held, never extrapolated
 	godot.verified_history_push(&history, {tick = 13, warp = 1, pose = {pos = {3, 0, 0}, rot = godot.IDENTITY}})
-	warped, _ := godot.verified_pose_at(&history, 12.5, 4)
+	warped, _, _ := godot.verified_pose_at(&history, 12.5, 4)
 	testing.expect_value(t, warped.pos.x, 2) // no interpolation across a warp
 	godot.verified_history_push(&history, {tick = 5, pose = {pos = {9, 0, 0}, rot = godot.IDENTITY}})
-	restarted, _ := godot.verified_pose_at(&history, 12, 4)
+	restarted, _, _ := godot.verified_pose_at(&history, 12, 4)
 	testing.expect_value(t, restarted.pos.x, 9) // an older tick: a new timeline
 }
 
@@ -664,4 +665,12 @@ verified_clock_follows_the_verified_tick :: proc(t: ^testing.T) {
 	testing.expect_value(t, stalled, 100) // never past the newest verified tick
 	far := godot.verified_clock_step(play, true, 200, 1.0 / 60, 60)
 	testing.expect_value(t, far, f64(200 - godot.VERIFIED_DELAY_TICKS)) // out of the window: jumps
+	// a short stall: 10 ticks behind (inside the window) is made up within 2 s of frames at 60 fps
+	caught, verified := f64(90 - godot.VERIFIED_DELAY_TICKS), u32(100)
+	frames := 0
+	for ; frames < 600 && f64(verified) - godot.VERIFIED_DELAY_TICKS - caught > 0.5; frames += 1 {
+		caught = godot.verified_clock_step(caught, true, verified, 1.0 / 60, 60)
+		verified += 1 // the verified tick moves on at the tick rate
+	}
+	testing.expectf(t, frames <= 120, "a 10-tick stall took %v frames to make up", frames)
 }

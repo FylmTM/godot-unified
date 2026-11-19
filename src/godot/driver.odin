@@ -493,7 +493,12 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 			pose_memory_init(&driver.verified_poses, FRAME_VIEWS, FRAME_MULTIS)
 			driver.verified_out.alloc = context.allocator
 		}
-		if api.remote_verified || DEVUI do driver.sampler = verified_sampler_new() // the dev UI can force it on
+		// the dev UI can force it on for every kind
+		if api.remote_verified || DEVUI {
+			kinds := make([dynamic]u8, context.temp_allocator)
+			for policy, kind in api.view_policy do if policy.remote == .Verified do append(&kinds, u8(kind))
+			driver.sampler = verified_sampler_new(kinds[:])
+		}
 		input_sample_reset()
 		triple_init(&driver.states)
 		triple_init(&driver.inputs)
@@ -1305,20 +1310,8 @@ publish_frame :: proc(
 		out.net = netcode.client_stats(client)
 	}
 	pose_memory_begin(&driver.poses, info.resim_from < info.tick, info.resim_from)
-	frame := Frame(G, View, MultiView) {
-		state         = current,
-		world         = simulation.world,
-		tick          = info.tick,
-		local_players = local_players,
-		seed          = simulation.seed,
-		setup         = &simulation.setup,
-		time          = sim.game_time(current, info.tick),
-		out           = out,
-		poses         = &driver.poses,
-	}
-	sync.atomic_store(&driver.in_fill, true)
-	driver.glue.fill_frame(&frame)
-	sync.atomic_store(&driver.in_fill, false)
+	frame := make_frame(driver, simulation, current, info.tick, local_players, out, &driver.poses)
+	run_fill(driver, &frame)
 	when DEVUI do dev_publish(driver, out, simulation, info.tick)
 	if client != nil && driver.sampler != nil do verified_sampler_fill(driver.sampler, out, info)
 	triple_publish(&driver.frames)
@@ -1356,6 +1349,39 @@ frame_local_players :: proc(
 	return
 }
 
+// The Frame every fill hands fill_frame (the published one, appear-on-verified's, the verified timeline's): `state` at
+// `tick` of `simulation`, seen by `local_players`, pushed into `out` with `poses` remembering the previous ones.
+@(private)
+make_frame :: proc(
+	driver: ^Driver($G, $View, $MultiView),
+	simulation: ^sim.Sim(G),
+	state: ^$State,
+	tick: u32,
+	local_players: [LOCAL_MAX]sim.Player,
+	out: ^Frame_Data,
+	poses: ^Pose_Memory,
+) -> Frame(G, View, MultiView) {
+	return {
+		state         = state,
+		world         = simulation.world,
+		tick          = tick,
+		local_players = local_players,
+		seed          = simulation.seed,
+		setup         = &simulation.setup,
+		time          = sim.game_time(state, tick),
+		out           = out,
+		poses         = poses,
+	}
+}
+
+// Runs the game's fill_frame on a Frame, marked for the watchdog (a fill that never returns is a freeze).
+@(private)
+run_fill :: proc(driver: ^Driver($G, $View, $MultiView), frame: ^Frame(G, View, MultiView)) {
+	sync.atomic_store(&driver.in_fill, true)
+	driver.glue.fill_frame(frame)
+	sync.atomic_store(&driver.in_fill, false)
+}
+
 // Appear-on-verified (netcode's verified_state hook, while some kind asks for it): the sim stands on the newest
 // verified tick; fill it into a scratch Frame for its keys, which the next frame's pose memory reads (`since`).
 @(private)
@@ -1363,20 +1389,17 @@ fill_verified :: proc(driver: ^Driver($G, $View, $MultiView), simulation: ^sim.S
 	out := &driver.verified_out
 	out.n_views, out.n_multis, out.n_data, out.n_datas, out.data_pushed = 0, 0, 0, 0, 0
 	pose_memory_begin(&driver.verified_poses)
-	frame := Frame(G, View, MultiView) {
-		state         = &simulation.state,
-		world         = simulation.world,
-		tick          = simulation.tick,
-		local_players = frame_local_players(driver.client, simulation.state.players.slots[:], simulation.tick),
-		seed          = simulation.seed,
-		setup         = &simulation.setup,
-		time          = sim.game_time(&simulation.state, simulation.tick),
-		out           = out,
-		poses         = &driver.verified_poses,
-	}
-	sync.atomic_store(&driver.in_fill, true) // the watchdog
-	driver.glue.fill_frame(&frame)
-	sync.atomic_store(&driver.in_fill, false)
+	local_players := frame_local_players(driver.client, simulation.state.players.slots[:], simulation.tick)
+	frame := make_frame(
+		driver,
+		simulation,
+		&simulation.state,
+		simulation.tick,
+		local_players,
+		out,
+		&driver.verified_poses,
+	)
+	run_fill(driver, &frame)
 	driver.poses.verified = &driver.verified_poses
 	driver.poses.verified_tick = simulation.tick
 }
