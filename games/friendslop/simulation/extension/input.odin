@@ -14,7 +14,7 @@ Input_Values :: struct {
 }
 
 // A jump or grab tap shorter than a frame still counts (action_down).
-sample_input :: proc(input: ^g.Input) {
+sample_input :: proc(_: int, input: ^g.Input) {
 	values := godot.input_values(Input_Values)
 	look, right := values.look, values.right
 	if look == {} do look = {0, 0, -1}

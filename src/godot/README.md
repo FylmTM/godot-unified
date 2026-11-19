@@ -28,6 +28,21 @@ newest sample, so one sample can feed several ticks: an `Input` is the controls'
 derives presses from the tick before (`sim.buttons`); a one-shot value is a command. An `Input` holds no bools and
 no floats: an axis is `dmath.axis_i8(x)`, a direction a `dmath.Dir2` / `Dir3`.
 
+**Local players.** `sample_input(local, input)` runs once a frame for each local player (several people on one
+machine: a couch, guests of a remote-play stream, who arrive as pads), and the action helpers read **the sampled
+player's device**, so one body serves them all: `DEVICE_ANY` (every device, through Godot's Input singleton: the first
+player's default, and how a game of one player plays), `DEVICE_KEYBOARD`, or a joypad's id. Godot's Input singleton
+keeps no action state per device, so for a device the session follows the events of the actions the helpers asked
+for (`_input`: a joypad's events for the players on that pad, the keyboard's and mouse's for the players on it; a press
+latches; losing the focus releases the keyboard players' actions). Each local player is its own member of the session
+(`src/netcode/README.md`, Local players): `UnifiedSession.add_local_player` joins one to the running session, its
+commands name it (`send_command(command, local)`), and `Frame.local_players` / `local_players` say who they are.
+
+**Setup and Profile** (`src/sim/README.md`, Setup and Profile) are GDScript classes built from the game's types, as a
+command's: a host passes a `UnifiedSetup` to `start_single`, `host_online` or `host_direct` (none: the game's default),
+`session.setup` reads the running session's (a joiner's is the host's), and `Unified.profile` is what the local player
+joins with. A game's saved progress is its own file, which the host turns into the next session's Setup.
+
 **Input values** are what only scripts know (a camera rig's look direction): the plain struct `Glue.input_values`
 names, whose fields scripts set on `Unified.input` and `sample_input` reads (`input_values`). The session samples at
 process priority −1000, before any other node's `_process`, and emits `UnifiedSession.input_wanted` just before: a

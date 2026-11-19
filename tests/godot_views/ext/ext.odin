@@ -152,7 +152,7 @@ bench_prepare :: proc(state: ^toy.State, world: ^toy.World, count: int) {
 // The benchmark's frame: the local player's typed2d view (the player's events reach it), BENCH_SCENE_VIEWS plain3d views circling, and the instances on a grid, each turning and bobbing (every value
 // changes every tick, so nothing is the same as the tick before).
 bench_frame :: proc(f: ^Frame) {
-	godot.push_view(f, f.local_player, {kind = .Typed2D})
+	godot.push_view(f, f.local_players[0], {kind = .Typed2D})
 	seconds := f32(f.tick) / toy.HZ
 	for i in 0 ..< BENCH_SCENE_VIEWS {
 		angle := seconds + f32(i) * math.TAU / BENCH_SCENE_VIEWS
@@ -181,7 +181,7 @@ bench_frame :: proc(f: ^Frame) {
 // The player drifts right; pressing ui_accept spawns one thing (on the press: held, it doesn't repeat), a `Spawned`
 // event with a handle, a position, the player and an enum, which expires a few dozen ticks later; Unified.input.drift
 // moves it down.
-sample_input :: proc(input: ^toy.Input) {
+sample_input :: proc(_: int, input: ^toy.Input) {
 	input.dx = 2
 	input.dy = i8(godot.input_values(Input_Values).drift)
 	input.buttons = godot.buttons(toy.Buttons, {.Spawn = "ui_accept"})
@@ -195,7 +195,7 @@ Input_Values :: struct {
 }
 
 fill_frame :: proc(f: ^Frame) {
-	local := sim.player_data(&f.state.players, f.local_player)
+	local := sim.player_data(&f.state.players, f.local_players[0])
 	if local == nil do return // before the local player's join tick
 	if bench_instances > 0 {
 		bench_frame(f)
@@ -203,7 +203,7 @@ fill_frame :: proc(f: ^Frame) {
 	}
 	q2 := godot.quat_angle_2d(ANGLE_2D)
 	q3 := quat_yaw_angle(YAW_3D)
-	godot.push_view(f, f.local_player, {
+	godot.push_view(f, f.local_players[0], {
 		kind = .Typed2D,
 		pos  = POS_2D / VIEW_SCALE,
 		rot  = q2,

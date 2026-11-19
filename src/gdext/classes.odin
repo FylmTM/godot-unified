@@ -242,6 +242,7 @@ Method :: struct {
 	types:        []gdi.VariantType,
 	result:       gdi.VariantType,
 	has_result:   bool,
+	defaults:     []Variant, // the values of its last len(defaults) arguments when a call leaves them out
 }
 
 // Debug builds count bound-method calls by path (tests check that typed GDScript calls take ptrcall).
@@ -263,9 +264,18 @@ method_call :: proc "c" (
 	method := (^Method)(userdata)
 	when ODIN_DEBUG do call_counts.variant += 1
 	err.error = .OK
-	if int(argc) != method.nargs {
+	if int(argc) > method.nargs || int(argc) < method.nargs - len(method.defaults) {
 		err.error = int(argc) < method.nargs ? .ERROR_TOO_FEW_ARGUMENTS : .ERROR_TOO_MANY_ARGUMENTS
 		err.expected = i32(method.nargs)
+		return
+	}
+	if int(argc) < method.nargs {
+		// Godot hands an extension the arguments the caller gave: the left-out ones take their defaults here.
+		full := make([]gdi.ConstVariantPtr, method.nargs, context.temp_allocator)
+		copy(full, args[:argc])
+		first := method.nargs - len(method.defaults)
+		for i in int(argc) ..< method.nargs do full[i] = &method.defaults[i - first]
+		method.call(method, inst, raw_data(full), ret, err)
 		return
 	}
 	method.call(method, inst, args, ret, err)
@@ -414,6 +424,8 @@ register_method_info :: proc(
 	doc := "",
 ) {
 	append(&cls.methods, method)
+	defaults := make([]gdi.VariantPtr, len(method.defaults), context.temp_allocator)
+	for &value, i in method.defaults do defaults[i] = &value
 	name_sn := string_name_from(name)
 	defer StringName_destroy(&name_sn)
 	count := len(args)
@@ -431,17 +443,19 @@ register_method_info :: proc(
 	defer for &arg_names in names do arg_names_destroy(&arg_names)
 	ret_info := arg_info(declared, &names[count])
 	method_info := gdi.ClassMethodInfo {
-		name                  = &name_sn,
-		method_userdata       = method,
-		call_func             = method_call,
-		ptrcall_func          = method_ptrcall,
-		method_flags          = u32(static ? gdi.ClassMethodFlags.FLAG_STATIC : gdi.ClassMethodFlags.FLAGS_DEFAULT),
-		has_return_value      = has_result ? 1 : 0,
-		return_value_info     = &ret_info,
-		return_value_metadata = all_metas[count],
-		argument_count        = u32(count),
-		arguments_info        = count > 0 ? &infos[0] : nil,
-		arguments_metadata    = count > 0 ? &all_metas[0] : nil,
+		name                   = &name_sn,
+		method_userdata        = method,
+		call_func              = method_call,
+		ptrcall_func           = method_ptrcall,
+		method_flags           = u32(static ? gdi.ClassMethodFlags.FLAG_STATIC : gdi.ClassMethodFlags.FLAGS_DEFAULT),
+		has_return_value       = has_result ? 1 : 0,
+		return_value_info      = &ret_info,
+		return_value_metadata  = all_metas[count],
+		argument_count         = u32(count),
+		arguments_info         = count > 0 ? &infos[0] : nil,
+		arguments_metadata     = count > 0 ? &all_metas[0] : nil,
+		default_argument_count = u32(len(defaults)),
+		default_arguments      = raw_data(defaults),
 	}
 	gdi.classdb_register_extension_class_method(library, &cls.name_sn, &method_info)
 	record_bound(cls, {
@@ -959,13 +973,14 @@ connect :: proc(obj: Object, signal: string, callable: Callable, flags: u32 = 0)
 
 // ---- methods described at run time
 
-// A method whose arguments and result are Variants: `args` are borrowed, the result is owned (returned to
-// Godot). `user` is the pointer given to bind_dynamic_method; `inst` the class instance.
+// A method whose arguments and result are Variants: `args` are borrowed (a left-out argument holds its default), the
+// result is owned (returned to Godot). `user` is the pointer given to bind_dynamic_method; `inst` the class instance.
 Dynamic_Proc :: #type proc(user: rawptr, inst: rawptr, args: []^Variant) -> Variant
 
 // Binds a method built at run time (e.g. from RTTI): GDScript and typed calls both reach `fn`, ptrcall
 // arguments converted to Variants by their declared types. A `static` method is called on the class
-// (`Class.name(...)`), with a nil instance.
+// (`Class.name(...)`), with a nil instance. `defaults`: the values of the last len(defaults) arguments, which a call
+// may leave out (the method owns them from here on).
 bind_dynamic_method :: proc(
 	cls: ^Class,
 	name: string,
@@ -975,10 +990,14 @@ bind_dynamic_method :: proc(
 	result: Maybe(Dynamic_Arg) = nil,
 	static := false,
 	doc := "",
+	defaults: []Variant = nil,
 ) {
+	assert(len(defaults) <= len(args))
 	method := new(Method)
 	method.dynamic_proc = fn
 	method.user = user
+	method.defaults = make([]Variant, len(defaults))
+	copy(method.defaults, defaults)
 	method.nargs = len(args)
 	method.types = make([]gdi.VariantType, len(args))
 	for argument, i in args do method.types[i] = argument.type

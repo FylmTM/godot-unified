@@ -14,7 +14,7 @@ Input_Values :: struct {
 
 // The movement, fire and boost from the InputMap, and the aim. A tap of fire or boost shorter than a frame still
 // counts (action_down).
-sample_input :: proc(input: ^g.Input) {
+sample_input :: proc(_: int, input: ^g.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_up", "move_down") // +y is down, the plane's +y
 	input.move_x, input.move_y = dmath.axis_i8(move.x), dmath.axis_i8(move.y)
 	input.aim = dmath.dir2(godot.input_values(Input_Values).aim)

@@ -105,6 +105,36 @@ func _run() -> void:
 	check("an ended session has no local player", s.local_player == 0, s.local_player)
 	s.ticks = 0
 
+	# 5. the session's Setup, the player's Profile, a second local player
+	var setup := UnifiedSetup.new()
+	check("a new UnifiedSetup is the game's default", setup.life_bonus == 0, setup.life_bonus)
+	setup.life_bonus = 4
+	Unified.profile.color = 9
+	check("start_single(setup) with a Setup", s.start_single(setup))
+	if not await _wait_for(func() -> bool: return s.local_player != 0, 5.0, "the Setup's session runs"):
+		return _finish()
+	check("session.setup is the session's", s.setup.life_bonus == 4, s.setup.life_bonus)
+	var second: int = s.add_local_player(UnifiedSession.DEVICE_KEYBOARD, "Second")
+	check("add_local_player gives local 1", second == 1, second)
+	if not await _wait_for(func() -> bool: return s.local_players.size() == 2, 5.0, "the second local player joins"):
+		return _finish()
+	var second_player: int = s.get_local_player_key(1)
+	check("get_local_index names local 1", s.get_local_index(second_player) == 1, second_player)
+	check("its device is the keyboard", s.get_local_device(1) == UnifiedSession.DEVICE_KEYBOARD)
+	check("send_command from local 1", s.send_command(CommandBump.new(), 1))
+	check("remove_local_player(1)", s.remove_local_player(1))
+	if not await _wait_for(func() -> bool: return s.local_players.size() == 1, 5.0, "the second local player leaves"):
+		return _finish()
+	s.leave()
+	if not await _wait_for(func() -> bool: return not s.running, 5.0, "the Setup's session ends"):
+		return _finish()
+	check("a session started without one plays the default again", s.start_single())
+	if not await _wait_for(func() -> bool: return s.local_player != 0, 5.0, "the default session runs"):
+		return _finish()
+	check("its Setup is the default", s.setup.life_bonus == 0, s.setup.life_bonus)
+	s.leave()
+	await _wait_for(func() -> bool: return not s.running, 5.0, "the default session ends")
+
 	if idle_end > 0.0:
 		print("session_check: idle with no session for %.1f s" % idle_end)
 		await _sleep(idle_end)
