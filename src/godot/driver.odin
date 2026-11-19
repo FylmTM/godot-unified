@@ -39,6 +39,15 @@ Api :: struct {
 	constants:       Data_Layout, // the constants' type (type nil: none)
 	constants_bytes: []u8, // the constants' value (install's)
 	input_values:    Data_Layout, // Glue.input_values (type nil: none)
+	setup:           Data_Layout, // the game's Setup (sim.Game's; the class UnifiedSetup, no fields for sim.No_Setup)
+	setup_default:   []u8, // Game.setup's bytes: a new UnifiedSetup's
+	profile:         Data_Layout, // the game's Profile (the class UnifiedProfile, Unified.profile)
+	// Why a Setup's bytes can't be a session's ("" when they can: sim.setup_violation).
+	setup_problem:   proc(bytes: []u8) -> string,
+	// A Setup or Profile from `key=value,...` (sim.struct_from_text), starting from `start`'s bytes, in place; "" or
+	// why not (the session flags --setup and --profile).
+	setup_text:      proc(bytes: []u8, text: string) -> string,
+	profile_text:    proc(bytes: []u8, text: string) -> string,
 	enum_types:      []^runtime.Type_Info, // the enums the event, command, data, constants and input types use
 	sample_input:    proc(), // main thread: the game's sample_input into the host's sample
 	start:           proc(request: Start) -> (ok: bool, err: string),
@@ -63,7 +72,9 @@ Api :: struct {
 	recording:       proc(snapshot, log: ^[dynamic]u8) -> (info: Recording_Info, ok: bool),
 	event_key:       proc(event: ^sim.Raw_Event, subject: Subject) -> (kind: u8, key: u64, route: Event_Route), // Glue.event_key (nil: by subject)
 	result:          proc() -> string, // the finished session's result JSON (after a Result message)
-	send:            proc(command: sim.Raw_Command) -> bool, // queue a command for the running session (false: full)
+	send:            proc(command: sim.Raw_Command, local: int) -> bool, // queue local player `local`'s command (false: full)
+	// Ask the session to add local player `local` (1 ..< LOCAL_MAX) with this name and Profile's bytes, or to remove it.
+	local_player:    proc(local: int, add: bool, name: string, profile: []u8) -> bool,
 	// The State's `level` field (a sim.Active_Level): its byte offset (-1: none), and each level's scene (the res:// path
 	// its .level file names, "": none), in Game.levels' order.
 	level_offset:    int,
@@ -167,7 +178,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	events:         Queue(Event_Message, 4096), // full: dropped and counted
 	dropped:        int, // atomic: events that found `events` full
 	fill:           Fill_Stats, // the frame hook's cost (atomic: the main thread takes it)
-	commands:       Queue(sim.Raw_Command, netcode.COMMAND_QUEUE), // main thread -> the client's hooks.commands
+	commands:       [LOCAL_MAX]Queue(sim.Raw_Command, netcode.COMMAND_QUEUE), // main thread -> hooks.commands, per local
 	tracker:        Event_Tracker(Tick_Event),
 	published:      u64,
 	scratch:        [dynamic]Tick_Event,
@@ -176,6 +187,9 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	alloc:          runtime.Allocator, // the starter's allocator: the session thread allocates what wait frees
 	nets:           [dynamic]^netcode.Net_Sim, // the remote links' live netsims (owned by the channel)
 	net_gen:        u32,
+	local_mu:       sync.Mutex, // guards local_reqs
+	local_reqs:     [LOCAL_MAX]Local_Request, // main thread -> session thread: add or remove a local player
+	local_seen:     [LOCAL_MAX]u64, // the request generation the session thread applied last
 	roster:         u32, // the client's roster_changes last copied for the main thread
 	account:        [2]string, // the host player's platform account (Lobby.account): platform, id
 	inputs:         Triple(Inputs_View(G)), // for the dev UI's Input panel (while want_state)
@@ -281,6 +295,8 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	Input :: sim.part(G, sim.GAME_INPUT)
 	Event :: sim.part(G, sim.GAME_EVENT)
 	Cmd :: sim.part(G, sim.GAME_CMD)
+	Setup :: sim.part(G, sim.GAME_SETUP)
+	Profile :: sim.part(G, sim.GAME_PROFILE)
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	This_Driver :: Driver(G, View, MultiView)
 	This_Glue :: Glue(G, View, MultiView)
@@ -356,12 +372,37 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		api.constants_bytes = slice.clone(([^]u8)(constants.data)[:type_info_of(constants.id).size])
 	}
 	if glue.input_values != nil do api.input_values = data_layout(type_info_of(glue.input_values))
+	api.setup = data_layout(type_info_of(Setup))
+	api.setup_default = slice.clone(sim.bytes_of(&game.setup))
+	api.profile = data_layout(type_info_of(Profile))
+	api.setup_problem = proc(bytes: []u8) -> string {
+		setup: Setup
+		if len(bytes) < size_of(Setup) do return "the Setup's bytes are cut short"
+		copy(sim.bytes_of(&setup), bytes)
+		return sim.setup_violation((^G)(g_game), &setup)
+	}
+	api.setup_text = proc(bytes: []u8, text: string) -> string {
+		start: Setup
+		copy(sim.bytes_of(&start), bytes)
+		setup, problem := sim.struct_from_text(start, text)
+		if problem == "" do problem = sim.setup_violation((^G)(g_game), &setup)
+		if problem == "" do copy(bytes, sim.bytes_of(&setup))
+		return problem
+	}
+	api.profile_text = proc(bytes: []u8, text: string) -> string {
+		start: Profile
+		copy(sim.bytes_of(&start), bytes)
+		profile, problem := sim.struct_from_text(start, text)
+		if problem == "" do copy(bytes, sim.bytes_of(&profile))
+		return problem
+	}
 	enum_sources: [dynamic]^runtime.Type_Info
 	for layout in api.events do append(&enum_sources, layout.type)
 	for layout in api.commands do append(&enum_sources, layout.type)
 	for layout in api.data do append(&enum_sources, layout.type)
 	if api.constants.type != nil do append(&enum_sources, api.constants.type)
 	if api.input_values.type != nil do append(&enum_sources, api.input_values.type)
+	append(&enum_sources, api.setup.type, api.profile.type)
 	enums: [dynamic]^runtime.Type_Info
 	enum_types_of(enum_sources[:], &enums)
 	api.enum_types = enums[:]
@@ -374,9 +415,14 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	}
 	api.sample_input = proc() {
 		glue := (^This_Glue)(g_glue)
-		input: Input
-		glue.sample_input(&input)
-		input_sample_store(([^]u8)(&input)[:size_of(Input)])
+		for active, local in input_sample.active {
+			if !active do continue
+			input_sample.current = local
+			input: Input
+			glue.sample_input(local, &input)
+			input_sample_store(local, ([^]u8)(&input)[:size_of(Input)])
+		}
+		input_sample.current = 0
 	}
 	api.start = proc(request: Start) -> (bool, string) {
 		if g_driver != nil do return false, "a session is already running"
@@ -493,9 +539,22 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 			max_ns   = sync.atomic_exchange(&fill.max_ns, 0),
 		}
 	}
-	api.send = proc(command: sim.Raw_Command) -> bool {
-		if g_driver == nil do return false
-		return queue_push(&(^This_Driver)(g_driver).commands, command)
+	api.send = proc(command: sim.Raw_Command, local: int) -> bool {
+		if g_driver == nil || local < 0 || local >= LOCAL_MAX do return false
+		return queue_push(&(^This_Driver)(g_driver).commands[local], command)
+	}
+	api.local_player = proc(local: int, add: bool, name: string, profile: []u8) -> bool {
+		if g_driver == nil || local <= 0 || local >= LOCAL_MAX do return false
+		driver := (^This_Driver)(g_driver)
+		sync.guard(&driver.local_mu)
+		request := &driver.local_reqs[local]
+		request^ = {
+			gen  = request.gen + 1,
+			add  = add,
+			name = text_of_name(name),
+		}
+		copy(request.profile[:], profile)
+		return true
 	}
 	api.result = proc() -> string {
 		if g_driver == nil do return ""
@@ -742,6 +801,42 @@ track_tick :: proc(driver: ^Driver($G, $View, $MultiView), tick: u32, events: []
 	tracker_end_tick(&driver.tracker, tick)
 }
 
+// A main thread request about a local player (UnifiedSession.add_local_player, remove_local_player).
+@(private)
+Local_Request :: struct {
+	gen:     u64,
+	add:     bool,
+	name:    netcode.Player_Name,
+	profile: [sim.PROFILE_MAX]u8,
+}
+
+@(private)
+text_of_name :: proc(name: string) -> netcode.Player_Name {
+	return netcode.text_of(netcode.NAME_MAX, name)
+}
+
+// Session thread: the local player requests the main thread made since the last look, applied to the client.
+@(private)
+driver_local_requests :: proc(driver: ^Driver($G, $View, $MultiView), now: i64) {
+	Profile :: sim.part(G, sim.GAME_PROFILE)
+	if driver.client == nil do return
+	sync.guard(&driver.local_mu)
+	for &request, local in driver.local_reqs {
+		if request.gen == driver.local_seen[local] do continue
+		driver.local_seen[local] = request.gen
+		if request.add {
+			cfg := netcode.Local_Config(G) {
+				slot        = -1,
+				player_name = netcode.text_string(&request.name),
+				profile     = (^Profile)(&request.profile)^,
+			}
+			netcode.client_add_player(driver.client, local, cfg)
+		} else {
+			netcode.client_remove_player(driver.client, local, now)
+		}
+	}
+}
+
 @(private)
 driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G) {
 	State :: sim.part(G, sim.GAME_STATE)
@@ -756,7 +851,7 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 				return driver.game.scripted_input(driver.req.seed, slot, tick, state)
 			}
 			input: Input
-			input_sample_take(([^]u8)(&input)[:size_of(Input)])
+			input_sample_take(local, ([^]u8)(&input)[:size_of(Input)])
 			return input
 		},
 		// Commands sent from GDScript (send_command), in order; what the client can't take yet stays queued.
@@ -769,7 +864,7 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 				return
 			}
 			for len(out.list) < out.cap {
-				command := queue_pop(&driver.commands) or_break
+				command := queue_pop(&driver.commands[local]) or_break
 				sim.push_command(out, command)
 			}
 		},
@@ -793,10 +888,13 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 			}
 			out.verified_level = driver.verified_level
 			out.tick_hz = u32(driver.game.tick_hz)
+			copy(out.setup[:], sim.bytes_of(&simulation.setup))
 			out.due_us = i64(client.next_tick_us - client.tm.tick_us)
 			slots := current.players.slots
 			local := client.slot >= 0 ? slots[client.slot] : {}
 			out.local_player = sim.player_key(local)
+			local_players := frame_local_players(client, current.players.slots[:], info.tick)
+			for player, index in local_players do out.local_players[index] = sim.player_key(player)
 			out.slots = {}
 			for holder, slot in slots do out.slots[slot] = sim.player_key(holder)
 			out.n_members = 0
@@ -810,14 +908,14 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 			out.net = netcode.client_stats(client)
 			pose_memory_begin(&driver.poses, info.resim_from < info.tick, info.resim_from)
 			frame := Frame(G, View, MultiView) {
-				state        = current,
-				world        = simulation.world,
-				tick         = info.tick,
-				local_player = local,
-				seed         = simulation.seed,
-				time         = sim.game_time(current, info.tick),
-				out          = out,
-				poses        = &driver.poses,
+				state         = current,
+				world         = simulation.world,
+				tick          = info.tick,
+				local_players = local_players,
+				seed          = simulation.seed,
+				time          = sim.game_time(current, info.tick),
+				out           = out,
+				poses         = &driver.poses,
 			}
 			sync.atomic_store(&driver.in_fill, true)
 			driver.glue.fill_frame(&frame)
@@ -886,6 +984,21 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 	return hooks
 }
 
+// Who the client's local players are at `tick`, from who holds each slot, by local index ({}: not in).
+@(private)
+frame_local_players :: proc(
+	client: ^netcode.Client($G),
+	slots: []sim.Player, // the State's players.slots
+	tick: u32,
+) -> (
+	players: [LOCAL_MAX]sim.Player,
+) {
+	for &seat, index in client.locals {
+		if seat.state == .Seated && tick >= seat.first_tick do players[index] = slots[seat.slot]
+	}
+	return
+}
+
 // Appear-on-verified (netcode's verified_state hook, while some kind asks for it): the sim stands on the newest
 // verified tick; fill it into a scratch Frame for its keys, which the next frame's pose memory reads (`since`).
 @(private)
@@ -893,15 +1006,13 @@ fill_verified :: proc(driver: ^Driver($G, $View, $MultiView), simulation: ^sim.S
 	out := &driver.verified_out
 	out.n_views, out.n_multis, out.n_data, out.n_datas, out.data_pushed = 0, 0, 0, 0, 0
 	pose_memory_begin(&driver.verified_poses)
-	client := driver.client
-	local := client.slot >= 0 ? simulation.state.players.slots[client.slot] : {}
 	frame := Frame(G, View, MultiView) {
-		state        = &simulation.state,
-		world        = simulation.world,
-		tick         = simulation.tick,
-		local_player = local,
-		out          = out,
-		poses        = &driver.verified_poses,
+		state         = &simulation.state,
+		world         = simulation.world,
+		tick          = simulation.tick,
+		local_players = frame_local_players(driver.client, simulation.state.players.slots[:], simulation.tick),
+		out           = out,
+		poses         = &driver.verified_poses,
 	}
 	sync.atomic_store(&driver.in_fill, true) // the watchdog
 	driver.glue.fill_frame(&frame)
@@ -933,6 +1044,7 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD() // this thread's temp data lives one iteration
 		now := netcode.now_us()
 		if driver.online do lobby_pump(driver)
+		driver_local_requests(driver, now)
 		if len(driver.nets) > 0 && sync.atomic_load(&netsim_req.gen) != driver.net_gen {
 			sync.mutex_lock(&netsim_req.mu)
 			for netsim in driver.nets do netsim_apply(netsim, netsim_req.set)
@@ -977,15 +1089,20 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 	request := &driver.req
 	game := driver.game
 	hooks := driver_hooks(driver)
+	Setup :: sim.part(G, sim.GAME_SETUP)
+	Profile :: sim.part(G, sim.GAME_PROFILE)
 	host_config := netcode.Host_Config(G) {
 		desync_detail = DEVUI, // typed desync reports where the dev UI is (every build for now)
 		dev           = DEVUI, // debug draws and zones (dev UI builds)
 		player_name   = request.name,
+		profile       = (^Profile)(&request.profile)^,
 		seed          = request.seed,
 		ticks         = request.ticks,
 	}
+	if request.has_setup do host_config.setup = (^Setup)(&request.setup)^
 	client_config := netcode.Client_Config(G) {
 		player_name = request.name,
+		profile     = (^Profile)(&request.profile)^,
 		slot        = -1,
 		token       = request.token,
 		dev         = DEVUI,

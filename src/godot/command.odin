@@ -35,7 +35,7 @@ command_layouts :: proc(commands: typeid) -> []Command_Layout {
 
 // Main thread. False, with print_error naming what is wrong, for an object that is not one of the game's
 // commands, a property set to a wrong value, no running session, or a full queue.
-send_command :: proc(object: gd.Object) -> bool {
+send_command :: proc(object: gd.Object, local := 0) -> bool {
 	fail :: proc(msg: string) -> bool {
 		gd.print_error(fmt.tprintf("unified: send_command: %s", msg))
 		return false
@@ -57,7 +57,7 @@ send_command :: proc(object: gd.Object) -> bool {
 	assert(ok)
 	tick, player: u64 = 0, 0
 	if active != nil && active.frame != nil do tick, player = u64(active.frame.tick), active.frame.local_player
-	if !api.send(command) {
+	if !api.send(command, local) {
 		dev_command(u32(tick), .Refused, player, &command)
 		return fail("too many commands are waiting for the session")
 	}

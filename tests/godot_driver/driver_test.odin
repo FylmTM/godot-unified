@@ -45,7 +45,7 @@ MultiView :: enum u8 {
 
 @(private = "file")
 GLUE := godot.Glue(toy.Game, View, MultiView) {
-	sample_input = proc(input: ^toy.Input) {input.dx = sync.atomic_load(&seen.dx)},
+	sample_input = proc(_: int, input: ^toy.Input) {input.dx = sync.atomic_load(&seen.dx)},
 	fill_frame = proc(frame: ^godot.Frame(toy.Game, View, MultiView)) {
 		players := sim.iterate_present(&frame.state.players)
 		for data, player in sim.next(&players) {
@@ -56,7 +56,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 				pos  = {data.pos.x, 1, 0},
 			})
 		}
-		if local := sim.player_data(&frame.state.players, frame.local_player); local != nil {
+		if local := sim.player_data(&frame.state.players, frame.local_players[0]); local != nil {
 			sync.atomic_store(&seen.bumps, local.bumps)
 			sync.atomic_store(&seen.bump_fold, local.bump_fold)
 			// the join tick's events are queued, its Frame not published yet: hold here while the test looks
@@ -162,7 +162,7 @@ driver_sessions :: proc(t: ^testing.T) {
 	// poses the host remembered, the main thread's input sample reaches the sim, commands sent from the main thread
 	// reach the sim once each, in order, verified events confirmed, a result at the end.
 	{
-		testing.expect(t, !godot.api.send({}), "no session: nothing to send to")
+		testing.expect(t, !godot.api.send({}, 0), "no session: nothing to send to")
 		sync.atomic_store(&seen.dx, 1)
 		godot.api.sample_input()
 		ok, err := godot.api.start({
@@ -176,7 +176,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		godot.api.sample_input() // the main thread's sample (the session took none yet: a start clears it)
 		for amount in ([]i32{3, -1, 8}) {
 			command := sim.command_make(toy.Cmd, toy.Cmd_Bump{amount})
-			testing.expect(t, godot.api.send(command))
+			testing.expect(t, godot.api.send(command, 0))
 		}
 		messages := make([dynamic]godot.Message, context.temp_allocator)
 		testing.expect(t, drain(&messages, 5000, is_result), "the session ends with a result")

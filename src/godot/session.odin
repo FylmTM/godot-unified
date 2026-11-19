@@ -10,6 +10,7 @@ import "core:time"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:netcode"
+import "unified:sim"
 
 @(private)
 Session_Node :: struct {
@@ -37,6 +38,7 @@ Session_Node :: struct {
 	roster_seen: u32, // roster.changes when roster_changed was last emitted
 	mode:        Mode, // the session started last (UnifiedSession.mode; the dev UI: no netsim in single player)
 	level:       Level_Host, // the level on screen and its scene (level_host.odin)
+	locals_seen: [LOCAL_MAX]u64, // the local players' keys when local_players_changed was last emitted
 }
 
 @(private)
@@ -55,6 +57,8 @@ Args :: struct {
 	online:      bool, // host_online at once
 	join_code:   string, // join_online this code at once
 	draw:        string, // the debug draw groups shown (UnifiedSession.debug_draw)
+	setup:       string, // --setup key=value,...: the Setup of sessions this process hosts (the game's default with them)
+	profile:     string, // --profile key=value,...: set on Unified.profile at the start
 	no_watchdog: bool, // no session-thread watchdog (watchdog.odin)
 }
 
@@ -90,6 +94,9 @@ register_session_class :: proc() {
 		},
 		ready = proc(instance: rawptr) {session_ready((^Session_Node)(instance))},
 		process = proc(instance: rawptr, dt: f64) {session_process((^Session_Node)(instance), dt)},
+		input = proc(instance: rawptr, event: gd.InputEvent) {
+			if !is_editor() && active == (^Session_Node)(instance) do input_event(event)
+		},
 		notification = proc(instance: rawptr, what: i32) {
 			session := (^Session_Node)(instance)
 			switch what {
@@ -215,7 +222,7 @@ register_session_class :: proc() {
 	)
 	gd.bind_property(class, "local_player", proc(session: ^Session_Node) -> i64 {
 			return session.frame != nil ? i64(session.frame.local_player) : 0
-		}, doc = "The local player's key at the shown tick (0 until it joins, and once the session is over).")
+		}, doc = "The first local player's key at the shown tick (0 until it joins, and once the session is over): a game of one local player reads this; [member local_players] has them all.")
 	gd.bind_dynamic_method(class, "get_players", proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
 			session := (^Session_Node)(instance)
 			players := player_array()
@@ -273,21 +280,46 @@ register_session_class :: proc() {
 			return array_variant(&views)
 		}, nil, {{"kind", .INT, ""}}, gd.Dynamic_Arg{"", .ARRAY, "Node"}, doc = "Every scene view of [param kind] (an [EnumView] value) that is in the sim (not lingering), by key.")
 	// starting, leaving, sending
-	gd.bind_method(
+	setup_arg := gd.Dynamic_Arg{"setup", .OBJECT, SETUP_CLASS}
+	no_setup := []gd.Variant{gd.variant_nil()}
+	gd.bind_dynamic_method(
 		class,
 		"start_single",
-		proc(session: ^Session_Node) -> bool {return session_start(session, {mode = .Single})},
-		doc = "Starts a single player session.",
+		proc(_: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
+			request := Start {
+				mode = .Single,
+			}
+			ok := setup_of(args[0], &request, "start_single") && session_start((^Session_Node)(instance), request)
+			return gd.to_variant(ok)
+		},
+		nil,
+		{setup_arg},
+		gd.Dynamic_Arg{"", .BOOL, ""},
+		doc = "Starts a single player session playing [param setup] (null: the game's default Setup). False, with an error, when it can't start or the setup does not read on this build.",
+		defaults = no_setup,
 	)
-	gd.bind_method(
-		class,
-		"host_online",
-		proc(session: ^Session_Node) -> bool {return session_start(session, {mode = .Host_Online})},
-		doc = "Hosts an online session through the game's lobby service; [member join_code] is the code to share once it is known.",
-	)
-	gd.bind_method(class, "host_direct", proc(session: ^Session_Node, port: i64) -> bool {
-			return session_start(session, {mode = .Host_Direct, port = int(port)})
-		}, {"port"}, doc = "Hosts on a UDP port (LAN); 127.0.0.1 only when the process got [code]--local-net[/code].")
+	gd.bind_dynamic_method(class, "host_online", proc(_: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
+			request := Start {
+				mode = .Host_Online,
+			}
+			ok := setup_of(args[0], &request, "host_online") && session_start((^Session_Node)(instance), request)
+			return gd.to_variant(ok)
+		}, nil, {setup_arg}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Hosts an online session through the game's lobby service, playing [param setup] (null: the game's default); [member join_code] is the code to share once it is known.", defaults = no_setup)
+	gd.bind_dynamic_method(class, "host_direct", proc(_: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
+			port, _ := gd.from_variant(i64, args[0])
+			request := Start {
+				mode = .Host_Direct,
+				port = int(port),
+			}
+			ok := setup_of(args[1], &request, "host_direct") && session_start((^Session_Node)(instance), request)
+			return gd.to_variant(ok)
+		}, nil, {{"port", .INT, ""}, setup_arg}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Hosts on a UDP port (LAN), playing [param setup] (null: the game's default); 127.0.0.1 only when the process got [code]--local-net[/code].", defaults = no_setup)
+	gd.bind_dynamic_property(class, {"setup", .OBJECT, SETUP_CLASS}, proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
+			session := (^Session_Node)(instance)
+			if D.setup == nil do return gd.variant_nil()
+			bytes := session.frame != nil ? session.frame.setup[:] : api.setup_default
+			return nested_variant(D.setup, bytes[:D.setup.layout.type.size], .View)
+		}, nil, doc = "The running session's Setup (a joiner's is the host's), as a new [UnifiedSetup]; the game's default before the first frame.")
 	gd.bind_method(class, "join_online", proc(session: ^Session_Node, code: string) -> bool {
 			return session_start(session, {mode = .Join_Online, arg = code})
 		}, {"code"}, doc = "Joins an online session by its lobby code.")
@@ -308,8 +340,11 @@ register_session_class :: proc() {
 	)
 	gd.bind_dynamic_method(class, "send_command", proc(_: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
 			command, _ := gd.from_variant(gd.Object, args[0])
-			return gd.to_variant(send_command(command))
-		}, nil, {{"command", .OBJECT, "UnifiedCommand"}}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Sends one of the game's commands (make one with its class, e.g. [code]CommandDrop.new()[/code]); the sim gets it exactly once. False, with an error naming why, when it can't be sent: not one of the game's commands, a property set to a wrong value, no running session, or a full queue.")
+			local, _ := gd.from_variant(i64, args[1])
+			if local < 0 || local >= LOCAL_MAX do return gd.to_variant(false)
+			return gd.to_variant(send_command(command, int(local)))
+		}, nil, {{"command", .OBJECT, "UnifiedCommand"}, {"local", .INT, ""}}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Sends one of the game's commands from local player [param local] (make one with its class, e.g. [code]CommandDrop.new()[/code]); the sim gets it exactly once, from that player. False, with an error naming why, when it can't be sent: not one of the game's commands, a property set to a wrong value, no running session, or a full queue.", defaults = {gd.to_variant(i64(0))})
+	bind_local_players(class)
 	gd.bind_method(
 		class,
 		"take_sync_stats",
@@ -379,6 +414,27 @@ register_session_class :: proc() {
 		)
 	}
 	for name, mode in MODE_NAMES do gd.bind_constant(class, "Mode", name, i64(mode), doc = MODE_DOCS[mode])
+	gd.bind_constant(
+		class,
+		"",
+		"DEVICE_ANY",
+		DEVICE_ANY,
+		doc = "A local player's device: every device, as one player plays (local player 0's, unless set).",
+	)
+	gd.bind_constant(
+		class,
+		"",
+		"DEVICE_KEYBOARD",
+		DEVICE_KEYBOARD,
+		doc = "A local player's device: the keyboard and the mouse (a joypad is its id, 0 and up).",
+	)
+	gd.bind_constant(
+		class,
+		"",
+		"LOCAL_MAX",
+		LOCAL_MAX,
+		doc = "The most local players one game has (couch co-op, guests of a remote-play stream).",
+	)
 	for name, state in EVENT_STATE_NAMES do gd.bind_constant(class, "EventState", name, i64(state), doc = EVENT_STATE_DOCS[state])
 }
 
@@ -508,6 +564,13 @@ session_ready :: proc(session: ^Session_Node) {
 		session.quit_at_end = session.args.quit
 		if session.args.lag_ms > 0 do set_netsim(lag_settings(session.args.lag_ms))
 		if session.args.draw != "" do debug_draw_want(session.args.draw)
+		if session.args.profile != "" && api.installed && D.profile != nil && D.profile.instance != nil {
+			if problem := api.profile_text(D.profile.instance.bytes, session.args.profile); problem != "" {
+				gd.print_error(fmt.tprintf("unified: --profile %s: %s", session.args.profile, problem))
+				gd.SceneTree_quit(gd.Node_get_tree(node_of(session)), 2)
+				return
+			}
+		}
 		read_app_version()
 	}
 	dev_init(session.args.devui, session.args.lag_ms > 0 ? lag_settings(session.args.lag_ms) : {})
@@ -539,6 +602,91 @@ session_ready :: proc(session: ^Session_Node) {
 	delete(session.args.join_code)
 	session.args.autostart, session.args.host_port, session.args.join, session.args.online, session.args.join_code =
 		false, 0, "", false, ""
+}
+
+// UnifiedSession's local players: several people on one machine (a couch, guests of a remote-play stream), each
+// its own player with its own device, joining and leaving the running session on its own.
+@(private)
+bind_local_players :: proc(class: ^gd.Class) {
+	gd.bind_dynamic_method(class, "add_local_player", proc(_: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
+			device, _ := gd.from_variant(i64, args[0])
+			name, _ := gd.from_variant(string, args[1])
+			profile_object, _ := gd.from_variant(gd.Object, args[2])
+			if !api.installed || !api.running() do return gd.to_variant(i64(-1))
+			local := -1
+			for active, k in input_sample.active do if !active && local < 0 do local = k
+			if local < 0 do return gd.to_variant(i64(-1))
+			profile: [sim.PROFILE_MAX]u8
+			if D.profile != nil && D.profile.instance != nil do copy(profile[:], D.profile.instance.bytes)
+			if profile_object.ptr != nil && D.profile != nil {
+				if given := (^Data_Object)(gd.instance_of(profile_object, &D.profile.class)); given != nil {
+					copy(profile[:], given.bytes)
+				}
+			}
+			if !api.local_player(local, true, name, profile[:]) do return gd.to_variant(i64(-1))
+			input_sample.active[local], input_sample.devices[local] = true, int(device)
+			return gd.to_variant(i64(local))
+		}, nil, {{"device", .INT, ""}, {"name", .STRING, ""}, {"profile", .OBJECT, PROFILE_CLASS}}, gd.Dynamic_Arg{"", .INT, ""}, doc = "Adds a local player to the running session, played on [param device] ([constant DEVICE_ANY], [constant DEVICE_KEYBOARD], a joypad's id), named [param name], arriving with [param profile] (null: [code]Unified.profile[/code]'s). Returns its local index (1 and up; 0 is the first player), or -1 when no session runs or [constant LOCAL_MAX] play already. It joins like a late joiner, without a snapshot; [signal local_players_changed] says when it is in.", defaults = {gd.to_variant(i64(DEVICE_ANY)), gd.to_variant(""), gd.variant_nil()})
+	gd.bind_method(class, "remove_local_player", proc(session: ^Session_Node, local: i64) -> bool {
+			if local <= 0 || local >= LOCAL_MAX || !input_sample.active[local] do return false
+			input_sample.active[local], input_sample.devices[local] = false, DEVICE_ANY
+			return api.installed && api.local_player(int(local), false, "", nil)
+		}, {"local"}, doc = "Local player [param local] (1 and up) leaves: its player is gone from the next tick, the others play on. (The first player leaves with [method leave].)")
+	gd.bind_dynamic_property(class, {"local_players", .ARRAY, "int"}, proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
+			session := (^Session_Node)(instance)
+			players := player_array()
+			if session.frame != nil {
+				for key in session.frame.local_players do if key != 0 do gd.array_push(&players, i64(key))
+			}
+			return array_variant(&players)
+		}, nil, doc = "The keys of this game's players in the session at the shown tick, in local order (the first player's first).")
+	gd.bind_dynamic_method(class, "get_local_indices", proc(_: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
+			indices := player_array()
+			for active, local in input_sample.active do if active do gd.array_push(&indices, i64(local))
+			return array_variant(&indices)
+		}, nil, {}, gd.Dynamic_Arg{"", .ARRAY, "int"}, doc = "The local indices of this game's local players (0, then the ones [method add_local_player] added), whether or not they are in yet.")
+	gd.bind_method(class, "get_local_player_key", proc(session: ^Session_Node, local: i64) -> i64 {
+			if session.frame == nil || local < 0 || local >= LOCAL_MAX do return 0
+			return i64(session.frame.local_players[local])
+		}, {"local"}, doc = "Local player [param local]'s key at the shown tick (0: not in).")
+	gd.bind_method(class, "get_local_index", proc(session: ^Session_Node, player: i64) -> i64 {
+			if session.frame == nil || player == 0 do return -1
+			for key, local in session.frame.local_players do if i64(key) == player do return i64(local)
+			return -1
+		}, {"player"}, doc = "Which local player [param player] is (-1: not one of this game's): which camera, HUD row or controller an event or a view is for.")
+	gd.bind_method(class, "get_local_device", proc(session: ^Session_Node, local: i64) -> i64 {
+			return i64(local_device(int(local)))
+		}, {
+			"local",
+		}, doc = "Local player [param local]'s device ([constant DEVICE_ANY], [constant DEVICE_KEYBOARD], or a joypad's id).")
+	gd.bind_method(class, "set_local_device", proc(session: ^Session_Node, local: i64, device: i64) {
+			if local >= 0 && local < LOCAL_MAX do input_sample.devices[local] = int(device)
+		}, {"local", "device"}, doc = "Plays local player [param local] on [param device] from the next sample: the action helpers read that device only (the first player starts on [constant DEVICE_ANY]: every device).")
+	gd.bind_signal(
+		class,
+		"local_players_changed",
+		doc = "A local player came into the session or left it ([member local_players]).",
+	)
+}
+
+// A start method's setup argument into the request: null leaves the game's default; a UnifiedSetup is copied, unless it
+// does not read on this build (false, with an error naming `method`).
+@(private)
+setup_of :: proc(variant: ^gd.Variant, request: ^Start, method: string) -> bool {
+	object, _ := gd.from_variant(gd.Object, variant)
+	if object.ptr == nil do return true
+	instance := D.setup != nil ? (^Data_Object)(gd.instance_of(object, &D.setup.class)) : nil
+	if instance == nil {
+		gd.print_error(fmt.tprintf("unified: %s: setup is not a %s", method, SETUP_CLASS))
+		return false
+	}
+	if problem := api.setup_problem(instance.bytes); problem != "" {
+		gd.print_error(fmt.tprintf("unified: %s: the setup %s", method, problem))
+		return false
+	}
+	copy(request.setup[:], instance.bytes)
+	request.has_setup = true
+	return true
 }
 
 @(private)
@@ -579,12 +727,25 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	request.ticks = u32(max(session.ticks, 0))
 	request.name = session.name
 	request.token = client_token()
+	if D.profile != nil && D.profile.instance != nil do copy(request.profile[:], D.profile.instance.bytes)
+	if !request.has_setup && session.args.setup != "" {
+		// the command line's (--setup): the game's default with its assignments
+		copy(request.setup[:], api.setup_default)
+		request.has_setup = true
+		if problem := api.setup_text(request.setup[:len(api.setup_default)], session.args.setup); problem != "" {
+			emit_status(session, .Failed, fmt.tprintf("--setup %s: %s", session.args.setup, problem))
+			return false
+		}
+	}
 	when DEVUI {
 		request.watchdog = !session.args.no_watchdog
 		request.dumps = fmt.tprintf("%s/feedback", gd.OS_get_user_data_dir(gd.OS_singleton()))
 	}
 	views_check_index()
 	data_reset()
+	// A new session starts with local player 0 alone: the others join it with add_local_player.
+	for local in 1 ..< LOCAL_MAX do input_sample.active[local], input_sample.devices[local] = false, DEVICE_ANY
+	session.locals_seen = {}
 	level_host_reset(&session.level)
 	session.mode = request.mode
 	set_join_code(session, "")
@@ -699,6 +860,10 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 	if changes := sync.atomic_load(&roster.changes); changes != session.roster_seen {
 		session.roster_seen = changes
 		gd.emit_signal(session.obj, gd.sn("roster_changed"))
+	}
+	if session.frame != nil && session.frame.local_players != session.locals_seen {
+		session.locals_seen = session.frame.local_players
+		gd.emit_signal(session.obj, gd.sn("local_players_changed"))
 	}
 	start_pending(session)
 	took := time.tick_since(started)
@@ -854,6 +1019,8 @@ FLAGS := [?]struct {
 	{"--bench", true, true},
 	{"--draw", true, true},
 	{"--no-watchdog", false, true},
+	{"--setup", true, false},
+	{"--profile", true, false},
 }
 
 // Reads unified:godot's flags from the user args (after `--`; strings are cloned or temp-allocated). `problems`:
@@ -938,6 +1105,12 @@ parse_command_line :: proc(
 		case "--join-code":
 			if value == "" do append(&found_problems, "--join-code wants a code")
 			args.join_code = strings.clone(value)
+		case "--setup":
+			if value == "" do append(&found_problems, "--setup wants key=value[,key=value]")
+			args.setup = strings.clone(value)
+		case "--profile":
+			if value == "" do append(&found_problems, "--profile wants key=value[,key=value]")
+			args.profile = strings.clone(value)
 		}
 	}
 	return args, found_problems[:], found_ignored[:]

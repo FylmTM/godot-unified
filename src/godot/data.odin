@@ -61,11 +61,16 @@ Enum_Class :: struct {
 
 CONSTANTS_CLASS :: "UnifiedConstants"
 INPUT_CLASS :: "UnifiedInput"
+SETUP_CLASS :: "UnifiedSetup"
+PROFILE_CLASS :: "UnifiedProfile"
 
 D: struct {
 	data:          [dynamic]^Data_Class, // by data kind (the union's order)
 	constants:     ^Data_Class, // UnifiedConstants (nil before registration, or on a clash)
 	input:         ^Data_Class, // UnifiedInput (nil before registration, or on a clash)
+	setup:         ^Data_Class, // UnifiedSetup (a value class: no live instance)
+	profile:       ^Data_Class, // UnifiedProfile (Unified.profile)
+	local_inputs:  [LOCAL_MAX]gd.Object, // local players 1.. input values (Unified.local_input; [0] unused: Unified.input)
 	nested:        map[typeid]^Data_Class, // the nested structs' classes, by type
 	enums:         [dynamic]^Enum_Class,
 	unified:       gd.Class,
@@ -188,6 +193,8 @@ register_nested_classes :: proc() {
 	for layout in api.data do append(&roots, layout.type)
 	if api.constants.type != nil do append(&roots, api.constants.type)
 	if api.input_values.type != nil do append(&roots, api.input_values.type)
+	if api.setup.type != nil do append(&roots, api.setup.type)
+	if api.profile.type != nil do append(&roots, api.profile.type)
 	types := make([dynamic]^runtime.Type_Info, context.temp_allocator)
 	nested_types_of(roots[:], &types)
 	for type in types {
@@ -221,6 +228,12 @@ register_data_classes :: proc() {
 	input := api.input_values
 	input.class, input.property = INPUT_CLASS, "input"
 	D.input = register_data_class(input, .Input)
+	setup := api.setup
+	setup.class, setup.property = SETUP_CLASS, "setup"
+	D.setup = register_data_class(setup, .Setup)
+	profile := api.profile
+	profile.class, profile.property = PROFILE_CLASS, "profile"
+	D.profile = register_data_class(profile, .Profile)
 	object_getter :: proc(user: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
 		data_class := (^Data_Class)(user)
 		return gd.variant_from_any(data_class.object)
@@ -290,7 +303,23 @@ register_data_classes :: proc() {
 			doc = "The game's constants.",
 		)
 	}
+	if D.profile != nil {
+		gd.bind_dynamic_property(
+			&D.unified,
+			{"profile", .OBJECT, PROFILE_CLASS},
+			object_getter,
+			nil,
+			D.profile,
+			doc = "What the local player chose before joining (the game's Profile): set its fields before a session starts or is joined; the player arrives with it on their join tick, on every peer. A change counts from the next join.",
+		)
+	}
 	if D.input != nil {
+		gd.bind_dynamic_method(&D.unified, "local_input", proc(_: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
+				local, _ := gd.from_variant(i64, args[0])
+				instance := local_input_instance(int(local))
+				if instance == nil do return gd.variant_nil()
+				return gd.variant_from_any(local == 0 ? D.input.object : D.local_inputs[local])
+			}, nil, {{"local", .INT, ""}}, gd.Dynamic_Arg{"", .OBJECT, INPUT_CLASS}, doc = "Local player [param local]'s input values (0: [member input]; up to [constant UnifiedSession.LOCAL_MAX] - 1): set by scripts, read by the game's sampling of that local player.")
 		gd.bind_dynamic_property(
 			&D.unified,
 			{"input", .OBJECT, INPUT_CLASS},
@@ -304,12 +333,26 @@ register_data_classes :: proc() {
 	gd.Engine_register_singleton(gd.Engine_singleton(), "Unified", D.singleton)
 }
 
+// The input values of local player `local` (main thread): Unified.input's for local player 0, Unified.local_input's
+// for the others (made the first time either asks); nil before the classes exist.
+@(private)
+local_input_instance :: proc(local: int) -> ^Data_Object {
+	if D.input == nil || D.input.instance == nil || local < 0 || local >= LOCAL_MAX do return nil
+	if local == 0 do return D.input.instance
+	if D.local_inputs[local].ptr == nil {
+		D.local_inputs[local] = {gd.construct_object(INPUT_CLASS)}
+	}
+	return (^Data_Object)(gd.instance_of(D.local_inputs[local], &D.input.class))
+}
+
 // What a Data_Class is: its parent, its units, whether scripts set it and whether it has a live instance.
 Data_Role :: enum u8 {
 	Data, // a session data type: one live instance, set from the frames, `changed`
 	Constants, // UnifiedConstants: one live instance, set at load
 	Input, // UnifiedInput: one live instance, set by scripts, read by sample_input
 	Nested, // a nested struct: a RefCounted value per read, settable
+	Setup, // UnifiedSetup: a RefCounted value (new(): the game's default Setup), settable; start_single(setup)
+	Profile, // UnifiedProfile: one live instance (Unified.profile), set by scripts, sent when a session starts
 }
 
 register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class {
@@ -328,12 +371,14 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 	data_class^ = {
 		class = {
 			name = layout.class,
-			parent = role == .Nested ? "RefCounted" : "Object",
+			parent = role == .Nested || role == .Setup ? "RefCounted" : "Object",
 			size = size_of(Data_Object),
 			init = proc(instance: rawptr) {
 				object := (^Data_Object)(instance)
-				type := (^Data_Class)(object.class).layout.type
+				data_class := (^Data_Class)(object.class)
+				type := data_class.layout.type
 				object.bytes = make([]u8, type.size if type != nil else 0, runtime.heap_allocator())
+				if data_class.role == .Setup do copy(object.bytes, api.setup_default) // the game's, Game.setup
 			},
 			fini = proc(instance: rawptr) {delete((^Data_Object)(instance).bytes, runtime.heap_allocator())},
 		},
@@ -357,13 +402,19 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 	case .Nested:
 		data_class.doc_brief = fmt.aprintf("The game's struct %v, nested in its events, commands or data.", type_name)
 		data_class.doc = "A value: each read of a field of this type makes a new one. Set its fields to put it into a command."
+	case .Setup:
+		data_class.doc_brief = "The game's session Setup (sim.Game's Setup): what differs between two sessions of this build."
+		data_class.doc = "A value: [code]UnifiedSetup.new()[/code] starts as the game's default (Game.setup); set its fields and pass it to [method UnifiedSession.start_single], [method UnifiedSession.host_online] or [method UnifiedSession.host_direct]. [member UnifiedSession.setup] reads the running session's. No members when the game has none."
+	case .Profile:
+		data_class.doc_brief = "The game's player Profile (sim.Game's Profile): [code]Unified.profile[/code]."
+		data_class.doc = "What the local player chose before joining (a character, a colour): set its fields before starting or joining a session. No members when the game has none."
 	}
 	gd.register_class(&data_class.class)
 	if layout.type != nil {
 		data_class.fields = struct_sim_fields(layout.type)
 		position_offsets(layout.type, 0, &data_class.positions)
 	}
-	settable := role == .Input || role == .Nested
+	settable := role == .Input || role == .Nested || role == .Setup || role == .Profile
 	for &field in data_class.fields {
 		gd.bind_dynamic_property(
 			&data_class.class,
@@ -375,7 +426,7 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 		)
 	}
 	if role == .Data do gd.bind_signal(&data_class.class, "changed", doc = "A value changed (a new tick's, or the reset when a session ends).")
-	if role != .Nested {
+	if role != .Nested && role != .Setup {
 		data_class.object = {gd.construct_object(layout.class)}
 		data_class.instance = (^Data_Object)(gd.instance_of(data_class.object, &data_class.class))
 	}
@@ -536,6 +587,10 @@ data_objects_free :: proc() {
 		gdi.object_destroy(data_class.object.ptr)
 		data_class.object, data_class.instance = {}, nil
 	}
+	for &object in D.local_inputs {
+		if object.ptr != nil do gdi.object_destroy(object.ptr)
+		object = {}
+	}
 }
 
 // Every registered data class, and the constants' and the input's classes.
@@ -544,6 +599,7 @@ data_classes :: proc() -> []^Data_Class {
 	for data_class in D.data do if data_class != nil do append(&all, data_class)
 	if D.constants != nil do append(&all, D.constants)
 	if D.input != nil do append(&all, D.input)
+	if D.profile != nil do append(&all, D.profile)
 	return all[:]
 }
 
@@ -553,5 +609,5 @@ data_classes_forget :: proc() {
 	clear(&D.data)
 	clear(&D.enums)
 	clear(&D.nested)
-	D.constants, D.input, D.singleton = nil, nil, {}
+	D.constants, D.input, D.setup, D.profile, D.singleton = nil, nil, nil, nil, {}
 }

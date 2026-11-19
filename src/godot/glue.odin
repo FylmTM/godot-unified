@@ -53,17 +53,31 @@ Multi_View_Item :: struct($MultiView: typeid) {
 	warp:   u8, // the instance's warp epoch, like View_Item.warp (keyed instances only)
 }
 
+// Whether `player` is one of this client's local players at the frame's tick.
+is_local :: proc(f: ^Frame($G, $View, $MultiView), player: sim.Player) -> bool {
+	return local_index(f, player) >= 0
+}
+
+// Which of this client's local players `player` is (-1: none): the view a split screen or a HUD row is for.
+local_index :: proc(f: ^Frame($G, $View, $MultiView), player: sim.Player) -> int {
+	if player.id == 0 do return -1
+	for local, index in f.local_players do if local == player do return index
+	return -1
+}
+
 // What fill_frame gets (session thread): the tick's state and world, and where the items go. Its buffers grow to what
 // a fill pushes; a fill past their hard limits is a runaway loop and panics.
 Frame :: struct($G, $View, $MultiView: typeid) {
-	state:        ^sim.part(G, sim.GAME_STATE),
-	world:        ^sim.part(G, sim.GAME_WORLD), // at the frame's tick
-	tick:         u32,
-	local_player: sim.Player, // who this client plays at this tick ({}: nobody yet, e.g. before its join tick)
-	seed:         u64, // the session's seed: a keyed roll the sim will make, computed early (sim.roll_below_at)
-	time:         u32, // game time at this tick (sim.game_time): what a view reads timers with (sim.timer_fraction)
-	out:          ^Frame_Data, // what the main thread gets
-	poses:        ^Pose_Memory, // every keyed item's pose at the fill before
+	state:         ^sim.part(G, sim.GAME_STATE),
+	world:         ^sim.part(G, sim.GAME_WORLD), // at the frame's tick
+	tick:          u32,
+	// Who this client's local players are at this tick, by local index ({}: nobody, e.g. before a join tick): one
+	// player's game reads [0]; is_local and local_index ask about a player.
+	local_players: [LOCAL_MAX]sim.Player,
+	seed:          u64, // the session's seed: a keyed roll the sim will make, computed early (sim.roll_below_at)
+	time:          u32, // game time at this tick (sim.game_time): what a view reads timers with (sim.timer_fraction)
+	out:           ^Frame_Data, // what the main thread gets
+	poses:         ^Pose_Memory, // every keyed item's pose at the fill before
 }
 
 // A scene view as published: the item, its previous pose (from the host's memory) and its data's place.
@@ -116,8 +130,10 @@ Frame_Data :: struct {
 	level:          Level_Stamp,
 	verified_level: Level_Stamp,
 	tick_hz:        u32,
+	setup:          [sim.SETUP_MAX]u8, // the session's Setup's bytes (UnifiedSession.setup)
 	due_us:         i64, // when `tick` was due on the session clock (netcode.now_us); for alpha
-	local_player:   u64, // the local player's key at `tick` (0: nobody yet)
+	local_player:   u64, // local player 0's key at `tick` (0: nobody yet)
+	local_players:  [LOCAL_MAX]u64, // each local player's key at `tick`, by local index (0: nobody)
 	published:      u64, // publish counter (0: nothing yet)
 	net:            netcode.Client_Stats, // the local client's (netcode.client_stats)
 	slots:          [sim.MAX_PLAYERS]u64, // who holds each slot at `tick` (keys; 0: nobody)
@@ -147,7 +163,7 @@ Frame_Data :: struct {
 // named procs, never inline lambdas.
 Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specialization_of(G, sim.Game) {
 	// Main thread, every frame: the local player's Input from Godot's input (the action helpers, input.odin).
-	sample_input: proc(input: ^sim.part(G, sim.GAME_INPUT)),
+	sample_input: proc(local: int, input: ^sim.part(G, sim.GAME_INPUT)),
 	// Session thread, every published tick: the views of the tick's state (push_view, push_multi_view) and the
 	// session data (push_data).
 	fill_frame:   proc(frame: ^Frame(G, View, MultiView)),
@@ -251,19 +267,23 @@ Mode :: enum u8 {
 
 @(private)
 Start :: struct {
-	mode:     Mode,
-	arg:      string, // join code or host:port
-	port:     int, // Host_Direct
-	local:    bool, // Host_Direct: listen on 127.0.0.1 only (--local-net), else on every interface
-	name:     string,
-	seed:     u64,
-	ticks:    u32, // 0: endless
-	scripted: bool, // scripted input instead of the InputMap (headless checks)
-	bench:    int, // Single only: Game.bench_prepare(count) after the game's init (dev benchmarks)
-	token:    netcode.Token, // what the relay knows this player by when they come back over LAN (user://)
+	mode:      Mode,
+	arg:       string, // join code or host:port
+	port:      int, // Host_Direct
+	local:     bool, // Host_Direct: listen on 127.0.0.1 only (--local-net), else on every interface
+	name:      string,
+	seed:      u64,
+	ticks:     u32, // 0: endless
+	scripted:  bool, // scripted input instead of the InputMap (headless checks)
+	bench:     int, // Single only: Game.bench_prepare(count) after the game's init (dev benchmarks)
+	token:     netcode.Token, // what the relay knows this player by when they come back over LAN (user://)
+	// A host's: the session's Setup's bytes (has_setup; else the game's, Game.setup). A joiner gets the host's.
+	setup:     [sim.SETUP_MAX]u8,
+	has_setup: bool,
+	profile:   [sim.PROFILE_MAX]u8, // local player 0's Profile's bytes (Unified.profile at the start)
 	// Dev UI builds: watch the session thread for a freeze (watchdog.odin), dumping into `dumps` (<user data>/feedback)
-	watchdog: bool,
-	dumps:    string,
+	watchdog:  bool,
+	dumps:     string,
 }
 
 @(private)

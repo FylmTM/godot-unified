@@ -73,7 +73,7 @@ fill_frame_hud :: proc(f: ^Frame) {
 	godot.push_data(f, Data_Hud {
 		players = u32(sim.present_count(&f.state.players)),
 		balls   = u32(f.state.balls.count),
-		color   = player_color(f, f.local_player),
+		color   = player_color(f, f.local_players[0]),
 		paused  = f.state.clock.paused,
 	})
 }
