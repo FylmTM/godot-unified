@@ -42,7 +42,11 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(
 		t,
 		len(data),
-		sim.LOG_HEADER + size_of(toy.Setup) + 50 * tick_bytes + command_bytes + 2 * sim.JOIN_BYTES,
+		sim.LOG_HEADER +
+		size_of(toy.Setup) +
+		50 * tick_bytes +
+		command_bytes +
+		2 * (sim.JOIN_BYTES + size_of(toy.Profile)),
 	)
 	back, ok := sim.log_decode(data, toy.Game)
 	defer sim.log_destroy(&back)

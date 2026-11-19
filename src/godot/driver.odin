@@ -918,14 +918,14 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 	request := &driver.req
 	game := driver.game
 	hooks := driver_hooks(driver)
-	host_config := netcode.Host_Config {
+	host_config := netcode.Host_Config(G) {
 		desync_detail = DEVUI, // typed desync reports where the dev UI is (every build for now)
 		dev           = DEVUI, // debug draws and zones (dev UI builds)
 		player_name   = request.name,
 		seed          = request.seed,
 		ticks         = request.ticks,
 	}
-	client_config := netcode.Client_Config {
+	client_config := netcode.Client_Config(G) {
 		player_name = request.name,
 		slot        = -1,
 		token       = request.token,

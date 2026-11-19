@@ -48,7 +48,8 @@ ticks are the sim's keep slots.
 - **Messages** (`Msg`, each value with its fields). The relay knows a sender's slot from its connection: no message
   carries its own slot, so a client speaks only for itself. Byte layouts live in the headers: datagrams in
   `channel.odin`, ticks and inputs in `window.odin`.
-- **Widths.** A game's widest tick (every Input byte changed, every slot joining: `window_tick_max_bytes`) must leave
+- **Widths.** A game's widest tick (every Input byte changed, a player joining with their Profile:
+  `window_tick_max_bytes`) must leave
   `TICKS_PER_MESSAGE_MIN` of them per Finalized message, and `relay_create` refuses a wider game (`game_violation`,
   which the Godot host reports with the sim's): fewer ticks per message leave no room to make up a lost one, and
   clients on a lossy network stall on most ticks. The bound is on players and Input bytes together: more players
@@ -99,6 +100,17 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
 - **Hello** asks for a slot or any free one (slots go lowest-free). The relay checks `compat` (`sim.compat_of`), finds
   who it is (Members) and, once the session runs, someone who can send the joiner a snapshot; `Reject_Reason` names
   each refusal. A Hello while the session ends gets End, not silence.
+- **One new player per tick.** A tick carries at most one join record and its Profile: the start players become
+  present on ticks 1, 2, ... in slot order, and a late join takes the first tick at or after its join tick on which no
+  other seat joins (four players at 64 Hz are all in after 47 ms). So the widest tick has one join, a Profile of up to
+  `sim.PROFILE_MAX` bytes is legal at any player count, and the join term never grows with the players. In-memory
+  `Inputs` and the input log stay general: an offline run still seats everyone on tick 1.
+- **Setup and Profiles.** The relay sends the session's Setup in every Welcome (a start client builds tick 0 with
+  it, `Welcome_Flags.Start`; a joiner's snapshot carries it), records it in the log's header, and writes each seat's
+  Profile, from its Hello, beside its join record. A Profile of another size than the build's is refused
+  (`Incompatible`: only a modified client sends one); what its bytes hold is the sim's to read
+  (`src/sim/README.md`, Bytes from another machine), so a client predicts its own join with its own Profile and its
+  character is right on its first predicted tick.
 - **Start**: the clock starts once the start players have connected: they get Welcome and tick 0 is due
   `START_LEAD_MS` later, so a far start player's inputs for tick 1 arrive in time. The lead covers the path, not a lost
   Welcome: a start player whose Welcome is resent has its first ticks' inputs replaced, a moment of standing still
@@ -238,10 +250,10 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
 
 ## Late join and rejoin
 
-- The joiner's join tick J = max(asked, clock + `JOIN_LEAD_MS`, finalized + 2). The connection holding the lowest slot
-  that can (and didn't send it a bad one) is asked for a snapshot of the first checksum tick S ≥ J − 1 it verifies. It goes
-  through the relay in reliable chunks, only from the player asked; the finalized ticks from S on are streamed to the
-  joiner. A provider that leaves, sends nothing for `SNAP_STALL_US`, or sends a snapshot the relay can't use is
+- The joiner's join tick J is the first tick at or after max(asked, clock + `JOIN_LEAD_MS`, finalized + 2) on which no
+  other seat joins. The connection holding the lowest slot that can (and didn't send it a bad one) is asked for a
+  snapshot of the first checksum tick S ≥ J − 1 it verifies. It goes through the relay in reliable chunks, only from
+  the player asked; the finalized ticks from S on are streamed to the joiner. A provider that leaves, sends nothing for `SNAP_STALL_US`, or sends a snapshot the relay can't use is
   replaced by another, asked for a snapshot no older than the one begun (the joiner keeps the finalized ticks it
   holds from it on, and acks of them may reach the relay after the new Snap_Begin). A provider asked again for a seat
   may still be sending its answer to the seat's previous occupant: what it sends before its new answer's Snap_Begin is

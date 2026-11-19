@@ -77,7 +77,15 @@ a_games_least_input_delay_is_the_floor :: proc(t: ^testing.T) {
 	game.input_delay_min_ticks = 3
 	floor := tap_session(t, &game)
 	testing.expect_value(t, floor.delay_min, u32(3))
-	testing.expect_value(t, floor.rollbacks, default.rollbacks)
+	// As many wrong guesses, up to the start players' joins: they become present one per tick, and a join the relay
+	// finalized before a client predicted that tick is no guess at one floor and a wrong one at the other.
+	testing.expectf(
+		t,
+		abs(int(floor.rollbacks) - int(default.rollbacks)) <= toy.PLAYERS,
+		"rollbacks: %d at a floor of 3, %d at 1",
+		floor.rollbacks,
+		default.rollbacks,
+	)
 	testing.expectf(
 		t,
 		floor.resim * 10 <= default.resim * 8,

@@ -9,7 +9,7 @@ import "unified:wire"
 
 // Bump on any wire change: a datagram, a message, the snapshots a late joiner gets (the sim-change skill). Every
 // datagram starts with it (channel.odin), so peers on two versions never parse each other's messages.
-PROTOCOL_VERSION :: 17
+PROTOCOL_VERSION :: 18
 #assert(PROTOCOL_VERSION < 0x80) // the datagram's first byte: 0x80 | PROTOCOL_VERSION
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 PLATFORM_MAX :: 15 // bytes of an account's platform name ("eos")
@@ -140,11 +140,15 @@ round_trip_ceiling_us :: proc(timing: Timing) -> f64 {
 // A relay <-> client message's type byte. Each value says its direction (c->r, r->c), its delivery (R reliable, U
 // unreliable) and its fields, in order.
 Msg :: enum u8 {
-	// c->r R: slot u8 (ANY_SLOT: any), join tick u32 (0: at start), compat u64, token [16]u8, name len u8 + bytes,
-	// sent at i64 (the client's clock when this Hello first went out: the relay orders one person's tries by it)
+	// c->r R: the connection's fields, then the seats it asks for (write_hello): compat u64, token [16]u8, sent at
+	// i64 (the client's clock when this Hello first went out: the relay orders one person's tries by it), resume tick
+	// u32 and checksum u64 (reserved for resuming from the client's own verified tick; 0: none), seat count u8, then
+	// per seat: local u8, slot u8 (ANY_SLOT: any), join tick u32 (0: at start), name len u8 + bytes, profile size u8 +
+	// the Profile's bytes
 	Hello = 1,
-	// r->c R: slot u8, member u16, seed u64, tick_hz u16, ticks u32 (0: endless), first tick u32, flags u8
-	// (Welcome_Flags)
+	// r->c R: seed u64, tick_hz u16, ticks u32 (0: endless), flags u8 (Welcome_Flags), setup size u16 + the session's
+	// Setup's bytes, resume from u32 (reserved for resuming; 0: none), seat count u8, then per seat granted: local u8,
+	// slot u8, member u16, first tick u32 (write_welcome)
 	Welcome,
 	Reject, // r->c R: reason u8
 	// c->r U: finalized ack u32, first tick u32, count u8, inputs (window_write_input: each its changes from the one
@@ -173,7 +177,136 @@ Msg :: enum u8 {
 // What Welcome asks of the client beyond playing.
 Welcome_Flags :: bit_set[enum u8 {
 	Keep_Images, // keep the snapshots of the last DESYNC_IMAGES checksum ticks: the relay may ask for one
+	Start, // a start client: build tick 0 from the seed and the Setup (else a snapshot comes)
 };u8]
+
+LOCAL_MAX :: 4 // the most seats (local players) one connection holds
+
+// One seat a Hello asks for: which of the client's local players, the slot (ANY_SLOT: any free one), the earliest
+// tick to become present (0: as soon as possible), the player's name and the Profile's bytes.
+Seat_Ask :: struct {
+	local:     u8,
+	slot:      u8,
+	join_tick: u32,
+	name:      Player_Name,
+	profile:   Text(sim.PROFILE_MAX),
+}
+
+// What a Hello says (write_hello, read_hello): the connection's fields, then the seats it asks for.
+Hello :: struct {
+	compat:          u64,
+	token:           Token,
+	sent_us:         i64, // the client's clock when this Hello first went out
+	resume_tick:     u32, // reserved: the client's newest verified tick to resume from (0: none)
+	resume_checksum: u64,
+	seat_count:      int,
+	seats:           [LOCAL_MAX]Seat_Ask,
+}
+
+// One seat a Welcome grants: the local player, its slot, its member id and the first tick it is present.
+Seat_Grant :: struct {
+	local:      u8,
+	slot:       u8,
+	member:     u16,
+	first_tick: u32,
+}
+
+// What a Welcome says (write_welcome, read_welcome): the session's fields, then the seats granted.
+Welcome :: struct {
+	seed:        u64,
+	tick_hz:     int,
+	ticks:       u32, // 0: endless
+	flags:       Welcome_Flags,
+	setup:       []u8, // the session's Setup's bytes (read_welcome: a view into the message)
+	resume_from: u32, // reserved: the tick a resumed connection is streamed from (0: none)
+	seat_count:  int,
+	seats:       [LOCAL_MAX]Seat_Grant,
+}
+
+// Writes a Hello message (its type byte first) into an empty writer.
+write_hello :: proc(writer: ^wire.Writer, hello: ^Hello) {
+	wire.w_u8(writer, u8(Msg.Hello))
+	wire.w_u64(writer, hello.compat)
+	wire.w_bytes(writer, hello.token[:])
+	w_i64(writer, hello.sent_us)
+	wire.w_u32(writer, hello.resume_tick)
+	wire.w_u64(writer, hello.resume_checksum)
+	wire.w_u8(writer, u8(hello.seat_count))
+	for &seat in hello.seats[:hello.seat_count] {
+		wire.w_u8(writer, seat.local)
+		wire.w_u8(writer, seat.slot)
+		wire.w_u32(writer, seat.join_tick)
+		w_text(writer, &seat.name)
+		w_text(writer, &seat.profile)
+	}
+}
+
+// Reads a Hello after its type byte; false when it is malformed (cut short, no seat or more than LOCAL_MAX, a name or
+// profile too long).
+read_hello :: proc(reader: ^wire.Reader) -> (hello: Hello, ok: bool) {
+	hello.compat = wire.r_u64(reader)
+	copy(hello.token[:], wire.r_bytes(reader, TOKEN_SIZE))
+	hello.sent_us = r_i64(reader)
+	hello.resume_tick = wire.r_u32(reader)
+	hello.resume_checksum = wire.r_u64(reader)
+	hello.seat_count = int(wire.r_u8(reader))
+	if !reader.ok || hello.seat_count < 1 || hello.seat_count > LOCAL_MAX {
+		return
+	}
+	for &seat in hello.seats[:hello.seat_count] {
+		seat.local = wire.r_u8(reader)
+		seat.slot = wire.r_u8(reader)
+		seat.join_tick = wire.r_u32(reader)
+		seat.name = r_text(reader, NAME_MAX)
+		seat.profile = r_text(reader, sim.PROFILE_MAX)
+	}
+	return hello, reader.ok
+}
+
+// Writes a Welcome message (its type byte first) into an empty writer.
+write_welcome :: proc(writer: ^wire.Writer, welcome: ^Welcome) {
+	wire.w_u8(writer, u8(Msg.Welcome))
+	wire.w_u64(writer, welcome.seed)
+	wire.w_u16(writer, u16(welcome.tick_hz))
+	wire.w_u32(writer, welcome.ticks)
+	wire.w_u8(writer, transmute(u8)welcome.flags)
+	wire.w_u16(writer, u16(len(welcome.setup)))
+	wire.w_bytes(writer, welcome.setup)
+	wire.w_u32(writer, welcome.resume_from)
+	wire.w_u8(writer, u8(welcome.seat_count))
+	for seat in welcome.seats[:welcome.seat_count] {
+		wire.w_u8(writer, seat.local)
+		wire.w_u8(writer, seat.slot)
+		wire.w_u16(writer, seat.member)
+		wire.w_u32(writer, seat.first_tick)
+	}
+}
+
+// Reads a Welcome after its type byte; false when it is malformed (cut short, no seat or more than LOCAL_MAX, a Setup
+// over sim.SETUP_MAX bytes).
+read_welcome :: proc(reader: ^wire.Reader) -> (welcome: Welcome, ok: bool) {
+	welcome.seed = wire.r_u64(reader)
+	welcome.tick_hz = int(wire.r_u16(reader))
+	welcome.ticks = wire.r_u32(reader)
+	welcome.flags = transmute(Welcome_Flags)wire.r_u8(reader)
+	setup_size := int(wire.r_u16(reader))
+	if setup_size > sim.SETUP_MAX {
+		return
+	}
+	welcome.setup = wire.r_bytes(reader, setup_size)
+	welcome.resume_from = wire.r_u32(reader)
+	welcome.seat_count = int(wire.r_u8(reader))
+	if !reader.ok || welcome.seat_count < 1 || welcome.seat_count > LOCAL_MAX {
+		return
+	}
+	for &seat in welcome.seats[:welcome.seat_count] {
+		seat.local = wire.r_u8(reader)
+		seat.slot = wire.r_u8(reader)
+		seat.member = wire.r_u16(reader)
+		seat.first_tick = wire.r_u32(reader)
+	}
+	return welcome, reader.ok
+}
 
 // Why the relay refused a Hello, or a client it had seated (Reject). The client fails with it, except Too_Far_Behind,
 // which disconnects it.
@@ -282,7 +415,7 @@ INPUTS_HEAD :: 10 // type u8, finalized ack u32, first u32, count u8 (asserted i
 COMMANDS_HEAD :: 5 // first seq u32, count u8
 COMMAND_SEND_HEAD :: 6 // wanted tick u32, kind u8, size u8
 
-// The fewest ticks at their widest (window_tick_max_bytes: every Input byte changed, every slot joining) a Finalized
+// The fewest ticks at their widest (window_tick_max_bytes: every Input byte changed, a player joining) a Finalized
 // message must hold. The relay streams a client one message of ticks per broadcast and a second for ticks no
 // broadcast carried yet; fewer ticks per message leave too little room to make up a lost one, and clients on a lossy
 // network stall on most ticks.
@@ -293,11 +426,13 @@ TICKS_PER_MESSAGE_MIN :: 4
 // zero or past the delay ceiling. relay_create panics with it; the Godot host reports it with sim.game_violation's.
 game_violation :: proc(game: ^$G) -> string {
 	Input :: sim.part(G, sim.GAME_INPUT)
+	Profile :: sim.part(G, sim.GAME_PROFILE)
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	if reason := delay_violation(game.name, game.tick_hz, game.input_delay_min_ticks); reason != "" {
 		return reason
 	}
-	return width_violation(game.name, PLAYERS, size_of(Input), window_tick_max_bytes(Input, PLAYERS, nil))
+	widest := window_tick_max_bytes(Input, PLAYERS, nil, size_of(Profile))
+	return width_violation(game.name, PLAYERS, size_of(Input), widest)
 }
 
 // Why a game's least input delay can't be played ("" when it can): below zero, or past the delay ceiling
@@ -338,10 +473,11 @@ width_violation :: proc(name: string, players, input_bytes, tick_bytes: int) -> 
 }
 
 // The bytes a finalized tick's commands may take (their count byte aside), so that the tick alone always fits one
-// message however much it changed (window_tick_max_bytes). A packet holds up to WINDOW_MAX ticks, as many as fit.
+// message however much it changed (window_tick_max_bytes, with a Profile of `profile_size` bytes). A packet holds up
+// to WINDOW_MAX ticks, as many as fit.
 @(private)
-tick_command_budget :: proc($Input: typeid, $PLAYERS: int) -> int {
-	budget := MAX_MESSAGE - FINALIZED_HEAD - window_tick_max_bytes(Input, PLAYERS, nil) - 1
+tick_command_budget :: proc($Input: typeid, $PLAYERS: int, profile_size: int) -> int {
+	budget := MAX_MESSAGE - FINALIZED_HEAD - window_tick_max_bytes(Input, PLAYERS, nil, profile_size) - 1
 	assert(budget >= sim.COMMAND_HEAD + sim.COMMAND_MAX, "a tick with one command does not fit a datagram")
 	return budget
 }

@@ -13,9 +13,11 @@ package netcode
 import usim "unified:sim" // the field Client.sim shadows the package name
 import "unified:wire"
 
-// What a client asks the relay for and who it says it is (client_create).
-Client_Config :: struct {
+// What a client of game G asks the relay for and who it says it is (client_create): written as a literal at the call
+// (`client_create(&GAME, {slot = -1, profile = {character = .Tank}}, link, hooks)`).
+Client_Config :: struct($G: typeid) {
 	slot:          int, // the slot to ask for; -1: any free one
+	profile:       usim.part(G, usim.GAME_PROFILE), // what the player chose before joining: on their join tick, everywhere
 	join_tick:     u32, // the earliest tick to become present (0: as soon as possible)
 	compat:        u64, // build/game id the relay checks (0: sim.compat_of(game))
 	player_name:   string, // the player's display name (sent to the relay, shared with everyone)
@@ -159,7 +161,7 @@ Client_Stats :: struct {
 // commands, the snapshots it sends joiners, and the roster. Driven by client_step.
 Client :: struct($G: typeid) {
 	game:           ^G,
-	cfg:            Client_Config,
+	cfg:            Client_Config(G),
 	hooks:          Hooks(G),
 	tm:             Timing,
 	ch:             ^Channel,
@@ -175,6 +177,7 @@ Client :: struct($G: typeid) {
 	slot:           int,
 	member:         u16, // our member id (the relay's): our join record's
 	seed:           u64,
+	setup:          usim.part(G, usim.GAME_SETUP), // the session's (Welcome)
 	ticks:          u32, // session length, 0: endless
 	first_tick:     u32, // J: first tick this player is present
 	keep_images:    bool, // Welcome's Keep_Images
@@ -252,7 +255,7 @@ client_member :: proc(client: ^Client($G), id: u16) -> ^Roster_Entry {
 
 // Creates a client talking to a relay over `link` (the client owns it). Nothing is sent until the
 // first client_step.
-client_create :: proc(game: ^$G, cfg: Client_Config, link: Link, hooks: Hooks(G)) -> ^Client(G) {
+client_create :: proc(game: ^$G, cfg: Client_Config(G), link: Link, hooks: Hooks(G)) -> ^Client(G) {
 	Input :: usim.part(G, usim.GAME_INPUT)
 	usim.check_wire(Input)
 	client := new(Client(G))
@@ -370,39 +373,48 @@ csend :: proc(client: ^Client($G), writer: ^wire.Writer, delivery: Delivery, now
 
 @(private)
 on_welcome :: proc(client: ^Client($G), reader: ^wire.Reader) {
+	Setup :: usim.part(G, usim.GAME_SETUP)
 	PLAYERS :: usim.part(G, usim.GAME_PLAYERS)
-	slot := int(wire.r_u8(reader))
-	member := wire.r_u16(reader)
-	seed := wire.r_u64(reader)
-	tick_hz := int(wire.r_u16(reader))
-	ticks := wire.r_u32(reader)
-	first := wire.r_u32(reader)
-	flags := transmute(Welcome_Flags)wire.r_u8(reader)
-	if !reader.ok ||
+	welcome, ok := read_welcome(reader)
+	grant := &welcome.seats[0]
+	if !ok ||
 	   client.welcomed ||
-	   slot >= PLAYERS ||
-	   member == NO_MEMBER ||
-	   first == 0 ||
-	   (client.cfg.slot >= 0 && slot != client.cfg.slot) {
+	   grant.local != 0 ||
+	   int(grant.slot) >= PLAYERS ||
+	   grant.member == NO_MEMBER ||
+	   grant.first_tick == 0 ||
+	   (client.cfg.slot >= 0 && int(grant.slot) != client.cfg.slot) {
 		return
 	}
-	if tick_hz != client.game.tick_hz {
+	if welcome.tick_hz != client.game.tick_hz {
 		set_status(client, .Failed, "the relay runs another tick rate")
 		return
 	}
+	// The session's Setup: a start client builds tick 0 with it (a joiner's snapshot carries it). One that does not
+	// read on this build would play another session than the host's: refused, never zeroed.
+	if len(welcome.setup) != size_of(Setup) {
+		set_status(client, .Failed, "the host's setup does not read on this build")
+		return
+	}
+	copy(usim.bytes_of(&client.setup), welcome.setup)
+	if usim.setup_violation(client.game, &client.setup) != "" {
+		set_status(client, .Failed, "the host's setup does not read on this build")
+		return
+	}
+	first := grant.first_tick
 	client.welcomed = true
-	client.slot = slot
-	client.member = member
-	client.seed = seed
-	client.ticks = ticks
+	client.slot = int(grant.slot)
+	client.member = grant.member
+	client.seed = welcome.seed
+	client.ticks = welcome.ticks
 	client.first_tick = first
-	client.keep_images = .Keep_Images in flags
+	client.keep_images = .Keep_Images in welcome.flags
 	client.own_last = first - 1
 	client.own_acked = first - 1
 	// No growing on the session thread.
-	reserve(&client.checksums, ticks != 0 ? int(ticks / CHECKSUM_EVERY) + 1 : CHECKSUMS_KEPT)
-	if first == 1 {
-		client.sim = usim.create(client.game, seed)
+	reserve(&client.checksums, welcome.ticks != 0 ? int(welcome.ticks / CHECKSUM_EVERY) + 1 : CHECKSUMS_KEPT)
+	if .Start in welcome.flags {
+		client.sim = usim.create(client.game, welcome.seed, client.setup)
 		if client.cfg.dev do usim.dev_attach(client.sim, zone_clock)
 		if !client.leaving {
 			set_status(client, .Connected, "") // a client that left before its Welcome stays leaving ("left")
@@ -702,7 +714,8 @@ predicted_inputs :: proc(client: ^Client($G), tick: u32, out: ^usim.Inputs(G)) {
 		out.present += {client.slot}
 		out.input[client.slot] = client.own[min(tick, client.own_last) % OWN_RING]
 		if tick == client.first_tick {
-			out.joins[client.slot] = client.member // our join record, as the relay will write it
+			out.joins[client.slot] = client.member // our join record and Profile, as the relay will write them
+			out.profiles[client.slot] = client.cfg.profile
 		}
 	}
 	// Own commands where the relay will put them if they reach it in time: each in the tick it was sent
@@ -1249,15 +1262,22 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 		return now + 100_000
 	}
 	if !client.hello_sent {
-		writer := msg_begin(&client.w, .Hello)
-		wire.w_u8(writer, client.cfg.slot < 0 ? ANY_SLOT : u8(client.cfg.slot))
-		wire.w_u32(writer, client.cfg.join_tick)
-		wire.w_u64(writer, client.cfg.compat)
-		wire.w_bytes(writer, client.cfg.token[:])
-		name := text_of(NAME_MAX, client.cfg.player_name)
-		w_text(writer, &name)
-		w_i64(writer, now)
-		csend(client, writer, .Reliable, now)
+		hello := Hello {
+			compat     = client.cfg.compat,
+			token      = client.cfg.token,
+			sent_us    = now,
+			seat_count = 1,
+		}
+		hello.seats[0] = {
+			slot      = client.cfg.slot < 0 ? ANY_SLOT : u8(client.cfg.slot),
+			join_tick = client.cfg.join_tick,
+			name      = text_of(NAME_MAX, client.cfg.player_name),
+		}
+		profile := &hello.seats[0].profile
+		profile.len = u8(copy(profile.bytes[:], usim.bytes_of(&client.cfg.profile)))
+		clear(&client.w.buf)
+		write_hello(&client.w, &hello)
+		csend(client, &client.w, .Reliable, now)
 		client.hello_sent = true
 		set_status(client, .Connecting, "")
 	}

@@ -180,10 +180,13 @@ session_run :: proc(game: ^$G, cfg: Session_Config) -> (result: Session_Result(G
 	) -> ^netcode.Client(G) {
 		link := netcode.loopback_link(hub, netcode.Peer(slot + 1))
 		link = netcode.netsim_wrap(link, cfg.profile, u32(cfg.seed) * 7919 + u32(slot) * 104729 + 17, clock)
-		client_cfg := netcode.Client_Config {
+		client_cfg := netcode.Client_Config(G) {
 			slot      = slot,
 			join_tick = join,
 			dev       = cfg.dev,
+		}
+		if game.scripted_profile != nil {
+			client_cfg.profile = game.scripted_profile(cfg.seed, slot)
 		}
 		return netcode.client_create(game, client_cfg, link, scripted_hooks(scripted))
 	}

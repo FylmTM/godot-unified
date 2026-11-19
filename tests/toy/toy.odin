@@ -100,6 +100,7 @@ Player_Data :: struct {
 	bump_fold: u32, // bump_fold(fold, amount) over the bumps in order
 	marks:     u32,
 	last_mark: Cmd_Mark,
+	color:     u32, // their Profile's, from the tick they arrived
 }
 
 // The session's Setup: things live `life_bonus` ticks longer (0, the toy's default, changes nothing).
@@ -108,12 +109,18 @@ Setup :: struct {
 	_pad:       [3]u8,
 }
 
+// What a player chose before joining: a colour, kept in their data from the tick they arrive.
+Profile :: struct {
+	color: u8,
+	_pad:  [3]u8,
+}
+
 State :: struct {
 	spawned: u32,
 	level:   sim.Active_Level(Area),
 	_pad:    u32,
 	clock:   sim.Clock, // game time: a Cmd_Pause stops it (the co-op pause)
-	players: sim.Players(Player_Data, sim.No_Profile, Input, PLAYERS),
+	players: sim.Players(Player_Data, Profile, Input, PLAYERS),
 	things:  sim.Table(Thing, 32),
 }
 
@@ -141,7 +148,7 @@ Event :: union {
 	Event_Expired,
 }
 
-Game :: sim.Game(State, Input, World, Event, Cmd, Setup, sim.No_Profile, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Cmd, Setup, Profile, PLAYERS)
 Sim :: sim.Sim(Game)
 Inputs :: sim.Inputs(Game)
 Tick :: sim.Tick(Game)
@@ -158,6 +165,7 @@ GAME := Game {
 	tick = tick,
 	scripted_input = scripted_input,
 	scripted_commands = scripted_commands,
+	scripted_profile = scripted_profile,
 }
 
 // What the toy's keyed rolls are for (sim.roll_below).
@@ -167,6 +175,9 @@ Roll :: enum u8 {
 
 tick :: proc(t: ^Tick) {
 	t.world.ticks_run += 1
+	for player in t.player_changes.arrived {
+		sim.player_data(t, player).color = u32(sim.player_profile(t, player).color)
+	}
 	players := sim.iterate_present(t)
 	for data, player in sim.next(&players) {
 		for sent in sim.commands(t, player) {
@@ -239,6 +250,11 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State = nil) -> 
 		dy      = i8((x >> 8) % 7) - 3,
 		buttons = {.Spawn} if (x >> 16) % 5 == 0 else {},
 	}
+}
+
+// The scripted players' Profiles: a colour per slot and seed.
+scripted_profile :: proc(seed: u64, slot: int) -> Profile {
+	return {color = u8(1 + slot + int(seed % 3))}
 }
 
 // Order-sensitive: the same bumps in another order fold differently.
