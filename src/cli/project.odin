@@ -81,6 +81,12 @@ game :: proc(name: string) -> Game {
 	usage("no game %q", name)
 }
 
+// Whether the project has a game named `name`.
+has_game :: proc(name: string) -> bool {
+	for candidate in state.project.games do if candidate.name == name do return true
+	return false
+}
+
 // The games a command runs on: the one it names, or every game.
 games_or_all :: proc(name: string) -> []Game {
 	if name == "" {

@@ -97,8 +97,11 @@ Test_Run :: struct {
 // run prints only the runners' warnings (a leak, a test's log.warn: test_output_warnings) and one last line,
 // "Finished N tests" (with several binaries, their tests added up); a failing binary prints its whole output (state
 // changes aside), and --verbose echoes every binary's as it comes. A binary killed after a crash or at
-// TEST_HANG_TIMEOUT also says which tests crashed and which were still running.
-run_test_binaries :: proc(exes: []string) -> bool {
+// TEST_HANG_TIMEOUT also says which tests crashed and which were still running. `only`: run just these tests
+// (`name` or `package.name`), chosen at run time (the runner's -tests:), so the binary is the one every run shares.
+run_test_binaries :: proc(exes: []string, only: []string = nil) -> bool {
+	args := strs()
+	if len(only) > 0 do args = strs(aprintf("-tests:%s", strings.join(only, ",")))
 	runs := make([]Test_Run, len(exes))
 	start := time.tick_now()
 	for exe, i in exes {
@@ -110,8 +113,11 @@ run_test_binaries :: proc(exes: []string) -> bool {
 			fatal("cannot create %s", run.log_path)
 		}
 		run.log_file = log_file
-		if state.verbose do log("+ %s", exe)
-		process, start_err := spawn({command = strs(exe), stdout = log_file, stderr = log_file}, log_file)
+		command := make([dynamic]string)
+		append(&command, exe)
+		append(&command, ..args)
+		if state.verbose do log("+ %s", strings.join(command[:], " "))
+		process, start_err := spawn({command = command[:], stdout = log_file, stderr = log_file}, log_file)
 		if start_err != nil {
 			fatal("cannot start %s: %v", exe, start_err)
 		}

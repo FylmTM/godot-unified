@@ -137,6 +137,22 @@ test_root :: proc(game_name := "") -> string {
 	return join(state.project.games[0].dir, "simulation", "tests")
 }
 
+// A library test package by name: the directory `name` of the project's test root or its unoptimised one (this
+// repo: tests/dmath, tests/cli) holding .odin files, and whether it is under the unoptimised root; "" when neither
+// has it.
+test_package :: proc(name: string) -> (dir: string, unoptimized: bool) {
+	if name == "" || strings.contains_any(name, "/\\.") do return "", false
+	for root, i in ([]string{state.config.tests, state.config.unoptimized_tests}) {
+		if root == "" do continue
+		candidate := join(state.project.root, root, name)
+		entries, _ := os.read_all_directory_by_path(candidate, context.temp_allocator)
+		for entry in entries {
+			if entry.type == .Regular && strings.has_suffix(entry.name, ".odin") do return candidate, i == 1
+		}
+	}
+	return "", false
+}
+
 // The odin suite's unoptimised test root (Project_Config.unoptimized_tests: this repo's tests/tooling), compiled beside
 // test_root's; "" when the project has none or `test` names a game (its tests are one root).
 unoptimized_test_root :: proc(game_name := "") -> string {

@@ -387,11 +387,22 @@ uses_scenarios :: proc(root: string) -> bool {
 // The odin suite's builds: every test package under the project's test root in one optimised compile
 // (Project_Config.tests, with -all-packages) and, when the project has one, every package under its unoptimised root
 // in another (Project_Config.unoptimized_tests: on a quarter of the cores, so it stays out of the optimised compile's
-// way); or one
-// game's simulation/tests (`test <game>`, and a game repo's). Each is built through its manifest like every other
-// build, so an unchanged tree skips the compile and a change under one root compiles only that one.
+// way); or one game's simulation/tests (`test <game>`, and a game repo's); or one library test package alone (`test
+// <package>`, in the mode of its root). Each is built through its manifest like every other build, so an unchanged
+// tree skips the compile and a change under one root compiles only that one.
 @(private)
 test_builds :: proc(opts: Test_Options) -> []Build {
+	if opts.library_tests != "" {
+		flags: [dynamic]string
+		append(&flags, ..TEST_RUN_FLAGS)
+		append(&flags, ..mode_flags(opts.library_unoptimized ? .debug : .dev))
+		if opts.long && uses_scenarios(opts.library_tests) do append(&flags, "-define:UNIFIED_LONG_TESTS=true")
+		if opts.bless && uses_scenarios(opts.library_tests) do append(&flags, "-define:UNIFIED_BLESS=true")
+		stem := aprintf("package_%s_tests%s%s", os.base(opts.library_tests), opts.bless ? "_bless" : "", EXE)
+		return slice.clone(
+			[]Build{{pkg = opts.library_tests, out = join(state.project.out, "test", stem), flags = flags[:]}},
+		)
+	}
 	root := test_root(opts.game)
 	name := opts.game
 	if name == "" {
@@ -402,9 +413,6 @@ test_builds :: proc(opts: Test_Options) -> []Build {
 		append(&common, "-all-packages") // the test root pulls in every test package; a game's tests are one
 	}
 	append(&common, ..TEST_RUN_FLAGS)
-	if len(opts.only) > 0 {
-		append(&common, aprintf("-define:ODIN_TEST_NAMES=%s", strings.join(opts.only, ",")))
-	}
 	builds: [dynamic]Build
 	flags: [dynamic]string
 	append(&flags, ..common[:])
@@ -478,7 +486,21 @@ ensure_test_binaries :: proc(opts: Test_Options) -> (exes: []string, ok: bool) {
 suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 	exes, ok := ensure_test_binaries(opts)
 	if !ok do return false
-	passed := run_test_binaries(exes)
+	passed := run_test_binaries(exes, opts.only)
+	if passed && len(opts.only) > 0 {
+		// a name no binary has: each runner says "No test found" and runs the rest, so it would pass unnoticed
+		logs := make([]string, len(exes))
+		for exe, i in exes do logs[i], _ = read_text(aprintf("%s.log", exe))
+		for name in opts.only {
+			found := false
+			for text in logs do found ||= !strings.contains(text, aprintf("No test found for the name: %q", name))
+			if !found {
+				log("uni: test: --only %s: no test has that name", name)
+				passed = false
+			}
+		}
+		if !passed do return false
+	}
 	if !opts.bless {
 		return passed
 	}
@@ -500,7 +522,7 @@ suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 	plain := opts
 	plain.bless = false
 	plain_exes, plain_ok := ensure_test_binaries(plain)
-	return plain_ok && run_test_binaries(plain_exes) && passed
+	return plain_ok && run_test_binaries(plain_exes, opts.only) && passed
 }
 
 // The odin suite's last words under --bless: every pin it changed, each with its file and old -> new
@@ -537,5 +559,5 @@ suite_box3d_debug :: proc(games: []Game, opts: Test_Options) -> bool {
 		debug_exes[i] = join(dir, os.base(exe))
 		copy_file(debug_exes[i], exe)
 	}
-	return run_test_binaries(debug_exes)
+	return run_test_binaries(debug_exes, opts.only)
 }

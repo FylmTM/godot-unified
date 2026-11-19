@@ -160,9 +160,9 @@ public_suites :: proc() -> []Suite {
 // `test`'s options (the command table names them: -h lists them).
 @(private)
 Test_Opts :: struct {
-	game:  string `args:"pos=0" usage:"a game (default: every game); the odin suite then compiles that game's tests only"`,
+	game:  string `args:"pos=0" usage:"a game (default: every game), whose tests the odin suite then compiles alone; or a library test package by name (dmath: tests/dmath), which the odin suites then compile and run alone"`,
 	suite: string `hint:"s,..." usage:"suites, comma-separated, or all (default: odin); listed below"`,
-	only:  string `hint:"name,..." usage:"tests (odin) or steps (godot), comma-separated"`,
+	only:  string `hint:"name,..." usage:"tests (odin: name or package.name, picked when the binary runs, so no recompile; a name no test has fails) or steps (godot), comma-separated"`,
 	long:  bool `usage:"the long variants: every standard scenario at full length (odin), 960 ticks (net), a 256-tick session (godot)"`,
 	bless: bool `usage:"odin: after a meant sim change, re-pin what moved: each reference run and golden trace in its test's source, each replay regression's expectation; prints each value it changed and closes with all of them (or that nothing was), refuses results that moved without a version bump"`,
 }
@@ -184,6 +184,19 @@ cmd_test :: proc(args: []string) -> Result {
 		bless = opts.bless,
 		game  = opts.game,
 	}
+	// a library test package instead of a game: the odin suites only
+	if opts.game != "" && !has_game(opts.game) {
+		dir, unoptimized := test_package(opts.game)
+		if dir == "" {
+			usage("no game or library test package %q", opts.game)
+		}
+		for name in names {
+			if name != "odin" && name != "box3d-debug" {
+				usage("%s is a library test package: the odin and box3d-debug suites run it, not %s", opts.game, name)
+			}
+		}
+		test_opts.game, test_opts.library_tests, test_opts.library_unoptimized = "", dir, unoptimized
+	}
 	suites: [dynamic]^Suite
 	for name in names {
 		found := false
@@ -197,7 +210,7 @@ cmd_test :: proc(args: []string) -> Result {
 			usage("no suite %q (have: %s, all)", name, strings.join(suite_names(), ", "))
 		}
 	}
-	games := games_or_all(opts.game)
+	games := games_or_all(test_opts.game)
 	Suite_Result :: struct {
 		suite:   string,
 		ok:      bool,
