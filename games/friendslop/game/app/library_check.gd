@@ -46,5 +46,3 @@ func _ready() -> void:
 	quit.pressed.connect(func() -> void: get_tree().quit())
 	box.add_child(quit)
 	quit.grab_focus.call_deferred()
-	if "--smoke-test" in OS.get_cmdline_user_args():
-		get_tree().quit.call_deferred(1)

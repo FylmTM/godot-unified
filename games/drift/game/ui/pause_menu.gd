@@ -14,7 +14,7 @@ var _settings: SettingsPanel
 
 
 func _ready() -> void:
-	tree_exiting.connect(func() -> void: Game.session.game_input = true)  # left to the menu while open
+	tree_exiting.connect(func() -> void: Unified.session.game_input = true)  # left to the menu while open
 	_resume.pressed.connect(_click.bind(close))
 	(%Settings as Button).pressed.connect(_click.bind(_open_settings))
 	(%Leave as Button).pressed.connect(_click.bind(Game.leave_to_menu.bind("")))
@@ -33,7 +33,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func open() -> void:
-	Game.session.game_input = false
+	Unified.session.game_input = false
 	visible = true
 	_panel.visible = true
 	_resume.grab_focus()
@@ -43,7 +43,7 @@ func close() -> void:
 	if _settings != null:
 		_settings.visible = false
 	visible = false
-	Game.session.game_input = true
+	Unified.session.game_input = true
 
 
 func _click(action: Callable) -> void:

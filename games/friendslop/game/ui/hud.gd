@@ -1,16 +1,15 @@
 extends CanvasLayer
 ## The in-game HUD (hud.tscn): the run clock and the best time, the checkpoint, a crosshair, the local player's state
 ## (holding, charge, held, stunned, fallen), the session panel and controls list, and banners for run events.
-## Redrawn when the session data (Unified.data.hud), the roster, the lobby code or the input device changes.
+## Redrawn when the session data (Unified.data.hud), the roster, the join code or the input device changes.
 
-const KEYS_HELD := [["Space (mash)", "Break free"], ["Esc", "Menu"]]
-const PAD_HELD := [["A (mash)", "Break free"], ["Start", "Menu"]]
-const KEYS_HOLDING := [["WASD", "Move"], ["Mouse", "Look"], ["Space", "Jump"], ["LMB / E", "Drop"],
-	["Hold RMB / Q", "Charge, release to throw"], ["Esc", "Menu"]]
-const PAD_HOLDING := [["Left stick", "Move"], ["Right stick", "Look"], ["A", "Jump"], ["RT", "Drop"],
-	["Hold LT", "Charge, release to throw"], ["Start", "Menu"]]
-const KEYS := [["WASD", "Move"], ["Mouse", "Look"], ["Space", "Jump"], ["LMB / E", "Grab"], ["Esc", "Menu"]]
-const PAD := [["Left stick", "Move"], ["Right stick", "Look"], ["A", "Jump"], ["RT", "Grab"], ["Start", "Menu"]]
+## The controls list per state (action, what it does): see ControlsPanel.refresh.
+const MOVE: Array[StringName] = [&"move_forward", &"move_left", &"move_back", &"move_right"]
+const LOOK: Array[StringName] = [&"look_up", &"look_left", &"look_down", &"look_right"]
+const CONTROLS_HELD := [[&"jump", "Mash to break free"], [&"menu", "Menu"]]
+const CONTROLS_HOLDING := [[MOVE, "Move"], [LOOK, "Look", "Mouse"], [&"jump", "Jump"], [&"grab", "Drop"],
+	[&"throw", "Hold to charge, release to throw"], [&"menu", "Menu"]]
+const CONTROLS := [[MOVE, "Move"], [LOOK, "Look", "Mouse"], [&"jump", "Jump"], [&"grab", "Grab"], [&"menu", "Menu"]]
 
 @onready var _phase: Label = %Phase
 @onready var _clock: Label = %Clock
@@ -26,7 +25,7 @@ func _ready() -> void:
 	Unified.data.hud.changed.connect(_on_hud_changed)
 	Unified.session.roster_changed.connect(_on_hud_changed)
 	Unified.session.sim_event.connect(_on_sim_event)
-	Game.lobby_code_changed.connect(_on_hud_changed.unbind(1))
+	Unified.session.join_code_changed.connect(_on_hud_changed.unbind(1))
 	Game.input_device_changed.connect(_on_hud_changed.unbind(1))
 	_on_hud_changed()
 
@@ -52,7 +51,7 @@ func _on_hud_changed() -> void:
 	_charge.value = me.charge if me != null else 0.0
 	_charge.visible = holding and _charge.value > 0.0
 	if held:
-		_state.text = Game.hint("Mash Space to break free!", "Mash A to break free!")
+		_state.text = "Mash %s to break free!" % Game.input_label(&"jump")
 	elif me != null and me.fallen:
 		_state.text = "Oops!"
 	elif me != null and me.stunned:
@@ -60,11 +59,11 @@ func _on_hud_changed() -> void:
 	else:
 		_state.text = ""
 	if held:
-		_controls.refresh(KEYS_HELD, PAD_HELD)
+		_controls.refresh(CONTROLS_HELD)
 	elif holding:
-		_controls.refresh(KEYS_HOLDING, PAD_HOLDING)
+		_controls.refresh(CONTROLS_HOLDING)
 	else:
-		_controls.refresh(KEYS, PAD)
+		_controls.refresh(CONTROLS)
 
 
 func _session_rows() -> Array[Dictionary]:

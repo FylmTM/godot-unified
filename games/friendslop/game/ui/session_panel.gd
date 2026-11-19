@@ -49,7 +49,7 @@ func _ready() -> void:
 	_copy.focus_mode = Control.FOCUS_NONE  # Space and pad A are gameplay, never "press the focused button"
 	_copy.size_flags_vertical = Control.SIZE_SHRINK_CENTER
 	_copy.add_theme_font_size_override(&"font_size", 15)
-	_copy.pressed.connect(func() -> void: Game.copy_with_feedback(_copy, _code_text().get_slice(",", 0)))
+	_copy.pressed.connect(func() -> void: Game.copy_with_feedback(_copy, Unified.session.join_code))
 	_code_row.add_child(_copy)
 	_code_small = _label(vbox, &"Dim")
 	_code_small.add_theme_font_size_override(&"font_size", 14)
@@ -68,8 +68,8 @@ func refresh(rows: Array, lobby: bool, start_hint: String) -> void:
 	if not visible:
 		return
 	_heading.text = "Lobby" if lobby else "Players"
-	var code := _code_text()
-	var is_code := Game.lobby_code != ""
+	var code := Unified.session.join_code
+	var is_code := Unified.session.mode != UnifiedSession.MODE_HOST_DIRECT  # a lobby code, else an address
 	_code_row.visible = lobby and code != ""
 	_code_small.visible = not lobby and code != ""
 	if code != "":
@@ -108,10 +108,6 @@ func refresh(rows: Array, lobby: bool, start_hint: String) -> void:
 		var bar: float = r.get("bar", -1.0)
 		row.bar.visible = bar >= 0.0
 		row.bar.value = bar
-
-
-func _code_text() -> String:
-	return Game.lobby_code if Game.lobby_code != "" else Game.lan_address
 
 
 func _label(parent: Control, variation: StringName) -> Label:

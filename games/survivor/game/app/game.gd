@@ -8,11 +8,9 @@ extends Node
 ## The session is the native `UnifiedSession` from the game library (without the library the LibraryCheck autoload
 ## shows a fatal screen instead). Who plays (players, slots, names, the local player) comes from it
 ## (`Unified.session`); the sim's game-wide values are the game's session data, `Unified.data.hud`, and its fixed
-## numbers `Unified.constants`.
+## numbers `Unified.constants`; what friends join a hosted session with, `Unified.session.join_code`.
 
-signal flow_changed(flow: Flow)
 signal status_changed(status: UnifiedSession.Status, detail: String)
-signal lobby_code_changed(code: String)
 ## The last input came from a gamepad (true) or keyboard and mouse (false): hints and key labels follow it.
 signal input_device_changed(pad: bool)
 
@@ -24,17 +22,17 @@ const LAN_PORT := 7777
 const MENU_SCENE := "res://game/ui/main_menu.tscn"
 const PLAY_SCENE := "res://game/arena/arena.tscn"
 const CONNECT_OVERLAY := preload("res://game/ui/connect_overlay.tscn")
+## A pad's buttons by `JoyButton` index, as an Xbox pad labels them.
+const PAD_BUTTONS: Array[String] = ["A", "B", "X", "Y", "Back", "Guide", "Start", "L3", "R3", "LB", "RB", "D-pad up",
+	"D-pad down", "D-pad left", "D-pad right"]
 
 var session: UnifiedSession
 var flow := Flow.MENU
 var mode := Mode.SINGLE
 var status := UnifiedSession.STATUS_IDLE
 var status_detail := ""
-var lobby_code := ""
 ## The port Host on LAN listens on (a tool may pick another, so parallel runs don't collide).
 var lan_port := LAN_PORT
-## When hosting on LAN: the address friends join (host:port, first private IPv4), shown where the code would be.
-var lan_address := ""
 ## Shown by the main menu once after a failure, then cleared.
 var last_error := ""
 ## True while the player is using a gamepad (the last input event came from one).
@@ -79,10 +77,6 @@ func _ready() -> void:
 	session.status_changed.connect(_on_status_changed)
 	session.join_code_changed.connect(_on_join_code)
 	add_child(session)
-	# Release smoke test (`uni release` runs the export headless with `-- --smoke-test`): exercise the sim too.
-	if _smoke_test():
-		print("%s: smoke test, starting single player" % _game_name())
-		play_single.call_deferred()
 
 
 func _process(delta: float) -> void:
@@ -119,8 +113,6 @@ func host_online() -> void:
 
 func host_direct(port := lan_port) -> void:
 	_begin(Mode.HOST_LAN)
-	var ips := _lan_ips()
-	lan_address = "%s:%d" % [ips[0] if not ips.is_empty() else "127.0.0.1", port]
 	session.host_direct(port)
 
 
@@ -139,11 +131,9 @@ func leave_to_menu(error := "") -> void:
 	last_error = error
 	if status != UnifiedSession.STATUS_IDLE:
 		session.leave()
-	lobby_code = ""
-	lan_address = ""
 	_hide_connect_overlay()
 	if flow != Flow.MENU:
-		_set_flow(Flow.MENU)
+		flow = Flow.MENU
 		get_tree().change_scene_to_file(MENU_SCENE)
 
 
@@ -173,9 +163,30 @@ func is_online() -> bool:
 	return mode != Mode.SINGLE
 
 
-## "keyboard text" or "pad text", whichever device the player uses.
-func hint(keys: String, pad: String) -> String:
-	return pad if using_pad else keys
+## What an input action is bound to (`InputMap`, so `[input]` in project.godot is the one home of the bindings), on
+## the device the player uses: "Space", "LMB / E", "A", "LT / A". `input` is an action, or the actions that make one
+## control together (a stick's directions: "WASD / Arrows", "Left stick / D-pad"). `fallback` when the action has no
+## binding on that device (mouse look is no action).
+func input_label(input: Variant, fallback := "") -> String:
+	var actions: Array = input if input is Array else [input]
+	var bindings: Array[PackedStringArray] = []  # per action: its events' labels on this device, in order
+	for action: StringName in actions:
+		var labels := PackedStringArray()
+		for event: InputEvent in InputMap.action_get_events(action):
+			if (event is InputEventJoypadButton or event is InputEventJoypadMotion) == using_pad:
+				labels.append(_event_label(event, actions.size() > 1))
+		bindings.append(labels)
+	var shown := PackedStringArray()
+	var count: int = bindings.map(func(b: PackedStringArray) -> int: return b.size()).min()
+	for i in count:
+		var parts := PackedStringArray(bindings.map(func(b: PackedStringArray) -> String: return b[i]))
+		var label := parts[0]  # every direction on one stick or one set of keys: "Left stick", "Arrows"
+		if parts.count(label) != parts.size():
+			var letters := not using_pad and Array(parts).all(func(p: String) -> bool: return p.length() == 1 and p != p.to_lower())
+			label = ("" if letters else " ").join(parts)  # "WASD", "1 2 3", "X Y B"
+		if label not in shown:
+			shown.append(label)
+	return " / ".join(shown) if not shown.is_empty() else fallback
 
 
 ## A short rumble on every connected gamepad (no-op without one).
@@ -210,28 +221,10 @@ func copy_with_feedback(button: Button, text: String) -> void:
 func _begin(m: Mode) -> void:
 	mode = m
 	last_error = ""
-	lobby_code = ""
-	lan_address = ""
 	session.local_name = Settings.player_name
-	_set_flow(Flow.CONNECTING)
+	flow = Flow.CONNECTING
 	if m != Mode.SINGLE:
 		_show_connect_overlay()
-
-
-## Private IPv4 addresses of this machine (what a LAN friend types), sorted.
-static func _lan_ips() -> Array[String]:
-	var out: Array[String] = []
-	for ip: String in IP.get_local_addresses():
-		var second := int(ip.get_slice(".", 1))
-		if ip.begins_with("192.168.") or ip.begins_with("10.") or (ip.begins_with("172.") and second in range(16, 32)):
-			out.append(ip)
-	out.sort()
-	return out
-
-
-func _set_flow(f: Flow) -> void:
-	flow = f
-	flow_changed.emit(f)
 
 
 func _on_status_changed(new_status: UnifiedSession.Status, detail: String) -> void:
@@ -247,13 +240,9 @@ func _on_status_changed(new_status: UnifiedSession.Status, detail: String) -> vo
 				_adopt()
 			if flow == Flow.CONNECTING:
 				_hide_connect_overlay()
-				_set_flow(Flow.PLAYING)
+				flow = Flow.PLAYING
 				get_tree().change_scene_to_file(PLAY_SCENE)
 		UnifiedSession.STATUS_FAILED:
-			if _smoke_test():
-				push_error("%s: smoke test: the session failed: %s" % [_game_name(), detail])  # uni release fails on it
-				quit_app.call_deferred(1)
-				return
 			leave_to_menu(detail if detail != "" else "Connection failed.")
 		UnifiedSession.STATUS_LEFT:
 			if flow != Flow.MENU:
@@ -277,13 +266,31 @@ func _adopt() -> void:
 
 
 func _on_join_code(code: String) -> void:
-	if mode == Mode.HOST_LAN:
-		lan_address = code  # this machine's address and the port (UnifiedSession.join_code)
-		return
-	lobby_code = code
 	if mode == Mode.HOST and code != "":
-		clipboard_set(code)  # the host's next move is pasting it to a friend
-	lobby_code_changed.emit(code)
+		clipboard_set(code)  # the host's next move is pasting the lobby code to a friend
+
+
+## One binding's label. In a group (`grouped`: one of several actions that make one control), a stick's axis, a
+## D-pad button and an arrow key say what they belong to.
+static func _event_label(event: InputEvent, grouped: bool) -> String:
+	if event is InputEventKey:
+		var key := event as InputEventKey
+		var code := key.physical_keycode if key.physical_keycode != KEY_NONE else key.keycode
+		if grouped and code in [KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN]:
+			return "Arrows"
+		return "Esc" if code == KEY_ESCAPE else OS.get_keycode_string(code)
+	if event is InputEventMouseButton:
+		var index := (event as InputEventMouseButton).button_index
+		return {MOUSE_BUTTON_LEFT: "LMB", MOUSE_BUTTON_RIGHT: "RMB", MOUSE_BUTTON_MIDDLE: "MMB"}.get(index, "Mouse %d" % index)
+	if event is InputEventJoypadButton:
+		var button := (event as InputEventJoypadButton).button_index
+		if grouped and button in [JOY_BUTTON_DPAD_UP, JOY_BUTTON_DPAD_DOWN, JOY_BUTTON_DPAD_LEFT, JOY_BUTTON_DPAD_RIGHT]:
+			return "D-pad"
+		return PAD_BUTTONS[button] if button < PAD_BUTTONS.size() else "Button %d" % button
+	if event is InputEventJoypadMotion:
+		var axis := (event as InputEventJoypadMotion).axis
+		return ["Left stick", "Left stick", "Right stick", "Right stick", "LT", "RT"][axis] if axis < 6 else "Axis %d" % axis
+	return event.as_text()
 
 
 func _show_connect_overlay() -> void:
@@ -321,11 +328,3 @@ func _fit_window() -> void:
 	var size := Vector2i((base * scale).min(Vector2(usable.size) * 0.9))
 	DisplayServer.window_set_size(size)
 	DisplayServer.window_set_position(usable.position + Vector2i(Vector2(usable.size - size) * 0.5))
-
-
-static func _smoke_test() -> bool:
-	return "--smoke-test" in OS.get_cmdline_user_args()
-
-
-static func _game_name() -> String:
-	return ProjectSettings.get_setting("application/config/name")
