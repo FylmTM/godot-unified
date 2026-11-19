@@ -360,3 +360,47 @@ godot_problems_name_game_warnings_and_leaks :: proc(t: ^testing.T) {
 		)
 	}
 }
+
+// uni doc's reading of `odin doc` text: sections, declarations and docs (a formatter directive is no doc), a proc
+// group with its procs, names and parts of names, and the brief form.
+@(test)
+doc_reads_selects_and_briefs :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	text :=
+		"package toy\n\ttoy.odin\n\t\tThe toy.\n\n\tprocedures\n" +
+		"\t\tgo_fast :: proc(x: int)  // src/toy/toy.odin:3\n\t\t\todinfmt: disable\n" +
+		"\t\tgo_slow :: proc()  // src/toy/toy.odin:9\n\t\t\tGoes slowly. Then stops.\n\n" +
+		"\tproc_group\n\t\tgo :: proc{go_fast, go_slow}\n\t\t\tGoes.\n\n" +
+		"\ttypes\n\t\tThing :: struct {a: int}\n\t\t\tA thing.\n\n\tfullpath:\n\t\t/src/toy\n\tfiles:\n\t\ttoy.odin\n"
+	doc := cli.doc_parse(text)
+	testing.expect_value(t, doc.package_line, "package toy")
+	testing.expect_value(t, len(doc.entries), 4)
+	if len(doc.entries) != 4 do return
+	testing.expect_value(t, doc.entries[0].name, "go_fast")
+	testing.expect_value(t, len(doc.entries[0].doc), 0) // the directive left out
+	testing.expect_value(t, doc.entries[3].section, "types")
+	chosen, missing := cli.doc_select(doc, {"go", "THI", "nothing"})
+	testing.expect_value(t, len(chosen), 4) // the group with its two procs, and Thing by part of its name
+	testing.expect_value(t, len(missing), 1)
+	brief := cli.doc_brief(doc, "toy")
+	testing.expect(t, !strings.contains(brief, "go_fast"), "a group's procs fold into it")
+	testing.expect(t, strings.contains(brief, "go     Goes."), brief)
+	testing.expect(t, strings.contains(brief, "Thing  A thing."), brief)
+	testing.expect_value(t, cli.doc_first_sentence({"Goes slowly. Then", "stops."}), "Goes slowly.")
+}
+
+// A struct's source for uni doc: through its closing brace (braces in strings, tags and comments don't count), and
+// only when its body has a comment.
+@(test)
+doc_source_block_takes_commented_bodies :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	commented := []string {
+		"Opts :: struct {",
+		"\t// the name {not a brace}",
+		"\tname: string `usage:\"a }\"`,",
+		"}",
+		"after",
+	}
+	testing.expect_value(t, len(cli.doc_source_block(commented)), 4)
+	testing.expect_value(t, len(cli.doc_source_block([]string{"Plain :: struct {", "\ta: int,", "}"})), 0)
+}

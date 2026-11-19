@@ -299,7 +299,8 @@ iterate_present_of_players :: #force_inline proc(
 	return {players = players}
 }
 
-// The pinned odinfmt puts a comma after a multi-line return type, which does not parse.
+// The pinned odinfmt puts a comma after a multi-line return type, which does not parse: these procs are left alone.
+
 // odinfmt: disable
 iterate_present_of_tick :: #force_inline proc(
 	tick: ^Tick($G),
