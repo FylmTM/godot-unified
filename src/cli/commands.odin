@@ -250,9 +250,13 @@ cmd_test :: proc(args: []string) -> Result {
 				dir     = state.project.root,
 				capture = true,
 				quiet   = true,
+				env     = beside_env(),
 			})
 		}
 	}
+	// A suite is held to its own budget only when it had the machine to itself: run here with nothing beside it. One
+	// measured beside others says how busy the machine was; this run is held to the sum of their budgets instead.
+	alone := !state.beside && !(in_process > 0 && in_process < len(suites))
 	for suite, i in suites {
 		if children[i] != nil do continue
 		start := time.tick_now()
@@ -262,7 +266,7 @@ cmd_test :: proc(args: []string) -> Result {
 		results[i] = {suite.name, passed, round2(seconds_since(start))}
 		ok = ok && passed
 		allowed := suite_budget(suite, test_opts) * (in_ci() ? CI_BUDGET_SCALE : 1)
-		if len(suites) > 1 && len(state.cold) == cold_before && results[i].seconds > allowed {
+		if len(suites) > 1 && alone && len(state.cold) == cold_before && results[i].seconds > allowed {
 			log(
 				"uni: OVER BUDGET: the %s suite took %.1fs, budget %.0fs: find out why (AGENTS.md, Non-negotiables)",
 				suite.name,
@@ -271,7 +275,8 @@ cmd_test :: proc(args: []string) -> Result {
 			)
 		}
 	}
-	// A child reports its own time against its suite's budget; its log is printed when it ends (child_log).
+	// A child reports its time (beside the others: not held to its budget); its log is printed when it ends
+	// (child_log).
 	for &child, i in children {
 		running, is_child := child.?
 		if !is_child do continue
@@ -381,7 +386,8 @@ test_details :: proc() -> string {
 	strings.write_string(
 		&builder,
 		"With other suites, the ones that mostly wait (godot, and the project's own that say so) run beside them in\n" +
-		"child processes. A run's budget is its suites' sum. A passing run prints a summary: each suite's result and\n" +
+		"child processes. A run's budget is its suites' sum; a suite is held to its own only when it ran alone (beside\n" +
+		"others, its time says how busy the machine was). A passing run prints a summary: each suite's result and\n" +
 		"the warnings it logged (a leak, OVER BUDGET); a failing one prints the whole log of what failed, and\n" +
 		"--verbose everything.",
 	)

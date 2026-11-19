@@ -81,6 +81,10 @@ has none (interactive, networked, the mode decides). A warm run over its budget 
 (machines vary; CI allows `CI_BUDGET_SCALE` times), but a bug to find (AGENTS.md, Non-negotiables). A cold run is
 exempt and says so: it fetched a dependency, generated the Godot bindings, imported a project, or built something it
 needed first (`cold`; the command's own product, such as `test`'s binary, counts against the budget: `Build.own`).
+Work the CLI runs beside other work it started (a suite beside the others, the godot suite's games and lanes) is
+exempt too and says so (`BESIDE_ENV`): its time says how busy the machine was, not how fast the work is. The run that
+started it is held to its budget instead; in `test`, a suite is held to its own only when it had the machine to
+itself.
 
 **Builds** go through manifests: an output records the sizes and times of every source file and directory it was
 built from, the odin executable, and its command line as the key (`stale`, `finish_build`). Every command builds only
@@ -133,7 +137,8 @@ child's log is cut to its warnings (`child_log`).
 - `box3d-debug`: the odin suite's binary again, against Box3D's debug library, whose asserts trap what the release
   library lets through.
 - `godot`: each game under headless Godot, the games in parallel (`suite_godot`, `GODOT_STEPS`), without the EOS
-  SDK, as on CI.
+  SDK, as on CI. A headless editor run (an import, the `editor` step) has the project's own editor settings and
+  cache (`editor_env`): editors on several projects at once never share Godot's per-user files.
 
 Benchmarks are no suite: `bench` runs each game's standard benchmark and its sessions on the virtual clock, plus the
 project's own rows, into `.out/bench.json`, reported and never gated by time (`uni bench -h`, `BENCH_TARGET_US`).

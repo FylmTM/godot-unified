@@ -134,6 +134,7 @@ State :: struct {
 	verbose:  bool, // --verbose (or VERBOSE_ENV, so a uni the CLI starts is verbose too): echo every command line
 	start:    time.Tick,
 	cold:     [dynamic]string, // what this run built or fetched first: such a run isn't held to its budget
+	beside:   bool, // started beside other work (BESIDE_ENV): not held to its budget, the run that started it is
 	env_keys: []string, // the variables .env set
 	suites:   [dynamic]Suite,
 	on_fatal: proc(), // undoes a command's half-done work when it fails (fatal); runs once
@@ -141,6 +142,16 @@ State :: struct {
 
 // Set by --verbose for the processes the CLI starts (another uni reads it).
 VERBOSE_ENV :: "UNIFIED_VERBOSE"
+
+// Set for a uni the CLI starts beside other work it started (a suite beside the others, the godot suite's games and
+// lanes): that run's time says how busy the machine was, not how fast it is, so it isn't held to its budget; the run
+// that started it is, against its own (beside_env).
+BESIDE_ENV :: "UNIFIED_BESIDE"
+
+// The environment of a uni started beside other work (BESIDE_ENV).
+beside_env :: proc() -> []string {
+	return env_with(aprintf("%s=1", BESIDE_ENV))
+}
 
 // Adds a project's own test suites (call before `run`).
 add_suites :: proc(suites: ..Suite) {
@@ -187,6 +198,7 @@ run :: proc(command_sets: ..[]Command) -> ! {
 	} else {
 		state.verbose = os.get_env(VERBOSE_ENV, context.temp_allocator) != ""
 	}
+	state.beside = os.get_env(BESIDE_ENV, context.temp_allocator) != ""
 	if len(argv) == 0 || argv[0] == "help" || argv[0] == "-h" || argv[0] == "--help" {
 		print_help()
 		os.exit(len(argv) == 0 ? 2 : 0)
@@ -227,7 +239,7 @@ print_help :: proc() {
 		fmt.printf("  %s\n      %s\n", strings.trim_space(command_usage(command)), command.summary)
 	}
 	fmt.printf(
-		"\nBudgets: seconds for a warm run (CI allows %dx); over budget is reported, not failed. A cold run (it built or fetched something first) is exempt.\n",
+		"\nBudgets: seconds for a warm run (CI allows %dx); over budget is reported, not failed. A cold run (it built or fetched something first) is exempt, and so is work run beside other work (a suite beside the others, the godot suite's games): the run that started it is held to its budget instead.\n",
 		CI_BUDGET_SCALE,
 	)
 	fmt.printf(
@@ -487,6 +499,11 @@ report_timing :: proc(secs: f64, ok: bool, budget: f64) {
 				" (budget %.0fs; cold run, not held to it: %s)",
 				allowed,
 				strings.join(state.cold[:], ", ", context.temp_allocator),
+			)
+		} else if state.beside {
+			note = aprintf(
+				" (budget %.0fs; ran beside other work, not held to it: the run that started it is)",
+				allowed,
 			)
 		} else if secs > allowed {
 			note = aprintf(" (budget %.0fs)", allowed)

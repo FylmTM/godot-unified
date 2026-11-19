@@ -23,8 +23,9 @@ SESSION_TICKS_LONG :: 256
 SUITE_OFFLINE_ENV :: []string{"UNIFIED_EOS_SDK=", "UNIFIED_EOS_LIB_DIR="}
 
 // The godot suite's steps that run in a lane of their own, beside the others (a child `uni test <game> --suite godot
-// --only ...`), chosen so the two lanes take about as long. Each tool run passes --no-settings, so the lanes share
-// nothing they write but Godot's import cache, current before either starts.
+// --only ...`), chosen so the two lanes take about as long. Each tool run passes --no-settings and the editor has the
+// project's own editor settings (editor_env), so the lanes share nothing they write but Godot's import cache, current
+// before either starts.
 GODOT_LANE_APART :: []string{"editor", "bake"}
 
 // The lanes pay off only with cores to spare: every game already runs in parallel, so two lanes each double the Godot
@@ -89,9 +90,14 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 				append(&cmd, "--long")
 			}
 			if state.verbose do log("uni: %s: %s beside the other steps", game.name, strings.join(apart[:], ", "))
-			lane = start(
-				{cmd = cmd[:], dir = state.project.root, capture = true, quiet = true, timeout = 900 * time.Second},
-			)
+			lane = start({
+				cmd     = cmd[:],
+				dir     = state.project.root,
+				capture = true,
+				quiet   = true,
+				timeout = 900 * time.Second,
+				env     = beside_env(),
+			})
 			only = rest[:]
 		}
 		if want(only, "editor") {
@@ -205,6 +211,7 @@ godot_in_parallel :: proc(games: []Game, opts: Test_Options) -> bool {
 			capture = true,
 			quiet   = true,
 			timeout = 900 * time.Second,
+			env     = beside_env(),
 		}
 	}
 	if state.verbose do log("uni: godot: %d games in parallel", len(games))
@@ -237,11 +244,16 @@ has_session_step :: proc(game: Game) -> bool {
 	return has_extension(game) && os.is_directory(join(game.dir, "simulation", "headless"))
 }
 
-// The headless editor loads the game's extension, with no error lines.
+// The headless editor loads the game's extension, with no error lines (with the project's own editor settings:
+// editor_env).
 @(private)
 editor_check :: proc(game: Game) -> bool {
 	write_extension_list(game)
-	result := run_godot({"--headless", "--editor", "--path", game.dir, "--quit-after", "60"}, 120)
+	result := run_godot(
+		{"--headless", "--editor", "--path", game.dir, "--quit-after", "60"},
+		120,
+		editor_env(game.dir),
+	)
 	out := strings.concatenate({result.stdout, result.stderr})
 	errs := godot_errors(out)
 	loaded := strings.contains(out, "unified: extension initialized (editor)")
