@@ -558,6 +558,29 @@ pose_memory_estimates_after_rollbacks :: proc(t: ^testing.T) {
 	testing.expect_value(t, x, 22)
 }
 
+// A session that steps two ticks a time from an item's first fill on (a busy machine: driver_sessions failed so under
+// a cold verify): the item still gets a previous pose, on the line from the last one, and keeps one.
+@(test)
+pose_memory_estimates_when_every_fill_skips :: proc(t: ^testing.T) {
+	memory: godot.Pose_Memory
+	godot.pose_memory_init(&memory, 4, 4)
+	defer godot.pose_memory_destroy(&memory)
+	remember :: proc(memory: ^godot.Pose_Memory, tick: u32, x: f32) -> (f32, bool) {
+		godot.pose_memory_begin(memory)
+		previous, found, _ := godot.pose_remember(memory, .View, 0, 7, tick, {x, 0, 0}, godot.IDENTITY)
+		return previous.pos.x, found
+	}
+	_, found := remember(&memory, 4, 4)
+	testing.expect(t, !found, "nothing before the first fill")
+	x: f32
+	x, found = remember(&memory, 6, 6) // ticks 5 skipped, no motion known: a tick short of 6 on the line from 4
+	testing.expect(t, found && x == 5, "a tick - 1 estimate after the first skip")
+	x, found = remember(&memory, 8, 8) // then the last motion (1) as before
+	testing.expect(t, found && x == 7, "and after every skip that follows")
+	x, found = remember(&memory, 11, 14) // three ticks on: 14 minus the last known motion (1)
+	testing.expect(t, found && x == 13, "the last one-tick motion once it is known")
+}
+
 // Players' views (pushed with the player as their subject, keyed by their key): each finds its own tick - 1 pose, not
 // the first pushed one's.
 @(test)
