@@ -236,6 +236,27 @@ test_watch_follows_the_runner :: proc(t: ^testing.T) {
 	testing.expect_value(t, watch.crashed[0], "test_b3.crashes")
 	testing.expect_value(t, len(watch.running), 1)
 	testing.expect_value(t, watch.running[0], "test_b3.waits")
+	cli.test_watch_line(&watch, "[INFO ] --- [2026-11-14 10:44:53] Test #1 test_b3.waits changed state to Failed.\n")
+	testing.expect_value(t, len(watch.failed), 1)
+}
+
+// A failing run's output keeps a failed test's memory report to its first line and a count; a passing test's stays
+// whole.
+@(test)
+test_output_cuts_the_leaks_of_failed_tests :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	output :=
+		"[WARN ] --- [2026-11-19 07:00:00] [runner.odin:653:run()] <  32B/  64B> <  64B> (  1/  3) :: test_x.fails\n" +
+		"        +++ leak         16B @ 0x1 [a.odin:1:f()]\n" +
+		"        +++ leak         16B @ 0x2 [a.odin:2:f()]\n" +
+		"[WARN ] --- [2026-11-19 07:00:00] [runner.odin:653:run()] <  16B/  64B> <  64B> (  1/  3) :: test_x.leaks\n" +
+		"        +++ leak         16B @ 0x3 [a.odin:3:f()]\n" +
+		" - test_x.fails  the reason\n"
+	trimmed := cli.test_output_without_leaks(output, {"test_x.fails"}, "out.log")
+	testing.expect(t, !strings.contains(trimmed, "0x1") && !strings.contains(trimmed, "0x2"), trimmed)
+	testing.expect(t, strings.contains(trimmed, "(2 leak lines of a failed test left out: out.log)"), trimmed)
+	testing.expect(t, strings.contains(trimmed, "0x3"), "a passing test's leak stays")
+	testing.expect(t, strings.contains(trimmed, "the reason"), trimmed)
 }
 
 @(test)

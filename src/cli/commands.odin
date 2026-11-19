@@ -105,7 +105,7 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "bench",
-			summary = "each game's standard benchmark and its sessions on the virtual clock (bad; wan with a late joiner), alone, on a release build; the project's own rows",
+			summary = "each game's standard benchmark (if it has one: modes.run's `bench`) and its sessions on the virtual clock (bad; wan with a late joiner), alone, on a release build; the project's own rows",
 			budget  = 10,
 			options = option_types(Bench_Opts),
 			details = bench_details,
@@ -381,6 +381,10 @@ test_details :: proc() -> string {
 				"",
 				strings.join(GODOT_STEPS, ", "),
 			)
+			checks := GODOT_STEP_CHECKS
+			for step, i in GODOT_STEPS {
+				fmt.sbprintf(&builder, "  %-*s    %-8s  %s\n", width, "", step, checks[i])
+			}
 		}
 	}
 	strings.write_string(

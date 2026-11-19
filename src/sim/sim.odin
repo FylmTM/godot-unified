@@ -238,8 +238,9 @@ Game :: struct(
 	// Optional: a scripted player, for tests, benchmarks, headless checks and Godot's `--scripted` sessions (never
 	// called by the sim; without one they play zero Inputs): the input of the player in `slot` for `tick`, and right
 	// after it that player's commands (sim.send_command(out, command)).
-	// `state` is the caller's current state; a script that answers from (seed, slot, tick) alone (sim.script_bits)
-	// gives every client of a session and every offline run the same player.
+	// `state` is the caller's current state, never nil (a client without one yet, a late joiner before its snapshot,
+	// plays zero Inputs and sends no commands meanwhile); a script that answers from (seed, slot, tick) alone
+	// (sim.script_bits) gives every client of a session and every offline run the same player.
 	scripted_input:        proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
 	scripted_commands:     proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^Command_Out(Cmd)),
 	// Optional, never called by the sim: the Profile a scripted player in `slot` joins with (without one: the zero

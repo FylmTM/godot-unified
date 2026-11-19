@@ -66,6 +66,9 @@ each time; the views show the newest guess and are told when it changes.
   in a fixed order (`src/sim/README.md`, Levels; `src/physics/README.md`, Levels).
 - The screen follows the verified level and the sim keeps ticking through a load; waiting for everyone is game state
   (a ready command, a timeout) (`src/godot/README.md`, Levels).
+- The levels go inline in the `@(rodata)` descriptor, `levels = {{"meadow", #load("../../game/levels/meadow.level")}}`
+  (`src/sim/README.md`, Levels); a level without physics is parsed with `level.load` and entered with
+  `sim.level_enter`.
 - Procedural content comes from the seed (keyed rolls in `init`) and the Setup, never from the network.
 
 **Time and pause** (`src/sim/README.md`)

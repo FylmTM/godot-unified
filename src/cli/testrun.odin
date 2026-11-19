@@ -4,7 +4,9 @@
 // it CRASH_GRACE after a crash or at its timeout, and names the test that crashed and the tests still running.
 package cli
 
+import "core:fmt"
 import "core:os"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:time"
@@ -19,6 +21,7 @@ CRASH_GRACE :: 3 * time.Second
 Test_Watch :: struct {
 	running: [dynamic]string, // package.test, in start order
 	crashed: [dynamic]string,
+	failed:  [dynamic]string,
 }
 
 // Takes one line of the runner's output; true when it is a state change (the log has it, the terminal doesn't).
@@ -33,9 +36,13 @@ test_watch_line :: proc(watch: ^Test_Watch, line: string) -> (state_change: bool
 			return false
 		}
 		name := rest[space + 1:j]
-		if strings.trim_right(rest[j + len(CHANGE):], ".\r\n") == "Running" {
+		switch strings.trim_right(rest[j + len(CHANGE):], ".\r\n") {
+		case "Running":
 			append(&watch.running, strings.clone(name))
-		} else {
+		case "Failed":
+			append(&watch.failed, strings.clone(name))
+			test_watch_drop(watch, name)
+		case:
 			test_watch_drop(watch, name)
 		}
 		return true
@@ -237,15 +244,20 @@ test_run_drain :: proc(run: ^Test_Run, buf: []u8) {
 	}
 }
 
-// A failing binary's output for the terminal. With several binaries, a test `--only` names that another binary has
-// is no failure of this one: its "No test found" line is dropped unless no binary has the test.
+// A failing binary's output for the terminal, without the leak lists of the tests that failed or crashed
+// (test_output_without_leaks). With several binaries, a test `--only` names that another binary has is no failure of
+// this one: its "No test found" line is dropped unless no binary has the test.
 @(private)
 test_run_terminal_output :: proc(runs: []Test_Run, run: Test_Run) -> string {
+	failed := make([dynamic]string, context.temp_allocator)
+	append(&failed, ..run.watch.failed[:])
+	append(&failed, ..run.watch.crashed[:])
+	trimmed := test_output_without_leaks(string(run.output[:]), failed[:], rel(run.log_path))
 	if len(runs) == 1 {
-		return string(run.output[:])
+		return trimmed
 	}
 	builder := strings.builder_make()
-	text := string(run.output[:])
+	text := trimmed
 	for line in strings.split_lines_after_iterator(&text) {
 		if strings.has_prefix(line, "No test found for the name: ") {
 			everywhere := true
@@ -256,6 +268,35 @@ test_run_terminal_output :: proc(runs: []Test_Run, run: Test_Run) -> string {
 		}
 		strings.write_string(&builder, line)
 	}
+	return strings.to_string(builder)
+}
+
+// A runner's output with the memory report of each test in `failed` cut to its first line and a count: a test that
+// failed or panicked leaks what it held, and the list (one line per allocation) buries why it failed. `log`: where
+// the whole output is.
+test_output_without_leaks :: proc(output: string, failed: []string, log: string) -> string {
+	builder := strings.builder_make()
+	cut := 0 // leak lines left out of the current report
+	cutting := false
+	end_cut :: proc(builder: ^strings.Builder, cut: ^int, log: string) {
+		if cut^ > 0 do fmt.sbprintf(builder, "        (%d leak lines of a failed test left out: %s)\n", cut^, log)
+		cut^ = 0
+	}
+	text := output
+	for line in strings.split_lines_after_iterator(&text) {
+		if cutting && strings.has_prefix(strings.trim_left_space(line), "+++ ") {
+			cut += 1
+			continue
+		}
+		end_cut(&builder, &cut, log)
+		cutting = false
+		if strings.has_prefix(line, "[WARN") || strings.has_prefix(line, "[ERROR") {
+			_, _, name := strings.partition(strings.trim_right_space(line), ") :: ")
+			cutting = name != "" && slice.contains(failed, name)
+		}
+		strings.write_string(&builder, line)
+	}
+	end_cut(&builder, &cut, log)
 	return strings.to_string(builder)
 }
 

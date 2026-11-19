@@ -6,7 +6,7 @@ import "core:strings"
 
 @(private)
 Init_Opts :: struct {
-	dir:     string `args:"pos=0,required" usage:"the new game repo, or games/<name> with --in-repo; its name is the game's"`,
+	dir:     string `args:"pos=0,required" usage:"the new game repo (outside this unified checkout, or under its .out/ for a scratch game), or games/<name> with --in-repo; its name is the game's"`,
 	in_repo: bool `usage:"a game inside this unified checkout, at games/<name> (no submodule, shims or tools/)"`,
 	unified: string `hint:"<url>" usage:"where to clone unified from (default: this checkout's origin; a GitHub SSH URL becomes HTTPS)"`,
 	ref:     string `usage:"the unified commit (a full or short hash), tag or branch to pin (default: the source's default branch, main)"`,
@@ -57,8 +57,14 @@ cmd_init :: proc(args: []string) -> Result {
 		}
 		return init_in_repo(dir, name)
 	}
-	if is_unified_repo() && strings.has_prefix(path_key(dir), aprintf("%s/", path_key(state.project.root))) {
-		usage("%s is inside this unified checkout: --in-repo makes a game at games/<name>", dir)
+	// a game repo inside this checkout only under .out/ (git-ignored, safe to delete): a scratch game
+	inside := strings.has_prefix(path_key(dir), aprintf("%s/", path_key(state.project.root)))
+	scratch := strings.has_prefix(path_key(dir), aprintf("%s/", path_key(state.project.out)))
+	if is_unified_repo() && inside && !scratch {
+		usage(
+			"%s is inside this unified checkout: a game repo goes outside it (or under .out/ for a scratch game); --in-repo makes a game at games/<name>",
+			dir,
+		)
 	}
 	return init_game_repo(dir, name, opts.dir, opts.unified, opts.ref)
 }
@@ -153,10 +159,16 @@ init_in_repo :: proc(dir, name: string) -> Result {
 TEMPLATE_GAME :: "games/" + TEMPLATE_NAME
 TEMPLATE_NAME :: "minimal_3d"
 // Its files a copy leaves out: its README (template/README.md.tmpl, a draft skeleton of the new game's design, takes
-// its place), the view index (written below) and its pinned reference run (a new game pins its own once its rules
-// settle). The `.uid` files are copied: the scenes name their scripts by UID, so a copy without them warns on every
-// load until Godot rewrites them.
-TEMPLATE_SKIP :: []string{"README.md", "unified_index.tres", "simulation/tests/reference_test.odin"}
+// its place) and the view index (written below). The `.uid` files are copied: the scenes name their scripts by UID, so
+// a copy without them warns on every load until Godot rewrites them.
+TEMPLATE_SKIP :: []string{"README.md", "unified_index.tres"}
+
+// The template's reference run, which a copy keeps unpinned: its parameters without minimal_3d's results, so a new
+// game's first `uni test` warns with its own to paste once its rules settle (scenarios.reference_reproduces).
+TEMPLATE_REFERENCE :: "simulation/tests/reference_test.odin"
+
+// The Reference fields a copy of TEMPLATE_REFERENCE leaves out: minimal_3d's results.
+TEMPLATE_REFERENCE_RESULTS :: []string{"checkpoints", "trace", "snapshot", "log"}
 
 // Writes the game: unified's minimal_3d (at `unified`, a checkout) with `name` for minimal_3d in paths and text
 // (`repo`: and template/repo/, a game repo's own files, at its root), formats its Odin files (the name changes line
@@ -208,7 +220,7 @@ write_game :: proc(unified, dir, name: string, repo: bool) -> int {
 }
 
 // A copied file's text for the new game (minimal_3d already renamed): its game.odin starts at `VERSION :: "1"`, without
-// minimal_3d's version history; in a game repo the paths its code's comments name are the repo's: the game's own files
+// minimal_3d's version history; its reference run is unpinned (TEMPLATE_REFERENCE); in a game repo the paths its code's comments name are the repo's: the game's own files
 // at the root (games/<name>/ goes) and unified's under unified/ (src/, games/). The Markdown is written for both.
 @(private)
 template_text :: proc(rel_path, text, name: string, repo: bool) -> string {
@@ -219,6 +231,14 @@ template_text :: proc(rel_path, text, name: string, repo: bool) -> string {
 			if strings.has_prefix(line, "VERSION :: ") do line = `VERSION :: "1"`
 		}
 		out = strings.join(lines, "\n")
+	}
+	if rel_path == TEMPLATE_REFERENCE {
+		kept: [dynamic]string
+		for line in strings.split(out, "\n") {
+			field, _, _ := strings.partition(strings.trim_space(line), " ")
+			if !slice.contains(TEMPLATE_REFERENCE_RESULTS, field) do append(&kept, line)
+		}
+		out = strings.join(kept[:], "\n")
 	}
 	if repo && (strings.has_suffix(rel_path, ".odin") || strings.has_suffix(rel_path, ".gd")) {
 		out, _ = strings.replace_all(out, aprintf("games/%s/", name), "")
