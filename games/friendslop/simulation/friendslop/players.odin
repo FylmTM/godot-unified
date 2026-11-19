@@ -131,7 +131,7 @@ respawn_fallen :: proc(t: ^Tick) {
 		release_all(t, player)
 		character.stun = 0
 		character.thrown = false
-		sim.timer_start_ticks(t, &character.respawn, u32(RESPAWN_TICKS))
+		sim.timer_start_ticks(t, &character.respawn, RESPAWN_TICKS)
 		physics.character_set_limp(t.world.phys, &character.controller, true)
 		park := [3]f32{f32(sim.player_slot(t, player)) * PARK_SPACING, PARK_Y, 0}
 		physics.body_teleport(t.world.phys, character.controller.body, park)

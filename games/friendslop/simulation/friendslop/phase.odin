@@ -42,8 +42,8 @@ advance_phase :: proc(t: ^Tick) {
 			if def.kind != .Trophy do continue
 			if !in_volume(places(t).finish, physics.body_position(t.world.phys, t.state.items[i].body)) do continue
 			t.state.phase = .Finished
-			t.state.finish_tick = t.number
-			ticks := t.number - t.state.run_tick
+			t.state.finish_tick = t.time
+			ticks := u32(t.time - t.state.run_tick)
 			if t.state.best_ticks == 0 || ticks < t.state.best_ticks do t.state.best_ticks = ticks
 			sim.emit(t, Event_Run_Finished {
 				entity     = sim.entity(def.marker),
@@ -53,14 +53,14 @@ advance_phase :: proc(t: ^Tick) {
 			break
 		}
 	case .Finished:
-		if t.number - t.state.finish_tick >= FINISH_HOLD_TICKS do reset_route(t)
+		if t.time - t.state.finish_tick >= FINISH_HOLD_TICKS do reset_route(t)
 	}
 }
 
 // To the route: the run's timer starts, the team at the route's spawns.
 start_run :: proc(t: ^Tick) {
 	t.state.phase = .Run
-	t.state.run_tick = t.number
+	t.state.run_tick = t.time
 	t.state.checkpoint = -1
 	enter_level(t, .Route)
 }

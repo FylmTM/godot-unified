@@ -15,7 +15,7 @@ launch_from_pads :: proc(t: ^Tick) {
 			if !in_volume(pad.volume, feet) do continue
 			launch(t.world, &pad, character.controller.body)
 			physics.character_launch(t.world.phys, &character.controller)
-			sim.timer_start_ticks(t, &character.pad_cooldown, u32(PAD_COOLDOWN_TICKS))
+			sim.timer_start_ticks(t, &character.pad_cooldown, PAD_COOLDOWN_TICKS)
 			sim.emit(t, Event_Launched{position = sim.Position(pad.volume.pos), player = player})
 			break
 		}
@@ -27,7 +27,7 @@ launch_from_pads :: proc(t: ^Tick) {
 		for &pad in sim.slice(&places(t).pads) {
 			if !in_volume(pad.volume, bottom) do continue
 			launch(t.world, &pad, item.body)
-			sim.timer_start_ticks(t, &item.pad_cooldown, u32(PAD_COOLDOWN_TICKS))
+			sim.timer_start_ticks(t, &item.pad_cooldown, PAD_COOLDOWN_TICKS)
 			sim.emit(t, Event_Launched {
 				entity   = sim.entity(def.marker),
 				position = sim.Position(pad.volume.pos),

@@ -10,7 +10,7 @@ import "unified:sim"
 // enemy's place in the burst.
 spawn_waves :: proc(t: ^Tick) {
 	tuning := &t.state.tuning
-	if t.state.phase != .Match || (t.number - t.state.match_tick) % tuning.spawn_every_ticks != 0 {
+	if t.state.phase != .Match || u32(t.time - t.state.match_tick) % tuning.spawn_every_ticks != 0 {
 		return
 	}
 	present := u32(sim.present_count(t))
@@ -26,20 +26,15 @@ spawn_waves :: proc(t: ^Tick) {
 			sim.roll_f32(t, Roll.Spawn_Jitter_Z, index = i),
 		}
 		pos := direction * SPAWN_RING + (jitter * 2 - 1) * SPAWN_JITTER
-		spawn_enemy(
-			t.state,
-			SPAWN_KINDS[sim.roll_below(t, len(SPAWN_KINDS), Roll.Spawn_Kind, index = i)],
-			pos,
-			t.number,
-		)
+		spawn_enemy(t.state, SPAWN_KINDS[sim.roll_below(t, len(SPAWN_KINDS), Roll.Spawn_Kind, index = i)], pos, t.time)
 	}
 }
 
 // Spawns an enemy of a kind at a position, its HP +`hp_pct_per_wave`% per wave (false: the enemy table is full).
-spawn_enemy :: proc(state: ^State, kind: Enemy_Kind, pos: [2]f32, tick: u32) -> bool {
+spawn_enemy :: proc(state: ^State, kind: Enemy_Kind, pos: [2]f32, time: sim.Game_Time) -> bool {
 	enemy, _ := sim.spawn(&state.enemies) or_return
 	stats := ENEMY_STATS[kind]
-	enemy.spawn_tick = tick
+	enemy.spawn_tick = time
 	enemy.kind = kind
 	enemy.pos = pos
 	enemy.hp = stats.hp * (100 + state.tuning.hp_pct_per_wave * i32(state.wave)) / 100
@@ -185,7 +180,7 @@ kill_enemies :: proc(t: ^Tick) {
 			gem^ = {
 				pos        = pos,
 				value      = xp,
-				spawn_tick = t.number,
+				spawn_tick = t.time,
 			}
 		} else {
 			targets := targets_of(t)

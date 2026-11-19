@@ -91,8 +91,9 @@ the `.level` files as inputs).
 
 ### Time
 
-A time constant is written in seconds and converted, never written as raw ticks: `RESPAWN_TICKS :: u16(RESPAWN_S *
-TICK_HZ)`. Odin refuses a constant conversion that truncates, so a time that is not a whole number of ticks does not
+A time constant is written in seconds and converted, never written as raw ticks: `RESPAWN_TICKS :: u32(RESPAWN_S *
+TICK_HZ)` for a timer's ticks (what `timer_start_ticks` takes), `sim.Game_Time(...)` for a length compared with a
+stamp. Odin refuses a constant conversion that truncates, so a time that is not a whole number of ticks does not
 compile. A time from data converts with `ticks`, a view's with `seconds`; inside `tick`, `t.dt`. A Timer takes
 seconds at run time (`timer_start`, rounded to the nearest tick), outside that check: a time that must be a whole
 number of ticks stays an `X_TICKS` constant for `timer_start_ticks`.
@@ -124,7 +125,13 @@ a count-up meter stays an integer.
 
 Game time is the tick number unless the State holds a `Clock`. Then the harness advances the clock before every tick
 that isn't paused and gives the tick `t.time` and `t.paused`, so every timer, `due` and stamp in that game holds
-through a pause with no call site knowing about it. The clock is found by its type, so it can be named anything.
+through a pause with no call site knowing about it. The clock is found by its type, so it can be named anything, as
+a field of the State itself.
+
+A stamp (when something happened, for an age or a view's flash) is game time: `t.time` in tick code, `f.time` in a
+view, held in a `sim.Game_Time` field. `t.number` names the record (keyed rolls, the log, events by tick), never a
+time: game time has its own type, so a stamp taken from the tick number does not compile. In a game without a Clock
+the two are equal, which is why a stamp on the tick number would look right until the game adds a pause.
 
 **The co-op pause is state.** Online, a pause from outside the sim is not exact (the others keep playing), so a pause
 is a command that every peer applies at the same tick: `set_paused` from it, and `tick` returns early when `t.paused`,

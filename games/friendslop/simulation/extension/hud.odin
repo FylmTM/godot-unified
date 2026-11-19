@@ -39,11 +39,11 @@ hud_of :: proc(f: ^Frame) -> (hud: Data_Hud) {
 	switch f.state.phase {
 	case .Hub:
 	case .Run:
-		hud.run_s = sim.seconds(f.tick - f.state.run_tick, g.TICK_HZ)
+		hud.run_s = sim.seconds(f.time - f.state.run_tick, g.TICK_HZ)
 	case .Finished:
 		hud.run_s = sim.seconds(f.state.finish_tick - f.state.run_tick, g.TICK_HZ)
 		hud.reset_in_s = sim.seconds(
-			g.FINISH_HOLD_TICKS - dmath.min(f.tick - f.state.finish_tick, g.FINISH_HOLD_TICKS),
+			g.FINISH_HOLD_TICKS - dmath.min(f.time - f.state.finish_tick, g.FINISH_HOLD_TICKS),
 			g.TICK_HZ,
 		)
 	}

@@ -311,7 +311,7 @@ due_spreads_evenly :: proc(t: ^testing.T) {
 		for number in u32(40) ..< 40 + period {
 			tick := toy.Tick {
 				number = number,
-				time   = number,
+				time   = sim.Game_Time(number),
 			}
 			per_tick := 0
 			for key in 0 ..< 100 {

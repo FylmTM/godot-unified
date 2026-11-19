@@ -85,7 +85,7 @@ bot_input :: proc(seed: u64, slot: int, tick: u32, state: ^g.State) -> (input: g
 	input.move_x, input.move_z = dmath.axis_i8(direction.x), dmath.axis_i8(direction.y)
 	// Dash out of contact range (the dash triggers on a press edge: press on even ticks only).
 	if nearest_sq < BOT_DASH_REACH * BOT_DASH_REACH &&
-	   sim.timer_done(tick - 1, character.dash_cooldown) &&
+	   sim.timer_done(sim.game_time(state, tick - 1), character.dash_cooldown) &&
 	   tick % 2 == 0 { 	// the state is of tick - 1
 		input.buttons += {.Dash}
 	}

@@ -18,9 +18,9 @@ warp_ships :: proc(t: ^Tick) {
 			heading := physics.body_rotation_2d(t.world.phys, ship.body)
 			physics.body_set_transform_2d(t.world.phys, ship.body, to, heading) // its velocities are kept
 			ship.warp += 1
-			sim.timer_start_ticks(t, &t.state.gates[gate].charge, u32(GATE_CHARGE_TICKS))
-			sim.timer_start_ticks(t, &t.state.gates[gate_def.pair].charge, u32(GATE_CHARGE_TICKS))
-			sim.timer_start_ticks(t, &ship.gate_cooldown, u32(GATE_CHARGE_TICKS))
+			sim.timer_start_ticks(t, &t.state.gates[gate].charge, GATE_CHARGE_TICKS)
+			sim.timer_start_ticks(t, &t.state.gates[gate_def.pair].charge, GATE_CHARGE_TICKS)
+			sim.timer_start_ticks(t, &ship.gate_cooldown, GATE_CHARGE_TICKS)
 			sim.emit(t, Event_Warped {
 				position  = sim.position_2d(to),
 				player    = player,

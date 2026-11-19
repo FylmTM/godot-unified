@@ -59,7 +59,7 @@ move_projectiles :: proc(t: ^Tick) {
 		}
 		if hit >= 0 {
 			t.state.enemies.items[hit].hp -= projectile.damage
-			t.state.enemies.items[hit].hit_tick = t.number
+			t.state.enemies.items[hit].hit_tick = t.time
 			sim.despawn(&t.state.projectiles, handle)
 			continue
 		}

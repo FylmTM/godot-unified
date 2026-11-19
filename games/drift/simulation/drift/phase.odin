@@ -21,8 +21,8 @@ apply_commands :: proc(t: ^Tick) {
 
 start_match :: proc(t: ^Tick, player: sim.Player) {
 	t.state.phase = .Match
-	t.state.match_tick = t.number
-	t.state.next_wave_tick = t.number
+	t.state.match_tick = t.time
+	t.state.next_wave_tick = t.time
 	t.state.waves = 0
 	t.state.rocks_left = 0
 	t.state.score = 0
@@ -41,11 +41,11 @@ advance_phase :: proc(t: ^Tick) {
 	case .Match:
 		if t.state.station_hp <= 0 {
 			t.state.phase = .Over
-			t.state.over_tick = t.number
-			sim.emit(t, Event_Match_Over{duration_s = sim.seconds(t.number - t.state.match_tick, TICK_HZ)})
+			t.state.over_tick = t.time
+			sim.emit(t, Event_Match_Over{duration_s = sim.seconds(t.time - t.state.match_tick, TICK_HZ)})
 		}
 	case .Over:
-		if t.number - t.state.over_tick >= OVER_HOLD_TICKS do reset_world(t)
+		if t.time - t.state.over_tick >= OVER_HOLD_TICKS do reset_world(t)
 	}
 }
 

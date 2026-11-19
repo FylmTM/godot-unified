@@ -1,6 +1,7 @@
 package survivor
 
 import "unified:dmath"
+import "unified:sim"
 
 // Every rule's number. Times are written in seconds and converted to ticks at compile time: a value that is not a whole
 // number of ticks does not compile.
@@ -26,9 +27,9 @@ BENCH_HALF :: ARENA_HALF - 4 // the bench pre-spawns its population over this sq
 PLAYER_HP :: 100
 PLAYER_SPEED :: 6.0 // m/s
 PLAYER_RADIUS :: 0.45 // the capsule's radius and half segment (m)
-PLAYER_RESPAWN_TICKS :: i32(3.0 * TICK_HZ)
-DASH_TICKS :: i32(0.125 * TICK_HZ)
-DASH_COOLDOWN_TICKS :: i32(1.5 * TICK_HZ)
+PLAYER_RESPAWN_TICKS :: u32(3.0 * TICK_HZ)
+DASH_TICKS :: u32(0.125 * TICK_HZ)
+DASH_COOLDOWN_TICKS :: u32(1.5 * TICK_HZ)
 DASH_SPEEDUP :: 3 // speed times this while dashing
 GEM_REACH :: 1.5 // a player this close collects a gem (m)
 
@@ -82,7 +83,7 @@ SPAWN_KINDS := [10]Enemy_Kind{.Grunt, .Grunt, .Grunt, .Grunt, .Grunt, .Grunt, .G
 // ---- crates and barrels
 
 BARREL_HP :: 30
-BARREL_RESPAWN_TICKS :: u32(10.0 * TICK_HZ)
+BARREL_RESPAWN_TICKS :: sim.Game_Time(10.0 * TICK_HZ)
 CRATE_HALF :: 0.5 // m
 BARREL_RADIUS :: 0.4 // the capsule's radius (m)
 BARREL_HALF_HEIGHT :: 0.3 // half its segment (m)
@@ -100,7 +101,7 @@ BLAST_LIFT :: 0.5 // the impulse's upward part, before normalizing
 // ---- phases
 
 OVER_HOLD_S :: 5.0 // the match-over screen, before the world resets
-OVER_HOLD_TICKS :: u32(OVER_HOLD_S * TICK_HZ)
+OVER_HOLD_TICKS :: sim.Game_Time(OVER_HOLD_S * TICK_HZ)
 
 // ---- difficulty and roles
 

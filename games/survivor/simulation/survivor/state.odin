@@ -35,8 +35,8 @@ State :: struct {
 	level:       sim.Active_Level(Level_Id), // the arena, entered by init
 	phase:       Phase,
 	_pad:        [3]u8,
-	match_tick:  u32, // the tick the current match started (0: lobby)
-	over_tick:   u32, // the tick it ended (0: not over)
+	match_tick:  sim.Game_Time, // the tick the current match started (0: lobby)
+	over_tick:   sim.Game_Time, // the tick it ended (0: not over)
 	wave:        u32, // 0-based wave of the current match
 	best_wave:   u32, // the most waves survived: the Setup's record, raised when a match ends past it
 	tuning:      Tuning, // the match's pace: a preset (init), lowered by the bench
@@ -87,7 +87,7 @@ Item_Kind :: enum u8 {
 Item :: struct {
 	body:         physics.Body_Ref,
 	hp:           i32, // barrels
-	respawn_tick: u32, // barrels: the tick a destroyed one comes back (0: none pending)
+	respawn_tick: sim.Game_Time, // barrels: the tick a destroyed one comes back (0: none pending)
 	alive:        bool,
 	_pad:         [3]u8,
 }
@@ -101,8 +101,8 @@ Enemy_Kind :: enum u8 {
 // Enemies are no physics bodies: they move on the ground plane (x, z), pushed out of the pillars and kept inside the
 // walls by the sim itself.
 Enemy :: struct {
-	spawn_tick:       u32, // for the view (age-based effects)
-	hit_tick:         u32, // the last tick it took damage (0: never), for hit flashes
+	spawn_tick:       sim.Game_Time, // for the view (age-based effects)
+	hit_tick:         sim.Game_Time, // the last tick it took damage (0: never), for hit flashes
 	pos:              [2]f32, // x, z
 	vel:              [2]f32,
 	hp:               i32,
@@ -124,5 +124,5 @@ Projectile :: struct {
 Gem :: struct {
 	pos:        [2]f32, // x, z
 	value:      i32,
-	spawn_tick: u32,
+	spawn_tick: sim.Game_Time,
 }

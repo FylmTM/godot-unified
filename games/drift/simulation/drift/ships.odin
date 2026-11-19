@@ -56,11 +56,11 @@ fly_ships :: proc(t: ^Tick) {
 		vel := physics.body_linear_velocity_2d(t.world.phys, ship.body) // after the thrust: what a bullet inherits
 		if .Boost in input.buttons && sim.timer_done(t, ship.boost_cooldown) {
 			physics.body_apply_linear_impulse_to_center_2d(t.world.phys, ship.body, heading * (BOOST_SPEED * mass))
-			sim.timer_start_ticks(t, &ship.boost_cooldown, u32(BOOST_COOLDOWN_TICKS))
+			sim.timer_start_ticks(t, &ship.boost_cooldown, BOOST_COOLDOWN_TICKS)
 			sim.emit(t, Event_Boosted{position = sim.position_2d(pos), player = player})
 		}
 		if .Fire in input.buttons && sim.timer_done(t, ship.fire_cooldown) {
-			sim.timer_start_ticks(t, &ship.fire_cooldown, u32(FIRE_EVERY_TICKS))
+			sim.timer_start_ticks(t, &ship.fire_cooldown, FIRE_EVERY_TICKS)
 			muzzle := pos + heading * (SHIP_RADIUS + MUZZLE_GAP)
 			if bullet, _, ok := sim.spawn(&t.state.bullets); ok {
 				bullet^ = {

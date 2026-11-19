@@ -30,6 +30,6 @@ collect_gems :: proc(t: ^Tick) {
 			sim.despawn(&t.state.gems, handle)
 			continue each_gem
 		}
-		if t.number - gem.spawn_tick >= GEM_LIFE_TICKS do sim.despawn(&t.state.gems, handle)
+		if t.time - gem.spawn_tick >= GEM_LIFE_TICKS do sim.despawn(&t.state.gems, handle)
 	}
 }

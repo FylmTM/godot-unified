@@ -11,8 +11,8 @@ State :: struct {
 	items:       [MAX_ITEMS]Item,
 	platforms:   [MAX_PLATFORMS]Platform,
 	triggers:    [MAX_TRIGGERS]Trigger,
-	run_tick:    u32, // the tick the current run started
-	finish_tick: u32, // the tick the trophy arrived (Finished)
+	run_tick:    sim.Game_Time, // the tick the current run started
+	finish_tick: sim.Game_Time, // the tick the trophy arrived (Finished)
 	best_ticks:  u32, // the best run (0: none)
 	checkpoint:  i32, // the team's last checkpoint index (-1: the hub)
 	phase:       Phase,

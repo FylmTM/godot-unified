@@ -289,7 +289,7 @@ throw :: proc(t: ^Tick, player: sim.Player) {
 	if kind == .Item {
 		item := &t.state.items[index]
 		item.thrown_by = player
-		sim.timer_start_ticks(t, &item.thrown, u32(THROWN_TAG_TICKS))
+		sim.timer_start_ticks(t, &item.thrown, THROWN_TAG_TICKS)
 		physics.stop_ignoring(t.world.phys, &item.thrower_ignore) // a throw of an item still clearing its last thrower
 		item.thrower_ignore = physics.ignore_contacts(
 			t.world.phys,

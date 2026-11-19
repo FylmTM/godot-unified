@@ -19,7 +19,7 @@ advance_phase :: proc(t: ^Tick) {
 		for character, player in sim.next(&players) {
 			if character.alive && dmath.length_sq(character.pos.xz) > START_RADIUS * START_RADIUS {
 				t.state.phase = .Match
-				t.state.match_tick = t.number
+				t.state.match_tick = t.time
 				t.state.over_tick = 0
 				t.state.wave = 0
 				sim.emit(t, Event_Match_Started{position = sim.Position(character.pos), player = player})
@@ -27,21 +27,21 @@ advance_phase :: proc(t: ^Tick) {
 			}
 		}
 	case .Match:
-		t.state.wave = (t.number - t.state.match_tick) / t.state.tuning.wave_ticks
+		t.state.wave = u32(t.time - t.state.match_tick) / t.state.tuning.wave_ticks
 		if present == 0 {
 			reset_world(t)
 		} else if alive == 0 && !t.state.tuning.endless {
 			t.state.phase = .Over
-			t.state.over_tick = t.number
+			t.state.over_tick = t.time
 			t.state.best_wave = dmath.max(t.state.best_wave, t.state.wave + 1)
 			sim.emit(t, Event_Match_Over {
-				duration_s = sim.seconds(t.number - t.state.match_tick, TICK_HZ),
+				duration_s = sim.seconds(t.time - t.state.match_tick, TICK_HZ),
 				waves      = t.state.wave + 1,
 				best_wave  = t.state.best_wave,
 			})
 		}
 	case .Over:
-		if t.number - t.state.over_tick >= OVER_HOLD_TICKS {
+		if t.time - t.state.over_tick >= OVER_HOLD_TICKS {
 			reset_world(t)
 		}
 	}

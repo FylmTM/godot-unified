@@ -1,5 +1,7 @@
 package friendslop
 
+import "unified:sim"
+
 // Every rule's number: metres, seconds, kilograms. Times are written in seconds and converted to ticks at compile
 // time. The level's own numbers (sizes, launch velocities, platform paths) are its markers' properties.
 
@@ -30,7 +32,7 @@ PLAYER_HALF_HEIGHT :: 0.45 // capsule segment half length
 POGO_REST :: 0.5 // the pogo holds the capsule's lower sphere centre this high: 1.75 m from feet to head
 FEET :: PLAYER_HALF_HEIGHT + POGO_REST // from the capsule centre down to the ground it stands on
 RESPAWN_S :: 1.5 // a fallen player waits this long
-RESPAWN_TICKS :: u16(RESPAWN_S * TICK_HZ)
+RESPAWN_TICKS :: u32(RESPAWN_S * TICK_HZ)
 CHECKPOINT_SPREAD :: 0.9 // players respawn at a checkpoint this far apart along x, by slot
 PARK_Y :: -60 // a fallen player's body waits this far down ...
 PARK_SPACING :: 4 // ... this far apart along x, by slot
@@ -59,7 +61,7 @@ THROW_SPEED_MIN :: 6.0
 THROW_SPEED_ADD :: 10.0 // at full charge
 THROW_LIFT :: 1.5 // m/s up on top of the aim
 THROW_CHARGE_TICKS :: u16(0.5 * TICK_HZ)
-THROWN_TAG_TICKS :: u16(1.0 * TICK_HZ) // a thrown item counts as "thrown by P" this long
+THROWN_TAG_TICKS :: u32(1.0 * TICK_HZ) // a thrown item counts as "thrown by P" this long
 THROW_CLEAR_DIST :: 2.0 // m: a thrown item passes through its thrower until this far from them (or its tag ends)
 THROWN_MAX_TICKS :: u16(1.0 * TICK_HZ) // a thrown or dropped player is limp until they land, at most this long
 THROWN_MIN_TICKS :: u16(0.25 * TICK_HZ) // and at least this long
@@ -81,16 +83,16 @@ HELD_MAX_TICKS :: u16(4.0 * TICK_HZ) // then the holder lets go anyway
 HIT_SPEED :: 6.0 // an item this fast counts as a hit even if nobody threw it
 KNOCKBACK :: 7.0 // m/s given to a hit player, along the item's motion, plus a hop
 KNOCKBACK_UP :: 3.0
-PAD_COOLDOWN_TICKS :: u16(0.25 * TICK_HZ)
+PAD_COOLDOWN_TICKS :: u32(0.25 * TICK_HZ)
 PAD_PROBE_UP :: 0.05 // a player is on a pad when the point this far above their feet is inside it
 PAD_ITEM_PROBE :: 0.8 // an item is when the point this far down its radius is
 BELL_SPEED :: 4.0 // a hit at least this fast rings a bell
-BELL_COOLDOWN_TICKS :: u16(1.0 * TICK_HZ)
+BELL_COOLDOWN_TICKS :: u32(1.0 * TICK_HZ)
 
 // ---- the run
 
 FINISH_HOLD_S :: 5.0 // the finish screen, before everyone is back in the hub
-FINISH_HOLD_TICKS :: u32(FINISH_HOLD_S * TICK_HZ)
+FINISH_HOLD_TICKS :: sim.Game_Time(FINISH_HOLD_S * TICK_HZ)
 
 // ---- items
 
