@@ -222,14 +222,15 @@ collection_kind :: proc(type: ^runtime.Type_Info) -> Collection {
 	return .None
 }
 
-// A List's or a Queue's field `name` (its count or head) as an integer, from the collection's bytes (0: no such field).
+// A List's or a Queue's field `name` (its count or head) as an integer, from the collection's bytes (0: no such field;
+// a u64 past int's range reads as the greatest int, never negative).
 @(private)
 collection_field :: proc(info: runtime.Type_Info_Struct, bytes: []u8, name: string) -> int {
 	for i in 0 ..< int(info.field_count) {
 		if info.names[i] != name do continue
-		value := 0
-		for k in 0 ..< info.types[i].size do value |= int(bytes[int(info.offsets[i]) + k]) << uint(8 * k)
-		return value
+		value: u64
+		for k in 0 ..< info.types[i].size do value |= u64(bytes[int(info.offsets[i]) + k]) << uint(8 * k)
+		return int(value) if value <= u64(max(int)) else max(int)
 	}
 	return 0
 }

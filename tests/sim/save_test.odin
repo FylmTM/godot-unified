@@ -190,6 +190,37 @@ a_setup_past_its_collections_does_not_read :: proc(t: ^testing.T) {
 	past_queue := setup
 	past_queue.order.head = 3
 	testing.expect(t, sim.setup_violation(&SAVE_GAME, &past_queue) != "", "a Queue's head past its capacity")
+	// a u64 count and head: one with its top bit set is past any capacity, never a negative that passes
+	wide := Wide_Setup{}
+	wide.queue.head, wide.queue.count = 1 << 63 | 1, 1
+	testing.expect(t, sim.setup_violation(&WIDE_GAME, &wide) != "", "a u64 Queue's head with its top bit")
+	wide.queue.head, wide.queue.count = 0, 1 << 63
+	testing.expect(t, sim.setup_violation(&WIDE_GAME, &wide) != "", "a u64 Queue's count with its top bit")
+	wide.queue.count = 4
+	testing.expect_value(t, sim.setup_violation(&WIDE_GAME, &wide), "")
+}
+
+// A Setup holding a Queue of 8-byte items: its head and count are u64.
+Wide_Setup :: struct {
+	queue: sim.Queue(u64, 4),
+}
+
+Wide_Game :: sim.Game(
+	Save_State,
+	sim.No_Input,
+	sim.No_World,
+	toy.Event,
+	sim.No_Commands,
+	Wide_Setup,
+	sim.No_Profile,
+	2,
+)
+
+WIDE_GAME := Wide_Game {
+	name = "wide",
+	version = "1",
+	tick_hz = 64,
+	tick = proc(t: ^sim.Tick(Wide_Game)) {},
 }
 
 // save_changed: Game.save's Setup on a tick, true only when its bytes differ from the last one; the session's Setup

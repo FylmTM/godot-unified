@@ -319,11 +319,11 @@ Client :: struct($G: typeid) {
 	// saves (usim.save_changed on every verified tick): the newest Setup Game.save gave, and how many times it changed
 	saved:          usim.part(G, usim.GAME_SETUP),
 	saves:          u32,
-	save_started:   bool, // saved holds the session's Setup or a save
+	save_started:   bool, // saved holds the session's Setup (from the first Welcome) or a save
 }
 
 // The newest Setup Game.save gave on a verified tick (src/sim/README.md, Saves) and how many times it changed this
-// session (0: never, and `setup` is the session's own). A host polls it after client_step: a new count is a new save.
+// session (0: never, and `setup` is the session's own; zero before the Welcome). A host polls it after client_step: a new count is a new save.
 client_save :: proc(client: ^Client($G)) -> (setup: usim.part(G, usim.GAME_SETUP), changes: u32) {
 	return client.saved, client.saves
 }
@@ -561,6 +561,10 @@ on_welcome :: proc(client: ^Client($G), reader: ^wire.Reader) {
 	if usim.setup_violation(client.game, &client.setup) != "" {
 		set_status(client, .Failed, "the host's setup does not read on this build")
 		return
+	}
+	if !client.save_started { 	// a Welcome after a lost connection keeps the saves taken before it
+		client.saved = client.setup
+		client.save_started = true
 	}
 	if client.sim != nil {
 		// Back after a lost connection. Resumed: the relay streams the finalized ticks after our verified tick, which
@@ -1172,13 +1176,7 @@ step_predicted :: proc(client: ^Client($G), tick: u32, kind: Step_Kind) {
 
 @(private)
 on_tick_verified :: proc(client: ^Client($G), tick: u32) {
-	if client.game.save != nil {
-		if !client.save_started {
-			client.saved = client.sim.setup
-			client.save_started = true
-		}
-		if usim.save_changed(client.sim, tick, &client.saved) do client.saves += 1
-	}
+	if usim.save_changed(client.sim, tick, &client.saved) do client.saves += 1
 	if client.hooks.verified != nil {
 		client.hooks.verified(
 			client.hooks.user,

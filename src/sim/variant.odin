@@ -192,7 +192,6 @@ collection_fix :: proc(
 ) {
 	info := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
 	last := int(info.field_count) - 1
-	bytes := ([^]u8)(data)[:type.size]
 	if collection == .Bits {
 		words := ([^]u8)(rawptr(uintptr(data) + info.offsets[last]))
 		for bit in bits_capacity(type) ..< info.types[last].size * 8 {
@@ -202,13 +201,50 @@ collection_fix :: proc(
 		}
 		return
 	}
-	capacity := runtime.type_info_base(info.types[last]).variant.(runtime.Type_Info_Array).count
-	count, head := collection_field(info, bytes, "count"), collection_field(info, bytes, "head")
-	if count <= capacity && head < capacity do return
+	if wire_count_holds(wire_count_of(type, 0), data) do return
 	changed = true
 	if kind == .Command do rejected = true
 	else if apply do runtime.mem_zero(data, type.size)
 	return
+}
+
+// Where a List's or Queue's count and head are (`head` -1: a List's, none), as wide as they are, and its capacity.
+@(private)
+Wire_Count :: struct {
+	count, head: int, // offsets in the value checked
+	size:        int, // bytes of each
+	capacity:    u64,
+}
+
+// The Wire_Count of a List or Queue of `type` at `offset`.
+@(private)
+wire_count_of :: proc(type: ^runtime.Type_Info, offset: int) -> (count: Wire_Count) {
+	info := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
+	count.head = -1
+	for i in 0 ..< int(info.field_count) {
+		switch info.names[i] {
+		case "count":
+			count.count, count.size = offset + int(info.offsets[i]), info.types[i].size
+		case "head":
+			count.head = offset + int(info.offsets[i])
+		}
+	}
+	last := int(info.field_count) - 1
+	count.capacity = u64(runtime.type_info_base(info.types[last]).variant.(runtime.Type_Info_Array).count)
+	return
+}
+
+// Whether a List's or Queue's count is at most its capacity and its head below it, read unsigned at its width (a
+// u64 count with its top bit set is past any capacity, never negative).
+@(private)
+wire_count_holds :: #force_inline proc(count: Wire_Count, data: rawptr) -> bool {
+	unsigned :: #force_inline proc(data: rawptr, offset, size: int) -> (value: u64) {
+		bytes := ([^]u8)(data)[offset:][:size]
+		for b, k in bytes do value |= u64(b) << uint(8 * k)
+		return
+	}
+	if unsigned(data, count.count, count.size) > count.capacity do return false
+	return count.head < 0 || unsigned(data, count.head, count.size) < count.capacity
 }
 
 // N of a sim.Bits(N): the number its type's name ends in (the words round it up to 64).
@@ -255,15 +291,15 @@ read_integer :: proc(data: rawptr, type: ^runtime.Type_Info) -> i64 {
 	return (^i64)(data)^
 }
 
-// An Input's wire rules (wire_fix's for an Input) compiled once at create: the bits each byte may hold and the enum
-// fields, so a step checks a slot with a mask and a compare per enum instead of walking the type info.
+// An Input's wire rules (wire_fix's for an Input) compiled once at create: the bits each byte may hold, the enum
+// fields and the collections' counts, so a step checks a slot with a mask and a compare per enum and count instead of
+// walking the type info.
 @(private)
 Wire_Check :: struct {
-	allowed:     []u8, // per byte of the Input: the bits a value may set (a bit_set's elements', a bool's low bit; any)
-	enums:       [dynamic]Wire_Enum,
-	any:         bool, // there is something to check: an enum, a bit a value may not set, a collection
-	collections: bool, // the Input holds a List or a Queue, whose count wire_fix checks
-	type:        ^runtime.Type_Info,
+	allowed: []u8, // per byte of the Input: the bits a value may set (a bit_set's elements', a bool's low bit; any)
+	enums:   [dynamic]Wire_Enum,
+	any:     bool, // there is something to check: an enum, a bit a value may not set, a count
+	counts:  [dynamic]Wire_Count, // the Input's Lists and Queues: a count past the capacity no mask says
 }
 
 // An enum field of an Input, by its offset.
@@ -281,10 +317,9 @@ Wire_Enum :: struct {
 wire_check_make :: proc(type: ^runtime.Type_Info) -> (check: Wire_Check) {
 	check.allowed = make([]u8, type.size)
 	for &bits in check.allowed do bits = 0xFF
-	check.type = type
 	wire_compile(&check, type, 0)
 	for bits in check.allowed do check.any ||= bits != 0xFF
-	check.any ||= len(check.enums) > 0 || check.collections
+	check.any ||= len(check.enums) > 0 || len(check.counts) > 0
 	return
 }
 
@@ -292,6 +327,7 @@ wire_check_make :: proc(type: ^runtime.Type_Info) -> (check: Wire_Check) {
 wire_check_destroy :: proc(check: ^Wire_Check) {
 	delete(check.allowed)
 	delete(check.enums)
+	delete(check.counts)
 }
 
 @(private)
@@ -330,7 +366,7 @@ wire_compile :: proc(check: ^Wire_Check, type: ^runtime.Type_Info, offset: int) 
 			words := offset + int(info.offsets[0])
 			for bit in bits_capacity(type) ..< info.types[0].size * 8 do check.allowed[words + bit / 8] &~= 1 << uint(bit % 8)
 		case .List, .Queue:
-			check.collections = true // a count past the capacity: no mask says it (wire_reads_as_sent walks the type)
+			builtin.append(&check.counts, wire_count_of(type, offset))
 		case .None:
 		}
 		for i in 0 ..< int(info.field_count) do wire_compile(check, info.types[i], offset + int(info.offsets[i]))
@@ -348,10 +384,7 @@ wire_reads_as_sent :: #force_inline proc(check: ^Wire_Check, data: rawptr) -> bo
 		value := read_integer(rawptr(uintptr(data) + uintptr(field.offset)), field.base)
 		if field.dense ? value < field.low || value > field.high : !enum_declares(field.info, value) do return false
 	}
-	if check.collections {
-		changed, _ := wire_fix(data, check.type, .Input, apply = false)
-		return !changed
-	}
+	for count in check.counts do if !wire_count_holds(count, data) do return false
 	return true
 }
 
