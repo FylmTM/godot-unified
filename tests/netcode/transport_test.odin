@@ -43,7 +43,7 @@ a_reliable_burst_is_not_resent :: proc(t: ^testing.T) {
 	testing.expect_value(t, sender.stats.resends, 0)
 }
 
-// A profile with only jitter impairs the link (it used to come back unwrapped).
+// A profile with only jitter impairs the link (it is not taken for ideal).
 @(test)
 a_jitter_only_profile_is_simulated :: proc(t: ^testing.T) {
 	hub := netcode.hub_create(2)
@@ -143,7 +143,7 @@ connections_remade_at_once_get_new_epochs :: proc(t: ^testing.T) {
 }
 
 // Closing a netsim link sends what it still delays: a client that leaves right after acking the relay's End must not
-// take the ack with it (#235: the relay waited 3 s for it in about half the net suite's runs).
+// take the ack with it.
 @(test)
 closing_a_netsim_sends_what_it_delays :: proc(t: ^testing.T) {
 	hub := netcode.hub_create(2)

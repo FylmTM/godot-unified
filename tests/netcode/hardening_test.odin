@@ -14,8 +14,8 @@ import "unified:sim"
 import "unified:wire"
 
 // With nobody left in the session the relay must not finalize ahead of its clock: an endless host
-// session whose players all leave (or whose own loopback peer times out) used to append ticks
-// until the session length (forever when endless) in one step. A player who comes back is refused: nobody is
+// session whose players all leave (or whose own loopback peer times out) must not append ticks
+// up to the session length (forever when endless) in one step. A player who comes back is refused: nobody is
 // left to send it a snapshot, and the relay keeps only its last RELAY_RING ticks (no replay from tick 0).
 @(test)
 relay_idles_when_everyone_left :: proc(t: ^testing.T) {
@@ -311,7 +311,7 @@ reliable_reorder_buffer_is_bounded :: proc(t: ^testing.T) {
 	testing.expect_value(t, channel.conns[0].rel_next, netcode.REL_WINDOW)
 }
 
-// A channel costs little until peers connect (it used to embed 32 peers' sent-packet rings: 8.8 MiB).
+// A channel costs little until peers connect: a connection's sent-packet ring is allocated when it opens.
 @(test)
 channel_memory :: proc(t: ^testing.T) {
 	testing.expectf(t, size_of(netcode.Channel) < 16 * 1024, "Channel is %d bytes", size_of(netcode.Channel))
@@ -448,7 +448,7 @@ other_build_is_refused :: proc(t: ^testing.T) {
 }
 
 // Two builds that differ only in the library's simulation (LIBRARY_VERSION) or the unified-box3d pin refuse each
-// other at hello (#233): both are in compat.
+// other at hello: both are in compat.
 @(test)
 other_library_build_is_refused :: proc(t: ^testing.T) {
 	this := sim.compat_of(&toy.GAME)

@@ -91,9 +91,9 @@ Four co-op games in this repo prove the library. Each is a Godot project with it
 
 Toolchain (macOS ARM64, Linux x64 or Windows x64):
 
-- **Odin** at the release and commit `pins.cfg` pins: nothing to install. The first `./uni` uses the odin on PATH
-  when it is that one, else downloads that release once (SHA-256 checked) into a per-user cache
-  (`~/.cache/unified/odin`, Windows `%LOCALAPPDATA%\unified\odin`). The pinned Godot goes there too
+- **Odin** at the release and commit `pins.cfg` pins: nothing to install. The first `./uni` downloads that release once
+  (SHA-256 checked) into a per-user cache (`~/.cache/unified/odin`, Windows `%LOCALAPPDATA%\unified\odin`) and puts
+  it first on PATH: no other Odin is used. The pinned Godot goes there too
   (`unified/godot`), once for every checkout.
 - What Odin needs anyway: **clang** on macOS and Linux; on Windows, Visual Studio Build Tools (its linker and the
   Windows SDK). Nothing in the repo is C or C++.

@@ -158,9 +158,8 @@ each_input_rides_in_a_window_of_packets :: proc(t: ^testing.T) {
 }
 
 // What a burst costs: a client that steps rarely (every `step_ms`) generates more inputs per step than a packet
-// carries, every step; with the relay silent nothing is acked. A burst used to carry every unacked input older than
-// the main message, every step (145 messages in a step, 0.7 to 1.2 MB/s up): now only those still in time that rode in
-// fewer than the window's packets.
+// carries, every step; with the relay silent nothing is acked. A burst carries only the inputs still in time that rode in fewer than the
+// window's packets, not every unacked input older than the main message on every step.
 bounded_bursts :: proc(t: ^testing.T, step_ms: int, silent: bool) {
 	net := new(Sweep_Net(Plain_2x114))
 	defer free(net)

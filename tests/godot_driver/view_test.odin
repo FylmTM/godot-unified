@@ -345,7 +345,7 @@ events_emitted_then_confirmed_or_cancelled :: proc(t: ^testing.T) {
 	testing.expect_value(t, tracker.out[3], godot.Tracked(Ev){.Confirmed, Ev{8, 4, 1}, 6})
 }
 
-// #240: an event keeps its serial from Emitted to Confirmed even when a re-simulation changes its data (Confirmed
+// An event keeps its serial from Emitted to Confirmed even when a re-simulation changes its data (Confirmed
 // carries the final data); a cancelled event produced again is a new one; a new tracker continues the serials.
 Hit :: struct {
 	tick:   u32,
@@ -386,7 +386,7 @@ events_keep_their_serial :: proc(t: ^testing.T) {
 	testing.expect_value(t, next.out[0].serial, 104)
 }
 
-// #152: a tick's cancels and confirmations come out in emission order (and ticks in order), whatever
+// A tick's cancels and confirmations come out in emission order (and ticks in order), whatever
 // the map's order.
 @(test)
 events_keep_emission_order :: proc(t: ^testing.T) {
@@ -412,7 +412,7 @@ events_keep_emission_order :: proc(t: ^testing.T) {
 	for event, i in tick12 do testing.expect_value(t, tracker.out[i], godot.Tracked(Ev){.Cancelled, event, tracker.out[i].serial})
 }
 
-// track_push_prev (#284): a corrected tick - 1 goes into the error term, and a tick - 1 the history lacks starts
+// track_push_prev: a corrected tick - 1 goes into the error term, and a tick - 1 the history lacks starts
 // from the last shown pose: the display never jumps.
 @(test)
 track_push_prev_glides :: proc(t: ^testing.T) {

@@ -79,7 +79,7 @@ on_plane :: proc(world: ^physics.World, ref: physics.Body_Ref) -> bool {
 	return body_pos.z == 0 && body_rot.x == 0 && body_rot.y == 0
 }
 
-// Whether a body's velocity stays in the plane: v.z, ω.x and ω.y are zero (±0) after a step (#87).
+// Whether a body's velocity stays in the plane: v.z, ω.x and ω.y are zero (±0) after a step.
 in_plane_velocity :: proc(world: ^physics.World, ref: physics.Body_Ref) -> bool {
 	vel := physics.body_linear_velocity(world, ref)
 	ang_vel := physics.body_angular_velocity(world, ref)
@@ -175,7 +175,7 @@ plane_2d_stays_exact :: proc(t: ^testing.T) {
 		bounced ||= vel.x < -1
 	}
 	testing.expectf(t, off_plane == 0, "%d body-ticks left the plane (z or quaternion x/y not zero)", off_plane)
-	// Boxes and hulls too: their contact points sit at z = ±depth/2 and are solved in 3D (#87).
+	// Boxes and hulls too: their contact points sit at z = ±depth/2 and are solved in 3D.
 	testing.expectf(
 		t,
 		off_velocity == 0,
@@ -692,7 +692,7 @@ field_did_its_job :: proc(t: ^testing.T, session: ^sim.Sim(Field_Game)) {
 	)
 }
 
-// The image carries the geometry its shapes use (#86): a hull first made after tick 0 reaches a
+// The image carries the geometry its shapes use: a hull first made after tick 0 reaches a
 // late joiner, which then runs on identically, deep checksums included.
 @(test)
 portable_image_carries_new_hulls :: proc(t: ^testing.T) {

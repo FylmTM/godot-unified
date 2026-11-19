@@ -1,7 +1,6 @@
 // A full session of 32 (sim.MAX_PLAYERS): the relay's channel keeps netcode.PEERS_SPARE connections beyond its seats,
-// for a peer being refused and for one opened only to tell a peer its connection ended. Without them the 33rd player
-// was never answered (30 s, then "no answer from the relay") and a freed seat was joined 10 s late after 20 to 55% of
-// leaves.
+// for a peer being refused and for one opened only to tell a peer its connection ended: a player past a full session
+// is answered at once, and a freed seat is joined as soon as it is freed.
 package test_headless
 
 import "core:testing"

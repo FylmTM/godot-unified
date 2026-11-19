@@ -43,7 +43,7 @@ deployment and client IDs (not the secret): don't paste those logs anywhere publ
 test tools replace it: `uni coop`'s joiner makes a fresh one (`UNIFIED_EOS_FRESH_DEVICE=1`, so two processes on one
 machine are two players), and the headless `eos-host` / `eos-client` delete theirs at exit. So after a test the
 machine plays as a new anonymous player, and two EOS tests run at once on one machine can delete each other's
-identity: run one at a time. Nothing is stored per player across sessions, so this costs nothing yet (#307).
+identity: run one at a time. Nothing is stored per player across sessions, so this costs nothing yet.
 
 ## Testing over real EOS
 

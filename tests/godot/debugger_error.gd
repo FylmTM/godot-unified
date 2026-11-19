@@ -1,5 +1,5 @@
 # A script error under Godot's debugger (-d), as `uni tool` runs headless tool scripts: the debugger stops at its
-# prompt, and the `quit` uni puts on every child's stdin must end the run at once, with the error printed (#232).
+# prompt, and the `quit` uni puts on every child's stdin must end the run at once, with the error printed.
 # Run by `uni test --suite godot-bindings`; it errors on purpose.
 extends SceneTree
 

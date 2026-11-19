@@ -89,15 +89,6 @@ session starts in is the game's choice in `init` (its Setup's, when it has one).
 game with other `levels` (the headless `--level NAME=FILE`); a re-baked level rebuilds the extension (`uni` counts
 the `.level` files as inputs).
 
-### Time
-
-A time constant is written in seconds and converted, never written as raw ticks: `RESPAWN_TICKS :: u32(RESPAWN_S *
-TICK_HZ)` for a timer's ticks (what `timer_start_ticks` takes), `sim.Game_Time(...)` for a length compared with a
-stamp. Odin refuses a constant conversion that truncates, so a time that is not a whole number of ticks does not
-compile. A time from data converts with `ticks`, a view's with `seconds`; inside `tick`, `t.dt`. A Timer takes
-seconds at run time (`timer_start`, rounded to the nearest tick), outside that check: a time that must be a whole
-number of ticks stays an `X_TICKS` constant for `timer_start_ticks`.
-
 ### Build identity
 
 `compat_of` is the build's identity: the layouts of the types, the unions, the tick rate, the game's name and
@@ -123,6 +114,13 @@ read compares them with the tick's `t.time`, so a rollback restores it with the 
 misses nothing and no loop counts down. A counter that only counts down, or a stored "tick it happens at", is a Timer;
 a count-up meter stays an integer. One exception: a row of a big table (an enemy's contact cooldown in a crowd of
 thousands) keeps a small countdown, as a Timer is 8 bytes a row and every byte is in each tick's snapshot.
+
+A time constant is written in seconds and converted, never written as raw ticks: `RESPAWN_TICKS :: u32(RESPAWN_S *
+TICK_HZ)` for a timer's ticks (what `timer_start_ticks` takes), `sim.Game_Time(...)` for a length compared with a
+stamp. Odin refuses a constant conversion that truncates, so a time that is not a whole number of ticks does not
+compile. A time from data converts with `ticks`, a view's with `seconds`; inside `tick`, `t.dt`. A Timer takes
+seconds at run time (`timer_start`, rounded to the nearest tick), outside that check: a time that must be a whole
+number of ticks stays an `X_TICKS` constant for `timer_start_ticks`.
 
 Game time is the tick number unless the State holds a `Clock`. Then the harness advances the clock before every tick
 that isn't paused and gives the tick `t.time` and `t.paused`, so every timer, `due` and stamp in that game holds
