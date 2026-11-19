@@ -329,7 +329,7 @@ Two kinds, on SplitMix64's mixing function, integer-only:
 - **Keyed rolls** (`roll_below`, `roll_f32`) keep nothing in the block: a roll hashes (seed, tick number, purpose,
   key, index), with `purpose` a value of the game's own enum. A roll depends only on what it names, so adding or
   reordering one system's rolls never moves another's; two rolls that should differ must differ in something (in a
-  loop, the index). **`tick` draws keyed rolls.**
+  loop, the index). A rule's own rolls are keyed: a spawn wave, a crit on a timer's hit.
 - **A keyed roll can be peeked.** It reads no state, so anyone who can name it computes it early: a HUD shows "the next
   upgrade" with `roll_below_at` from `Frame.seed`, touching nothing. Put the roll in one proc that both the tick and
   the view call. Name the tick when it is known from state (the tick a spawn is due); name tick 0 and something stable
@@ -337,8 +337,20 @@ Two kinds, on SplitMix64's mixing function, integer-only:
   `roll_below_at` too then, with `t.seed` (`roll_below` always names the current tick):
   `creep_kind :: proc(seed: u64, wave, index: int) -> Kind {return Kind(sim.roll_below_at(seed, 0, len(Kind), Roll.Creep, u64(wave), index))}`,
   called as `creep_kind(t.seed, ...)` by the tick and `creep_kind(f.seed, ...)` by the view.
-- **`Rng`**, one stream, for code outside `tick` that wants "the next number". A draw added anywhere shifts every
-  later one.
+- **Streams in the block** (`Rng`, started by `rng_keyed` from a seed, a purpose and a key, never the tick): a
+  sequence kept in the State, drawn with `rng_below` and `shuffle`. It rolls back with the block, and its n-th draw
+  is the same whatever tick it is made on.
+
+**A roll a command causes names state, never the tick.** The relay may place a command a tick later than its sender
+predicted, and the rollback re-simulates it on that tick: a keyed roll on the tick number would change the card
+already drawn, in the sender's hand. So a draw, a shuffle or a reward a command causes comes from a stream in the
+block (`hero.draws = sim.rng_keyed(t.seed, Roll.Draw, u64(hero))` when the fight starts, then
+`sim.shuffle(&hero.draws, sim.slice(&hero.pile))`), or from a keyed roll that names tick 0 and a counter the state
+keeps. A stream named by what it is for is also why a save needs only the seed: a resumed run starts its streams
+again from the same names. A draw added anywhere in one stream shifts every later draw from it, so each sequence that
+should stay put has a stream of its own.
+
+Outside `tick` (level generation, tests, benchmarks) `rng_seed` starts a stream from any number.
 
 ## The harness
 

@@ -1,21 +1,27 @@
 // Random numbers (src/sim/README.md, Random numbers), integer-only, built on SplitMix64's mixing function:
 //
-// - Rng: one stream, for code outside `tick` that wants "the next number" (level generation, shuffles). A draw
-//   added anywhere shifts every later draw from it.
 // - Keyed rolls (roll_below, roll_f32): nothing in the block; a roll is a hash of (seed, tick, purpose,
 //   key, index), so it depends only on what it names: adding, removing or reordering one system's rolls
 //   never moves another's.
+// - Rng: one stream, 8 bytes of plain state. In the block, started by rng_keyed from what it is for (never the
+//   tick), it is a sequence a command draws from (a deck's shuffles, a hero's rewards): its n-th draw is the same
+//   whatever tick it lands on, and a rollback restores it with the block. A draw added anywhere shifts every later
+//   draw from the same stream.
 package sim
 
 @(require) import "base:intrinsics" // only in generic procs
 
-// One stream of random numbers (rng_seed, then rng_next, rng_below, rng_f32): its state is the whole of it.
+// One stream of random numbers (rng_keyed or rng_seed, then rng_next, rng_below, rng_f32, shuffle): its state is the
+// whole of it, plain data for the block.
 Rng :: struct {
 	state: u64,
 }
 
 @(private)
 GAMMA :: 0x9E3779B97F4A7C15 // SplitMix64's increment (2^64 / golden ratio, odd)
+
+@(private)
+STREAM_DOMAIN :: 0xD1B54A32D192ED03 // rng_keyed's first step, so no stream starts where a keyed roll's hash does
 
 // SplitMix64's output function (Stafford's variant 13): a bijection on u64 with full avalanche.
 @(private)
@@ -29,6 +35,25 @@ mix64 :: proc "contextless" (value: u64) -> u64 {
 // A stream that starts from `seed`.
 rng_seed :: proc(seed: u64) -> Rng {
 	return {seed}
+}
+
+// A stream for the block named by what it is for, never by the tick: the session's seed (Tick.seed, or a seed the
+// state keeps), `purpose` (a value of the game's own enum) and `key` (a hero, a floor, both packed). Kept in the State,
+// it rolls back with it, and its draws are the same whatever tick each is made on, so a draw a command causes doesn't
+// change when the command lands a tick later than predicted. Two streams that should differ must differ in something.
+rng_keyed :: proc(seed: u64, purpose: $Purpose, key: u64 = 0) -> Rng where intrinsics.type_is_enum(Purpose) {
+	bits := mix64(seed + STREAM_DOMAIN)
+	bits = mix64((bits ~ u64(purpose)) + GAMMA)
+	return {mix64((bits ~ key) + GAMMA)}
+}
+
+// Puts `items` in a uniformly random order drawn from `rng` (Fisher-Yates from the last item, rng_below each step:
+// len(items) - 1 draws), the same order on every platform. Allocates nothing.
+shuffle :: proc(rng: ^Rng, items: []$T) {
+	for i := len(items) - 1; i > 0; i -= 1 {
+		j := int(rng_below(rng, u32(i + 1)))
+		items[i], items[j] = items[j], items[i]
+	}
 }
 
 // The next 64 bits of the stream (period 2^64).

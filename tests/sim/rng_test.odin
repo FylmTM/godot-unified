@@ -1,10 +1,137 @@
-// Random numbers and time: the Rng stream, keyed rolls, ticks and seconds.
+// Random numbers and time: the Rng stream, streams in the block (rng_keyed, shuffle), keyed rolls, ticks and seconds.
 package test_sim
 
 import "core:testing"
 
 import "../toy"
 import "unified:sim"
+
+// The cross-platform pin of rng_keyed and shuffle: a stream's first draws, and a 10-item deck shuffled from it.
+@(test)
+rng_keyed_golden :: proc(t: ^testing.T) {
+	stream := sim.rng_keyed(42, Purpose.Loot, 7)
+	testing.expect_value(t, sim.rng_next(&stream), 0x81C9B07B1CC26C57)
+	testing.expect_value(t, sim.rng_next(&stream), 0x24320FDDC8C8AC7F)
+	testing.expect_value(t, sim.rng_next(&stream), 0x31070A5AF006D483)
+	deck := [10]u8{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
+	dealer := sim.rng_keyed(42, Purpose.Spread)
+	sim.shuffle(&dealer, deck[:])
+	testing.expect_value(t, deck, [10]u8{8, 2, 1, 4, 9, 3, 5, 6, 7, 0})
+	testing.expect_value(t, dealer.state, 0x530B48C9CF4CBAEC) // where the shuffle left the stream
+}
+
+// rng_keyed: the same names start the same stream; another seed, purpose or key another one, and none starts where
+// a keyed roll's hash does.
+@(test)
+rng_keyed_streams :: proc(t: ^testing.T) {
+	base := sim.rng_keyed(42, Purpose.Loot, 7)
+	testing.expect_value(t, sim.rng_keyed(42, Purpose.Loot, 7), base)
+	others := [?]sim.Rng {
+		sim.rng_keyed(43, Purpose.Loot, 7),
+		sim.rng_keyed(42, Purpose.Crit, 7),
+		sim.rng_keyed(42, Purpose.Loot, 8),
+		sim.rng_keyed(42, Purpose.Loot),
+	}
+	for other, i in others do testing.expectf(t, other != base, "stream %d starts like the base", i)
+	// neighbouring keys are independent: the low bit of the first draw agrees about half the time
+	agree := 0
+	for key in u64(0) ..< 10_000 {
+		this, next := sim.rng_keyed(1, Purpose.Spread, key), sim.rng_keyed(1, Purpose.Spread, key + 1)
+		agree += int(sim.rng_next(&this) & 1 == sim.rng_next(&next) & 1)
+	}
+	testing.expect(t, agree > 4_800 && agree < 5_200)
+}
+
+// shuffle: every order of 4 items comes up about as often (24 orders, 240,000 shuffles, each within 4% of 10,000),
+// and a slice of 0 or 1 items draws nothing.
+@(test)
+shuffle_is_uniform :: proc(t: ^testing.T) {
+	counts: [24]int
+	rng := sim.rng_keyed(9, Purpose.Spread)
+	for _ in 0 ..< 240_000 {
+		items := [4]u8{0, 1, 2, 3}
+		sim.shuffle(&rng, items[:])
+		// the order's index in base (4, 3, 2): the position of each item among those left
+		left := [4]u8{0, 1, 2, 3}
+		count := 4
+		index := 0
+		for item in items {
+			at := 0
+			for left[at] != item do at += 1
+			index = index * count + at
+			for k in at ..< count - 1 do left[k] = left[k + 1]
+			count -= 1
+		}
+		counts[index] += 1
+	}
+	for count, order in counts do testing.expectf(t, count > 9_600 && count < 10_400, "order %d: %d", order, count)
+	before := rng
+	one := [1]u8{5}
+	sim.shuffle(&rng, one[:])
+	sim.shuffle(&rng, one[:0])
+	testing.expect_value(t, rng, before)
+}
+
+// A deck in the block, shuffled by a command from a stream the State keeps.
+Cmd_Deal :: struct {}
+
+Deal_Cmd :: union {
+	Cmd_Deal,
+}
+
+Deal_State :: struct {
+	deals:   sim.Rng,
+	players: sim.Players(u32, sim.No_Profile, sim.No_Input, 2),
+	deck:    sim.List(u8, 13),
+	_pad:    [2]u8,
+}
+
+Deal_Game :: sim.Game(Deal_State, sim.No_Input, sim.No_World, toy.Event, Deal_Cmd, sim.No_Setup, sim.No_Profile, 2)
+
+DEAL_GAME := Deal_Game {
+	name = "deal",
+	version = "1",
+	tick_hz = 64,
+	init = proc(t: ^sim.Tick(Deal_Game)) {
+		t.state.deals = sim.rng_keyed(t.seed, Purpose.Loot)
+		for card in u8(0) ..< 13 do sim.append(&t.state.deck, card)
+	},
+	tick = proc(t: ^sim.Tick(Deal_Game)) {
+		players := sim.iterate_present(t)
+		for _, player in sim.next(&players) {
+			for _ in sim.commands(t, player) do sim.shuffle(&t.state.deals, sim.slice(&t.state.deck))
+		}
+	},
+}
+
+// Steps `simulation` to tick `to`, member 1 seated in slot 0, with a deal on each tick of `deals`.
+deal_until :: proc(simulation: ^sim.Sim(Deal_Game), to: u32, deals: []u32) {
+	for simulation.tick < to {
+		inputs: sim.Inputs(Deal_Game)
+		sim.seat(&inputs, simulation, 0, 1)
+		for tick in deals {
+			if tick == simulation.tick + 1 do sim.add_command(&inputs, sim.command_make(Deal_Cmd, Cmd_Deal{}))
+		}
+		sim.step(simulation, &inputs)
+	}
+}
+
+// A stream in the block deals the same cards whatever tick its commands land on, and a rollback across a shuffle
+// re-deals the same order: a command placed later than predicted changes nothing that was drawn.
+@(test)
+a_stream_deals_the_same_whatever_the_tick :: proc(t: ^testing.T) {
+	simulation := sim.create(&DEAL_GAME, 5)
+	defer sim.destroy(simulation)
+	deal_until(simulation, 10, {3, 5})
+	dealt := simulation.state.deck
+	testing.expect(t, dealt != sim.state_at(simulation, 0).deck, "two deals moved the deck")
+	testing.expect(t, sim.restore(simulation, 2))
+	deal_until(simulation, 10, {4, 8}) // the same deals, later: a rollback re-simulates them
+	testing.expect_value(t, simulation.state.deck, dealt)
+	testing.expect(t, sim.restore(simulation, 3))
+	deal_until(simulation, 10, {6}) // one deal less: another deck
+	testing.expect(t, simulation.state.deck != dealt, "one deal less deals another deck")
+}
 
 // SplitMix64's reference outputs for seed 0 (Vigna's splitmix64.c), so a change to the mixer is caught.
 @(test)

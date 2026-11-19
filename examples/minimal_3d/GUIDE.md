@@ -80,8 +80,9 @@ each time; the views show the newest guess and are told when it changes.
 - Work too costly for every entity every tick runs on `sim.due` turns (Neighbours and time slicing).
 
 **Randomness** (`src/sim/README.md`, Random numbers)
-- `tick` draws keyed rolls (`sim.roll_below`, `sim.roll_f32`) named by a purpose enum, a key and an index; `sim.Rng`
-  is for code outside `tick`.
+- A rule's own rolls are keyed rolls (`sim.roll_below`, `sim.roll_f32`) named by a purpose enum, a key and an index.
+- A roll a command causes (a draw, a shuffle, a reward) names state, never the tick: a stream in the block
+  (`sim.rng_keyed`, then `sim.rng_below` / `sim.shuffle`), so a command placed a tick late draws the same.
 - A view peeks a roll the sim will make with `sim.roll_below_at` from `Frame.seed`, through the proc the tick calls.
 
 **Determinism** (`src/dmath/README.md`)
@@ -131,7 +132,9 @@ each time; the views show the newest guess and are told when it changes.
 - **A command sent during the co-op pause does nothing.** The paused tick returned before reading it, and a command
   arrives once (`src/sim/README.md`, Game time).
 - **Two players roll the same, or a new roll changed another system's.** Rolls naming the same purpose, key and
-  index, or `sim.Rng` in `tick` (`src/sim/README.md`, Random numbers).
+  index, or two sequences sharing one stream (`src/sim/README.md`, Random numbers).
+- **A drawn card changes after a rollback.** A roll a command caused named the tick, and the command landed a tick
+  later than predicted: draw it from a stream in the block (`sim.rng_keyed`).
 - **The HUD's preview isn't what the player gets.** The peek names another tick or key than the roll: one proc for
   both (`sim.roll_below_at`).
 - **A time constant doesn't compile.** It isn't a whole number of ticks: change it, or start a `sim.Timer` with
