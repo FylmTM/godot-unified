@@ -41,9 +41,10 @@ marker's node by its index (`Unified.level_markers`).
   are in scene-tree order (depth-first, parents first); at run time `Unified.level_markers(level_root)` returns the
   nodes in that order.
 
-- **Navigation:** one `NavigationRegion3D` per 3D level, baked in the editor and saved with the scene. The exporter
-  writes its `NavigationMesh` as it was saved and never bakes it: the bytes are what the author committed, the same
-  on every platform, and a stale bake stays stale until the author bakes again (Godot's bake depends on the
+- **Navigation:** one `NavigationRegion3D` per 3D level, baked in the editor (or by `uni bake --nav`, which bakes it
+  from the level's static colliders as the editor's button does, and saves the scene) and saved with the scene. The
+  exporter writes its `NavigationMesh` as it was saved and never bakes it: the bytes are what the author committed,
+  the same on every platform, and a stale bake stays stale until the author bakes again (Godot's bake depends on the
   geometry, so rebake after moving it). Vertices are written in level space, welded where exactly equal, so adjacent
   polygons share vertex indices and a reader matches edges by index; each polygon is turned counter-clockwise seen
   from above (Godot bakes them clockwise). The bake's agent (radius, height, max climb) is written too: one region

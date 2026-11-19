@@ -803,29 +803,33 @@ start_joiner :: proc(game: Game, script: string, args: []string, env: []string, 
 Bake_Opts :: struct {
 	game:  string `args:"pos=0" usage:"a game (default: every game, then the project's own level scenes)"`,
 	check: bool `usage:"write nothing; fail when the view index or a .level file is stale"`,
+	nav:   bool `usage:"first bake each level's NavigationRegion3D from its colliders and save the scene (the editor's Bake NavigationMesh), then export"`,
 }
 
 @(private)
 cmd_bake :: proc(args: []string) -> Result {
 	opts: Bake_Opts
 	parse(&opts, args)
+	if opts.nav && opts.check do fatal("uni bake: --nav writes the scenes, --check writes nothing: one at a time")
 	ok := true
 	count := 0
 	for game in games_or_all(opts.game) {
 		ok = bake_view_index(game, opts.check) && ok
+		if opts.nav && len(level_scenes(game.dir)) > 0 {
+			ensure_game(game)
+			ok = bake_nav(game.dir, level_scenes(game.dir)) && ok
+		}
 		ok = bake(game, opts.check).ok && ok
 		count += 1
 	}
 	if opts.game == "" {
 		for target in state.config.bake {
+			dir := join(state.project.root, target.dir)
 			if target.extension != "" {
-				ensure_project_extension(
-					join(state.project.root, target.dir),
-					join(state.project.root, target.extension),
-					target.library,
-				)
+				ensure_project_extension(dir, join(state.project.root, target.extension), target.library)
 			}
-			ok = bake_project(join(state.project.root, target.dir), target.scenes, opts.check).ok && ok
+			if opts.nav && len(target.nav_scenes) > 0 do ok = bake_nav(dir, target.nav_scenes) && ok
+			ok = bake_project(dir, target.scenes, opts.check).ok && ok
 		}
 	}
 	return {
@@ -995,6 +999,36 @@ bake_project :: proc(dir: string, scenes: []string, check: bool, quiet := false)
 		}
 	}
 	return result
+}
+
+// Runs unified's navigation baker (src/godot/tools/nav_bake.gd) on a project's level scenes (res:// paths): each one
+// with a NavigationRegion3D is baked from its colliders and saved, as the editor's Bake NavigationMesh button does.
+bake_nav :: proc(dir: string, scenes: []string) -> bool {
+	ensure_imported(dir)
+	args: [dynamic]string
+	for scene in scenes do append(&args, aprintf("--scene=%s", scene))
+	result := run_tool({
+		dir     = dir,
+		script  = aprintf("res://%s/nav_bake.gd", TOOLS_DIR),
+		args    = args[:],
+		timeout = 120,
+		quiet   = true,
+	})
+	if obj, is_object := result.result.(json.Object); is_object {
+		if baked, is_array := obj["scenes"].(json.Array); is_array {
+			for value in baked {
+				scene, is_scene := value.(json.Object)
+				if !is_scene do continue
+				log(
+					"uni: %s: navigation baked (%d polygons, %d vertices)",
+					json_string(scene["scene"]),
+					json_int(scene["polygons"]),
+					json_int(scene["vertices"]),
+				)
+			}
+		}
+	}
+	return result.ok
 }
 
 // A UDP port free on 127.0.0.1 right now (the OS picks it).
