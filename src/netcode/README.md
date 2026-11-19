@@ -171,9 +171,36 @@ A player is a session **member**, the person, not a slot (the sim's side: `src/s
   (once the relay's start lead is over), timed by the channel's round trip (measured from the Hello's ack on), so a
   joiner's inputs for its join tick arrive in time. Own inputs are sampled for L + k on every clock tick, also while
   the sim is held back: they count, and the view hitches.
-- **Cap** (`Timing.prediction_cap`): the most the sim's ring allows. Past the round-trip ceiling (depth > cap with k
-  at its ceiling) the sim stalls a tick at a time; inputs still arrive in time (sent on the clock, each in a window
-  of packets).
+- **Cap** (`Timing.prediction_cap`): the most the sim's ring allows. Past the round-trip ceiling
+  (`round_trip_ceiling_us`: depth > cap with k at its ceiling) the sim stalls a tick at a time; inputs still arrive in
+  time (sent on the clock, each in a window of packets).
+- **A game's floor** (`sim.Game.input_delay_min_ticks`): k never goes below it. It buys shallower corrections, not
+  fewer: a guess is wrong as often as the inputs change, and each rollback reaches k − 1 ticks less far back. With k
+  at or above RTT/tick + ½ the client predicts nothing and steps ticks as they are finalized, so the lag a player feels
+  is the smaller of k and a round trip plus a tick.
+
+**How the timing constants hold each other.** Change one of `TOLERANCE_MS`, `MAX_DELAY_MS`, `DELAY_MARGIN_US`, the ring, the input window or a lead, then check each
+line below (`tests/netcode/delay_test.odin` and `policy_test.odin` pin them at 32, 64 and 128 Hz).
+
+- *The stamp lead does not depend on k.* An input for tick S leaves when the relay clock is at S − s and arrives the
+  margin before S is due, at any k: the delay only moves the client's clock back. The relay sees the same client at
+  any delay.
+- *The tolerance is spent from the rollback window.* A tick is final only once every present player's input is in, or
+  at S + tolerance, so one player's late inputs hold back everyone's verified tick by up to the tolerance. The delay
+  policy keeps a client's depth just inside the cap for its own round trip and leaves nothing for that: a client near
+  the cap stalls while another's inputs come late. Raising the tolerance saves a lagging player's inputs and costs
+  everyone near the cap a stall.
+- *The tolerance is also the loss an input survives.* Each input rides in `inputs_window` packets a tick apart, but
+  only those that arrive before S + tolerance count: it survives that many lost packets in a row only while they fit
+  the tolerance.
+- *The round-trip ceiling* is (cap + k_max − 1) ticks less the margin: the delay ceiling adds to it one for one, at
+  that much felt lag for the players near it. A game's floor is at most the delay ceiling (`game_violation`), so it
+  never moves the ceiling.
+- *A burst of own inputs* reaches back the stamp lead plus the tolerance (never less than the window plus the delay
+  ceiling): an input older than that arrives after its tick was finalized.
+- *The start and join leads* (`START_LEAD_MS`, `JOIN_LEAD_MS`) cover a round trip at the ceiling plus the tolerance:
+  Welcome out, the first inputs back. The stamp lead stays well under `INPUT_RING`, the most ticks ahead the relay
+  takes an input.
 
 ## Client
 

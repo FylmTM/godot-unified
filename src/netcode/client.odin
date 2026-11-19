@@ -257,13 +257,13 @@ client_create :: proc(game: ^$G, cfg: Client_Config, link: Link, hooks: Hooks(G)
 	}
 	client.poll_us = POLL_US
 	client.hooks = hooks
-	client.tm = timing_of(game.tick_hz)
+	client.tm = timing_of(game.tick_hz, game.input_delay_min_ticks)
 	client.ch = channel_make()
 	link_index := channel_add_link(client.ch, link)
 	client.relay = channel_peer(client.ch, link_index, 0)
 	client.w = wire.writer_make(MAX_DATAGRAM)
 	reserve(&client.own_cmds, COMMAND_QUEUE)
-	client.delay = 1
+	client.delay = client.tm.min_delay
 	client.slot = -1
 	return client
 }
@@ -1023,10 +1023,14 @@ send_inputs :: proc(client: ^Client($G), now: i64) {
 		// generated several at once (the clock's first step samples the input delay's ticks; a jump of the delay or
 		// the clock; a client stepped late) left the older of them fewer packets, none past the window. They ride in
 		// messages of their own beside this one until each has had the window's packets: those that can still be in
-		// time (max_delay + tolerance back), so a starved client with no acks coming sends a bounded few per step.
+		// time, so a starved client with no acks coming sends a bounded few per step. In time: the relay clock is
+		// about the stamp lead behind own_last and finalizes a tick without its input `tolerance` after it is due, so
+		// an input older than own_last - (stamp lead + tolerance) can no longer count. The reach is never shorter than
+		// the window and the delay ceiling, which cover a clock running ahead of its target on a short path.
 		from := first
-		if reach := client.tm.max_delay + client.tm.tolerance; newest > reach {
-			from = max(from, newest - reach)
+		lead := max(stamp_ahead(client.rtt_us, client.tm), window - 1 + client.tm.max_delay)
+		if reach := lead + client.tm.tolerance; client.own_last > reach {
+			from = max(from, client.own_last - reach)
 		}
 		for from < newest {
 			if client.own_sends[from % OWN_RING] >= u8(window) {
@@ -1103,7 +1107,7 @@ clock_lead :: proc(client: ^Client($G), delay: u32) -> f64 {
 // doesn't push the prediction past the cap) into want_delay.
 @(private)
 client_want_delay :: proc(client: ^Client($G)) -> u32 {
-	return want_delay(client.rtt_us + 4 * client.rtt_dev_us, client.tm)
+	return want_delay(client.rtt_us + 4 * client.rtt_dev_us, client.tm, client.tm.min_delay)
 }
 
 // One tick of the local clock: own inputs for local + delay go out on it, also while the prediction cap holds the
