@@ -1,7 +1,7 @@
 extends SceneTree
-## unified's level exporter (src/level/SPEC.md; the UNLV format in src/level/level.odin), run by `uni bake`:
+## unified's level exporter (src/level/README.md; the UNLV format in src/level/level.odin), run by `uni bake`:
 ##   godot --headless --path <project> -s res://addons/unified/level_export.gd -- [--check] [--scene=res://...]...
-## Exports the --scene ones (uni bake passes a game's level scenes: src/level/SPEC.md, Baking), else every
+## Exports the --scene ones (uni bake passes a game's level scenes: src/level/README.md, Baking), else every
 ## res://game/levels/*.tscn (not subfolders: those hold the parts a level instances), to the .level file next to each. --check writes nothing and fails when a committed file differs from a fresh
 ## export. A scene with findings is not written. Level scenes are instantiated, not run: no node is added to the
 ## tree and no _ready runs.

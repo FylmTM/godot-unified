@@ -1,4 +1,4 @@
-# Binding tests for unified:gdext, and unified:level's exporter on levels/ (src/level/SPEC.md): run headless by
+# Binding tests for unified:gdext, and unified:level's exporter on levels/ (src/level/README.md): run headless by
 # `uni test --suite godot-bindings`. Prints one line per check and "GDEXT TESTS: <n> failed"; exits with the failure
 # count. After changing the exporter or levels/level_2d.tscn on purpose, `uni bake` rewrites levels/level_2d.level.
 extends SceneTree
@@ -100,7 +100,7 @@ func _initialize() -> void:
 
 
 ## A press on a dev UI button never reaches the game's polled input (the dev UI releases the actions it triggered:
-## src/devui/SPEC.md, Input); a press elsewhere does.
+## src/devui/README.md, How it works); a press elsewhere does.
 func check_devui_click() -> void:
 	InputMap.add_action(&"test_fire")
 	var bind := InputEventMouseButton.new()

@@ -1,7 +1,7 @@
 class_name UnifiedCoop
 extends UnifiedTool
 ## Real co-op, one process per role (`uni coop <game>` starts both). No menus: each side's session starts from the
-## session flags on its command line (src/godot/SPEC.md), which uni passes:
+## session flags on its command line (src/godot/README.md, How it works: Command-line flags), which uni passes:
 ##   host:   -- --role=host --code-file=<f> --host-online           (--lan: --host-port N)
 ##   joiner: -- --role=join --code-file=<f> --join-code <code>      (--lan: --join 127.0.0.1:N)
 ## The host writes its lobby code (or address) to the code file once it has one, and uni starts the joiner with it.
