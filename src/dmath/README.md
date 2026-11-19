@@ -30,7 +30,8 @@ below where a token scan can.
 - **A first-person look is an `Aim`, not a `Dir3`.** Yaw and pitch are what the sim uses (the body turns by the yaw,
   a stick moves relative to it, the gun pitches), so decoding needs only `sin_cos`, never atan2, the steps are even
   and the pitch limit is part of the encoding. It is Godot's convention in turns, so a camera rig keeps its own look
-  as floats (`rotation / TAU`: sensitivity and invert never reach the sim) and quantizes it only into the Input.
+  as Godot floats (`rotation / TAU`: sensitivity and invert never reach the sim), clamps its pitch to
+  `AIM_PITCH_LIMIT`, and quantizes the look (`aim`) only into the Input.
 
 ## Transcendentals
 
