@@ -3,6 +3,7 @@
 // thread. `install` instantiates it for one game and fills the non-generic `api` the Godot classes call.
 package godot
 
+import "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
 import cnet "core:net"
@@ -11,6 +12,7 @@ import "core:strings"
 import "core:sync"
 import "core:thread"
 import "core:time"
+import "unified:level"
 import "unified:netcode"
 import "unified:sim"
 
@@ -61,6 +63,10 @@ Api :: struct {
 	event_key:       proc(event: ^sim.Raw_Event, subject: Subject) -> (kind: u8, key: u64, route: Event_Route), // Glue.event_key (nil: by subject)
 	result:          proc() -> string, // the finished session's result JSON (after a Result message)
 	send:            proc(command: sim.Raw_Command) -> bool, // queue a command for the running session (false: full)
+	// The State's `level` field (a sim.Active_Level): its byte offset (-1: none), and each level's scene (the res:// path
+	// its .level file names, "": none), in Game.levels' order.
+	level_offset:    int,
+	level_scenes:    []string,
 }
 
 api: Api
@@ -136,42 +142,43 @@ netsim_profile :: proc(enabled: bool, direction: Netsim_Dir) -> netcode.Profile 
 
 @(private)
 Driver :: struct($G: typeid, $View, $MultiView: typeid) {
-	game:      ^G,
-	glue:      ^Glue(G, View, MultiView),
-	req:       Start,
-	host:      ^netcode.Host(G),
-	client:    ^netcode.Client(G), // the local player's client (the host's own in host modes)
-	online:    bool, // the session uses the lobby
-	thread:    ^thread.Thread,
-	stop_req:  bool, // atomic
-	failed:    bool, // the lobby failed and its reason was posted (session thread)
-	code_sent: bool, // the lobby's code was posted
-	hurry:     bool, // atomic
-	finished:  bool, // atomic
-	stopping:  bool,
-	stop_at:   i64,
-	frames:    Triple(Frame_Data),
-	poses:     Pose_Memory, // every keyed item's pose at the fill before (session thread)
-	states:    Triple(sim.part(G, sim.GAME_STATE)),
-	queue:     Queue(Message, 64), // statuses, the join code, desync reports, the result: never full in practice
-	events:    Queue(Event_Message, 4096), // full: dropped and counted
-	dropped:   int, // atomic: events that found `events` full
-	fill:      Fill_Stats, // the frame hook's cost (atomic: the main thread takes it)
-	commands:  Queue(sim.Raw_Command, netcode.COMMAND_QUEUE), // main thread -> the client's hooks.commands
-	tracker:   Event_Tracker(Tick_Event),
-	published: u64,
-	scratch:   [dynamic]Tick_Event,
-	result:    string,
-	bench:     G, // the game with Game.bench_prepare after init (req.bench > 0)
-	alloc:     runtime.Allocator, // the starter's allocator: the session thread allocates what wait frees
-	nets:      [dynamic]^netcode.Net_Sim, // the remote links' live netsims (owned by the channel)
-	net_gen:   u32,
-	roster:    u32, // the client's roster_changes last copied for the main thread
-	account:   [2]string, // the host player's platform account (Lobby.account): platform, id
-	inputs:    Triple(Inputs_View(G)), // for the dev UI's Input panel (while want_state)
-	confirmed: Queue(Command_Note, 256), // commands of verified ticks, for the dev UI (full: dropped)
-	recording: Recording, // the session so far, for F3 notes (dev UI builds)
-	group_seq: u32, // the sim's draw group names last copied (dev_publish)
+	game:           ^G,
+	glue:           ^Glue(G, View, MultiView),
+	req:            Start,
+	host:           ^netcode.Host(G),
+	client:         ^netcode.Client(G), // the local player's client (the host's own in host modes)
+	online:         bool, // the session uses the lobby
+	thread:         ^thread.Thread,
+	stop_req:       bool, // atomic
+	failed:         bool, // the lobby failed and its reason was posted (session thread)
+	code_sent:      bool, // the lobby's code was posted
+	hurry:          bool, // atomic
+	finished:       bool, // atomic
+	stopping:       bool,
+	stop_at:        i64,
+	frames:         Triple(Frame_Data),
+	poses:          Pose_Memory, // every keyed item's pose at the fill before (session thread)
+	states:         Triple(sim.part(G, sim.GAME_STATE)),
+	queue:          Queue(Message, 64), // statuses, the join code, desync reports, the result: never full in practice
+	events:         Queue(Event_Message, 4096), // full: dropped and counted
+	dropped:        int, // atomic: events that found `events` full
+	fill:           Fill_Stats, // the frame hook's cost (atomic: the main thread takes it)
+	commands:       Queue(sim.Raw_Command, netcode.COMMAND_QUEUE), // main thread -> the client's hooks.commands
+	tracker:        Event_Tracker(Tick_Event),
+	published:      u64,
+	scratch:        [dynamic]Tick_Event,
+	result:         string,
+	bench:          G, // the game with Game.bench_prepare after init (req.bench > 0)
+	alloc:          runtime.Allocator, // the starter's allocator: the session thread allocates what wait frees
+	nets:           [dynamic]^netcode.Net_Sim, // the remote links' live netsims (owned by the channel)
+	net_gen:        u32,
+	roster:         u32, // the client's roster_changes last copied for the main thread
+	account:        [2]string, // the host player's platform account (Lobby.account): platform, id
+	inputs:         Triple(Inputs_View(G)), // for the dev UI's Input panel (while want_state)
+	confirmed:      Queue(Command_Note, 256), // commands of verified ticks, for the dev UI (full: dropped)
+	recording:      Recording, // the session so far, for F3 notes (dev UI builds)
+	group_seq:      u32, // the sim's draw group names last copied (dev_publish)
+	verified_level: Level_Stamp, // the newest verified tick's level the frame hook found (session thread)
 }
 
 // What the dev UI's Input panel shows: the local player's newest input and the newest verified tick's.
@@ -318,7 +325,15 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		events        = event_layouts(Event),
 		commands      = command_layouts(Cmd),
 		commands_type = Cmd,
+		level_offset  = -1,
 	}
+	when intrinsics.type_has_field(State, "level") {
+		when intrinsics.type_is_specialization_of(intrinsics.type_field_type(State, "level"), sim.Active_Level) {
+			api.level_offset = int(offset_of(State, level))
+		}
+	}
+	api.level_scenes = make([]string, len(game.levels))
+	for file, i in game.levels do api.level_scenes[i] = strings.clone(level.scene_of(file.bytes))
 	api.view_policy = make([]Kind_Policy, len(view_names))
 	api.multi_policy = make([]Kind_Policy, len(multi_names))
 	for policy, kind in glue.view_policy do api.view_policy[int(kind)] = kind_policy(policy, false)
@@ -366,6 +381,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		driver.req = request
 		driver.req.arg = strings.clone(request.arg)
 		driver.req.name = strings.clone(request.name)
+		driver.verified_level = NO_LEVEL
 		triple_init(&driver.frames)
 		for &frame in driver.frames.slots {
 			frame.alloc = context.allocator
@@ -740,6 +756,11 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 			out.published = driver.published
 			out.tick = info.tick
 			out.verified = info.verified
+			out.level = level_stamp(current)
+			if verified := sim.state_at(simulation, info.verified); verified != nil {
+				driver.verified_level = level_stamp(verified)
+			}
+			out.verified_level = driver.verified_level
 			out.tick_hz = u32(driver.game.tick_hz)
 			out.due_us = i64(client.next_tick_us - client.tm.tick_us)
 			slots := current.players.slots

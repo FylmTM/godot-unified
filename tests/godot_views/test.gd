@@ -99,6 +99,13 @@ func _initialize() -> void:
 	check("view_root before it is set: the session's parent", session.view_root == root)
 	session.view_root = views
 	check("view_root takes a Node2D", session.view_root == views)
+	var level_root := Node2D.new()
+	world.add_child(level_root)
+	session.level_root = level_root
+	var level_signals: Array[String] = []
+	session.level_changing.connect(func(to: int) -> void: level_signals.append("changing %d" % to))
+	session.level_changed.connect(func(level: int) -> void: level_signals.append("changed %d" % level))
+	check("no session: no level", session.level == -1 and session.level_scene == null, session.level)
 	check("no session: no local player", session.local_player == 0 and session.get_players().is_empty() \
 		and session.status == UnifiedSession.STATUS_IDLE and not session.running, [session.local_player, session.status])
 	var early := CommandBump.new()
@@ -246,6 +253,7 @@ func _initialize() -> void:
 		await create_timer(0.02).timeout
 	check("Unified.input reaches sample_input", toy.y > y0, [y0, toy.y])
 	check("input_wanted: every frame before the sample", wanted[0] >= 15, wanted[0])
+	await check_levels(session, level_root, level_signals)
 	await check_commands(session, toy)
 	await finish(session)
 	check("session data back to zero when the session ends", toy.bumps == 0 and toy.x == 0.0, [toy.bumps, toy.x])
@@ -267,6 +275,35 @@ func check_debug_draws(session: UnifiedSession) -> void:
 	for i in 10:
 		await create_timer(0.02).timeout
 	check("hidden again: none", session.debug_draw_count == 0, session.debug_draw_count)
+
+
+# The level host (src/godot/README.md, Levels): the toy's first level is under level_root, and a travel command swaps
+# in the other one once it is verified: the old instance freed, the signals in order, the markers the new level's.
+func check_levels(session: UnifiedSession, level_root: Node2D, level_signals: Array[String]) -> void:
+	for i in 50:
+		if session.level == EnumArea.MEADOW:
+			break
+		await create_timer(0.02).timeout
+	var meadow := session.level_scene
+	check("the first level's scene is under level_root", session.level == EnumArea.MEADOW and meadow != null 		and meadow.name == "Meadow" and meadow.get_parent() == level_root, [session.level, meadow])
+	check("level_changing, then level_changed", level_signals == ["changing 0", "changed 0"], level_signals)
+	var well := session.level_marker(0)
+	check("level_marker: the shown level's", well != null and well.name == "Well" and session.level_marker(1) == null,
+		well)
+	var travel := CommandTravel.new()
+	travel.to = EnumArea.CAVE
+	check("send_command Travel", session.send_command(travel))
+	for i in 100:
+		if session.level == EnumArea.CAVE:
+			break
+		await create_timer(0.02).timeout
+	await process_frame
+	var cave := session.level_scene
+	check("the verified level's scene replaces the old one", session.level == EnumArea.CAVE and cave != null 		and cave.name == "Cave" and cave.get_parent() == level_root and not is_instance_valid(meadow) 		and level_root.get_child_count() == 1, [session.level, cave, level_root.get_child_count()])
+	check("the signals of the change", level_signals == ["changing 0", "changed 0", "changing 1", "changed 1"],
+		level_signals)
+	var gem := session.level_marker(1)
+	check("level_marker: the new level's", gem != null and gem.name == "Gem", gem)
 
 
 # The constants (Unified.constants: Data_Constants in ext/ext.odin) and an enum class, before any session.
