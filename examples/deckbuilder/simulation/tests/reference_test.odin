@@ -1,5 +1,4 @@
-// deckbuilder's reference run (src/headless/README.md, Reference runs). A new game starts from it unpinned (`uni init`
-// leaves the results out): its run warns with the literal to paste until it is pinned, once the game's rules settle.
+// deckbuilder's reference run (src/headless/README.md, Reference runs), on the quick tuning.
 package test_deckbuilder
 
 import "core:testing"
@@ -12,6 +11,11 @@ REFERENCE :: scenarios.Reference {
 	players       = 4,
 	ticks         = 3600,
 	snapshot_tick = 1800,
+	checkpoints   = {0x602d792f023c55d6, 0x80d3adbdf7ebb08d, 0x962b3e80369b7bd0, 0xc4d1e781f87ae074},
+	trace         = 0x46de1ed5c5c3a588,
+	snapshot      = 0x019bf0cc45447b65,
+	log           = 0xedd5f824674b9d8e,
+	compat        = 0xc419be2bd0526e23,
 }
 
 @(test)

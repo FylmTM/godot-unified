@@ -164,10 +164,10 @@ func _status_text(run: DataRun) -> String:
 	return where
 
 
-## The phase's panel, rebuilt only when what it shows changes.
+## The phase's panel, rebuilt only when what it shows changes: a rebuild between a press and its release loses the
+## click.
 func _show_panel(run: DataRun) -> void:
-	var key := "%d|%d|%s|%s|%s|%d|%s" % [run.phase, run.floor, run.votes, run.picked, run.offers, run.deck_count,
-		run.can_go]
+	var key := _panel_key(run)
 	if key == _panel_shown:
 		return
 	_panel_shown = key
@@ -188,6 +188,22 @@ func _show_panel(run: DataRun) -> void:
 			_label("Back to the camp in a moment.")
 		_:
 			_overlay.visible = false
+
+
+## What the phase's panel shows (the camp's buttons depend on nothing the session sends).
+func _panel_key(run: DataRun) -> String:
+	match run.phase:
+		EnumPhase.CAMP:
+			return "camp"
+		EnumPhase.MAP:
+			return "map|%d|%d|%s|%s" % [run.floor, run.lane, run.votes, run.can_go]
+		EnumPhase.REWARD:
+			return "reward|%d|%s|%s" % [run.floor, run.picked, run.offers]
+		EnumPhase.REST:
+			return "rest|%d|%s|%d" % [run.floor, run.picked, run.deck_count]
+		EnumPhase.OVER:
+			return "over|%s" % run.won
+	return ""
 
 
 func _camp_panel() -> void:
@@ -312,6 +328,7 @@ func _choose_class(hero_class: int) -> void:
 	Unified.profile.hero_class = hero_class
 	_panel_shown = ""
 	if session.mode == UnifiedSession.MODE_SINGLE:  # nobody else here: the session starts again with the new class
+		session.leave()
 		session.start_single()
 	else:
 		_refresh()
@@ -331,6 +348,7 @@ func _saved_run() -> String:
 
 
 func _continue(saved: String) -> void:
+	session.leave()  # the camp's session; the run's starts once it is gone
 	session.start_single(UnifiedSetup.from_json(saved))
 
 
