@@ -21,6 +21,9 @@
 # Prints one line per check and "SESSION TESTS: <n> failed"; exits with the failure count.
 extends SceneTree
 
+## The replay section's session length: no other section records one as long, so its recording is told from theirs.
+const REPLAY_TICKS := 48
+
 var s: Node
 var failed := 0
 var idle_end := 0.0
@@ -245,8 +248,8 @@ func _open_to_friends() -> bool:
 
 # 7. a replay of a recording and its controls
 func _replay() -> bool:
-	s.ticks = 40
-	check("record a 40-tick single player", s.start_single())
+	s.ticks = REPLAY_TICKS
+	check("record a %d-tick single player" % REPLAY_TICKS, s.start_single())
 	if not await _wait_for(func() -> bool: return s.local_player != 0, 5.0, "the recorded session runs"):
 		return false
 	var recorder: int = s.local_player
@@ -254,12 +257,12 @@ func _replay() -> bool:
 		return false
 	s.ticks = 0
 	await _sleep(0.2)  # a recording another process saves at once is whole by now
-	var folder := _newest_recording()
+	var folder := _newest_recording(REPLAY_TICKS)
 	check("its recording was kept", folder != "", folder)
 	check("replay it", s.replay(folder))
 	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.replay_last_tick > 0, 5.0, "the replay runs"):
 		return false
-	check("its ticks", s.replay_first_tick < s.replay_last_tick and s.replay_last_tick >= 40, [s.replay_first_tick, s.replay_last_tick])
+	check("its ticks", s.replay_first_tick < s.replay_last_tick and s.replay_last_tick >= REPLAY_TICKS, [s.replay_first_tick, s.replay_last_tick])
 	check("it follows whoever recorded it", s.replay_player == recorder and s.local_player == recorder, [s.replay_player, recorder])
 	s.replay_speed = 2.0
 	if not await _wait_for(func() -> bool: return s.replay_speed == 2.0, 2.0, "the speed is taken"):
@@ -291,15 +294,19 @@ func _replay() -> bool:
 	return await _wait_for(func() -> bool: return not s.running, 5.0, "the replay ends")
 
 
-# The newest whole recording folder under user://recordings ("" for none): its session.json is written last, and
-# another run of this check (another process, the same user folder) may be writing one beside it.
-func _newest_recording() -> String:
+# The newest whole recording folder under user://recordings that ends on `to_tick` ("" for none): its session.json is
+# written last, and the other sections' processes (the same user folder) record sessions of their own beside it.
+func _newest_recording(to_tick: int) -> String:
 	var root := OS.get_user_data_dir() + "/recordings"
 	var sorted := Array(DirAccess.get_directories_at(root))
 	sorted.sort()  # the local time sorts by name
 	sorted.reverse()
 	for name: String in sorted:
-		if FileAccess.file_exists(root + "/" + name + "/session.json"):
+		var session := root + "/" + name + "/session.json"
+		if not FileAccess.file_exists(session):
+			continue
+		var info: Variant = JSON.parse_string(FileAccess.get_file_as_string(session))
+		if info is Dictionary and int((info as Dictionary).get("to_tick", 0)) == to_tick:
 			return root + "/" + name
 	return ""
 
