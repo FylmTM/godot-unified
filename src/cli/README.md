@@ -139,6 +139,16 @@ child's log is cut to its warnings (`child_log`).
   SDK, as on CI. A headless editor run (an import, the `editor` step) has the project's own editor settings and
   cache (`editor_env`): editors on several projects at once never share Godot's per-user files.
 
+**A crashed test.** An Odin panic, failed assert or bounds check prints its message and location before it stops the
+test. A test stopped by a bare signal (the runner's `Caught signal to stop test #N pkg.test for: Illegal_Instruction`,
+`Segmentation_Fault`) hit a trap that printed nothing: a Box3D debug-library assert (`box3d-debug`), an
+`intrinsics.trap`, code the optimiser assumed unreachable, a bad pointer. Neither the runner nor `uni` prints a stack,
+so `uni` names each crashed test with the debugger line that runs it alone: `lldb -- <binary> -tests:<pkg.test>`,
+then `run` and `bt` (the binaries carry `-debug` symbols; a `.pdb` beside them on Windows). They are optimised, so
+the stack names the innermost proc that was not inlined. LLVM's lldb for Windows needs Python 3.11's `python311.dll`
+on PATH, and exits at once without it; any debugger that reads PDBs works there as well. `uni test <package> --only
+<pkg.test>` runs it alone without one.
+
 Benchmarks are no suite: `bench` runs each game's standard benchmark and its sessions on the virtual clock, plus the
 project's own rows, into `.out/bench.json`, reported and never gated by time (`uni bench -h`, `BENCH_TARGET_US`).
 

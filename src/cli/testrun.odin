@@ -214,6 +214,12 @@ run_test_binaries :: proc(exes: []string, only: []string = nil) -> bool {
 		}
 		log("  the whole output: %s", rel(run.log_path))
 	}
+	for run in runs {
+		for name in run.watch.crashed {
+			log("uni: %s crashed: to see where, run it under a debugger (src/cli/README.md, A crashed test):", name)
+			log("  lldb -- %s -tests:%s", rel(run.exe), name)
+		}
+	}
 	return passed
 }
 
