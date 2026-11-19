@@ -2,7 +2,7 @@
 
 The `unified` collection, one package per directory. Each package's README (`src/<package>/README.md`) says how it
 works and `uni doc <package>` prints its API; this file is how the packages fit together. The example games built on it
-are in `examples/`. Toolchain: [`../README.md`](../README.md); commands: `uni help`.
+are in `examples/`. Toolchain: [`../docs/getting-started.md`](../docs/getting-started.md); commands: `uni help`.
 
 ## Packages
 

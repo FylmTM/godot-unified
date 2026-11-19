@@ -85,10 +85,10 @@ piece of work. The `board-work` skill has the statuses, the procedure and when a
   without), printed by `uni doc <pkg>`. A fact about one declaration lives on it. No API listings, history,
   measurements, test lists, options or anything unbuilt in a README (`.claude/rules/readme.md`).
 - Generated output goes to `.out/` (the root's and each game's), git-ignored and safe to delete.
-- Each fact has one home. README.md: what, why, requirements, setup. This file: roles, rules, workflow. Commands and
-  options: `./uni help`. Packages and games: their `README.md` and doc comments (`./uni doc`). Procedures (how to do
-  a recurring task): `.claude/skills/<name>/SKILL.md`. Rules for one kind of file: `.claude/rules/` (they load when
-  Claude touches a matching file). No layout trees, test counts or measured times in docs: the tools print them.
+- Each fact has one home. README.md: what, why, the design and its reasons. `docs/getting-started.md`: setup. This
+  file: roles, rules, workflow. Commands and options: `./uni help`. Packages and games: their `README.md` and doc
+  comments (`./uni doc`). Procedures (how to do a recurring task): `.claude/skills/<name>/SKILL.md`. Rules for one
+  kind of file: `.claude/rules/` (they load when Claude touches a matching file). No layout trees, test counts or measured times in docs: the tools print them.
 
 ## Commands
 
@@ -110,7 +110,8 @@ command and `-h` on a command its options. Every command rejects unknown argumen
 ## Where things are
 
 - The board (above): current and upcoming work; decided designs live in the code, its READMEs and doc comments.
-- `README.md`: what `unified` is, why, the developer's requirements, the toolchain and first commands.
+- `README.md`: what `unified` is, the programming model, the design and why; `docs/getting-started.md`: the
+  toolchain, first commands and a new game.
 - `README.md` in each package and game, `./uni doc <pkg>` for its API; `src/README.md`: how the core works inside;
   `tools/main.odin`: this repo's CLI.
 - `docs/EOS.md`: online setup.
