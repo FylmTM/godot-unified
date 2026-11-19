@@ -16,6 +16,7 @@ package netcode
 
 import "base:runtime"
 import "core:fmt"
+import "core:sync"
 
 import "unified:sim"
 import "unified:wire"
@@ -79,7 +80,6 @@ Channel :: struct {
 	stats:  Channel_Stats,
 	arena:  runtime.Arena, // event payloads, reset by each poll
 	tx:     wire.Writer,
-	epochs: u32, // seeds the epoch of each connection this channel opens
 	pool:   Slot_Pool, // the queued messages' and early reliable messages' bytes
 	ended:  Ended_Epochs,
 }
@@ -166,10 +166,19 @@ channel_make :: proc() -> ^Channel {
 	channel := new(Channel)
 	channel.tx = wire.writer_make(MAX_DATAGRAM)
 	pool_reserve(&channel.pool, POOL_RESERVE)
-	// Distinct per process run and channel, so a restarted program never reuses its old epochs.
-	channel.epochs = u32(now_us()) ~ u32(uintptr(channel) >> 4)
+	// the base, at the process's first channel: the clock and an address (ASLR), so another process, or this program
+	// restarted, counts somewhere else
+	sync.atomic_compare_exchange_strong(&epochs_opened, 0, (u32(now_us()) ~ u32(uintptr(channel) >> 4)) | 1)
 	return channel
 }
+
+// The connections the process's channels have opened, counted from a base (channel_make). Each new
+// connection's epoch is the next count through mix32, a bijection: no two connections of one process ever share an
+// epoch, whichever channel opened them. (A per-channel seed from the clock and the channel's address repeats when a
+// channel freed and made again lands at the same address with a matching clock: the new connection then reads as the
+// old one, or as ended, and is never heard.)
+@(private)
+epochs_opened: u32
 
 // Adds a link; the channel owns it from now on (closed by channel_destroy). Returns its index.
 channel_add_link :: proc(channel: ^Channel, link: Link) -> int {
@@ -356,8 +365,7 @@ conn_open :: proc(channel: ^Channel, peer: Peer, now: i64) -> ^Conn {
 		conn.rel_bucket, conn.rel_fill_us = REL_BURST, now
 		conn.next_seq = 1
 		conn.srtt_us = 100_000
-		channel.epochs += 1
-		conn.epoch = max(mix32(channel.epochs), 1)
+		conn.epoch = max(mix32(sync.atomic_add(&epochs_opened, 1) + 1), 1)
 		append(&channel.events, Event{kind = .Connected, peer = peer})
 	}
 	return conn

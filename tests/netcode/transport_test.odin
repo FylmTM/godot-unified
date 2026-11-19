@@ -120,6 +120,28 @@ a_connected_event_from_send_reaches_the_next_poll :: proc(t: ^testing.T) {
 	testing.expect_value(t, connected(sender, 2_000), 0)
 }
 
+// No two connections of one process share an epoch, also across channels freed and made again at once (the same
+// address, a few microseconds later). Epochs seeded per channel from the clock and the address repeated now and then:
+// the remade joiner's Hello read as the old connection's (or an ended one's) and was never answered, so
+// fuzz_joiner_snapshots hung in its join loop.
+@(test)
+connections_remade_at_once_get_new_epochs :: proc(t: ^testing.T) {
+	REMADE :: 256
+	hub := netcode.hub_create(2)
+	defer netcode.hub_destroy(hub)
+	seen := make(map[u32]bool, REMADE, context.temp_allocator)
+	hello := [1]u8{7}
+	for _ in 0 ..< REMADE {
+		channel := netcode.channel_make()
+		to_peer := netcode.channel_peer(channel, netcode.channel_add_link(channel, netcode.loopback_link(hub, 0)), 1)
+		netcode.channel_send(channel, to_peer, hello[:], .Reliable, 1_000)
+		epoch := channel.conns[to_peer].epoch
+		testing.expectf(t, epoch != 0 && !seen[epoch], "epoch %x again", epoch)
+		seen[epoch] = true
+		netcode.channel_destroy(channel)
+	}
+}
+
 // Closing a netsim link sends what it still delays: a client that leaves right after acking the relay's End must not
 // take the ack with it (#235: the relay waited 3 s for it in about half the net suite's runs).
 @(test)
