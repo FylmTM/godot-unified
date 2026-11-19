@@ -1,6 +1,6 @@
 // Deterministic f32 helpers for game code: only `+ − × ÷` and hardware sqrt (IEEE-exact on every
 // platform). Odin never fuses a multiply and an add (tests/dmath's canary), in scalar or array arithmetic.
-// No transcendentals yet; when a game needs sin/cos/atan2 they land here as fixed polynomials.
+// Angles, exp and curves are fixed polynomials in angle.odin and curve.odin.
 package dmath
 
 import "base:intrinsics"
@@ -191,7 +191,7 @@ to_i32_clamped :: proc "contextless" (x: f32, lo, hi: i32) -> i32 {
 	return i32(x)
 }
 
-// The 8 compass directions k·45° as unit vectors {cos, sin}, exact table values (no trig).
+// The 8 compass directions k·45° as unit vectors {cos, sin}, exact table values: angle_vec(k / 8) gives the same bits.
 @(rodata)
 DIR8 := [8][2]f32 {
 	{1, 0},

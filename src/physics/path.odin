@@ -3,6 +3,7 @@
 package physics
 
 import box3d "box3d:bindings"
+import "unified:dmath"
 import "unified:sim"
 
 MAX_PATH_POINTS :: 16
@@ -17,7 +18,7 @@ Path_Mode :: enum u8 {
 // How a path moves along each leg between two points.
 Path_Ease :: enum u8 {
 	Linear,
-	Smooth, // smoothstep 3t² − 2t³ on every leg
+	Smooth, // dmath.smoothstep on every leg: 3t² − 2t³
 }
 
 // Level data (outside the block). Point i waits wait_s[i] when reached, then travels to the next
@@ -106,7 +107,7 @@ path_sample :: proc(path: ^Path, phase_tick: u32, tick_hz: int) -> [3]f32 {
 		tick -= leg.wait
 		if tick < leg.travel {
 			progress := f32(tick) / f32(leg.travel)
-			if path.ease == .Smooth do progress = progress * progress * (3 - 2 * progress)
+			if path.ease == .Smooth do progress = dmath.smoothstep(0, 1, progress)
 			a := path.points[leg.from]
 			b := path.points[leg.to]
 			return {a.x + (b.x - a.x) * progress, a.y + (b.y - a.y) * progress, a.z + (b.z - a.z) * progress}
