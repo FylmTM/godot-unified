@@ -14,7 +14,7 @@ PLAYERS :: 4 // input slots: the most players in the game at once
 
 // The game's version (sim.Game.version, part of the netcode's compat): bump it when a rule or constant changes what a
 // tick computes without changing the State or Input layout.
-VERSION :: "7" // 7: a level-up offers two of the three upgrades
+VERSION :: "8" // 8: the fire cooldown runs on while dead (sim.Timer)
 
 // The game's levels, in GAME.levels' order (the State's `level` says which is active).
 Level_Id :: enum u8 {

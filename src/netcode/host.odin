@@ -3,7 +3,7 @@
 // EOS P2P, ...). Single player is a host with no remote links: the same code path, no special case.
 package netcode
 
-import "unified:sim"
+@(require) import "unified:sim" // only in generic types and procs: a compile that instantiates none flags it unused
 
 // A session of game G hosted in this process (host_create): the relay's settings and the host player's own. Written
 // as a literal at the call (`host_create(&GAME, {seed = 7, setup = Setup{mode = .Hard}}, hooks)`).

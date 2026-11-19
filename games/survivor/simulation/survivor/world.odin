@@ -163,7 +163,7 @@ character_reset :: proc(character: ^Character) {
 character_spawn :: proc(world: ^World, character: ^Character, slot: int) {
 	character.alive = true
 	character.hp = PLAYER_HP
-	character.respawn = 0
+	sim.timer_stop(&character.respawn)
 	character.pos = world.spawns[slot]
 	body_def := physics.body_def(.Dynamic, world.spawns[slot])
 	body_def.motion_locks = {
@@ -181,8 +181,8 @@ character_spawn :: proc(world: ^World, character: ^Character, slot: int) {
 character_leave :: proc(world: ^World, character: ^Character) {
 	physics.destroy_body(world.phys, &character.body)
 	character.alive = false
-	character.respawn = 0
-	character.dash_ticks = 0
+	sim.timer_stop(&character.respawn)
+	sim.timer_stop(&character.dash)
 }
 
 // After the physics step: the players' positions for the next tick.

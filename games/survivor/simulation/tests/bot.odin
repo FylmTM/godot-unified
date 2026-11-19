@@ -84,7 +84,9 @@ bot_input :: proc(seed: u64, slot: int, tick: u32, state: ^g.State) -> (input: g
 	direction := dmath.normalize(orbit * BOT_WEIGHT_ORBIT + flee * BOT_WEIGHT_FLEE + to_gem * BOT_WEIGHT_GEM)
 	input.move_x, input.move_z = dmath.axis_i8(direction.x), dmath.axis_i8(direction.y)
 	// Dash out of contact range (the dash triggers on a press edge: press on even ticks only).
-	if nearest_sq < BOT_DASH_REACH * BOT_DASH_REACH && character.dash_cooldown == 0 && tick % 2 == 0 {
+	if nearest_sq < BOT_DASH_REACH * BOT_DASH_REACH &&
+	   sim.timer_done(tick - 1, character.dash_cooldown) &&
+	   tick % 2 == 0 { 	// the state is of tick - 1
 		input.buttons += {.Dash}
 	}
 	return

@@ -61,7 +61,7 @@ hud_of :: proc(state: ^g.State, tick: u32, seed: u64) -> (hud: Data_Hud) {
 			xp_next          = g.xp_next(&state.tuning, character.level),
 			level            = character.level,
 			pending_levelups = character.pending_levelups,
-			respawn_s        = character.alive ? 0 : sim.seconds(character.respawn, g.TICK_HZ),
+			respawn_s        = character.alive ? 0 : sim.timer_remaining_s(sim.game_time(state, tick), character.respawn, g.TICK_HZ),
 		}
 		if character.pending_levelups > 0 { 	// the roll the sim makes for the pick, peeked: nothing in the block changes
 			offers := g.upgrade_offers(seed, state.players.slots[slot], g.oldest_pending_level(character))

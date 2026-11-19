@@ -18,30 +18,20 @@ update_players :: proc(t: ^Tick) {
 	}
 	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
-		if character.dash_cooldown > 0 {
-			character.dash_cooldown -= 1
-		}
 		if !character.alive {
-			if t.state.phase == .Over {
+			if t.state.phase == .Over || sim.timer_running(t, character.respawn) {
 				continue // nobody respawns until the reset
-			}
-			character.respawn -= 1
-			if character.respawn > 0 {
-				continue
 			}
 			character_spawn(t.world, character, sim.player_slot(t, player))
 			sim.emit(t, Event_Player_Respawned{position = sim.Position(character.pos), player = player})
 		}
-		if .Dash in sim.buttons(t, player).pressed && character.dash_cooldown == 0 {
-			character.dash_ticks = DASH_TICKS
-			character.dash_cooldown = DASH_COOLDOWN_TICKS
+		if .Dash in sim.buttons(t, player).pressed && sim.timer_done(t, character.dash_cooldown) {
+			sim.timer_start_ticks(t, &character.dash, u32(DASH_TICKS))
+			sim.timer_start_ticks(t, &character.dash_cooldown, u32(DASH_COOLDOWN_TICKS))
 		}
 		input := sim.input(t, player)
 		move := dmath.stick(input.move_x, input.move_z) * character.speed
-		if character.dash_ticks > 0 {
-			move *= DASH_SPEEDUP
-			character.dash_ticks -= 1
-		}
+		if sim.timer_running(t, character.dash) do move *= DASH_SPEEDUP
 		fall := physics.body_linear_velocity(t.world.phys, character.body).y
 		physics.body_set_linear_velocity(t.world.phys, character.body, {move.x, fall, move.y})
 	}
@@ -107,8 +97,8 @@ damage_player :: proc(t: ^Tick, player: sim.Player, amount: i32) {
 player_dies :: proc(t: ^Tick, character: ^Character, player: sim.Player) {
 	sim.emit(t, Event_Player_Died{position = sim.Position(character.pos), player = player})
 	character.alive = false
-	character.respawn = PLAYER_RESPAWN_TICKS
-	character.dash_ticks = 0
+	sim.timer_start_ticks(t, &character.respawn, u32(PLAYER_RESPAWN_TICKS))
+	sim.timer_stop(&character.dash)
 	physics.destroy_body(t.world.phys, &character.body)
 }
 
