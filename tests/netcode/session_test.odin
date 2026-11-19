@@ -67,14 +67,17 @@ hooks_for :: proc(watch: ^Watch) -> Hooks {
 			watch := (^Watch)(user)
 			append(&watch.statuses, status)
 		},
-		verified_state = proc(user: rawptr, simulation: ^toy.Sim) {
-			watch := (^Watch)(user)
-			watch.states += 1
-			saved := sim.state_at(simulation, simulation.tick)
-			if simulation.tick != watch.verified_upto || (saved != nil && saved^ != simulation.state) {
-				watch.states_wrong += 1
-			}
-		},
+	}
+}
+
+// The verified_state hook a Net's watches get when it asks (Net.states): only hooks whose user is still the Watch
+// (callers of hooks_for may replace the user, and with it every hook that reads it).
+watch_verified_state :: proc(user: rawptr, simulation: ^toy.Sim) {
+	watch := (^Watch)(user)
+	watch.states += 1
+	saved := sim.state_at(simulation, simulation.tick)
+	if simulation.tick != watch.verified_upto || (saved != nil && saved^ != simulation.state) {
+		watch.states_wrong += 1
 	}
 }
 
@@ -87,6 +90,14 @@ Net :: struct {
 	watch:     [8]Watch, // [0]: the host's own client; [k]: the k-th remote
 	recording: [dynamic]u8, // the relay's recording
 	log:       sim.Input_Log(toy.Game), // decoded by net_log
+	states:    bool, // the watches count verified_state calls (set before net_make)
+}
+
+// A Net's hooks for one of its watches: hooks_for's, with verified_state when the Net asks.
+net_hooks :: proc(session: ^Net, watch: ^Watch) -> Hooks {
+	hooks := hooks_for(watch)
+	if session.states do hooks.verified_state = watch_verified_state
+	return hooks
 }
 
 // The relay's recording so far, decoded (valid until the next call).
@@ -110,7 +121,7 @@ net_make :: proc(session: ^Net, ticks: u32, remotes: int, record := true, setup 
 			profile = {color = HOST_COLOR},
 			recording = record ? sim.log_sink_memory(&session.recording) : {},
 			desync_detail = true,
-		}, hooks_for(&session.watch[0]))
+		}, net_hooks(session, &session.watch[0]))
 	session.relay = session.host.relay
 	netcode.host_add_link(session.host, netcode.loopback_link(session.hub, 0))
 	for _ in 0 ..< remotes {
@@ -165,7 +176,7 @@ net_join :: proc(session: ^Net, slot := -1, profile := netcode.Network.Wan, game
 		game != nil ? game : &toy.GAME,
 		{slot = slot, player_name = endpoint == 1 ? "Grace" : "Linus", profile = {color = endpoint_color(endpoint)}},
 		link,
-		hooks_for(&session.watch[endpoint]),
+		net_hooks(session, &session.watch[endpoint]),
 	)
 	append(&session.clients, client)
 	return client
@@ -245,7 +256,9 @@ expect_agree :: proc(t: ^testing.T, session: ^Net) {
 
 @(test)
 host_and_two_remote_clients :: proc(t: ^testing.T) {
-	session: Net
+	session := Net {
+		states = true,
+	}
 	net_make(&session, 640, 2)
 	defer net_destroy(&session)
 	net_run(&session, 30, all_done)
