@@ -212,7 +212,11 @@ A player is a session **member**, the person, not a slot (the sim's side: `src/s
   the sim is held back: they count, and the view hitches.
 - **Cap** (`Timing.prediction_cap`): the most the sim's ring allows. Past the round-trip ceiling
   (`round_trip_ceiling_us`: depth > cap with k at its ceiling) the sim stalls a tick at a time; inputs still arrive in
-  time (sent on the clock, each in a window of packets).
+  time (sent on the clock, each in a window of packets). The client says when its round trip is past it
+  (`Client_Stats.slow`, with hysteresis so it doesn't flap at the edge): the library warns and refuses nobody. A game
+  that turns a slow player away does it in its own words (the Godot host's `link_slow_changed`); a refusal before the
+  Hello would need a probe phase before every join, while a joiner that leaves on the warning (a few round trips after
+  its Hello) mostly leaves before its join tick (`JOIN_LEAD_MS`), so the sim never sees it.
 - **A game's floor** (`sim.Game.input_delay_min_ticks`): k never goes below it. It buys shallower corrections, not
   fewer: a guess is wrong as often as the inputs change, and each rollback reaches k − 1 ticks less far back. With k
   at or above RTT/tick + ½ the client predicts nothing and steps ticks as they are finalized, so the lag a player feels

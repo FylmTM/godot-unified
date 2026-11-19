@@ -383,6 +383,7 @@ Message :: struct {
 		Desync, // the relay found the players' checksums of `tick` differ; text: who and what
 		Mode, // a single-player session opened to friends (or failed to: text says why): UnifiedSession.mode
 		Local_Refused, // the relay refused local player `local`'s Join (text: why): local_player_refused
+		Link_Slow, // the link's round trip went past the game's ceiling (tick 1) or came back under it (tick 0)
 	},
 	status: Status_Kind,
 	mode:   Mode,
