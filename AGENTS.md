@@ -101,6 +101,7 @@ command and `-h` on a command its options. Every command rejects unknown argumen
 ./uni vet                      # odin check, strict flags, every target
 ./uni test                     # the odin suite: every test package and end-to-end suite, the lint included
 ./uni test <game>              # the inner loop of game work: that game's tests only
+./uni test <package>           # one library test package alone (tests/<package>, e.g. dmath); --only <test,...>
 ./uni test --suite net         # when netcode or the headless modes changed (real UDP, separate processes)
 ./uni bench                    # when the sim, physics or rollback changed: step and re-sim times
 ./uni test --suite godot       # when Godot-side code or GDScript changed (`--only <step>`, `uni tool` for one script)

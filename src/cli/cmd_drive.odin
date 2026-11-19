@@ -61,8 +61,10 @@ drive_details :: proc() -> string {
 		"  wait event <name>        until an event of that kind arrives after the previous reply\n" +
 		"  shot [file.png]          the window as a PNG (default .out/drive/<name>-<n>.png in the game)\n" +
 		"  ui                       the visible buttons and texts (path, class, text, disabled, rect)\n" +
-		"  click <text|path>        a real mouse click on a button by its text, or any control by its node path\n" +
+		"  click <text|path>        a real mouse click on a button by its text, or any control by its node path:\n" +
+		"                           /root/Main/Start or root/Main/Start (what Git Bash makes of a leading / is undone)\n" +
 		"  eval <expression>        a GDScript expression on the current scene (session, tree, root, scene, Input, Engine): its value\n" +
+		"                           (its double quotes survive bash, PowerShell 5.1 and cmd alike; 'single' quotes work too)\n" +
 		"Input goes through the game's own sampling and commands through the session's queue, so a driven session\n" +
 		"is a session like any other: deterministic, recorded, replayable. A paused session steps exactly; a running\n" +
 		"one moves on its own clock between verbs." \
@@ -137,6 +139,10 @@ cmd_drive :: proc(args: []string) -> Result {
 		request.since = opts.all ? 0 : instance.events_seen
 	case "wait":
 		request.since = instance.serial_seen
+	case "click":
+		if len(verb_args) == 1 do request.args = strs(node_path_unmangled(verb_args[0]))
+	case "eval":
+		request.args = strs(eval_expression(verb_args, raw_command_line()))
 	case "shot":
 		if len(verb_args) == 0 {
 			instance.shots += 1
@@ -381,6 +387,41 @@ drive_stop :: proc(game: Game, instance: Drive_Instance) -> Result {
 			string(encoded),
 		),
 	}
+}
+
+// A node path back from what Git Bash made of it: it rewrites an argument starting with / into a Windows path
+// (`/root/Main` arrives as `C:/Program Files/Git/root/Main`), so a drive-letter path holding a /root/ part becomes the
+// node path from there. Anything else comes back as it is.
+node_path_unmangled :: proc(arg: string) -> string {
+	if len(arg) < 3 || arg[1] != ':' || (arg[2] != '/' && arg[2] != '\\') do return arg
+	slashed, _ := strings.replace_all(arg, "\\", "/")
+	if i := strings.index(slashed, "/root/"); i >= 0 do return slashed[i:]
+	if strings.has_suffix(slashed, "/root") do return "/root"
+	return arg
+}
+
+// `drive eval`'s expression: its arguments joined with spaces, unless Windows' argument rules dropped its double
+// quotes. They keep a quote only when it is written \" (a POSIX shell and Git Bash do that; PowerShell 5.1 and cmd
+// pass a quote as typed, which splitting then drops), so when the arguments hold no quote and the raw command line
+// (`raw`, raw_command_line: "" elsewhere) does after its ` eval `, the expression is the rest of that line as typed;
+// wrapped in quotes as a whole with a space inside (PowerShell 5.1 wraps an argument with a space that way) it is
+// what is inside them.
+eval_expression :: proc(args: []string, raw: string) -> string {
+	joined := strings.join(args, " ")
+	if strings.contains_rune(joined, '"') do return joined
+	at := strings.index(raw, " eval ")
+	if at < 0 do return joined
+	tail := strings.trim_space(raw[at + len(" eval "):])
+	for trimmed := true; trimmed; { 	// the global flags, which the arguments never hold
+		trimmed = false
+		for flag in ([]string{" --json", " --verbose"}) {
+			if strings.has_suffix(tail, flag) do tail, trimmed = strings.trim_space(tail[:len(tail) - len(flag)]), true
+		}
+	}
+	if !strings.contains_rune(tail, '"') do return joined
+	inner := len(tail) >= 2 && tail[0] == '"' && tail[len(tail) - 1] == '"' ? tail[1:len(tail) - 1] : ""
+	if strings.contains_rune(inner, ' ') do return inner
+	return tail
 }
 
 // A failed verb's reply, as the game's are: `{"ok":false,"error":...}`.

@@ -157,6 +157,23 @@ start_extension :: proc(game: Game, mode: Mode, force := false, defines: []strin
 	}
 }
 
+// Builds the GDExtension of a Godot project that is no game (a test project: package `pkg`, library `stem`) when
+// stale, dev, to <dir>/.out/bin/, where its .gdextension points; a failed build stops the command.
+ensure_project_extension :: proc(dir, pkg, stem: string) {
+	ensure_bindings() // the extension imports unified:gdext, whose bindings are generated
+	flags: [dynamic]string
+	append(&flags, "-build-mode:dll")
+	append(&flags, ..mode_flags(.dev))
+	build := Build {
+		pkg   = pkg,
+		out   = join(dir, ".out", "bin", lib_name(stem)),
+		flags = flags[:],
+	}
+	if !stale(build) do return
+	seconds := odin_build(build, aprintf("building %s", rel(pkg)))
+	log("uni: %s -> %s in %.2fs", rel(pkg), rel(build.out), seconds)
+}
+
 // Waits for an extension build start_extension started and moves the library into place; false when the build
 // failed (the compiler's errors are on the terminal).
 finish_extension :: proc(running: ^Extension_Build) -> (lib: string, ok: bool) {

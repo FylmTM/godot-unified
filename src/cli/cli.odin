@@ -66,8 +66,12 @@ Project_Config :: struct {
 
 // Level scenes outside the games that `bake` exports (this repo: the 2D fixture tests/level reads).
 Bake_Target :: struct {
-	dir:    string, // the Godot project, relative to the project
-	scenes: []string, // res:// paths
+	dir:       string, // the Godot project, relative to the project
+	scenes:    []string, // res:// paths
+	// The Godot project's GDExtension when the exporter needs it (the game's view_scale), relative to the project
+	// ("": none): built (dev) to <dir>/.out/bin/<library> when stale, before baking.
+	extension: string,
+	library:   string, // the extension library's stem
 }
 
 // A headless binary that is no game's (this repo's toy).
@@ -102,10 +106,14 @@ Suite :: struct {
 
 // What `test` passes each suite it runs: the options of that run (a nested `test`, as `verify` runs it, has its own).
 Test_Options :: struct {
-	only:  []string, // tests (odin) or steps (godot)
-	long:  bool, // `--long`: the suites' long variants (README.md, Test suites)
-	bless: bool, // `--bless`: the odin suite re-pins what moved (src/headless/README.md, Re-pinning)
-	game:  string, // the game `test` names ("": every game): the odin suite compiles that game's tests only
+	only:                []string, // tests (odin) or steps (godot)
+	long:                bool, // `--long`: the suites' long variants (README.md, Test suites)
+	bless:               bool, // `--bless`: the odin suite re-pins what moved (src/headless/README.md, Re-pinning)
+	game:                string, // the game `test` names ("": every game): the odin suite compiles that game's tests only
+	// The library test package `test` names instead of a game (test_package: one a test root imports), its path
+	// ("": none): the odin suite compiles it alone, unoptimised when it is under the unoptimised root.
+	library_tests:       string,
+	library_unoptimized: bool,
 }
 
 // What a command reports: one line on stdout, or with --json one object (command, ok, summary, seconds and `data`,

@@ -5,6 +5,7 @@
 // replay regression does; a lock makes two tests rewriting one file take turns.
 package scenarios
 
+import "core:encoding/json"
 import "core:fmt"
 import "core:log"
 import "core:os"
@@ -139,10 +140,46 @@ bless_pin :: proc(t: ^testing.T, what, old, new: string, loc := #caller_location
 	fmt.sbprintf(&text, "%s: re-pinned in %s:", what, shown_path(file))
 	for change in changes {
 		separator := change.name != "" && !strings.has_prefix(change.value, "[") ? "." : ""
-		fmt.sbprintf(&text, "\n\t%s%s%s: %s -> %s", change.name, separator, change.value, change.old, change.new)
+		value := fmt.tprintf("%s%s%s", change.name, separator, change.value)
+		fmt.sbprintf(&text, "\n\t%s: %s -> %s", value, change.old, change.new)
+		bless_record({check = what, file = shown_path(file), value = value, old = change.old, new = change.new})
 	}
 	log.warn(strings.to_string(text), location = loc)
 	return true
+}
+
+// The environment variable naming the file a bless run's records go to (bless_record): `uni test --bless` sets it and
+// lists the records once the run is done.
+BLESS_LOG_ENV :: "UNIFIED_BLESS_LOG"
+
+// One thing a bless changed: a pinned value (bless_pin: `old` and `new` its text in the file) or a replay regression's
+// expectation (replays_reproduce: `value` the replay, `new` what the run reported, `old` empty).
+Bless_Record :: struct {
+	check: string, // the check that re-pinned it ("reference_reproduces (...)", "replays_reproduce")
+	file:  string, // the file or replay folder changed, relative to the working directory when inside it
+	value: string, // the value ("REFERENCE.log") or the replay ("replays/bug_7")
+	old:   string,
+	new:   string,
+}
+
+// Appends `record` to the file BLESS_LOG_ENV names, one JSON object per line (bless_record_to); nothing when the
+// variable is unset. False when it can't be written.
+bless_record :: proc(record: Bless_Record) -> bool {
+	path := os.get_env(BLESS_LOG_ENV, context.temp_allocator)
+	return path == "" || bless_record_to(path, record)
+}
+
+// Appends `record` to the file at `path` as one line of JSON, under a lock: tests on other threads bless at once.
+bless_record_to :: proc(path: string, record: Bless_Record) -> bool {
+	line, err := json.marshal(record, allocator = context.temp_allocator)
+	if err != nil do return false
+	sync.guard(&pin_lock)
+	file, open_err := os.open(path, {.Write, .Create, .Append})
+	if open_err != nil do return false
+	defer os.close(file)
+	_, write_err := os.write(file, line)
+	_, newline_err := os.write_string(file, "\n")
+	return write_err == nil && newline_err == nil
 }
 
 // What a check does with a value it pins (reference_reproduces; a golden trace's check), given what moved.
@@ -357,7 +394,7 @@ declared_name :: proc(source: string, at: int) -> string {
 }
 
 // `path` relative to the working directory when it is inside it (the project root, where uni runs the tests).
-@(private = "file")
+@(private)
 shown_path :: proc(path: string) -> string {
 	cwd, err := os.get_working_directory(context.temp_allocator)
 	if err != nil do return path

@@ -125,7 +125,9 @@ with a long variant (by hand, never in CI). `test` passes each the run's options
 --suite <name>`, started once its `prepare` has made current what it shares with them. Suites are quiet on success: a passing one prints only warnings, and a passing
 child's log is cut to its warnings (`child_log`).
 
-- `odin`: every test package, or the named game's tests only (the inner loop of game work), built through their
+- `odin`: every test package, or the named game's tests only (the inner loop of game work), or one library test package
+  alone (`uni test dmath`: one the test roots import, in the mode of the root that does; the odin and box3d-debug
+  suites only), built through their
   manifests so an unchanged tree only runs (`suite_odin`). The test root compiles optimised: the sim tests need it.
   A project's unoptimised root (`Project_Config.unoptimized_tests`: this repo's tooling tests) compiles beside it on
   a quarter of the cores, since its tests run as fast without optimisation and optimising them would be a third of
@@ -137,6 +139,16 @@ child's log is cut to its warnings (`child_log`).
 - `godot`: each game under headless Godot, the games in parallel (`suite_godot`, `GODOT_STEPS`), without the EOS
   SDK, as on CI. A headless editor run (an import, the `editor` step) has the project's own editor settings and
   cache (`editor_env`): editors on several projects at once never share Godot's per-user files.
+
+**A crashed test.** An Odin panic, failed assert or bounds check prints its message and location before it stops the
+test. A test stopped by a bare signal (the runner's `Caught signal to stop test #N pkg.test for: Illegal_Instruction`,
+`Segmentation_Fault`) hit a trap that printed nothing: a Box3D debug-library assert (`box3d-debug`), an
+`intrinsics.trap`, code the optimiser assumed unreachable, a bad pointer. Neither the runner nor `uni` prints a stack,
+so `uni` names each crashed test with the debugger line that runs it alone: `lldb -- <binary> -tests:<pkg.test>`,
+then `run` and `bt` (the binaries carry `-debug` symbols; a `.pdb` beside them on Windows). They are optimised, so
+the stack names the innermost proc that was not inlined. LLVM's lldb for Windows needs Python 3.11's `python311.dll`
+on PATH, and exits at once without it; any debugger that reads PDBs works there as well. `uni test <package> --only
+<pkg.test>` runs it alone without one.
 
 Benchmarks are no suite: `bench` runs each game's standard benchmark and its sessions on the virtual clock, plus the
 project's own rows, into `.out/bench.json`, reported and never gated by time (`uni bench -h`, `BENCH_TARGET_US`).

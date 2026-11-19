@@ -784,11 +784,16 @@ when DEVUI {
 		return strings.to_string(out), true
 	}
 
-	// The control `target` names: a node path (`/root/Main/Hud/Start`), else the first visible button whose text is
-	// `target` (any case), else the first visible control with that text.
+	// The control `target` names: a node path (`/root/Main/Hud/Start`, or `root/Main/Hud/Start`: Git Bash rewrites an
+	// argument starting with / into a Windows path), else the first visible button whose text is `target` (any case),
+	// else the first visible control with that text.
 	@(private = "file")
-	control_find :: proc(session: ^Session_Node, target: string) -> (found: gd.Control, problem: string) {
+	control_find :: proc(session: ^Session_Node, path_or_text: string) -> (found: gd.Control, problem: string) {
 		root := control_root(session)
+		target := path_or_text
+		if target == "root" || strings.has_prefix(target, "root/") {
+			target = fmt.tprintf("/%s", target)
+		}
 		if strings.has_prefix(target, "/") {
 			node := gd.Node_get_node_or_null(root, target)
 			found = gd.object_cast(gd.Control, node)

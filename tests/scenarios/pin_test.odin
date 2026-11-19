@@ -3,6 +3,7 @@
 // is refused.
 package test_scenarios
 
+import "core:encoding/json"
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
@@ -164,6 +165,35 @@ a_repin_writes_the_file_that_holds_it :: proc(t: ^testing.T) {
 	testing.expect(t, len(again) == 0 && again_problem == "", "a second re-pin changes nothing")
 	_, _, missing := scenarios.repin(dir, "{1, 2, 3}", "{1, 2, 4}")
 	testing.expect(t, strings.contains(missing, "no .odin file"), missing)
+}
+
+// A bless's records (scenarios.bless_record_to) go to their file one JSON object per line, appended, with every field
+// as given: what `uni test --bless` lists once the run is done.
+@(test)
+a_bless_appends_one_json_line_per_record :: proc(t: ^testing.T) {
+	path, _ := filepath.join({
+			os.temp_directory(context.temp_allocator) or_else ".",
+			fmt.tprintf("unified-bless-test-%d.jsonl", os.get_pid()),
+		}, context.temp_allocator)
+	os.remove(path)
+	defer os.remove(path)
+	first := scenarios.Bless_Record{"reference_reproduces (4 players)", "a/b.odin", "REFERENCE.log", "0x2d", "0x2c"}
+	second := scenarios.Bless_Record {
+		check = "replays_reproduce",
+		file  = "replays/bug_7",
+		value = "replays/bug_7",
+		new   = `no "expected.unie"`,
+	}
+	testing.expect(t, scenarios.bless_record_to(path, first))
+	testing.expect(t, scenarios.bless_record_to(path, second))
+	data, _ := os.read_entire_file(path, context.temp_allocator)
+	lines := strings.split_lines(strings.trim_right(string(data), "\n"), context.temp_allocator)
+	testing.expect_value(t, len(lines), 2)
+	for line, i in lines {
+		read: scenarios.Bless_Record
+		testing.expect(t, json.unmarshal_string(line, &read, allocator = context.temp_allocator) == nil, line)
+		testing.expect_value(t, read, i == 0 ? first : second)
+	}
 }
 
 // What reference_reproduces does with each kind of move (scenarios.reference_verdict): results that moved on the

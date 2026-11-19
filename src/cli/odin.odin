@@ -137,6 +137,48 @@ test_root :: proc(game_name := "") -> string {
 	return join(state.project.games[0].dir, "simulation", "tests")
 }
 
+// A library test package a test root pulls in: its name (its directory's), its directory and whether the unoptimised
+// root (Project_Config.unoptimized_tests) is the one that imports it.
+Library_Tests :: struct {
+	name, dir:   string,
+	unoptimized: bool,
+}
+
+// The library test packages `test <package>` takes: the `@(require) import`s of the test roots' own files (this
+// repo: tests/tests.odin and tests/tooling/tooling.odin; generated files aside), each in the mode of the root that
+// imports it. A package no root imports (a helper such as tests/toy) is none. Sorted by name.
+library_test_packages :: proc() -> []Library_Tests {
+	PREFIX :: `@(require) import "`
+	out: [dynamic]Library_Tests
+	for root, i in ([]string{state.config.tests, state.config.unoptimized_tests}) {
+		if root == "" do continue
+		root_dir := join(state.project.root, root)
+		entries, _ := os.read_all_directory_by_path(root_dir, context.temp_allocator)
+		for entry in entries {
+			if entry.type != .Regular || !strings.has_suffix(entry.name, ".odin") do continue
+			if strings.has_suffix(entry.name, ".gen.odin") do continue
+			text, _ := read_text(entry.fullpath)
+			for line in strings.split_lines(text, context.temp_allocator) {
+				trimmed := strings.trim_space(line)
+				if !strings.has_prefix(trimmed, PREFIX) do continue
+				path := trimmed[len(PREFIX):]
+				end := strings.index_byte(path, '"')
+				if end <= 0 || strings.contains_rune(path[:end], ':') do continue // a collection's package: no test of ours
+				dir := join(root_dir, path[:end])
+				append(&out, Library_Tests{os.base(dir), dir, i == 1})
+			}
+		}
+	}
+	slice.sort_by(out[:], proc(a, b: Library_Tests) -> bool {return a.name < b.name})
+	return out[:]
+}
+
+// A library test package by name (library_test_packages); ok false when no test root imports one by that name.
+test_package :: proc(name: string) -> (tests: Library_Tests, ok: bool) {
+	for candidate in library_test_packages() do if candidate.name == name do return candidate, true
+	return {}, false
+}
+
 // The odin suite's unoptimised test root (Project_Config.unoptimized_tests: this repo's tests/tooling), compiled beside
 // test_root's; "" when the project has none or `test` names a game (its tests are one root).
 unoptimized_test_root :: proc(game_name := "") -> string {

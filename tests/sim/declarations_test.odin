@@ -62,6 +62,21 @@ plain_data_check :: proc(t: ^testing.T) {
 		sim.plain_violation(type_info_of(Holder), "State"),
 		"State.items: End_Padded has 3 bytes of implicit padding at its end (add `_pad: [3]u8` as its last field)",
 	)
+	// Every hole in one report, each struct's once however many fields hold it: one run lists every `_pad` to add.
+	Many_Holes :: struct {
+		first:  Padded,
+		second: Padded,
+		tail:   [2]End_Padded,
+		flag:   u8,
+		count:  u64,
+	}
+	testing.expect_value(
+		t,
+		sim.plain_violation(type_info_of(Many_Holes), "State"),
+		"State.first.large: Padded has 3 bytes of implicit padding before this field (add `_pad: [3]u8` before it, or reorder); " +
+		"State.tail: End_Padded has 3 bytes of implicit padding at its end (add `_pad: [3]u8` as its last field); " +
+		"State.count: Many_Holes has 7 bytes of implicit padding before this field (add `_pad: [7]u8` before it, or reorder)",
+	)
 	testing.expect(t, sim.plain_violation(type_info_of(With_Pointer)) != "")
 	testing.expect(t, sim.plain_violation(type_info_of([]u8)) != "")
 	// Platform-sized integers and any float but f32, also inside an enum, a bit_set or an array.

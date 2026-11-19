@@ -4,8 +4,7 @@
 // and end-to-end suite live with the game (examples/<game>/simulation/tests) and are pulled in by games.gen.odin, which
 // uni writes before the compile (so by hand: any uni command that compiles the tests, then
 // `odin test tests -all-packages -collection:unified=src`); tests/scenarios is the toy game's end-to-end suite. Each
-// package also runs on its own, e.g. `odin test tests/sim -collection:unified=src` or
-// `odin test examples/survivor/simulation/tests -collection:unified=src`.
+// package also runs on its own: `uni test sim` (a library package), `uni test survivor` (a game's tests).
 package tests
 
 @(require) import "dmath"

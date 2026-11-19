@@ -96,3 +96,22 @@ Finished 274 tests in 1.4s. All tests were successful.
 	testing.expect_value(t, cli.test_output_finished(output), 274)
 	testing.expect_value(t, cli.test_output_finished("No test found for the name: \"x\"\nNo tests to run.\n"), 0)
 }
+
+// `test --bless` closes with what the bless run recorded (scenarios.bless_record): a line per re-pinned value with its
+// file and old -> new, a line per blessed replay; anything that isn't a record is skipped.
+@(test)
+bless_run_lists_its_records :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	records :=
+		`{"check":"reference_reproduces (4 players)","file":"a/reference_test.odin","value":"REFERENCE.log","old":"0x2d","new":"0x2c"}` +
+		"\n" +
+		`{"check":"replays_reproduce","file":"a/replays/bug_7","value":"replays/bug_7","old":"","new":"no expected.unie"}` +
+		"\nnot a record\n"
+	changes := cli.bless_changes(records)
+	testing.expect_value(t, len(changes), 2)
+	if len(changes) == 2 {
+		testing.expect_value(t, changes[0], "a/reference_test.odin: REFERENCE.log: 0x2d -> 0x2c")
+		testing.expect_value(t, changes[1], "a/replays/bug_7: replays/bug_7 blessed (no expected.unie)")
+	}
+	testing.expect_value(t, len(cli.bless_changes("")), 0)
+}

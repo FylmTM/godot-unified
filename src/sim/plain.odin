@@ -3,6 +3,7 @@
 // time, with no loop over fields), so `create` runs the check once and `odin test` runs it too.
 package sim
 
+import "base:builtin"
 import "base:runtime"
 import "core:fmt"
 import "core:strings"
@@ -30,6 +31,15 @@ wire_violation :: proc(type: ^runtime.Type_Info, path: string = "") -> string {
 	return plain_check(type, path, bools = false, floats = false, zero_enums = true)
 }
 
+// The padding holes plain_check has found: their reasons, and the struct types already looked at.
+@(private)
+Plain_Holes :: struct {
+	reasons: [dynamic]string,
+	seen:    [dynamic]^runtime.Type_Info,
+}
+
+// The rules' walk. Every padding hole is reported, each struct's once, so one run lists every `_pad` to add; any
+// other problem ends the walk. The reasons are joined with "; ".
 @(private)
 plain_check :: proc(
 	type: ^runtime.Type_Info,
@@ -39,10 +49,20 @@ plain_check :: proc(
 	padding := false,
 	zero_enums := false, // every enum declares a member of value 0
 	named: ^runtime.Type_Info = nil, // the named type, when `type` is its base: the padding errors name it
+	holes: ^Plain_Holes = nil, // the padding holes found so far (nil: this is the walk's start)
 ) -> string {
+	if holes == nil {
+		found := Plain_Holes {
+			reasons = make([dynamic]string, context.temp_allocator),
+			seen    = make([dynamic]^runtime.Type_Info, context.temp_allocator),
+		}
+		reason := plain_check(type, path, bools, floats, padding, zero_enums, named, &found)
+		if reason != "" do builtin.append(&found.reasons, reason)
+		return strings.join(found.reasons[:], "; ", context.temp_allocator)
+	}
 	#partial switch variant in type.variant {
 	case runtime.Type_Info_Named:
-		return plain_check(variant.base, path, bools, floats, padding, zero_enums, type)
+		return plain_check(variant.base, path, bools, floats, padding, zero_enums, type, holes)
 	case runtime.Type_Info_Integer:
 		if type.id == int || type.id == uint || type.id == uintptr {
 			return fmt.tprintf("%s: %v is platform-sized (use a sized integer: i32, u64, ...)", path, type.id)
@@ -77,48 +97,59 @@ plain_check :: proc(
 				named != nil ? named.id : type.id,
 			)
 		}
-		return plain_check(variant.base, path, bools, floats, padding, zero_enums)
+		return plain_check(variant.base, path, bools, floats, padding, zero_enums, holes = holes)
 	case runtime.Type_Info_Bit_Set:
 		if variant.underlying == nil {
 			return fmt.tprintf("%s: bit_set without an explicit backing integer", path)
 		}
-		return plain_check(variant.underlying, path, bools, floats, padding, zero_enums)
+		return plain_check(variant.underlying, path, bools, floats, padding, zero_enums, holes = holes)
 	case runtime.Type_Info_Array:
-		return plain_check(variant.elem, path, bools, floats, padding, zero_enums)
+		return plain_check(variant.elem, path, bools, floats, padding, zero_enums, holes = holes)
 	case runtime.Type_Info_Enumerated_Array:
 		if variant.is_sparse {
 			return fmt.tprintf("%s: sparse enumerated array", path)
 		}
-		return plain_check(variant.elem, path, bools, floats, padding, zero_enums)
+		return plain_check(variant.elem, path, bools, floats, padding, zero_enums, holes = holes)
 	case runtime.Type_Info_Struct:
 		if .raw_union in variant.flags {
 			return fmt.tprintf("%s: raw union", path)
 		}
 		struct_name := named != nil ? fmt.tprint(named.id) : "the struct"
+		// a struct's holes once, however many fields hold it
+		report := !padding
+		for seen in holes.seen do report = report && seen != type
+		if report do builtin.append(&holes.seen, type)
 		end := uintptr(0)
 		for i in 0 ..< int(variant.field_count) {
 			name := fmt.tprintf("%s.%s", path, variant.names[i])
-			if !padding && variant.offsets[i] != end {
-				return fmt.tprintf(
-					"%s: %s has %d bytes of implicit padding before this field (add `_pad: [%d]u8` before it, or reorder)",
-					name,
-					struct_name,
-					variant.offsets[i] - end,
-					variant.offsets[i] - end,
+			if report && variant.offsets[i] != end {
+				builtin.append(
+					&holes.reasons,
+					fmt.tprintf(
+						"%s: %s has %d bytes of implicit padding before this field (add `_pad: [%d]u8` before it, or reorder)",
+						name,
+						struct_name,
+						variant.offsets[i] - end,
+						variant.offsets[i] - end,
+					),
 				)
 			}
-			if reason := plain_check(variant.types[i], name, bools, floats, padding, zero_enums); reason != "" {
+			if reason := plain_check(variant.types[i], name, bools, floats, padding, zero_enums, holes = holes);
+			   reason != "" {
 				return reason
 			}
 			end = variant.offsets[i] + uintptr(variant.types[i].size)
 		}
-		if !padding && end != uintptr(type.size) {
-			return fmt.tprintf(
-				"%s: %s has %d bytes of implicit padding at its end (add `_pad: [%d]u8` as its last field)",
-				path,
-				struct_name,
-				uintptr(type.size) - end,
-				uintptr(type.size) - end,
+		if report && end != uintptr(type.size) {
+			builtin.append(
+				&holes.reasons,
+				fmt.tprintf(
+					"%s: %s has %d bytes of implicit padding at its end (add `_pad: [%d]u8` as its last field)",
+					path,
+					struct_name,
+					uintptr(type.size) - end,
+					uintptr(type.size) - end,
+				),
 			)
 		}
 		return ""

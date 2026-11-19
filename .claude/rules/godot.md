@@ -16,7 +16,8 @@ paths:
   `ext_resource` by `path` with a short `id`.
 - GDScript is typed: every declaration has a type (the games make `untyped_declaration` an error, and every
   tool-script run fails on warnings).
-- Godot writes a `.uid` file next to every new script and shader: commit it with the file.
+- Godot writes a `.uid` file next to every new script and shader: in a game, commit it with the file. The test
+  projects (`tests/godot*`) git-ignore them: nothing there refers to a file by UID.
 - Never edit `.godot/` or `.import` files; they are Godot's cache.
 - A game's `addons/unified/` is a copy of `src/godot/tools` (the library's tool scripts), refreshed by `uni` before
   every run: change it there, never in a game. Everything else in a game is the game's own.

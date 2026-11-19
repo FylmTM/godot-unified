@@ -387,11 +387,22 @@ uses_scenarios :: proc(root: string) -> bool {
 // The odin suite's builds: every test package under the project's test root in one optimised compile
 // (Project_Config.tests, with -all-packages) and, when the project has one, every package under its unoptimised root
 // in another (Project_Config.unoptimized_tests: on a quarter of the cores, so it stays out of the optimised compile's
-// way); or one
-// game's simulation/tests (`test <game>`, and a game repo's). Each is built through its manifest like every other
-// build, so an unchanged tree skips the compile and a change under one root compiles only that one.
+// way); or one game's simulation/tests (`test <game>`, and a game repo's); or one library test package alone (`test
+// <package>`, in the mode of its root). Each is built through its manifest like every other build, so an unchanged
+// tree skips the compile and a change under one root compiles only that one.
 @(private)
 test_builds :: proc(opts: Test_Options) -> []Build {
+	if opts.library_tests != "" {
+		flags: [dynamic]string
+		append(&flags, ..TEST_RUN_FLAGS)
+		append(&flags, ..mode_flags(opts.library_unoptimized ? .debug : .dev))
+		if opts.long && uses_scenarios(opts.library_tests) do append(&flags, "-define:UNIFIED_LONG_TESTS=true")
+		if opts.bless && uses_scenarios(opts.library_tests) do append(&flags, "-define:UNIFIED_BLESS=true")
+		stem := aprintf("package_%s_tests%s%s", os.base(opts.library_tests), opts.bless ? "_bless" : "", EXE)
+		return slice.clone(
+			[]Build{{pkg = opts.library_tests, out = join(state.project.out, "test", stem), flags = flags[:]}},
+		)
+	}
 	root := test_root(opts.game)
 	name := opts.game
 	if name == "" {
@@ -402,9 +413,6 @@ test_builds :: proc(opts: Test_Options) -> []Build {
 		append(&common, "-all-packages") // the test root pulls in every test package; a game's tests are one
 	}
 	append(&common, ..TEST_RUN_FLAGS)
-	if len(opts.only) > 0 {
-		append(&common, aprintf("-define:ODIN_TEST_NAMES=%s", strings.join(opts.only, ",")))
-	}
 	builds: [dynamic]Build
 	flags: [dynamic]string
 	append(&flags, ..common[:])
@@ -478,10 +486,18 @@ ensure_test_binaries :: proc(opts: Test_Options) -> (exes: []string, ok: bool) {
 suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 	exes, ok := ensure_test_binaries(opts)
 	if !ok do return false
-	passed := run_test_binaries(exes)
 	if !opts.bless {
-		return passed
+		return run_test_binaries(exes, opts.only)
 	}
+	// The bless run's records of what it changed (scenarios.bless_record), listed last: the warnings of both runs
+	// bury the ones it prints as it goes.
+	records := join(state.project.out, "test", "bless.jsonl")
+	os.remove(records)
+	_ = os.set_env(BLESS_LOG_ENV, records)
+	passed := run_test_binaries(exes, opts.only)
+	_ = os.unset_env(BLESS_LOG_ENV)
+	text, _ := read_text(records)
+	defer bless_summary(bless_changes(text), passed)
 	repinned := false
 	for build in test_builds(opts) {
 		repinned ||= stale(build) // built current just before the run: a source of it changed during the run
@@ -493,7 +509,48 @@ suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 	plain := opts
 	plain.bless = false
 	plain_exes, plain_ok := ensure_test_binaries(plain)
-	return plain_ok && run_test_binaries(plain_exes) && passed
+	return plain_ok && run_test_binaries(plain_exes, opts.only) && passed
+}
+
+// The environment variable naming the file a bless run's test binaries append their records to
+// (scenarios.BLESS_LOG_ENV: the CLI imports none of the library).
+BLESS_LOG_ENV :: "UNIFIED_BLESS_LOG"
+
+// What a bless run changed, from its records (one JSON object per line: scenarios.Bless_Record), a line each: the
+// file, then the value with old -> new, or the replay blessed with what its run reported. Lines that aren't a record
+// are skipped. Temp-allocated.
+bless_changes :: proc(records: string) -> []string {
+	Record :: struct {
+		check, file, value, old, new: string,
+	}
+	out := make([dynamic]string, context.temp_allocator)
+	for line in strings.split_lines(records, context.temp_allocator) {
+		if strings.trim_space(line) == "" do continue
+		record: Record
+		if json.unmarshal_string(line, &record, allocator = context.temp_allocator) != nil do continue
+		if record.old == "" {
+			append(&out, aprintf("%s: %s blessed (%s)", record.file, record.value, record.new))
+		} else {
+			append(&out, aprintf("%s: %s: %s -> %s", record.file, record.value, record.old, record.new))
+		}
+	}
+	return out[:]
+}
+
+// The odin suite's last words under --bless: every pin the bless run changed (bless_changes), or that it changed
+// none; when the run failed, that it failed, and what it had changed.
+@(private)
+bless_summary :: proc(changes: []string, passed: bool) {
+	switch {
+	case len(changes) == 0:
+		log("uni: test --bless%s: nothing re-pinned", passed ? "" : " failed")
+		return
+	case passed:
+		log("uni: test --bless re-pinned:")
+	case:
+		log("uni: test --bless failed, after re-pinning:")
+	}
+	for change in changes do log("  %s", change)
 }
 
 // The odin suite's binaries again, next to Box3D's debug library in a folder of their own (the debug library has the
@@ -518,5 +575,5 @@ suite_box3d_debug :: proc(games: []Game, opts: Test_Options) -> bool {
 		debug_exes[i] = join(dir, os.base(exe))
 		copy_file(debug_exes[i], exe)
 	}
-	return run_test_binaries(debug_exes)
+	return run_test_binaries(debug_exes, opts.only)
 }

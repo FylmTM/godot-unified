@@ -344,7 +344,7 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 	append(&problems, ..godot_problems(out))
 	for line in strings.split_lines(out) {
 		if strings.has_prefix(line, RESULT_MARKER) {
-			value, err := json.parse_string(line[len(RESULT_MARKER):])
+			value, err := json.parse_string(line[len(RESULT_MARKER):], parse_integers = true)
 			if err == nil {
 				report.result = value
 			}

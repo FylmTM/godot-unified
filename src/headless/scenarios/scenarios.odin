@@ -138,6 +138,7 @@ replays_reproduce :: proc(t: ^testing.T, game: ^$G, dir: string) {
 		switch {
 		case result.blessed:
 			log.warnf("replays_reproduce: blessed %s (%s)", name, result.report)
+			bless_record({check = "replays_reproduce", file = shown_path(folder), value = name, new = result.report})
 		case result.status == .Broken:
 			testing.expectf(t, false, "replays_reproduce: %s: %s", name, result.report)
 		case result.status == .Unblessed:
