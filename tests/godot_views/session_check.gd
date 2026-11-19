@@ -12,6 +12,8 @@
 # 6. open to friends: a running single-player session hosts on a port and closes; a failed open leaves it running.
 # 7. a replay: a 40-tick session's recording (user://recordings) played back, and every control a replay viewer uses
 #    (speed, seek, step, loop, the player it follows, the checkpoints it agreed with).
+# 8. a start on a running session leaves it by itself: start_single again restarts with the new Setup, no failure; a
+#    host then a single player started at once: the newest start wins.
 # Every run ends with UnifiedSession.quit while a sound plays: the quit stops it first, so no playback leaks at exit
 # (the suite fails on a leak).
 # (The LAN token's claim, each copy of a game a slot and a token of its own, is tested in tests/godot_driver.)
@@ -28,7 +30,7 @@ const REPLAY_TICKS := 48
 var s: Node
 var failed := 0
 var idle_end := 0.0
-var sections: Array[int] = [1, 2, 3, 4, 5, 6, 7]
+var sections: Array[int] = [1, 2, 3, 4, 5, 6, 7, 8]
 var _statuses: Array[String] = []
 var _started := false
 var _port := 0  # the port section 2 hosted on (section 3 hosts there again)
@@ -83,6 +85,8 @@ func _run() -> void:
 				went_on = await _open_to_friends()
 			7:
 				went_on = await _replay()
+			8:
+				went_on = await _restart()
 			_:
 				check("section %d exists" % section, false)
 				went_on = false
@@ -329,6 +333,31 @@ func _newest_recording(to_tick: int) -> String:
 		if info is Dictionary and int((info as Dictionary).get("to_tick", 0)) == to_tick:
 			return root + "/" + name
 	return ""
+
+
+# 8. starting on a running session, without a leave: the start leaves it first; the newest start wins
+func _restart() -> bool:
+	check("start single player", s.start_single())
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.tick > 10, 5.0, "single player runs"):
+		return false
+	_statuses.clear()
+	var setup := UnifiedSetup.new()
+	setup.life_bonus = 3
+	check("start_single on the running session is accepted", s.start_single(setup))
+	check("it is connecting while the old one says goodbye", s.status == UnifiedSession.STATUS_CONNECTING, s.status)
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.local_player != 0 and s.setup.life_bonus == 3, 5.0, "the new session runs with its Setup"):
+		return false
+	check("no failed/disconnected/left status reaches the game",
+		not _statuses.any(func(x: String) -> bool:
+			return x.begins_with("failed") or x.begins_with("disconnected") or x.begins_with("left")), _statuses)
+	check("host on a port while single player runs", s.host_direct(0))
+	check("then single player at once, while the host waits", s.start_single())
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.local_player != 0 and s.setup.life_bonus == 0, 5.0, "the newest start runs"):
+		return false
+	await _sleep(0.3)
+	check("the replaced start never ran", s.mode == UnifiedSession.MODE_SINGLE and s.join_code == "", "%d %s" % [s.mode, s.join_code])
+	s.leave()
+	return await _wait_for(func() -> bool: return not s.running, 5.0, "the restarted session ends")
 
 
 func _sleep(sec: float) -> void:
