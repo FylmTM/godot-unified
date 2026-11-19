@@ -53,23 +53,25 @@ Frame_Info :: struct {
 // its caller's thread, and gets `user` back.
 Hooks :: struct($G: typeid) {
 	user:           rawptr,
-	// The local player's input for `tick` (it holds `slot`), sampled when the client's clock reaches it. `state` is
-	// the latest predicted state (nil before the sim exists).
+	// Local player `local`'s input for `tick` (it holds `slot`), sampled when the client's clock reaches it, once per
+	// seated local player. `state` is the latest predicted state (nil before the sim exists).
 	sample:         proc(
 		user: rawptr,
-		slot: int,
+		local, slot: int,
 		tick: u32,
 		state: ^usim.part(G, usim.GAME_STATE),
 	) -> usim.part(G, usim.GAME_INPUT),
-	// Optional: the local player's commands for `tick`, called right after `sample` for every tick the
+	// Optional: local player `local`'s commands for `tick`, called right after its `sample` for every tick the
 	// client generates. usim.send_command(out, command) returns false once COMMAND_QUEUE commands wait.
 	commands:       proc(
 		user: rawptr,
-		slot: int,
+		local, slot: int,
 		tick: u32,
 		state: ^usim.part(G, usim.GAME_STATE),
 		out: ^usim.Command_Out(usim.part(G, usim.GAME_CMD)),
 	),
+	// Optional: local player `local` was seated (Welcome, Seated) or refused (`why`; Reject of its Join).
+	seat:           proc(user: rawptr, local: int, seated: bool, why: Reject_Reason),
 	// After a step that computed new predicted ticks: the view reads simulation.state (frame.tick's) and
 	// usim.events_at for ticks frame.resim_from..frame.tick.
 	frame:          proc(user: rawptr, simulation: ^usim.Sim(G), frame: Frame_Info),
@@ -98,6 +100,50 @@ Own_Command :: struct {
 	seq:  u32,
 	want: u32, // the tick it was sent for (W)
 	cmd:  usim.Raw_Command,
+}
+
+// Where one of the client's local players stands (client_local).
+Local_State :: enum u8 {
+	None, // not asked for, refused, or left
+	Asked, // in the Hello or a Join, not answered yet
+	Seated, // holds a slot from its first tick on
+}
+
+// What a local player asks for (client_add_player; local player 0's is the Client_Config's).
+Local_Config :: struct($G: typeid) {
+	slot:        int, // the slot to ask for; -1: any free one
+	join_tick:   u32, // the earliest tick to become present (0: as soon as possible)
+	player_name: string, // its display name
+	profile:     usim.part(G, usim.GAME_PROFILE), // what it chose before joining
+}
+
+// A local player as client_local reports it.
+Local_Info :: struct {
+	state:      Local_State,
+	slot:       int, // -1 until seated
+	member:     u16,
+	first_tick: u32, // the first tick it is present
+}
+
+// One of the client's local players (Client.locals): what it asked for, the seat it holds, its own inputs and its
+// commands until a verified tick carries them. Each is its own member, joining, leaving and coming back on its own.
+Local_Seat :: struct($G: typeid) {
+	state:      Local_State,
+	asked:      bool, // its Hello or Join went out
+	want_slot:  int,
+	join_tick:  u32,
+	name:       Player_Name,
+	profile:    usim.part(G, usim.GAME_PROFILE),
+	slot:       int,
+	member:     u16, // its member id (the relay's): its join record's
+	first_tick: u32, // J: the first tick it is present
+	own:        [OWN_RING]usim.part(G, usim.GAME_INPUT),
+	own_last:   u32,
+	own_acked:  u32,
+	own_sends:  [OWN_RING]u8, // how many Inputs messages carried each own input (send_inputs)
+	own_cmds:   [dynamic]Own_Command, // sent (until acked) and predicted until a verified tick carries them, seq order
+	cmd_seq:    u32, // the last seq given
+	cmd_acked:  u32, // the relay has every seq up to this one
 }
 
 // A joiner waiting for our snapshot: of the first checksum tick >= min_tick we verify.
@@ -179,12 +225,12 @@ Client :: struct($G: typeid) {
 	hello_sent:     bool,
 	// from Welcome
 	welcomed:       bool,
-	slot:           int,
-	member:         u16, // our member id (the relay's): our join record's
+	slot:           int, // local player 0's (-1: not seated)
+	member:         u16, // local player 0's member id (the relay's): its join record's
 	seed:           u64,
 	setup:          usim.part(G, usim.GAME_SETUP), // the session's (Welcome)
 	ticks:          u32, // session length, 0: endless
-	first_tick:     u32, // J: first tick this player is present
+	first_tick:     u32, // J: the first tick of the connection's first seat (from its Welcome)
 	keep_images:    bool, // Welcome's Keep_Images
 	// finalized inputs from the relay
 	fin:            [FIN_RING]usim.Inputs(G),
@@ -201,15 +247,8 @@ Client :: struct($G: typeid) {
 		tick:  u32,
 		value: u64,
 	},
-	// own inputs
-	own:            [OWN_RING]usim.part(G, usim.GAME_INPUT),
-	own_last:       u32,
-	own_acked:      u32,
-	own_sends:      [OWN_RING]u8, // how many Inputs messages carried each own input (send_inputs)
-	// own commands: sent (until acked) and predicted until a verified tick carries them
-	own_cmds:       [dynamic]Own_Command, // seq order
-	cmd_seq:        u32, // the last seq given
-	cmd_acked:      u32, // the relay has every seq up to this one
+	// own players: their inputs and commands
+	locals:         [LOCAL_MAX]Local_Seat(G),
 	cmd_out:        usim.Command_Out(usim.part(G, usim.GAME_CMD)), // for hooks.commands
 	// time sync
 	started:        bool,
@@ -276,10 +315,67 @@ client_create :: proc(game: ^$G, cfg: Client_Config(G), link: Link, hooks: Hooks
 	link_index := channel_add_link(client.ch, link)
 	client.relay = channel_peer(client.ch, link_index, 0)
 	client.w = wire.writer_make(MAX_DATAGRAM)
-	reserve(&client.own_cmds, COMMAND_QUEUE)
+	for &seat in client.locals {
+		seat.slot = -1
+		reserve(&seat.own_cmds, COMMAND_QUEUE) // no growing on the session thread
+	}
 	client.delay = client.tm.min_delay
 	client.slot = -1
+	client_add_player(client, 0, {cfg.slot, cfg.join_tick, cfg.player_name, cfg.profile})
 	return client
+}
+
+// Adds local player `local` (1 ..< LOCAL_MAX; 0 is the Client_Config's): before the first step it goes in the Hello
+// (all of the Hello's seats are seated or none), later in a Join once the client is welcomed: it gets a join tick as a
+// late joiner's and needs no snapshot. Hooks.seat says how it went. False when `local` is out of range or in use.
+client_add_player :: proc(client: ^Client($G), local: int, cfg: Local_Config(G)) -> bool {
+	if local < 0 || local >= LOCAL_MAX || client.locals[local].state != .None || client.leaving {
+		return false
+	}
+	seat := &client.locals[local]
+	commands := seat.own_cmds
+	clear(&commands)
+	seat^ = {
+		state     = .Asked,
+		want_slot = cfg.slot,
+		join_tick = cfg.join_tick,
+		name      = text_of(NAME_MAX, cfg.player_name),
+		profile   = cfg.profile,
+		slot      = -1,
+		own_cmds  = commands,
+	}
+	return true
+}
+
+// Local player `local` leaves (Leave): its seat empties at once, the slot is absent from the next finalized tick; the
+// client and its other local players play on. Removing the last one is client_stop.
+client_remove_player :: proc(client: ^Client($G), local: int, now: i64) {
+	if local < 0 || local >= LOCAL_MAX || client.locals[local].state == .None {
+		return
+	}
+	others := 0
+	for &seat, other in client.locals do others += int(other != local && seat.state != .None)
+	if others == 0 {
+		client_stop(client, now)
+		return
+	}
+	seat := &client.locals[local]
+	if seat.asked && client.hello_sent {
+		writer := msg_begin(&client.w, .Leave)
+		wire.w_u8(writer, u8(local))
+		csend(client, writer, .Reliable, now)
+	}
+	seat.state = .None
+	seat.asked = false
+	clear(&seat.own_cmds)
+	if local == 0 do client.slot = -1
+}
+
+// Where local player `local` stands.
+client_local :: proc(client: ^Client($G), local: int) -> Local_Info {
+	if local < 0 || local >= LOCAL_MAX do return {slot = -1}
+	seat := &client.locals[local]
+	return {state = seat.state, slot = seat.slot, member = seat.member, first_tick = seat.first_tick}
 }
 
 // Frees the client, its sim and its channel (closing the link it owns). Call client_stop and step until
@@ -293,7 +389,7 @@ client_destroy :: proc(client: ^Client($G)) {
 	delete(client.snap_buf)
 	delete(client.snap_reqs)
 	delete(client.checksums)
-	delete(client.own_cmds)
+	for &seat in client.locals do delete(seat.own_cmds)
 	delete(client.cmd_out.list)
 	delete(client.image_buf)
 	delete(client.first_desync.detail)
@@ -315,7 +411,9 @@ client_stop :: proc(client: ^Client($G), now: i64) {
 		set_status(client, .Disconnected, "left")
 		return
 	}
-	csend(client, msg_begin(&client.w, .Leave), .Reliable, now)
+	writer := msg_begin(&client.w, .Leave)
+	wire.w_u8(writer, ALL_LOCALS)
+	csend(client, writer, .Reliable, now)
 	client.end_us = now
 }
 
@@ -381,15 +479,23 @@ on_welcome :: proc(client: ^Client($G), reader: ^wire.Reader) {
 	Setup :: usim.part(G, usim.GAME_SETUP)
 	PLAYERS :: usim.part(G, usim.GAME_PLAYERS)
 	welcome, ok := read_welcome(reader)
-	grant := &welcome.seats[0]
-	if !ok ||
-	   client.welcomed ||
-	   grant.local != 0 ||
-	   int(grant.slot) >= PLAYERS ||
-	   grant.member == NO_MEMBER ||
-	   grant.first_tick == 0 ||
-	   (client.cfg.slot >= 0 && int(grant.slot) != client.cfg.slot) {
+	if !ok || client.welcomed {
 		return
+	}
+	first: u32 = max(u32)
+	for &grant in welcome.seats[:welcome.seat_count] {
+		if grant.local >= LOCAL_MAX ||
+		   client.locals[grant.local].state != .Asked ||
+		   int(grant.slot) >= PLAYERS ||
+		   grant.member == NO_MEMBER ||
+		   grant.first_tick == 0 {
+			return
+		}
+		want := client.locals[grant.local].want_slot
+		if want >= 0 && int(grant.slot) != want {
+			return
+		}
+		first = min(first, grant.first_tick)
 	}
 	if welcome.tick_hz != client.game.tick_hz {
 		set_status(client, .Failed, "the relay runs another tick rate")
@@ -406,16 +512,14 @@ on_welcome :: proc(client: ^Client($G), reader: ^wire.Reader) {
 		set_status(client, .Failed, "the host's setup does not read on this build")
 		return
 	}
-	first := grant.first_tick
 	client.welcomed = true
-	client.slot = int(grant.slot)
-	client.member = grant.member
 	client.seed = welcome.seed
 	client.ticks = welcome.ticks
 	client.first_tick = first
 	client.keep_images = .Keep_Images in welcome.flags
-	client.own_last = first - 1
-	client.own_acked = first - 1
+	for &grant in welcome.seats[:welcome.seat_count] {
+		seat_granted(client, grant)
+	}
 	// No growing on the session thread.
 	reserve(&client.checksums, welcome.ticks != 0 ? int(welcome.ticks / CHECKSUM_EVERY) + 1 : CHECKSUMS_KEPT)
 	if .Start in welcome.flags {
@@ -424,6 +528,25 @@ on_welcome :: proc(client: ^Client($G), reader: ^wire.Reader) {
 		if !client.leaving {
 			set_status(client, .Connected, "") // a client that left before its Welcome stays leaving ("left")
 		}
+	}
+}
+
+// A local player's seat granted (Welcome, Seated): present from its first tick on, its own inputs from there.
+@(private)
+seat_granted :: proc(client: ^Client($G), grant: Seat_Grant) {
+	seat := &client.locals[grant.local]
+	seat.state = .Seated
+	seat.slot = int(grant.slot)
+	seat.member = grant.member
+	seat.first_tick = grant.first_tick
+	seat.own_last = max(grant.first_tick - 1, client.verified)
+	seat.own_acked = seat.own_last
+	if grant.local == 0 {
+		client.slot = seat.slot
+		client.member = seat.member
+	}
+	if client.hooks.seat != nil {
+		client.hooks.seat(client.hooks.user, int(grant.local), true, nil)
 	}
 }
 
@@ -457,14 +580,22 @@ take_rtt :: proc(client: ^Client($G)) {
 @(private)
 on_finalized :: proc(client: ^Client($G), reader: ^wire.Reader, now: i64) {
 	relay_time := r_i64(reader)
-	input_ack := wire.r_u32(reader)
-	command_ack := wire.r_u32(reader)
 	first := wire.r_u32(reader)
 	count := u32(wire.r_u8(reader))
-	if !reader.ok || !client.welcomed {
+	seats := int(wire.r_u8(reader))
+	if !reader.ok || !client.welcomed || seats > LOCAL_MAX {
 		return
 	}
-	client.cmd_acked = max(client.cmd_acked, min(command_ack, client.cmd_seq))
+	for _ in 0 ..< seats {
+		local := wire.r_u8(reader)
+		input_ack := wire.r_u32(reader)
+		command_ack := wire.r_u32(reader)
+		if !reader.ok do return
+		if local >= LOCAL_MAX || client.locals[local].state != .Seated do continue
+		seat := &client.locals[local]
+		seat.cmd_acked = max(seat.cmd_acked, min(command_ack, seat.cmd_seq))
+		seat.own_acked = max(seat.own_acked, min(input_ack, seat.own_last))
+	}
 	// The channel measured the round trip from the Hello's ack on, so the first Finalized already times the clock
 	// (a late joiner's inputs for its join tick reach the relay in time).
 	take_rtt(client)
@@ -481,7 +612,6 @@ on_finalized :: proc(client: ^Client($G), reader: ^wire.Reader, now: i64) {
 			client.offset_us += (offset - client.offset_us) * 0.05
 		} // else not the relay's clock (a mangled time): taken, it would throw the local clock hours off
 	}
-	client.own_acked = max(client.own_acked, min(input_ack, client.own_last))
 	limit := fin_base(client) + FIN_RING - 64
 	tick_inputs := &client.fin_scratch
 	tick_inputs^ = {} // each tick is read as its changes from the one before; the first's from the empty tick
@@ -578,7 +708,18 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 		on_welcome(client, &reader)
 	case .Reject:
 		why := Reject_Reason(wire.r_u8(&reader))
+		local := wire.r_u8(&reader)
 		if !reader.ok do return
+		if local < LOCAL_MAX {
+			// One local player's Join refused: the others play on.
+			seat := &client.locals[local]
+			if seat.state == .Asked {
+				seat.state = .None
+				seat.asked = false
+				if client.hooks.seat != nil do client.hooks.seat(client.hooks.user, int(local), false, why)
+			}
+			return
+		}
 		detail := "rejected"
 		#partial switch why {
 		case .Full:
@@ -601,6 +742,21 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 		set_status(client, why == .Too_Far_Behind ? .Disconnected : .Failed, detail)
 	case .Finalized:
 		on_finalized(client, &reader, now)
+	case .Seated:
+		grant: Seat_Grant
+		grant.local = wire.r_u8(&reader)
+		grant.slot = wire.r_u8(&reader)
+		grant.member = wire.r_u16(&reader)
+		grant.first_tick = wire.r_u32(&reader)
+		if reader.ok &&
+		   client.welcomed &&
+		   grant.local < LOCAL_MAX &&
+		   client.locals[grant.local].state == .Asked &&
+		   int(grant.slot) < usim.part(G, usim.GAME_PLAYERS) &&
+		   grant.member != NO_MEMBER &&
+		   grant.first_tick > client.fin_upto {
+			seat_granted(client, grant)
+		}
 	case .Snap_Request:
 		target := wire.r_u8(&reader)
 		tick := wire.r_u32(&reader)
@@ -685,8 +841,11 @@ load_snapshot :: proc(client: ^Client($G), now: i64) {
 	client.stats.snapshot_us = now - client.snap_begin_us
 	client.verified = client.sim.tick
 	client.predicted = client.verified
-	client.own_last = max(client.own_last, client.verified)
-	client.own_acked = max(client.own_acked, client.verified) // finalized: nothing of them to send
+	for &seat in client.locals {
+		if seat.state != .Seated do continue
+		seat.own_last = max(seat.own_last, client.verified)
+		seat.own_acked = max(seat.own_acked, client.verified) // finalized: nothing of them to send
+	}
 	client.checking = true
 	tick := client.sim.tick
 	value := usim.checksum(client.sim)
@@ -715,32 +874,35 @@ predicted_inputs :: proc(client: ^Client($G), tick: u32, out: ^usim.Inputs(G)) {
 			}
 		}
 	}
-	if tick >= client.first_tick {
-		out.present += {client.slot}
-		out.input[client.slot] = client.own[min(tick, client.own_last) % OWN_RING]
-		if tick == client.first_tick {
-			out.joins[client.slot] = client.member // our join record and Profile, as the relay will write them
-			out.profiles[client.slot] = client.cfg.profile
-		}
-	}
-	// Own commands where the relay will put them if they reach it in time: each in the tick it was sent
-	// for, or the first tick not finalized yet when that one is (a late command moves on), in order, at
-	// most COMMANDS_PER_SLOT per tick. A wrong guess is an ordinary misprediction.
-	at, in_tick: u32 = 0, 0
-	for &own_command in client.own_cmds {
-		lands_at := max(own_command.want, client.fin_upto + 1, at)
-		if lands_at == at && in_tick == usim.COMMANDS_PER_SLOT {
-			lands_at += 1
-		}
-		if lands_at != at {
-			at, in_tick = lands_at, 0
-		}
-		in_tick += 1
-		if lands_at > tick {
-			break
-		}
-		if lands_at == tick {
-			usim.add_command(out, own_command.cmd)
+	// Own commands where the relay will put them if they reach it in time: each in the tick it was sent for, or the
+	// first tick not finalized yet when that one is (a late command moves on), in order, at most COMMANDS_PER_SLOT per
+	// tick. A wrong guess is an ordinary misprediction. Commands go in slot order (sim.add_command keeps it).
+	for slot in 0 ..< usim.part(G, usim.GAME_PLAYERS) {
+		for &seat in client.locals {
+			if seat.state != .Seated || seat.slot != slot || tick < seat.first_tick do continue
+			out.present += {slot}
+			out.input[slot] = seat.own[min(tick, seat.own_last) % OWN_RING]
+			if tick == seat.first_tick {
+				out.joins[slot] = seat.member // its join record and Profile, as the relay will write them
+				out.profiles[slot] = seat.profile
+			}
+			at, in_tick: u32 = 0, 0
+			for &own_command in seat.own_cmds {
+				lands_at := max(own_command.want, client.fin_upto + 1, at)
+				if lands_at == at && in_tick == usim.COMMANDS_PER_SLOT {
+					lands_at += 1
+				}
+				if lands_at != at {
+					at, in_tick = lands_at, 0
+				}
+				in_tick += 1
+				if lands_at > tick {
+					break
+				}
+				if lands_at == tick {
+					usim.add_command(out, own_command.cmd)
+				}
+			}
 		}
 	}
 }
@@ -748,8 +910,11 @@ predicted_inputs :: proc(client: ^Client($G), tick: u32, out: ^usim.Inputs(G)) {
 // A verified tick carries the own commands the relay put in it: they are no longer predicted.
 @(private)
 drop_verified_commands :: proc(client: ^Client($G), tick: u32) {
-	carried := len(usim.slot_commands(&client.fin[tick % FIN_RING], client.slot))
-	remove_range(&client.own_cmds, 0, min(carried, len(client.own_cmds)))
+	for &seat in client.locals {
+		if seat.state != .Seated || tick < seat.first_tick do continue
+		carried := len(usim.slot_commands(&client.fin[tick % FIN_RING], seat.slot))
+		remove_range(&seat.own_cmds, 0, min(carried, len(seat.own_cmds)))
+	}
 }
 
 @(private)
@@ -952,7 +1117,9 @@ advance_verified :: proc(client: ^Client($G), now: i64) {
 	}
 	for tick in old_verified + 1 ..= new_verified {
 		drop_verified_commands(client, tick)
-		if client.slot >= 0 && client.slot in client.fin[tick % FIN_RING].replaced do client.stats.own_replaced += 1
+		for &seat in client.locals {
+			if seat.state == .Seated && seat.slot in client.fin[tick % FIN_RING].replaced do client.stats.own_replaced += 1
+		}
 	}
 	for tick in old_verified + 1 ..= (mispredicted != 0 ? mispredicted - 1 : limit) {
 		on_tick_verified(client, tick) // predicted right: the ring already holds the verified result
@@ -1024,57 +1191,72 @@ generate_inputs :: proc(client: ^Client($G)) {
 	if client.ticks != 0 {
 		target = min(target, client.ticks)
 	}
+	for &seat, local in client.locals {
+		if seat.state == .Seated do generate_seat_inputs(client, &seat, local, target)
+	}
+}
+
+// generate_inputs for one seated local player.
+@(private)
+generate_seat_inputs :: proc(client: ^Client($G), seat: ^Local_Seat(G), local: int, target: u32) {
 	// A clock far ahead of the inputs (after a long outage; or a relay time that is no relay's, which would cost a
 	// step per tick) generates only the ring's worth: the older ticks would be overwritten unsent, and the relay
 	// replaced their inputs long ago.
-	if target > client.own_last + OWN_RING {
-		client.own_last = target - OWN_RING
-		client.own_acked = max(client.own_acked, client.own_last)
+	if target > seat.own_last + OWN_RING {
+		seat.own_last = target - OWN_RING
+		seat.own_acked = max(seat.own_acked, seat.own_last)
 	}
-	first_gen := client.own_last < client.first_tick
-	for tick := client.own_last + 1; tick <= target; tick += 1 {
+	first_gen := seat.own_last < seat.first_tick
+	for tick := seat.own_last + 1; tick <= target; tick += 1 {
 		if tick < target && !first_gen {
-			client.own[tick % OWN_RING] = client.own[(tick - 1) % OWN_RING]
+			seat.own[tick % OWN_RING] = seat.own[(tick - 1) % OWN_RING]
 		} else if client.hooks.sample != nil {
-			client.own[tick % OWN_RING] = client.hooks.sample(
+			seat.own[tick % OWN_RING] = client.hooks.sample(
 				client.hooks.user,
-				client.slot,
+				local,
+				seat.slot,
 				tick,
 				client_state(client),
 			)
 		} else {
-			client.own[tick % OWN_RING] = {}
+			seat.own[tick % OWN_RING] = {}
 		}
-		client.own_last = tick
-		client.own_sends[tick % OWN_RING] = 0
+		seat.own_last = tick
+		seat.own_sends[tick % OWN_RING] = 0
 		if client.hooks.commands != nil {
 			out := &client.cmd_out
-			out.slot = client.slot
-			out.cap = COMMAND_QUEUE - len(client.own_cmds)
+			out.slot = seat.slot
+			out.cap = COMMAND_QUEUE - len(seat.own_cmds)
 			clear(&out.list)
-			client.hooks.commands(client.hooks.user, client.slot, tick, client_state(client), out)
+			client.hooks.commands(client.hooks.user, local, seat.slot, tick, client_state(client), out)
 			for command in out.list[:min(len(out.list), max(out.cap, 0))] {
-				client.cmd_seq += 1
-				append(&client.own_cmds, Own_Command {
-					seq  = client.cmd_seq,
-					want = tick,
-					cmd  = command,
-				})
+				seat.cmd_seq += 1
+				append(&seat.own_cmds, Own_Command{seq = seat.cmd_seq, want = tick, cmd = command})
 			}
 		}
 	}
 }
 
+// Sends each seated local player's Inputs: one message per seat.
 @(private)
 send_inputs :: proc(client: ^Client($G), now: i64) {
+	for &seat, local in client.locals {
+		if seat.state == .Seated do send_seat_inputs(client, &seat, local, now)
+	}
+	client.last_send_us = now
+}
+
+// send_inputs for one seated local player.
+@(private)
+send_seat_inputs :: proc(client: ^Client($G), seat: ^Local_Seat(G), local: int, now: i64) {
 	Input :: usim.part(G, usim.GAME_INPUT)
 	window := inputs_window(Input)
 	// The newest unacked inputs, up to the window: each rides in that many consecutive packets whatever the round
 	// trip. From the oldest, a round trip longer than the window would hold the newest back until acks move, past
 	// their ticks.
-	first := max(client.own_acked + 1, client.first_tick)
-	if client.own_last >= first + window {
-		newest := client.own_last + 1 - window
+	first := max(seat.own_acked + 1, seat.first_tick)
+	if seat.own_last >= first + window {
+		newest := seat.own_last + 1 - window
 		// Unacked inputs the main message has moved past that rode in fewer packets than the window: a step that
 		// generated several at once (the clock's first step samples the input delay's ticks; a jump of the delay or
 		// the clock; a client stepped late) left the older of them fewer packets, none past the window. They ride in
@@ -1085,32 +1267,40 @@ send_inputs :: proc(client: ^Client($G), now: i64) {
 		// the window and the delay ceiling, which cover a clock running ahead of its target on a short path.
 		from := first
 		lead := max(stamp_ahead(client.rtt_us, client.tm), window - 1 + client.tm.max_delay)
-		if reach := lead + client.tm.tolerance; client.own_last > reach {
-			from = max(from, client.own_last - reach)
+		if reach := lead + client.tm.tolerance; seat.own_last > reach {
+			from = max(from, seat.own_last - reach)
 		}
 		for from < newest {
-			if client.own_sends[from % OWN_RING] >= u8(window) {
+			if seat.own_sends[from % OWN_RING] >= u8(window) {
 				from += 1
 				continue
 			}
 			last := from
-			for last + 1 < newest && last + 1 < from + window && client.own_sends[(last + 1) % OWN_RING] < u8(window) {
+			for last + 1 < newest && last + 1 < from + window && seat.own_sends[(last + 1) % OWN_RING] < u8(window) {
 				last += 1
 			}
-			inputs_message(client, from, last, false, now)
+			inputs_message(client, seat, local, from, last, false, now)
 			from = last + 1
 		}
 		first = newest
 	}
-	inputs_message(client, first, client.own_last, true, now)
-	client.last_send_us = now
+	inputs_message(client, seat, local, first, seat.own_last, true, now)
 }
 
-// One Inputs message: own inputs first..last (none when last < first), and with `commands` the unacked commands.
+// One Inputs message of a local player: its own inputs first..last (none when last < first), and with `commands` its
+// unacked commands.
 @(private)
-inputs_message :: proc(client: ^Client($G), first, last: u32, commands: bool, now: i64) {
+inputs_message :: proc(
+	client: ^Client($G),
+	seat: ^Local_Seat(G),
+	local: int,
+	first, last: u32,
+	commands: bool,
+	now: i64,
+) {
 	Input :: usim.part(G, usim.GAME_INPUT)
 	writer := msg_begin(&client.w, .Inputs)
+	wire.w_u8(writer, u8(local))
 	wire.w_u32(writer, min(client.fin_upto, fin_base(client) + FIN_RING - 64))
 	wire.w_u32(writer, first)
 	count := last >= first ? last - first + 1 : 0
@@ -1118,21 +1308,21 @@ inputs_message :: proc(client: ^Client($G), first, last: u32, commands: bool, no
 	wire.w_u8(writer, u8(count))
 	base: Input // each input as its changes from the one before it, the first from the zero input
 	for tick in first ..< first + count {
-		window_write_input(writer, &client.own[tick % OWN_RING], &base)
-		base = client.own[tick % OWN_RING]
-		client.own_sends[tick % OWN_RING] = min(client.own_sends[tick % OWN_RING] + 1, INPUTS_MAX)
+		window_write_input(writer, &seat.own[tick % OWN_RING], &base)
+		base = seat.own[tick % OWN_RING]
+		seat.own_sends[tick % OWN_RING] = min(seat.own_sends[tick % OWN_RING] + 1, INPUTS_MAX)
 	}
 	// Commands the relay hasn't acked, in seq order, as many as fit.
 	k := 0
-	for k < len(client.own_cmds) && client.own_cmds[k].seq <= client.cmd_acked {
+	for k < len(seat.own_cmds) && seat.own_cmds[k].seq <= seat.cmd_acked {
 		k += 1
 	}
-	wire.w_u32(writer, k < len(client.own_cmds) ? client.own_cmds[k].seq : client.cmd_seq + 1)
+	wire.w_u32(writer, k < len(seat.own_cmds) ? seat.own_cmds[k].seq : seat.cmd_seq + 1)
 	command_count_at := len(writer.buf)
 	wire.w_u8(writer, 0)
 	command_count := 0
-	for ; commands && k < len(client.own_cmds) && command_count < 255; k += 1 {
-		own_command := &client.own_cmds[k]
+	for ; commands && k < len(seat.own_cmds) && command_count < 255; k += 1 {
+		own_command := &seat.own_cmds[k]
 		if len(writer.buf) + COMMAND_SEND_HEAD + int(own_command.cmd.size) > MAX_MESSAGE {
 			break
 		}
@@ -1266,6 +1456,36 @@ predict :: proc(client: ^Client($G)) {
 	}
 }
 
+// What a local player asks for, as a Hello's or Join's seat.
+@(private)
+seat_ask :: proc(seat: ^Local_Seat($G), local: int) -> (ask: Seat_Ask) {
+	ask = {
+		local     = u8(local),
+		slot      = seat.want_slot < 0 ? ANY_SLOT : u8(seat.want_slot),
+		join_tick = seat.join_tick,
+		name      = seat.name,
+	}
+	ask.profile.len = u8(copy(ask.profile.bytes[:], usim.bytes_of(&seat.profile)))
+	return
+}
+
+// Sends a Join for each local player added since the Welcome.
+@(private)
+send_joins :: proc(client: ^Client($G), now: i64) {
+	for &seat, local in client.locals {
+		if seat.state != .Asked || seat.asked do continue
+		ask := seat_ask(&seat, local)
+		writer := msg_begin(&client.w, .Join)
+		wire.w_u8(writer, ask.local)
+		wire.w_u8(writer, ask.slot)
+		wire.w_u32(writer, ask.join_tick)
+		w_text(writer, &ask.name)
+		w_text(writer, &ask.profile)
+		csend(client, writer, .Reliable, now)
+		seat.asked = true
+	}
+}
+
 // One step of the client: receive, verify (rolling back if needed), advance the local clock,
 // predict, publish, send. Returns when it wants to run next (a now_us value).
 client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
@@ -1274,18 +1494,16 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 	}
 	if !client.hello_sent {
 		hello := Hello {
-			compat     = client.cfg.compat,
-			token      = client.cfg.token,
-			sent_us    = now,
-			seat_count = 1,
+			compat  = client.cfg.compat,
+			token   = client.cfg.token,
+			sent_us = now,
 		}
-		hello.seats[0] = {
-			slot      = client.cfg.slot < 0 ? ANY_SLOT : u8(client.cfg.slot),
-			join_tick = client.cfg.join_tick,
-			name      = text_of(NAME_MAX, client.cfg.player_name),
+		for &seat, local in client.locals {
+			if seat.state != .Asked do continue
+			hello.seats[hello.seat_count] = seat_ask(&seat, local)
+			hello.seat_count += 1
+			seat.asked = true
 		}
-		profile := &hello.seats[0].profile
-		profile.len = u8(copy(profile.bytes[:], usim.bytes_of(&client.cfg.profile)))
 		clear(&client.w.buf)
 		write_hello(&client.w, &hello)
 		csend(client, &client.w, .Reliable, now)
@@ -1319,6 +1537,7 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 	}
 	client.resim_from = 0
 	if !client.leaving {
+		if client.welcomed do send_joins(client, now)
 		advance_verified(client, now)
 		advanced := schedule(client, now)
 		predict(client)

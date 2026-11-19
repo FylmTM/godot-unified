@@ -9,7 +9,7 @@ import "unified:wire"
 
 // Bump on any wire change: a datagram, a message, the snapshots a late joiner gets (the sim-change skill). Every
 // datagram starts with it (channel.odin), so peers on two versions never parse each other's messages.
-PROTOCOL_VERSION :: 18
+PROTOCOL_VERSION :: 19
 #assert(PROTOCOL_VERSION < 0x80) // the datagram's first byte: 0x80 | PROTOCOL_VERSION
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 PLATFORM_MAX :: 15 // bytes of an account's platform name ("eos")
@@ -31,6 +31,7 @@ RELAY_TARGET :: u8(0xFE) // a Snap_Request's or Snap_Begin's target: the relay i
 DESYNC_IMAGES :: 8 // checksum-tick snapshots a client keeps for desync reports (Welcome's Keep_Images)
 POLL_US :: 1000 // how often a step wants to run between deadlines, to receive packets
 ANY_SLOT :: u8(0xFF) // Hello: any free slot
+ALL_LOCALS :: u8(0xFF) // Reject and Leave: the whole connection (else one local player)
 NO_SLOT :: sim.NO_SLOT // a roster entry of a member not seated
 
 // What a client on a link that vouches for no account (LAN, direct UDP) is recognized by when it comes back: 16
@@ -150,13 +151,15 @@ Msg :: enum u8 {
 	// Setup's bytes, resume from u32 (reserved for resuming; 0: none), seat count u8, then per seat granted: local u8,
 	// slot u8, member u16, first tick u32 (write_welcome)
 	Welcome,
-	Reject, // r->c R: reason u8
-	// c->r U: finalized ack u32, first tick u32, count u8, inputs (window_write_input: each its changes from the one
-	// before, the first from the zero input); then the unacked commands: first seq u32, count u8, per command: wanted
-	// tick u32, kind u8, size u8, bytes. The relay knows the sender's slot.
+	// r->c R: reason u8, local u8 (ALL_LOCALS: the Hello, the connection; else that local player's Join)
+	Reject,
+	// c->r U: local u8 (which of the connection's seats), finalized ack u32, first tick u32, count u8, inputs
+	// (window_write_input: each its changes from the one before, the first from the zero input); then the unacked
+	// commands: first seq u32, count u8, per command: wanted tick u32, kind u8, size u8, bytes. One message per seat.
 	Inputs,
-	// r->c U: relay time i64, input ack u32, command ack u32, first u32, count u8, ticks (window_write_tick: each
-	// tick's changes from the one before it in the packet, and its join records)
+	// r->c U: relay time i64, first u32, count u8, seat count u8, per seat of the connection: local u8, input ack u32,
+	// command ack u32; then the ticks (window_write_tick: each tick's changes from the one before it in the packet, and
+	// its join records)
 	Finalized,
 	Checksum, // c->r R: tick u32, checksum u64 (a joiner's first: of its restored snapshot)
 	// r->c R: target u8 (a joiner, or RELAY_TARGET), min tick u32: for a joiner, the snapshot of the first checksum
@@ -166,12 +169,16 @@ Msg :: enum u8 {
 	Snap_Chunk, // c->r(->c) R: target u8, offset u32, bytes
 	Done, // c->r R: the client verified the last tick of a fixed-length session
 	End, // r->c R: the session is over (or the host left)
-	Leave, // c->r R: the client leaves its player
-	// r->c R: one member's entry: member u16, slot u8 (NO_SLOT: none), connected u8, name, platform, account id (each
-	// len u8 + bytes). Sent on every change to everyone connected, and every entry to a newcomer.
+	Leave, // c->r R: local u8: that local player leaves (ALL_LOCALS, or its last one: the client leaves)
+	// r->c R: one member's entry: member u16, slot u8 (NO_SLOT: none), local u8, connected u8, name, platform, account
+	// id (each len u8 + bytes). Sent on every change to everyone connected, and every entry to a newcomer.
 	Roster,
 	Snap_Ok, // r->c R: tick u32: the joiner's restored snapshot matches the others' checksum of that tick
 	Desync, // r->c R: tick u32, diverged u32 (sim.Slots), detail len u16 + bytes ("" unless typed reports are on)
+	// c->r R: another local player of a connection that is in: local u8, slot u8 (ANY_SLOT: any), join tick u32,
+	// name len u8 + bytes, profile size u8 + bytes (a Hello's seat)
+	Join,
+	Seated, // r->c R: the answer to a Join: local u8, slot u8, member u16, first tick u32 (a Welcome's seat)
 }
 
 // What Welcome asks of the client beyond playing.
@@ -347,6 +354,7 @@ text_string :: proc(text: ^Text($N)) -> string {
 Roster_Entry :: struct {
 	member:    u16,
 	slot:      u8, // NO_SLOT: not seated
+	local:     u8, // which of its connection's local players (a second one shares the first one's account)
 	connected: bool,
 	name:      Player_Name,
 	platform:  Text(PLATFORM_MAX), // the account its link vouched for ("": none, as on LAN)
@@ -376,6 +384,7 @@ r_text :: proc(reader: ^wire.Reader, $N: int) -> (text: Text(N)) {
 w_roster_entry :: proc(writer: ^wire.Writer, entry: ^Roster_Entry) {
 	wire.w_u16(writer, entry.member)
 	wire.w_u8(writer, entry.slot)
+	wire.w_u8(writer, entry.local)
 	wire.w_u8(writer, u8(entry.connected))
 	w_text(writer, &entry.name)
 	w_text(writer, &entry.platform)
@@ -386,6 +395,7 @@ w_roster_entry :: proc(writer: ^wire.Writer, entry: ^Roster_Entry) {
 r_roster_entry :: proc(reader: ^wire.Reader) -> (entry: Roster_Entry) {
 	entry.member = wire.r_u16(reader)
 	entry.slot = wire.r_u8(reader)
+	entry.local = wire.r_u8(reader)
 	entry.connected = wire.r_u8(reader) != 0
 	entry.name = r_text(reader, NAME_MAX)
 	entry.platform = r_text(reader, PLATFORM_MAX)
@@ -410,8 +420,10 @@ r_i64 :: proc(reader: ^wire.Reader) -> i64 {
 	return i64(wire.r_u64(reader))
 }
 
-FINALIZED_HEAD :: 22 // type u8, relay time i64, input ack u32, command ack u32, first u32, count u8 (asserted in broadcast)
-INPUTS_HEAD :: 10 // type u8, finalized ack u32, first u32, count u8 (asserted in send_inputs)
+FINALIZED_HEAD :: 15 // type u8, relay time i64, first u32, count u8, seat count u8 (asserted in finalized_message)
+FINALIZED_SEAT :: 9 // a seat's acks in a Finalized: local u8, input ack u32, command ack u32
+FINALIZED_HEAD_MAX :: FINALIZED_HEAD + LOCAL_MAX * FINALIZED_SEAT // what the widths budget for: a full couch
+INPUTS_HEAD :: 11 // type u8, local u8, finalized ack u32, first u32, count u8 (asserted in inputs_message)
 COMMANDS_HEAD :: 5 // first seq u32, count u8
 COMMAND_SEND_HEAD :: 6 // wanted tick u32, kind u8, size u8
 
@@ -457,7 +469,7 @@ delay_violation :: proc(name: string, tick_hz, input_delay_min_ticks: int) -> st
 // game_violation's body (a non-generic home for its import: -vet).
 @(private)
 width_violation :: proc(name: string, players, input_bytes, tick_bytes: int) -> string {
-	fit := (MAX_MESSAGE - FINALIZED_HEAD) / tick_bytes
+	fit := (MAX_MESSAGE - FINALIZED_HEAD_MAX) / tick_bytes
 	if fit >= TICKS_PER_MESSAGE_MIN {
 		return ""
 	}
@@ -477,7 +489,7 @@ width_violation :: proc(name: string, players, input_bytes, tick_bytes: int) -> 
 // to WINDOW_MAX ticks, as many as fit.
 @(private)
 tick_command_budget :: proc($Input: typeid, $PLAYERS: int, profile_size: int) -> int {
-	budget := MAX_MESSAGE - FINALIZED_HEAD - window_tick_max_bytes(Input, PLAYERS, nil, profile_size) - 1
+	budget := MAX_MESSAGE - FINALIZED_HEAD_MAX - window_tick_max_bytes(Input, PLAYERS, nil, profile_size) - 1
 	assert(budget >= sim.COMMAND_HEAD + sim.COMMAND_MAX, "a tick with one command does not fit a datagram")
 	return budget
 }

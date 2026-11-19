@@ -56,9 +56,9 @@ Plain_4x8 :: sim.Game(
 	sim.No_Profile,
 	4,
 )
-Plain_2x116 :: sim.Game(
-	Plain_State(116, 2),
-	Plain_Input(116),
+Plain_2x114 :: sim.Game(
+	Plain_State(114, 2),
+	Plain_Input(114),
 	sim.No_World,
 	Wide_Event,
 	sim.No_Commands,
@@ -142,7 +142,7 @@ replaced_ticks :: proc(result: ^headless.Session_Result($G)) -> string {
 	return strings.to_string(out)
 }
 
-// The widest Input at 2 players (116 bytes: a packet carries 7) at 128 Hz on round trips of 240 to 300 ms: the input
+// The widest Input at 2 players (114 bytes: a packet carries 8) at 128 Hz on round trips of 240 to 300 ms: the input
 // delay (11 to 13 ticks) is longer than the window, so the clock's first step samples more inputs than a packet
 // carries. The burst rides in messages of its own: none of a player's first inputs is replaced, on a lossless link as
 // on `bad`.
@@ -160,7 +160,7 @@ a_burst_of_inputs_longer_than_the_window_is_sent :: proc(t: ^testing.T) {
 			ticks   = 1280,
 			seed    = 1,
 		}
-		result, stalls := plain_session(Plain_2x116, 4, 128, cfg)
+		result, stalls := plain_session(Plain_2x114, 4, 128, cfg)
 		defer headless.session_result_destroy(&result)
 		testing.expectf(t, result.ok, "%s: not ok", profile.name)
 		testing.expectf(
@@ -310,10 +310,10 @@ the_widest_accepted_ticks_play_on_a_bad_network :: proc(t: ^testing.T) {
 	check(t, "8 x 26 B", &wide, wide_stalls, 8)
 	testing.expectf(t, wide.replaced == 0, "8 x 26 B: %d inputs replaced", wide.replaced)
 	cfg.clients = 2
-	two, two_stalls := plain_session(Plain_2x116, 0, 64, cfg)
+	two, two_stalls := plain_session(Plain_2x114, 0, 64, cfg)
 	defer headless.session_result_destroy(&two)
-	check(t, "2 x 116 B", &two, two_stalls, 2)
-	testing.expectf(t, two.replaced == 0, "2 x 116 B: %d inputs replaced", two.replaced)
+	check(t, "2 x 114 B", &two, two_stalls, 2)
+	testing.expectf(t, two.replaced == 0, "2 x 114 B: %d inputs replaced", two.replaced)
 	// (32 start players on `bad`: a Welcome lost and resent can come after the start lead, and a player's first
 	// inputs with it (src/netcode/README.md, Relay). That is the start, not the stream: inputs are not checked here.)
 	cfg.clients = 32

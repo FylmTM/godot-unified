@@ -109,6 +109,7 @@ Relay_Conn :: struct {
 	done:        bool, // verified the last tick of a fixed-length session
 	base_known:  bool, // finalized ticks can be streamed to this client
 	hello_us:    i64, // its Hello's sent time (the client's clock): newest wins by it (on_hello)
+	token:       Token, // its Hello's: who its local players are on a link that vouches for no account (a Join's key)
 	locals:      [LOCAL_MAX]i8, // the slot each of its local players holds (-1: none)
 	report_from: u32, // the first checksum tick it reports (NO_REPORTS: none yet)
 	client_ack:  u32, // the newest finalized tick the client acked
@@ -366,30 +367,33 @@ ms_ticks :: proc(relay: ^Relay($G), ms: int) -> u32 {
 	return ceil_ticks(f64(ms) * 1000, relay.tm.tick_us)
 }
 
-// Welcomes a connection: the session's seed, rate, length and Setup, and the seat it holds in `slot`. `start`: a start
-// client, which builds tick 0 itself (Welcome_Flags.Start); every other gets a snapshot.
+// Welcomes a connection: the session's seed, rate, length and Setup, and every seat it holds. `start`: a start client,
+// which builds tick 0 itself (Welcome_Flags.Start); every other gets a snapshot.
 @(private)
-send_welcome :: proc(relay: ^Relay($G), slot: int, start: bool, now: i64) {
-	seat := &relay.seats[slot]
-	conn := &relay.conns[seat.conn]
+send_welcome :: proc(relay: ^Relay($G), peer: Peer, start: bool, now: i64) {
+	conn := &relay.conns[peer]
 	welcome := Welcome {
-		seed       = relay.cfg.seed,
-		tick_hz    = relay.tm.tick_hz,
-		ticks      = relay.cfg.ticks,
-		setup      = sim.bytes_of(&relay.setup),
-		seat_count = 1,
+		seed    = relay.cfg.seed,
+		tick_hz = relay.tm.tick_hz,
+		ticks   = relay.cfg.ticks,
+		setup   = sim.bytes_of(&relay.setup),
 	}
-	welcome.seats[0] = {
-		local      = seat.local,
-		slot       = u8(slot),
-		member     = seat.member,
-		first_tick = seat.active_from,
+	for slot in conn.locals {
+		if slot < 0 do continue
+		seat := &relay.seats[slot]
+		welcome.seats[welcome.seat_count] = {
+			local      = seat.local,
+			slot       = u8(slot),
+			member     = seat.member,
+			first_tick = seat.active_from,
+		}
+		welcome.seat_count += 1
 	}
 	if relay.desync_diff != nil do welcome.flags += {.Keep_Images}
 	if start do welcome.flags += {.Start}
 	clear(&relay.w.buf)
 	write_welcome(&relay.w, &welcome)
-	relay_send(relay, seat.conn, &relay.w, .Reliable, now)
+	relay_send(relay, peer, &relay.w, .Reliable, now)
 	conn.welcomed = true
 }
 
@@ -411,10 +415,12 @@ free_join_tick :: proc(relay: ^Relay($G), from: u32) -> u32 {
 	return tick
 }
 
+// Refuses a Hello (`local` ALL_LOCALS: the whole connection) or one Join (that local player only).
 @(private)
-reject :: proc(relay: ^Relay($G), peer: Peer, why: Reject_Reason, now: i64) {
+reject :: proc(relay: ^Relay($G), peer: Peer, why: Reject_Reason, now: i64, local := ALL_LOCALS) {
 	writer := msg_begin(&relay.w, .Reject)
 	wire.w_u8(writer, u8(why))
+	wire.w_u8(writer, local)
 	channel_send(relay.ch, peer, writer.buf[:], .Reliable, now)
 }
 
@@ -426,9 +432,9 @@ refuse_conn :: proc(relay: ^Relay($G), peer: Peer, why: Reject_Reason, now: i64)
 	conn_left(relay, peer, fmt.tprintf("refused (%v)", why), now)
 }
 
+// A client's Hello: every seat it asks for fits, or it is refused whole (Reject, ALL_LOCALS) and nobody is seated.
 @(private)
 on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) {
-	Profile :: sim.part(G, sim.GAME_PROFILE)
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	hello, hello_ok := read_hello(reader)
 	if !hello_ok || relay.conns[peer].connected {
@@ -438,119 +444,70 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 		channel_send(relay.ch, peer, msg_begin(&relay.w, .End).buf[:], .Reliable, now) // not 30 s of silence
 		return
 	}
-	// One seat per connection for now. A Profile of another size comes only from a modified client (compat covers the
-	// layout); what its bytes hold is the sim's to read.
-	ask := &hello.seats[0]
-	if hello.compat != relay.compat ||
-	   hello.seat_count != 1 ||
-	   ask.local >= LOCAL_MAX ||
-	   int(ask.profile.len) != size_of(Profile) {
+	asks := hello.seats[:hello.seat_count]
+	if hello.compat != relay.compat || !asks_valid(relay, asks) {
 		reject(relay, peer, .Incompatible, now)
 		return
 	}
-	wanted, asked_join_tick, name, token, hello_us := ask.slot, ask.join_tick, ask.name, hello.token, hello.sent_us
-	// Who it is: the account the link vouches for, else the client's token (never what the client says it is).
-	account, vouched := channel_account(relay.ch, peer)
-	vouched &&= account.id != ""
-	key := ""
-	if vouched {
-		key = fmt.tprintf("%s:%s", account.platform, account.id)
-	} else if token != {} {
-		key = fmt.tprintf("token:%s", token_text(token))
-	}
-	known := find_member(relay, key)
+	base := client_key(relay, peer, hello.token)
+	known: [LOCAL_MAX]int
 	// Newest wins: a person still seated who connects again (a restarted game) replaces their old connection, once
-	// the new one is accepted (its seat counts as free until then). Newest by when each try's Hello went out, not by
+	// the new one is accepted (its seats count as free until then). Newest by when each try's Hello went out, not by
 	// which arrives last: an earlier try's Hello that comes late (lost once and resent, or on a slower path; its
 	// player cancelled it and tried again) is refused while the seated connection is live. A silent one is
 	// replaced whatever the order (a crashed game; another machine, whose clock says nothing about this one's).
-	replaced := -1 // the slot of the seat it replaces
-	replaced_conn := Peer(-1)
-	if known >= 0 && relay.members[known].entry.connected {
-		replaced = int(relay.members[known].entry.slot)
-		replaced_conn = relay.seats[replaced].conn
-		seated := &relay.conns[replaced_conn]
-		if hello_us < seated.hello_us && channel_silence_us(relay.ch, replaced_conn, now) < SEATED_LIVE_US {
+	replaced: Peers
+	new_members := 0
+	for &ask, i in asks {
+		known[i] = find_member(relay, member_key(base, ask.local))
+		if known[i] < 0 {
+			new_members += 1
+			continue
+		}
+		if !relay.members[known[i]].entry.connected do continue
+		seated := relay.seats[relay.members[known[i]].entry.slot].conn
+		if hello.sent_us < relay.conns[seated].hello_us && channel_silence_us(relay.ch, seated, now) < SEATED_LIVE_US {
 			reject(relay, peer, .Newer_Connection, now)
-			log.infof("member %d: an earlier try's Hello after the seated one's, refused", known + 1)
+			log.infof("member %d: an earlier try's Hello after the seated one's, refused", known[i] + 1)
 			return
 		}
+		replaced += {int(seated)}
 	}
-	if known < 0 && len(relay.members) >= int(max(u16)) {
+	if len(relay.members) + new_members > int(max(u16)) {
 		reject(relay, peer, .Full, now) // 65,535 people in one session
 		return
 	}
-	slot := -1
-	if wanted == ANY_SLOT {
-		limit := relay.started ? PLAYERS : relay.cfg.start_players
-		for other in 0 ..< limit {
-			if relay.seats[other].conn < 0 || other == replaced {
-				slot = other
-				break
-			}
-		}
-		if slot < 0 {
-			reject(relay, peer, .Full, now)
+	slots: [LOCAL_MAX]int
+	taken: sim.Slots
+	for &ask, i in asks {
+		slot, why := pick_slot(relay, ask.slot, replaced, taken, extra = i > 0)
+		if why != nil {
+			reject(relay, peer, why.?, now)
 			return
 		}
-	} else {
-		slot = int(wanted)
-		if slot >= PLAYERS {
-			reject(relay, peer, .Full, now)
-			return
-		}
-		if relay.seats[slot].conn >= 0 && slot != replaced {
-			reject(relay, peer, .Slot_Taken, now)
-			return
-		}
-		if !relay.started && slot >= relay.cfg.start_players {
-			reject(relay, peer, .Not_Started, now)
-			return
-		}
+		slots[i] = slot
+		taken += {slot}
 	}
 	// A joiner starts from another player's snapshot: with nobody to send one, it can't join.
 	provider := Peer(-1)
 	if relay.started {
-		if provider = pick_provider(relay, peer, {}, replaced_conn); provider < 0 {
+		if provider = pick_provider(relay, peer, {}, replaced); provider < 0 {
 			reject(relay, peer, .No_Snapshot, now)
-			log.infof("a client asking for slot %d refused: nobody can send it a snapshot", slot)
+			log.infof("a client asking for slot %d refused: nobody can send it a snapshot", slots[0])
 			return
 		}
 	}
-	if replaced_conn >= 0 {
-		conn_left(relay, replaced_conn, "replaced by a new connection", now)
-		channel_drop(relay.ch, replaced_conn, now)
+	for other in replaced {
+		conn_left(relay, Peer(other), "replaced by a new connection", now)
+		channel_drop(relay.ch, Peer(other), now)
 	}
-	if known < 0 {
-		append(&relay.members, Relay_Member{key = strings.clone(key)})
-		known = len(relay.members) - 1
-		entry := &relay.members[known].entry
-		entry.member = u16(known + 1)
-		if vouched {
-			entry.platform = text_of(PLATFORM_MAX, account.platform)
-			entry.account = text_of(ACCOUNT_MAX, account.id)
-		}
-	}
-	entry := &relay.members[known].entry
-	entry.name = name
-	entry.slot = u8(slot)
-	entry.connected = true
-	seat := &relay.seats[slot]
-	seat_reset(seat) // a new occupant: nothing of the previous one's (inputs, commands) carries over
-	seat.member = entry.member
-	seat.conn = peer
-	seat.local = ask.local
-	copy(sim.bytes_of(&seat.profile), ask.profile.bytes[:ask.profile.len])
 	conn := &relay.conns[peer]
 	relay_conn_reset(conn) // a new connection: nothing of the previous one's on this peer (stream, snapshot) carries over
 	conn.connected = true
-	conn.hello_us = hello_us
-	conn.locals[ask.local] = i8(slot)
-	send_roster_entry(relay, known, now)
-	for k in 0 ..< len(relay.members) {
-		if k != known {
-			send_roster_entry(relay, k, now, peer)
-		}
+	conn.hello_us = hello.sent_us
+	conn.token = hello.token
+	for &ask, i in asks {
+		seat_member(relay, peer, slots[i], &ask, member_key(base, ask.local), i == 0, now)
 	}
 	if !relay.started {
 		conn.report_from = 1
@@ -563,31 +520,210 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 		relay.started = true
 		relay.welcome_us = now
 		relay.lead = relay.cfg.local_start ? 0 : ms_ticks(relay, START_LEAD_MS)
-		// One new player per tick: the start players become present on ticks 1, 2, ... in slot order.
-		for other in 0 ..< relay.cfg.start_players {
-			relay.seats[other].active_from = u32(other + 1)
+		// One new player per tick: the seated players become present on ticks 1, 2, ... in slot order.
+		next := u32(1)
+		for &seat in relay.seats {
+			if seat.conn >= 0 {
+				seat.active_from = next
+				next += 1
+			}
 		}
-		for other in 0 ..< relay.cfg.start_players {
-			send_welcome(relay, other, true, now)
+		for &other, other_peer in relay.conns {
+			if other.connected do send_welcome(relay, Peer(other_peer), true, now)
 		}
-		log.infof("%d players connected, clock started", relay.cfg.start_players)
+		log.infof("%d players connected, clock started", next - 1)
 		return
 	}
-	// Late join or rejoin: the slot becomes present at a future tick J.
-	join_tick := max(asked_join_tick, relay.clock + ms_ticks(relay, JOIN_LEAD_MS), relay.finalized + 2)
-	join_tick = free_join_tick(relay, join_tick)
-	seat.active_from = join_tick
-	seat.recv_upto = join_tick - 1
-	conn.snap_min = join_tick - 1
-	send_welcome(relay, slot, false, now)
+	// Late join or rejoin: each seat becomes present at a future tick J, one new player per tick.
+	for &ask, i in asks {
+		late_join_tick(relay, slots[i], ask.join_tick)
+	}
+	first := relay.seats[slots[0]].active_from
+	for slot in slots[1:len(asks)] do first = min(first, relay.seats[slot].active_from)
+	conn.snap_min = first - 1
+	send_welcome(relay, peer, false, now)
 	request_snapshot(relay, peer, provider, now)
 	log.infof(
-		"member %d joins slot %d at tick %d (clock %d), snapshot from slot %d",
+		"member %d joins slot %d at tick %d (clock %d; %d seats), snapshot from slot %d",
+		relay.seats[slots[0]].member,
+		slots[0],
+		relay.seats[slots[0]].active_from,
+		relay.clock,
+		len(asks),
+		conn_slot(relay, provider),
+	)
+}
+
+// Whether a Hello's or Join's seats can be read: each local below LOCAL_MAX and asked once, each Profile this build's
+// size. A Profile of another size comes only from a modified client (compat covers the layout); what its bytes hold is
+// the sim's to read.
+@(private)
+asks_valid :: proc(relay: ^Relay($G), asks: []Seat_Ask) -> bool {
+	Profile :: sim.part(G, sim.GAME_PROFILE)
+	locals: bit_set[0 ..< LOCAL_MAX]
+	for &ask in asks {
+		if ask.local >= LOCAL_MAX || int(ask.local) in locals || int(ask.profile.len) != size_of(Profile) {
+			return false
+		}
+		locals += {int(ask.local)}
+	}
+	return true
+}
+
+// Who a connection is (Relay_Member.key): the account its link vouches for, else the client's token (never what the
+// client says it is); "" for nothing.
+@(private)
+client_key :: proc(relay: ^Relay($G), peer: Peer, token: Token) -> string {
+	account, vouched := channel_account(relay.ch, peer)
+	if vouched && account.id != "" {
+		return fmt.tprintf("%s:%s", account.platform, account.id)
+	}
+	return fmt.tprintf("token:%s", token_text(token)) if token != {} else ""
+}
+
+// The member key of a connection's local player: the connection's for local 0, then `<key>#<local>`, so each local
+// player comes back as themselves ("" stays "": nobody to recognize).
+@(private)
+member_key :: proc(base: string, local: u8) -> string {
+	if base == "" || local == 0 do return base
+	return fmt.tprintf("%s#%d", base, local)
+}
+
+// The slot for a seat asked for as `wanted` (ANY_SLOT: the lowest free), free meaning empty or held by a connection in
+// `replaced`, and not in `taken`; or why there is none. Before the clock starts a connection's first seat goes among
+// the start slots; its `extra` local players may take any.
+@(private)
+pick_slot :: proc(
+	relay: ^Relay($G),
+	wanted: u8,
+	replaced: Peers,
+	taken: sim.Slots,
+	extra: bool,
+) -> (
+	slot: int,
+	why: Maybe(Reject_Reason),
+) {
+	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
+	free :: proc(relay: ^Relay($G), slot: int, replaced: Peers, taken: sim.Slots) -> bool {
+		conn := relay.seats[slot].conn
+		return slot not_in taken && (conn < 0 || int(conn) in replaced)
+	}
+	if wanted == ANY_SLOT {
+		limit := relay.started || extra ? PLAYERS : relay.cfg.start_players
+		for other in 0 ..< limit {
+			if free(relay, other, replaced, taken) do return other, nil
+		}
+		return -1, .Full
+	}
+	slot = int(wanted)
+	switch {
+	case slot >= PLAYERS:
+		return -1, .Full
+	case !free(relay, slot, replaced, taken):
+		return -1, .Slot_Taken
+	case !relay.started && !extra && slot >= relay.cfg.start_players:
+		return -1, .Not_Started
+	}
+	return slot, nil
+}
+
+// Seats a connection's local player in `slot`: the member `key` recognizes (a new one when none), its roster entry
+// sent to everyone and everyone's to the connection.
+@(private)
+seat_member :: proc(relay: ^Relay($G), peer: Peer, slot: int, ask: ^Seat_Ask, key: string, first: bool, now: i64) {
+	known := find_member(relay, key)
+	if known < 0 {
+		append(&relay.members, Relay_Member{key = strings.clone(key)})
+		known = len(relay.members) - 1
+		entry := &relay.members[known].entry
+		entry.member = u16(known + 1)
+		if account, vouched := channel_account(relay.ch, peer); vouched && account.id != "" {
+			entry.platform = text_of(PLATFORM_MAX, account.platform)
+			entry.account = text_of(ACCOUNT_MAX, account.id)
+		}
+	}
+	entry := &relay.members[known].entry
+	entry.name = ask.name
+	entry.slot = u8(slot)
+	entry.local = ask.local
+	entry.connected = true
+	seat := &relay.seats[slot]
+	seat_reset(seat) // a new occupant: nothing of the previous one's (inputs, commands) carries over
+	seat.member = entry.member
+	seat.conn = peer
+	seat.local = ask.local
+	copy(sim.bytes_of(&seat.profile), ask.profile.bytes[:ask.profile.len])
+	relay.conns[peer].locals[ask.local] = i8(slot)
+	send_roster_entry(relay, known, now)
+	if first {
+		for k in 0 ..< len(relay.members) {
+			if k != known do send_roster_entry(relay, k, now, peer) // a new connection: everyone else's entry
+		}
+	}
+}
+
+// A seat that joins a running session: present from the first tick at or after max(asked, clock + JOIN_LEAD_MS,
+// finalized + 2) on which no other seat joins.
+@(private)
+late_join_tick :: proc(relay: ^Relay($G), slot: int, asked: u32) {
+	seat := &relay.seats[slot]
+	join_tick := max(asked, relay.clock + ms_ticks(relay, JOIN_LEAD_MS), relay.finalized + 2)
+	seat.active_from = free_join_tick(relay, join_tick)
+	seat.recv_upto = seat.active_from - 1
+}
+
+// Another local player of a connection that is in (Join): it gets a join tick as a late joiner's and needs no
+// snapshot (the connection's sim has the session); Seated answers, or Reject naming that local player.
+@(private)
+on_join :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) {
+	conn := &relay.conns[peer]
+	ask: Seat_Ask
+	ask.local = wire.r_u8(reader)
+	ask.slot = wire.r_u8(reader)
+	ask.join_tick = wire.r_u32(reader)
+	ask.name = r_text(reader, NAME_MAX)
+	ask.profile = r_text(reader, sim.PROFILE_MAX)
+	if !reader.ok || !conn.welcomed || !relay.started || relay.ending {
+		return
+	}
+	if ask.local < LOCAL_MAX && conn.locals[ask.local] >= 0 {
+		return // seated already: a resent Join
+	}
+	if !asks_valid(relay, {ask}) {
+		reject(relay, peer, .Incompatible, now, ask.local)
+		return
+	}
+	key := member_key(client_key(relay, peer, conn.token), ask.local)
+	if known := find_member(relay, key); known >= 0 && relay.members[known].entry.connected {
+		// The same person seated on another connection: the newest wins, that seat empties.
+		other := int(relay.members[known].entry.slot)
+		other_conn := relay.seats[other].conn
+		seat_left(relay, other, "replaced by a new connection", now)
+		if conn_slots(relay, other_conn) == {} {
+			conn_left(relay, other_conn, "replaced by a new connection", now)
+			channel_drop(relay.ch, other_conn, now)
+		}
+	}
+	slot, why := pick_slot(relay, ask.slot, {}, {}, extra = true)
+	if why != nil {
+		reject(relay, peer, why.?, now, ask.local)
+		return
+	}
+	seat_member(relay, peer, slot, &ask, key, false, now)
+	late_join_tick(relay, slot, ask.join_tick)
+	seat := &relay.seats[slot]
+	writer := msg_begin(&relay.w, .Seated)
+	wire.w_u8(writer, seat.local)
+	wire.w_u8(writer, u8(slot))
+	wire.w_u16(writer, seat.member)
+	wire.w_u32(writer, seat.active_from)
+	relay_send(relay, peer, writer, .Reliable, now)
+	log.infof(
+		"member %d joins slot %d at tick %d, a local player beside slot %d",
 		seat.member,
 		slot,
-		join_tick,
-		relay.clock,
-		conn_slot(relay, provider),
+		seat.active_from,
+		conn_slot(relay, peer),
 	)
 }
 
@@ -606,14 +742,14 @@ find_member :: proc(relay: ^Relay($G), key: string) -> int {
 }
 
 // The connection holding the lowest slot that can send `joiner` a snapshot and isn't in `refused` (-1: none), other
-// than `leaving` (a connection about to be replaced).
+// than those `leaving` (connections about to be replaced).
 @(private)
-pick_provider :: proc(relay: ^Relay($G), joiner: Peer, refused: Peers, leaving := Peer(-1)) -> Peer {
+pick_provider :: proc(relay: ^Relay($G), joiner: Peer, refused: Peers, leaving := Peers{}) -> Peer {
 	order, count := conns_by_slot(relay)
 	for other in order[:count] {
 		conn := &relay.conns[other]
 		if other != joiner &&
-		   other != leaving &&
+		   int(other) not_in leaving &&
 		   conn.connected &&
 		   conn.welcomed &&
 		   conn.base_known &&
@@ -665,6 +801,7 @@ have_input :: #force_inline proc(seat: ^Seat($Input, $Profile), tick: u32) -> bo
 	return seat.input_tick[tick % INPUT_RING] == tick
 }
 
+// A seat's Inputs message (its local byte read already): its inputs and commands, and the connection's finalized ack.
 @(private)
 on_inputs :: proc(relay: ^Relay($G), slot: int, reader: ^wire.Reader, now: i64) {
 	Input :: sim.part(G, sim.GAME_INPUT)
@@ -1150,20 +1287,30 @@ broadcast :: proc(relay: ^Relay($G), now: i64) {
 	}
 }
 
-// Sends a connection a Finalized with the relay time, its seat's acks and the ticks from `first` on, up to `newest`
-// (none when newest < first): as many as fit one message. Returns how many it carried.
+// Sends a connection a Finalized with the relay time, the ticks from `first` on, up to `newest` (none when newest <
+// first; as many as fit one message) and each of its seats' input and command acks. Returns how many ticks it carried.
 @(private)
 finalized_message :: proc(relay: ^Relay($G), peer: Peer, first, newest: u32, now: i64) -> (written: u32) {
-	seat := &relay.seats[conn_slot(relay, peer)]
+	conn := &relay.conns[peer]
 	writer := msg_begin(&relay.w, .Finalized)
 	// Relay time: when tick 0 was due, so negative during the lead.
 	w_i64(writer, i64(f64(now - relay.welcome_us) - f64(relay.lead) * relay.tm.tick_us))
-	wire.w_u32(writer, max(seat.recv_upto, relay.finalized))
-	wire.w_u32(writer, seat.cmd_recv)
 	wire.w_u32(writer, first)
 	count_at := len(writer.buf)
-	assert(count_at + 1 == FINALIZED_HEAD)
 	wire.w_u8(writer, 0)
+	seats_at := len(writer.buf)
+	wire.w_u8(writer, 0)
+	assert(len(writer.buf) == FINALIZED_HEAD)
+	seats := 0
+	for slot in conn.locals {
+		if slot < 0 do continue
+		seat := &relay.seats[slot]
+		wire.w_u8(writer, seat.local)
+		wire.w_u32(writer, max(seat.recv_upto, relay.finalized))
+		wire.w_u32(writer, seat.cmd_recv)
+		seats += 1
+	}
+	writer.buf[seats_at] = u8(seats)
 	base: ^sim.Inputs(G) // the tick before in this packet (nil: the empty tick)
 	last := min(newest, first + WINDOW_MAX - 1)
 	for tick := first; newest >= first && tick <= last; tick += 1 {
@@ -1263,9 +1410,12 @@ handle_relay_msg :: proc(relay: ^Relay($G), peer: Peer, data: []u8, now: i64) {
 	}
 	#partial switch kind {
 	case .Inputs:
-		if slot := conn.locals[0]; slot >= 0 {
-			on_inputs(relay, int(slot), &reader, now)
+		local := wire.r_u8(&reader)
+		if local < LOCAL_MAX && conn.locals[local] >= 0 {
+			on_inputs(relay, int(conn.locals[local]), &reader, now)
 		}
+	case .Join:
+		on_join(relay, peer, &reader, now)
 	case .Checksum:
 		on_checksum(relay, peer, &reader, now)
 	case .Snap_Begin, .Snap_Chunk:
@@ -1273,7 +1423,12 @@ handle_relay_msg :: proc(relay: ^Relay($G), peer: Peer, data: []u8, now: i64) {
 	case .Done:
 		conn.done = true
 	case .Leave:
-		conn_left(relay, peer, "left", now)
+		local := wire.r_u8(&reader)
+		if reader.ok && local < LOCAL_MAX && conn.locals[local] >= 0 {
+			seat_left(relay, int(conn.locals[local]), "left (its connection plays on)", now)
+			if conn_slots(relay, peer) != {} do return
+		}
+		conn_left(relay, peer, "left", now) // the client, or its last local player
 		channel_drop(relay.ch, peer, now)
 	}
 }

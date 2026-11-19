@@ -93,10 +93,18 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
 ## Relay
 
 - **Connections and seats.** The relay keeps two records apart: a **connection** (`Relay_Conn`, by channel peer) is one
-  client program, one sim, so it has one stream of finalized ticks and its acks, one checksum report per checksum
-  tick, one late join with its snapshot; a **seat** (`Seat`, by slot) is one player, a member with their inputs and
-  commands. A connection holds its seats (`LOCAL_MAX` at most); when it goes, every seat it held empties. A snapshot is
-  asked for, sent and checked per connection.
+  client program, one sim, so it has one stream of finalized ticks, one checksum report per checksum tick, one late
+  join with its snapshot; a **seat** (`Seat`, by slot) is one player, a member with their Profile, inputs and
+  commands. A connection holds up to `LOCAL_MAX` seats, its **local players** (a couch, or friends on a remote-play
+  stream, who arrive as pads on the host's machine); when it goes, every seat it held empties. A snapshot is asked
+  for, sent and checked per connection.
+- **Local players.** A Hello asks for every seat the client has so far, all or nothing (`Full` and nobody is seated:
+  the menu can retry with fewer). A local player added later sends a **Join** on the connection: it gets a join tick as
+  a late joiner's and needs no snapshot, since the connection's sim has the session (`Seated` answers, or a `Reject`
+  naming that local player). A **Leave** names one local player, whose seat empties at once while the others play on;
+  the client's last one, or `ALL_LOCALS`, ends the connection. Each seat sends its own Inputs (so each keeps the whole
+  window of loss cover) and each Finalized carries every seat's input and command acks; the widths budget for a full
+  couch's (`FINALIZED_HEAD_MAX`).
 - **Hello** asks for a slot or any free one (slots go lowest-free). The relay checks `compat` (`sim.compat_of`), finds
   who it is (Members) and, once the session runs, someone who can send the joiner a snapshot; `Reject_Reason` names
   each refusal. A Hello while the session ends gets End, not silence.
@@ -145,6 +153,10 @@ A player is a session **member**, the person, not a slot (the sim's side: `src/s
   (`Link.account`), never from the client. On a link that vouches for none (LAN, direct UDP) the client's **token** is
   used instead (`Client_Config.token`; the Godot host keeps it in `user://`), never forwarded. Neither: a new member
   every time.
+- A connection's local player 0 is its account or token; local player k is `<key>#k`, so each comes back as
+  themselves, and each roster entry says which local player it is (`Roster_Entry.local`; a second local player shows
+  the first one's account). Newest wins per person: a Hello whose players are seated on a live connection replaces
+  that connection, a Join whose player is seated elsewhere empties that seat.
 - Accounts and tokens never enter the deterministic stream: a finalized tick (and the log) carries only member ids,
   in the join record of a slot's join tick. Welcome carries the joiner's member id; the client predicts its own join
   record on its first tick.
@@ -229,10 +241,10 @@ line below (`tests/netcode/delay_test.odin` and `policy_test.odin` pin them at 3
 
 ## Hooks
 
-Every hook is called from `client_step`, on the caller's thread. In one step: `status` and `desync` as the relay's
-messages arrive; then `verified` for each newly verified tick, in order, and `verified_state` at most once, while the
-sim stands on the newest of them; then `sample` and `commands` for each tick the clock generates; then `frame` once,
-when the step computed ticks.
+Every hook is called from `client_step`, on the caller's thread. In one step: `status`, `seat` and `desync` as the
+relay's messages arrive; then `verified` for each newly verified tick, in order, and `verified_state` at most once,
+while the sim stands on the newest of them; then `sample` and `commands` for each tick the clock generates, once per
+seated local player (`local` says which); then `frame` once, when the step computed ticks.
 
 ## Commands
 

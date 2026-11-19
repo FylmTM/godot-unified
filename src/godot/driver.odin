@@ -742,7 +742,7 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 	This_Driver :: Driver(G, View, MultiView)
 	hooks := netcode.Hooks(G) {
 		user = driver,
-		sample = proc(user: rawptr, slot: int, tick: u32, state: ^State) -> Input {
+		sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^State) -> Input {
 			driver := (^This_Driver)(user)
 			if driver.req.scripted && driver.game.scripted_input != nil {
 				return driver.game.scripted_input(driver.req.seed, slot, tick, state)
@@ -752,7 +752,7 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 			return input
 		},
 		// Commands sent from GDScript (send_command), in order; what the client can't take yet stays queued.
-		commands = proc(user: rawptr, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
+		commands = proc(user: rawptr, local, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
 			driver := (^This_Driver)(user)
 			if driver.req.scripted {
 				if driver.game.scripted_commands != nil {

@@ -12,7 +12,7 @@ import "unified:netcode"
 import "unified:sim"
 
 // Wide Inputs at each player count, near the widest netcode.game_violation accepts (a tick of at most 274 bytes with
-// one join: tests/netcode/window_test.odin): 2 and 32 players are Plain_2x116 and Plain_32x4, 8 is Plain_8x26.
+// one join: tests/netcode/window_test.odin): 2 and 32 players are Plain_2x114 and Plain_32x4, 8 is Plain_8x26.
 Plain_4x56 :: sim.Game(
 	Plain_State(56, 4),
 	Plain_Input(56),
@@ -246,7 +246,7 @@ sweep_round_trips :: proc(t: ^testing.T) {
 				}
 				narrow, _ := plain_session(Plain_2x8, 4, tick_hz, cfg)
 				defer headless.session_result_destroy(&narrow)
-				wide, _ := plain_session(Plain_2x116, 0, tick_hz, cfg)
+				wide, _ := plain_session(Plain_2x114, 0, tick_hz, cfg)
 				defer headless.session_result_destroy(&wide)
 				from := loss != 0 ? tick_hz / 2 : 0
 				testing.expectf(
@@ -262,7 +262,7 @@ sweep_round_trips :: proc(t: ^testing.T) {
 				testing.expectf(
 					t,
 					wide.ok && replaced_from(&wide, from) == 0,
-					"2 x 116 B at %d Hz, %d ms round trip, loss %d: ok %v, %d replaced (tick:slot%s)",
+					"2 x 114 B at %d Hz, %d ms round trip, loss %d: ok %v, %d replaced (tick:slot%s)",
 					tick_hz,
 					2 * latency / 1000,
 					loss,
@@ -382,11 +382,11 @@ when scenarios.LONG {
 	@(test)
 	sweep_joins_8x26 :: proc(t: ^testing.T) {sweep_joins(t, Plain_8x26, 0, "8 x 26 B", 6)}
 	@(test)
-	sweep_flaps_2x116 :: proc(t: ^testing.T) {sweep_flaps(t, Plain_2x116, 4, "2 x 116 B", 8)}
+	sweep_flaps_2x114 :: proc(t: ^testing.T) {sweep_flaps(t, Plain_2x114, 4, "2 x 114 B", 8)}
 	@(test)
 	sweep_flaps_4x8 :: proc(t: ^testing.T) {sweep_flaps(t, Plain_4x8, 4, "4 x 8 B", 8)}
 	@(test)
-	sweep_widths_2 :: proc(t: ^testing.T) {sweep_widths(t, Plain_2x116, "2 x 116 B", {32, 64, 128})}
+	sweep_widths_2 :: proc(t: ^testing.T) {sweep_widths(t, Plain_2x114, "2 x 114 B", {32, 64, 128})}
 	@(test)
 	sweep_widths_4 :: proc(t: ^testing.T) {sweep_widths(t, Plain_4x56, "4 x 56 B", {32, 64, 128})}
 	@(test)
@@ -400,7 +400,7 @@ when scenarios.LONG {
 	@(test)
 	sweep_input_round_trips :: proc(t: ^testing.T) {sweep_round_trips(t)}
 	@(test)
-	sweep_leaves_2x116 :: proc(t: ^testing.T) {sweep_leaves(t, Plain_2x116, "2 x 116 B")}
+	sweep_leaves_2x114 :: proc(t: ^testing.T) {sweep_leaves(t, Plain_2x114, "2 x 114 B")}
 	@(test)
 	sweep_leaves_8x26 :: proc(t: ^testing.T) {sweep_leaves(t, Plain_8x26, "8 x 26 B")}
 }

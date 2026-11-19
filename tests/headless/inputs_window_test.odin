@@ -50,7 +50,7 @@ tap_link :: proc(tap: ^Tap, inner: netcode.Link, clock: ^netcode.Virtual_Clock) 
 				tap.at_count = 0
 			}
 			// The datagram's chunks (channel.odin's header); an Inputs message (proto.odin, Msg) starts with its
-			// type, the finalized ack u32, the first tick u32 and the count u8.
+			// type, the local u8, the finalized ack u32, the first tick u32 and the count u8.
 			pos := netcode.HEADER_BYTES
 			for pos + 3 <= len(bytes) {
 				kind := bytes[pos]
@@ -63,8 +63,8 @@ tap_link :: proc(tap: ^Tap, inner: netcode.Link, clock: ^netcode.Virtual_Clock) 
 				message := bytes[pos:pos + size]
 				pos += size
 				if kind == 0 && size >= netcode.INPUTS_HEAD && message[0] == u8(netcode.Msg.Inputs) {
-					first := u32(message[5]) | u32(message[6]) << 8 | u32(message[7]) << 16 | u32(message[8]) << 24
-					for tick in first ..< first + u32(message[9]) {
+					first := u32(message[6]) | u32(message[7]) << 8 | u32(message[8]) << 16 | u32(message[9]) << 24
+					for tick in first ..< first + u32(message[10]) {
 						if int(tick) < len(tap.carried) do tap.carried[tick] += 1
 					}
 					tap.messages += 1
@@ -108,7 +108,7 @@ tapped_join :: proc(
 }
 
 // Start players' own inputs at 128 Hz on lossless round trips longer than the window (no ack ends an input's packets
-// early): every tick rode in at least the window's packets. With an input delay at or just under the window (2 x 116
+// early): every tick rode in at least the window's packets. With an input delay at or just under the window (2 x 114
 // B at 270 ms, 3 x 76 B at 310 ms) the clock's first step generated no more than the main message carries, so its
 // first inputs rode in 1 to 3 packets (lost at the network's loss rate).
 packets_per_input :: proc(t: ^testing.T, $G: typeid, name: string, window: int, latencies: []i64) {
@@ -128,7 +128,7 @@ packets_per_input :: proc(t: ^testing.T, $G: typeid, name: string, window: int, 
 		sweep_run(net, 3)
 		client := net.clients[0]
 		fewest, fewest_tick, short := 1000, u32(0), 0
-		for tick in 1 ..= client.own_last - 64 {
+		for tick in 1 ..= client.locals[0].own_last - 64 {
 			carried := int(taps[0].carried[tick])
 			if carried < fewest do fewest, fewest_tick = carried, tick
 			if carried < window do short += 1
@@ -152,7 +152,7 @@ packets_per_input :: proc(t: ^testing.T, $G: typeid, name: string, window: int, 
 @(test)
 each_input_rides_in_a_window_of_packets :: proc(t: ^testing.T) {
 	// the round trips at which the first inputs rode in the fewest packets (the long sweep runs the rest)
-	packets_per_input(t, Plain_2x116, "2 x 116 B", 7, {125_000, 135_000})
+	packets_per_input(t, Plain_2x114, "2 x 114 B", 7, {125_000, 135_000})
 	packets_per_input(t, Plain_3x76, "3 x 76 B", 12, {155_000})
 	packets_per_input(t, Plain_2x8, "2 x 8 B", 32, {180_000})
 }
@@ -162,7 +162,7 @@ each_input_rides_in_a_window_of_packets :: proc(t: ^testing.T) {
 // the main message, every step (145 messages in a step, 0.7 to 1.2 MB/s up): now only those still in time that rode in
 // fewer than the window's packets.
 bounded_bursts :: proc(t: ^testing.T, step_ms: int, silent: bool) {
-	net := new(Sweep_Net(Plain_2x116))
+	net := new(Sweep_Net(Plain_2x114))
 	defer free(net)
 	sweep_make(net, 0, 128, 2)
 	defer sweep_destroy(net)
@@ -210,12 +210,12 @@ a_slow_stepping_client_sends_bounded_bursts :: proc(t: ^testing.T) {
 	bounded_bursts(t, 100, true)
 }
 
-// Past the round-trip ceiling (2 x 116 B at 128 Hz, a lossless 700 ms round trip: the stamp lead is longer than the
+// Past the round-trip ceiling (2 x 114 B at 128 Hz, a lossless 700 ms round trip: the stamp lead is longer than the
 // window and the delay ceiling together) a client stepped every 60 ms generates more inputs per step than its main
 // message carries. The burst still sends each one while it can count, so the relay replaces none of them.
 @(test)
 a_burst_past_the_ceiling_still_counts :: proc(t: ^testing.T) {
-	net := new(Sweep_Net(Plain_2x116))
+	net := new(Sweep_Net(Plain_2x114))
 	defer free(net)
 	sweep_make(net, 0, 128, 2)
 	defer sweep_destroy(net)
@@ -248,7 +248,7 @@ a_burst_past_the_ceiling_still_counts :: proc(t: ^testing.T) {
 	stamp := netcode.stamp_ahead(client.rtt_us, timing)
 	testing.expectf(
 		t,
-		stamp > 7 - 1 + timing.max_delay, // 2 x 116 B: a window of 7
+		stamp > 7 - 1 + timing.max_delay, // 2 x 114 B: a window of 7
 		"the stamp lead (%d) is past the window and the delay ceiling",
 		stamp,
 	)
@@ -324,8 +324,8 @@ when scenarios.LONG {
 	sweep_packets_per_input :: proc(t: ^testing.T) {
 		packets_per_input(
 			t,
-			Plain_2x116,
-			"2 x 116 B",
+			Plain_2x114,
+			"2 x 114 B",
 			7,
 			{60_000, 110_000, 120_000, 125_000, 130_000, 135_000, 150_000},
 		)
@@ -341,7 +341,7 @@ when scenarios.LONG {
 	@(test)
 	sweep_first_inputs_under_loss :: proc(t: ^testing.T) {
 		// where the delay is at or just under the window (the rest of the band lost none even before)
-		first_inputs_under_loss(t, Plain_2x116, "2 x 116 B", {130_000, 135_000}, 24)
+		first_inputs_under_loss(t, Plain_2x114, "2 x 114 B", {130_000, 135_000}, 24)
 		first_inputs_under_loss(t, Plain_3x76, "3 x 76 B", {150_000, 155_000}, 24)
 	}
 	@(test)
