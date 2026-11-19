@@ -139,12 +139,11 @@ aim_directions :: proc(t: ^testing.T) {
 		ok &&= abs(dot4(model) - 1) < 1e-6
 		ok &&= near3(dmath.quat_rotate(model, {0, 0, 1}), dir, 2e-6)
 		ok &&= near3(dmath.quat_rotate(model, {-1, 0, 0}), right, 2e-6)
-		// (within quat_yaw's own error: its half angle comes from the cosine, so facing nearly -Z it turns a vector a few 1e-4 of its length off)
 		yawed := dmath.quat_yaw(forward.xz)
 		ok &&= near3(
 			dmath.quat_rotate(dmath.aim_quat_model({look.yaw, 0}), {1, 2, 3}),
 			dmath.quat_rotate(yawed, {1, 2, 3}),
-			1e-3,
+			4e-6,
 		)
 		ok &&= dmath.dot(forward, right) == 0 && dmath.dot(forward, {dir.x, 0, dir.z}) >= 0
 		// a script's aim_toward finds the same aim (within a step: atan2 is not exact everywhere)

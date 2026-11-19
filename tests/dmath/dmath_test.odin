@@ -30,10 +30,41 @@ helpers :: proc(t: ^testing.T) {
 	testing.expect_value(t, dmath.quat_yaw(dmath.normalize([2]f32{0, 0})), [4]f32{0, 0, 0, 1})
 	right := dmath.quat_rotate(dmath.quat_yaw({1, 0}), {0, 0, 1})
 	testing.expect(t, abs(right.x - 1) < 1e-6 && abs(right.z) < 1e-6, "+Z turned toward +X")
+	testing.expect_value(t, dmath.quat_yaw({-0.0, -1}), [4]f32{0, 1, 0, 0}) // -0 turns the positive way
 	for k in 0 ..< 8 {
 		length := dmath.length(dmath.DIR8[k])
 		testing.expect(t, length > 0.99999 && length < 1.00001)
 	}
+}
+
+// quat_yaw at facings all the way round, and densely near -Z (where a half angle taken from the cosine alone loses
+// its bits): the half angle's sin and cos within 4e-7 (sin_cos's own error included), unit length, and +Z turned
+// onto the facing.
+@(test)
+quat_yaw_sweep :: proc(t: ^testing.T) {
+	check :: proc(turns: f32) -> (err: f32) {
+		sin_turn, cos_turn := dmath.sin_cos(turns)
+		facing := dmath.normalize([2]f32{sin_turn, cos_turn}, 0) // turns from +Z toward +X
+		quat := dmath.quat_yaw(facing)
+		sin_half, cos_half := dmath.sin_cos(turns * 0.5)
+		turned := dmath.quat_rotate(quat, {0, 0, 1})
+		err = max(abs(quat.y - sin_half), abs(quat.w - cos_half))
+		err = max(err, abs(quat.y * quat.y + quat.w * quat.w - 1))
+		err = max(err, dmath.length([3]f32{turned.x - facing.x, turned.y, turned.z - facing.y}) * 0.5)
+		if quat.x != 0 || quat.z != 0 do err = 1
+		return
+	}
+	worst, worst_at: f32 = 0, 0
+	for i in 0 ..< 65536 {
+		turns := f32(i - 32767) / 65536 // (-0.5, 0.5]
+		if err := check(turns); err > worst do worst, worst_at = err, turns
+	}
+	for near: f32 = 1e-7; near < 0.01; near *= 1.01 {
+		for turns in ([2]f32{0.5 - near, near - 0.5}) {
+			if err := check(turns); err > worst do worst, worst_at = err, turns
+		}
+	}
+	testing.expectf(t, worst < 4e-7, "quat_yaw is %v off at %v turns", worst, worst_at)
 }
 
 @(test)

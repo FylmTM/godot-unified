@@ -27,8 +27,8 @@ REFERENCE :: scenarios.Reference {
 	snapshot_tick = 900,
 	checkpoints   = {0x917ffea53bc9483e, 0x803c289a77998fa5, 0x6f604193bbb1f1b4, 0x9a9d3eb01cf41a54},
 	trace         = 0x12918f09dac424e7,
-	snapshot      = 0xb577597b6edec277,
-	log           = 0xec8c5277cd768890,
+	snapshot      = 0xd22169a48d57e71f,
+	log           = 0xd90d6efc9d59b64f,
 }
 
 // By default the minimal set, each scenario proving something about this game (the toy's suite proves the
