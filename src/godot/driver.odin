@@ -27,6 +27,8 @@ Api :: struct {
 	multi_enum:      ^runtime.Type_Info, // the MultiView enum (the class EnumMultiView)
 	is_2d:           bool, // a sim.Position is a Vector2 (Glue.is_2d)
 	view_scale:      f32, // view units per sim unit (Glue.view_scale; 1 when unset)
+	view_policy:     []Kind_Policy, // Glue.view_policy by kind, filled in
+	multi_policy:    []Kind_Policy, // Glue.multi_policy by kind, filled in
 	events:          []Event_Layout, // the game's event union, by kind (events.odin)
 	commands:        []Command_Layout, // the game's command union, by kind (command.odin)
 	commands_type:   typeid, // the union itself
@@ -275,6 +277,8 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		append(&problems, strings.clone(reason))
 	}
 	data_problems(glue.data, constants.id, glue.input_values, &problems)
+	for policy, kind in glue.view_policy do policy_problems(policy, fmt.tprint(kind), false, &problems)
+	for policy, kind in glue.multi_policy do policy_problems(policy, fmt.tprint(kind), true, &problems)
 	if len(problems) > 0 {
 		api = {
 			game_name = game.name,
@@ -301,6 +305,10 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		commands      = command_layouts(Cmd),
 		commands_type = Cmd,
 	}
+	api.view_policy = make([]Kind_Policy, len(view_names))
+	api.multi_policy = make([]Kind_Policy, len(multi_names))
+	for policy, kind in glue.view_policy do api.view_policy[int(kind)] = kind_policy(policy, false)
+	for policy, kind in glue.multi_policy do api.multi_policy[int(kind)] = kind_policy(policy, true)
 	for variant in sim.union_variants(glue.data) do append_elem(&kept_data, data_layout(variant))
 	api.data = kept_data[:]
 	if constants.id != nil {
@@ -525,6 +533,38 @@ fill_inputs_view :: proc(
 			replaced = i in verified.replaced,
 			input    = verified.input[i],
 		}
+	}
+}
+
+// A view kind's policy as the host applies it: the smoothing filled in, and whether its views keep a track.
+@(private)
+Kind_Policy :: struct {
+	pose:      Posed_By,
+	smoothing: Smoothing, // smoothing_of(policy.smoothing)
+	tracks:    bool, // scene views always; a MultiMesh kind when its policy sets a smoothing
+}
+
+@(private)
+kind_policy :: proc(policy: View_Policy, multi: bool) -> Kind_Policy {
+	return {pose = policy.pose, smoothing = smoothing_of(policy.smoothing), tracks = !multi || policy.smoothing != {}}
+}
+
+// What install refuses in a kind's policy (`kind`: its enum member's name).
+@(private)
+policy_problems :: proc(policy: View_Policy, kind: string, multi: bool, problems: ^[dynamic]string) {
+	finite :: proc(value: f32) -> bool {return value == value && value > -1e30 && value < 1e30}
+	smoothing := policy.smoothing
+	field := fmt.tprintf("Glue.%s[.%s]", multi ? "multi_policy" : "view_policy", kind)
+	if multi && policy.pose == .Script {
+		append(problems, fmt.aprintf("%s: pose = .Script is for scene views (an instance has no script)", field))
+	}
+	distances_ok := finite(smoothing.teleport_dist) && smoothing.teleport_dist >= 0
+	distances_ok &&= finite(smoothing.ramp_dist) && smoothing.ramp_dist >= 0
+	if !finite(smoothing.tau_s) || !finite(smoothing.ramp_tau_s) || !distances_ok {
+		append(problems, fmt.aprintf("%s: the smoothing's fields must be finite, its distances not negative", field))
+	}
+	if smoothing.ramp_dist > 0 && !(smoothing.ramp_tau_s > 0) {
+		append(problems, fmt.aprintf("%s: a smoothing with ramp_dist needs ramp_tau_s > 0", field))
 	}
 }
 

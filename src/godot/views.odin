@@ -45,6 +45,7 @@ Scene_View :: struct {
 	spawn_tick:  u32, // the tick it first appeared at
 	verified:    bool, // its spawn tick has been verified: from then on it can't be a cancelled spawn
 	gone:        bool, // _sim_despawned was called (and no _sim_revived since)
+	warp:        u8, // the warp epoch last shown: another one resets the track (the view snaps)
 	track:       Track,
 	shown:       Pose, // the pose last set on the root (view units), so an unchanged one isn't set again
 	posed:       bool,
@@ -55,8 +56,9 @@ Scene_View :: struct {
 // Which optional callbacks a view kind's root script has: looked up at the kind's first spawn (every view of a kind
 // is its scene's instance).
 View_Hooks :: struct {
-	has_event: bool,
-	callbacks: [View_Callback]bool,
+	has_event:    bool,
+	has_sim_pose: bool,
+	callbacks:    [View_Callback]bool,
 }
 
 // The root script's lifecycle callbacks.
@@ -75,6 +77,7 @@ VIEW_CALLBACK_NAMES := [View_Callback]string {
 // The names the host passes every frame or event, interned once at registration (gd.sn looks a name up by its text).
 NAMES: struct {
 	view_event: ^gd.StringName, // a scene view's _sim_event
+	sim_pose:   ^gd.StringName, // a script-posed view's _sim_pose (Posed_By.Script)
 	sim_event:  ^gd.StringName, // UnifiedSession.sim_event (the signal)
 	callbacks:  [View_Callback]^gd.StringName,
 }
@@ -87,7 +90,8 @@ Multi_View :: struct {
 	node:       gd.Node, // the marker's parent
 	id:         u64,
 	kind:       int, // index into api.multi_names, -1: unknown
-	smooth:     bool,
+	smooth:     bool, // its kind's policy keeps a track per keyed instance (Glue.multi_policy)
+	decay:      f32, // this frame's track_decay of its kind's smoothing (smooth)
 	mm:         gd.Ref(gd.MultiMesh),
 	buf:        gd.PackedFloat32Array,
 	cap:        int,
@@ -109,6 +113,7 @@ Multi_View :: struct {
 Multi_Track :: struct {
 	track: Track,
 	seen:  int, // the fresh frame that last had this key
+	warp:  u8, // the warp epoch last shown
 }
 
 V: struct {
@@ -154,7 +159,6 @@ Unified_View_Node :: struct {
 Unified_Multi_View_Node :: struct {
 	using hdr: gd.Instance_Header,
 	kind:      string,
-	smooth:    bool,
 }
 
 unified_view_class, unified_multi_view_class: gd.Class
@@ -167,7 +171,7 @@ register_classes :: proc() {
 			gd.print_error(fmt.tprintf("unified: the game %s is not installed: %s", api.game_name, problem))
 		}
 	}
-	NAMES.view_event, NAMES.sim_event = gd.sn("_sim_event"), gd.sn("sim_event")
+	NAMES.view_event, NAMES.sim_event, NAMES.sim_pose = gd.sn("_sim_event"), gd.sn("sim_event"), gd.sn("_sim_pose")
 	for name, callback in VIEW_CALLBACK_NAMES do NAMES.callbacks[callback] = gd.sn(name)
 	register_session_class()
 	register_nested_classes() // before the classes whose fields hold them
@@ -178,7 +182,7 @@ register_classes :: proc() {
 		parent = "Node",
 		size = size_of(Unified_View_Node),
 		doc_brief = "Marks a scene as the view of one kind of the game's scene views.",
-		doc = "A direct child of the scene's root. [code]uni bake[/code] indexes the scenes by it; the host sets [member key] and keeps [member player] current. The root may be a Node3D (position and quaternion), a Node2D (position and rotation) or anything else (data only), posed before any other node's [code]_process[/code]; its script may define [code]_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState)[/code], properties named after the fields of the view's data, and the lifecycle callbacks [code]_sim_despawned()[/code] (its key is gone: it lingers [member linger_s], no longer posed, then is freed), [code]_sim_revived()[/code] (a rollback brought it back while it lingered) and [code]_sim_cancelled()[/code] (a rollback removed it before its spawn tick was verified: freed at once).",
+		doc = "A direct child of the scene's root. [code]uni bake[/code] indexes the scenes by it; the host sets [member key] and keeps [member player] current. The root may be a Node3D (position and quaternion), a Node2D (position and rotation) or anything else (data only), posed before any other node's [code]_process[/code]; a kind the game's view policy script-poses is not posed: the host calls its script's [code]_sim_pose(position: Vector3, rotation: Quaternion)[/code] (2D: [code](position: Vector2, rotation: float)[/code]) with that pose whenever it changes. Its script may define [code]_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState)[/code], properties named after the fields of the view's data, and the lifecycle callbacks [code]_sim_despawned()[/code] (its key is gone: it lingers [member linger_s], no longer posed, then is freed), [code]_sim_revived()[/code] (a rollback brought it back while it lingered) and [code]_sim_cancelled()[/code] (a rollback removed it before its spawn tick was verified: freed at once).",
 		init = proc(instance: rawptr) {(^Unified_View_Node)(instance).linger_s = LINGER_S},
 		fini = proc(instance: rawptr) {delete((^Unified_View_Node)(instance).kind)},
 	}
@@ -222,7 +226,7 @@ register_classes :: proc() {
 		parent = "Node",
 		size = size_of(Unified_Multi_View_Node),
 		doc_brief = "Makes its parent MultiMeshInstance3D or MultiMeshInstance2D show one kind of the game's MultiMesh items.",
-		doc = "The MultiMesh's [code]transform_format[/code] (2D or 3D, matching its instance), [code]use_colors[/code] and [code]use_custom_data[/code] decide the buffer's layout. The host owns [code]instance_count[/code], [code]visible_instance_count[/code] and the buffer (position and rotation interpolated between ticks, scale, color and custom data), and [code]custom_aabb[/code] unless the game set one before the first frame (the instances' origins grown by the mesh's reach: without it Godot transforms the mesh's AABB by every instance).",
+		doc = "The MultiMesh's [code]transform_format[/code] (2D or 3D, matching its instance), [code]use_colors[/code] and [code]use_custom_data[/code] decide the buffer's layout. The host owns [code]instance_count[/code], [code]visible_instance_count[/code] and the buffer (position and rotation interpolated between ticks, scale, color and custom data), and [code]custom_aabb[/code] unless the game set one before the first frame (the instances' origins grown by the mesh's reach: without it Godot transforms the mesh's AABB by every instance). Whether rollback corrections glide (a track per instance) is the game's view policy for the kind.",
 		fini = proc(instance: rawptr) {delete((^Unified_Multi_View_Node)(instance).kind)},
 		notification = proc(instance: rawptr, what: i32) {
 			node := (^Unified_Multi_View_Node)(instance)
@@ -247,13 +251,6 @@ register_classes :: proc() {
 		hint = .ENUM_SUGGESTION,
 		hint_string = strings.join(api.multi_names, ",", context.temp_allocator),
 		doc = "The kind (the game's MultiView enum member, lowercased: the inspector offers them).",
-	)
-	gd.bind_property(
-		class,
-		"smooth",
-		proc(node: ^Unified_Multi_View_Node) -> bool {return node.smooth},
-		proc(node: ^Unified_Multi_View_Node, smooth: bool) {node.smooth = smooth},
-		doc = "Rollback corrections glide like a scene view's instead of popping (state per instance).",
 	)
 }
 
@@ -377,6 +374,7 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 		item.kind, item.player, item.key, item.subject
 	scene_view.linger_s = LINGER_S
 	scene_view.spawn_tick = frame.tick
+	scene_view.warp = item.warp
 	scene_view.marker = find_marker(node)
 	if scene_view.marker.ptr == nil {
 		report_once(
@@ -405,11 +403,21 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 	hooks, known := V.hooks[item.kind]
 	if !known {
 		hooks.has_event = gd.has_script_method(node, NAMES.view_event)
+		hooks.has_sim_pose = gd.has_script_method(node, NAMES.sim_pose)
 		for name, callback in NAMES.callbacks do hooks.callbacks[callback] = gd.has_script_method(node, name)
 		V.hooks[item.kind] = hooks
+		if kind_of(item.kind).pose == .Script && !hooks.has_sim_pose && scene_view.mode != .Other {
+			report_once(
+				fmt.tprintf("sim_pose:%s", kind),
+				fmt.tprintf(
+					"unified: view kind %q is script-posed (Glue.view_policy) but its root's script has no _sim_pose(position, rotation): the host poses it",
+					kind,
+				),
+			)
+		}
 	}
 	scene_view.hooks = hooks
-	set_pose(scene_view, {to_view(item.pos), item.rot})
+	pose_view(scene_view, {to_view(item.pos), item.rot})
 	gd.Node_add_child(root, node, false, .INTERNAL_MODE_DISABLED)
 	// data after _ready: a script's property setters may use its @onready nodes
 	if item.data_type != nil {
@@ -432,6 +440,32 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 		set_data(scene_view, fields, frame.data[item.data_offset:][:item.data_size], true)
 	}
 	return scene_view
+}
+
+// A scene view kind's policy (the default for a kind out of range).
+kind_of :: proc(kind: u8) -> Kind_Policy {
+	return int(kind) < len(api.view_policy) ? api.view_policy[kind] : {smoothing = SMOOTHING_DEFAULT, tracks = true}
+}
+
+// Poses the root (set_pose), or hands the pose to its script's _sim_pose when its kind is script-posed.
+pose_view :: proc(scene_view: ^Scene_View, pose: Pose) {
+	if !scene_view.has_sim_pose || kind_of(scene_view.kind).pose != .Script {
+		set_pose(scene_view, pose)
+		return
+	}
+	result: gd.Variant
+	switch scene_view.mode {
+	case .Node2D:
+		position := gd.Vector2{pose.pos.x, pose.pos.y}
+		result = gd.call_script(scene_view.node, NAMES.sim_pose, position, f64(angle_2d_of(pose.rot)))
+	case .Node3D:
+		position := gd.Vector3{pose.pos.x, pose.pos.y, pose.pos.z}
+		rotation := gd.Quaternion{pose.rot.x, pose.rot.y, pose.rot.z, pose.rot.w}
+		result = gd.call_script(scene_view.node, NAMES.sim_pose, position, rotation)
+	case .Other:
+		return
+	}
+	gd.variant_destroy(&result)
 }
 
 // 3D: position and quaternion. 2D: position = pos.xy, rotation = the angle about Z. Other roots: nothing. The pose
@@ -610,14 +644,10 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 				)
 			}
 			if scene_view.mode == .Other do continue
-			track_push_prev(
-				&scene_view.track,
-				frame.tick,
-				{item.prev_pos, item.prev_rot},
-				item.has_prev,
-				SMOOTHING_DEFAULT,
-			)
-			track_push(&scene_view.track, frame.tick, {item.pos, item.rot}, SMOOTHING_DEFAULT)
+			track_warp(&scene_view.track, &scene_view.warp, item.warp) // teleported: snaps
+			smoothing := kind_of(item.kind).smoothing
+			track_push_prev(&scene_view.track, frame.tick, {item.prev_pos, item.prev_rot}, item.has_prev, smoothing)
+			track_push(&scene_view.track, frame.tick, {item.pos, item.rot}, smoothing)
 		}
 		// gone before their spawn tick was ever verified: cancelled spawns, freed at once
 		cancelled := make([dynamic]View_Id, context.temp_allocator)
@@ -643,17 +673,20 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 			free_view(scene_view)
 		}
 	}
-	decay := track_decay(dt, SMOOTHING_DEFAULT) // the same for every view this frame
+	decays: [256]f32 = -1 // per kind: computed once a frame, when its first view needs it
 	for _, &entry in V.set.entries {
 		scene_view := entry.view
 		if scene_view == nil || scene_view.mode == .Other || entry.phase == .Lingering do continue // lingering: unpinned, an exit animation may move it
 		if !alive(scene_view.id) do continue
-		pose := track_sample_decayed(&scene_view.track, frame.tick, alpha, decay, SMOOTHING_DEFAULT) // sim units
+		smoothing := kind_of(scene_view.kind).smoothing
+		decay := &decays[scene_view.kind]
+		if decay^ < 0 do decay^ = track_decay(dt, smoothing)
+		pose := track_sample_decayed(&scene_view.track, frame.tick, alpha, decay^, dt, smoothing) // sim units
 		pose.pos = to_view(pose.pos)
 		// before every other node's _process (priority -1000): a view's script reads it. An unchanged pose (a crate at
 		// rest, a level marker) isn't set again: each set dirties the root's whole subtree.
 		if scene_view.posed && pose == scene_view.shown do continue
-		set_pose(scene_view, pose)
+		pose_view(scene_view, pose)
 		scene_view.shown, scene_view.posed = pose, true
 	}
 }
@@ -800,7 +833,7 @@ multi_register :: proc(marker: gd.Node, node: ^Unified_Multi_View_Node) {
 		node      = instance,
 		id        = gdi.object_get_instance_id(instance.ptr),
 		kind      = kind,
-		smooth    = node.smooth,
+		smooth    = kind >= 0 && kind < len(api.multi_policy) && api.multi_policy[kind].tracks,
 		is_2d     = is_2d,
 	})
 }
@@ -878,6 +911,7 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 		if multi.cap == 0 do continue
 		multi.ptr = ([^]f32)(gdi.packed_float32_array_operator_index(&multi.buf, 0))
 		multi.low, multi.high, multi.reach = max(f32), min(f32), 0
+		if multi.smooth do multi.decay = track_decay(dt, api.multi_policy[multi.kind].smoothing)
 		next[i] = first[multi.kind]
 		first[multi.kind] = i32(i)
 	}
@@ -984,7 +1018,8 @@ quat_basis :: proc(q: [4]f32) -> (basis: [3][3]f32) {
 	return
 }
 
-// A smooth view's instance: its own Track by key, so a rollback correction glides like a scene view's.
+// A smooth view's instance: its own Track by key, so a rollback correction glides like a scene view's (with its
+// kind's smoothing).
 multi_smooth :: proc(
 	multi: ^Multi_View,
 	item: ^Multi_Out,
@@ -996,16 +1031,20 @@ multi_smooth :: proc(
 	pos: [3]f32,
 	rot: [4]f32,
 ) {
+	smoothing := api.multi_policy[multi.kind].smoothing
 	entry, found := &multi.tracks[item.key]
 	if !found {
-		multi.tracks[item.key] = {}
+		multi.tracks[item.key] = {
+			warp = item.warp,
+		}
 		entry = &multi.tracks[item.key]
 	}
 	if fresh && entry.seen != V.fresh_count {
 		entry.seen = V.fresh_count
-		track_push_prev(&entry.track, tick, {item.prev_pos, item.prev_rot}, item.has_prev, SMOOTHING_DEFAULT)
-		track_push(&entry.track, tick, {item.pos, item.rot}, SMOOTHING_DEFAULT)
+		track_warp(&entry.track, &entry.warp, item.warp) // teleported: snaps
+		track_push_prev(&entry.track, tick, {item.prev_pos, item.prev_rot}, item.has_prev, smoothing)
+		track_push(&entry.track, tick, {item.pos, item.rot}, smoothing)
 	}
-	pose := track_sample(&entry.track, tick, alpha, dt, SMOOTHING_DEFAULT)
+	pose := track_sample_decayed(&entry.track, tick, alpha, multi.decay, dt, smoothing)
 	return pose.pos, pose.rot
 }

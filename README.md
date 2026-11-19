@@ -30,7 +30,7 @@ from one CLI. It's built for fast iteration and for AI coding agents.
 - **Replays and reference runs:** replays are exact regression tests within a build, and every platform has to reproduce the
   recorded reference runs bit for bit.
 - **Headless everything:** N clients in one process with a network simulator, for tests, CI and agents.
-- **Godot host:** the view reads predicted frames for motion, verified frames for scores and events for effects.
+- **Godot host:** the view reads predicted frames for motion and data, and CONFIRMED events for what must be final.
   It never writes to the simulation. Dev tools live in the game.
 
 ## How it works

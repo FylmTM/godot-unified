@@ -23,6 +23,7 @@ Pose_Entry :: struct {
 	tick:     u32,
 	kind:     u8,
 	has_prev: bool,
+	warp:     u8, // the item's warp epoch (View_Item.warp): a pose of another epoch is no previous pose
 	pose:     Remembered_Pose,
 	prev:     Remembered_Pose,
 }
@@ -120,7 +121,8 @@ pose_slot :: proc(key: u64, kind: u8, mask: int) -> int {
 	return int(hash >> 32) & mask
 }
 
-// Records the item's pose at `tick` and returns the pose it had at tick - 1, if the host knows it.
+// Records the item's pose at `tick` and returns the pose it had at tick - 1, if the host knows it. Across a change of
+// `warp` (the item's warp epoch) it knows none: no interpolation or correction estimate crosses a teleport.
 pose_remember :: proc(
 	memory: ^Pose_Memory,
 	domain: Pose_Domain,
@@ -129,6 +131,7 @@ pose_remember :: proc(
 	tick: u32,
 	pos: [3]f32,
 	rot: [4]f32,
+	warp: u8 = 0,
 ) -> (
 	previous: Remembered_Pose,
 	found: bool,
@@ -141,6 +144,7 @@ pose_remember :: proc(
 	for i := slot; last[i].stamp == memory.fill - 1; i = (i + 1) & table.mask {
 		entry := &last[i]
 		if entry.key != key || entry.kind != kind do continue
+		if entry.warp != warp do break // teleported since: no previous pose
 		current := Remembered_Pose{pos, rot}
 		switch {
 		case entry.tick + 1 == tick && !(memory.rollback && entry.has_prev):
@@ -173,6 +177,7 @@ pose_remember :: proc(
 			tick     = tick,
 			kind     = kind,
 			has_prev = found,
+			warp     = warp,
 			pose     = {pos, rot},
 			prev     = previous,
 		}

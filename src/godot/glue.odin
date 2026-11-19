@@ -33,6 +33,10 @@ View_Item :: struct($View: typeid) {
 	player: sim.Player,
 	pos:    sim.Position, // sim units (the host applies Glue.view_scale); 2D: pos.xy (Godot 2D: x right, y down)
 	rot:    [4]f32, // unit quaternion (x, y, z, w); dmath.quat_yaw, quat_angle_2d (2D); zero = identity
+	// The subject's warp epoch, a counter the game keeps in its state and bumps where it teleports the subject: a
+	// value other than the one last shown snaps the view (no interpolation, no correction glide). Rollback-safe: a
+	// re-simulated teleport bumps it to the same value, an undone one puts the old value back (the view snaps back).
+	warp:   u8,
 }
 
 // One MultiMesh instance this tick (fill_frame: push_multi_view). Position and rotation (on the shorter arc)
@@ -46,6 +50,7 @@ Multi_View_Item :: struct($MultiView: typeid) {
 	scale:  [3]f32, // per local axis (2D: x, y); zero = {1, 1, 1}
 	color:  Color, // the instance color (use_colors), RGBA; zero = white
 	custom: [4]f32, // the instance custom data (the game's shader reads it)
+	warp:   u8, // the instance's warp epoch, like View_Item.warp (keyed instances only)
 }
 
 // What fill_frame gets (session thread): the tick's state and world, and where the items go. Its buffers grow to what
@@ -65,6 +70,7 @@ View_Out :: struct {
 	kind:        u8,
 	subject:     typeid, // the subject's type: sim.Player, sim.Entity, a sim.Handle(T); nil: none (push_view)
 	has_prev:    bool,
+	warp:        u8,
 	player:      u64, // the player's key (sim.player_key; 0: none)
 	pos:         [3]f32,
 	rot:         [4]f32,
@@ -79,6 +85,7 @@ View_Out :: struct {
 Multi_Out :: struct {
 	kind:     u8,
 	has_prev: bool,
+	warp:     u8,
 	key:      u64,
 	pos:      [3]f32,
 	prev_pos: [3]f32,
@@ -138,6 +145,14 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	is_2d:        bool,
 	// Optional, the view space: view units per sim unit (zero: 1), e.g. 32 for 2D art drawn at 32 px per metre.
 	view_scale:   f32,
+	// Optional: how the host shows each scene view kind (`#partial {.Crate = {smoothing = {tau_s = 0.2}}}`); a kind
+	// left out is host-posed with SMOOTHING_DEFAULT.
+	view_policy:  [View]View_Policy,
+	// Optional: how the host shows each MultiMesh kind. A kind whose smoothing is left zero interpolates its keyed
+	// instances and lets corrections pop (no state per instance: the cheap default for thousands); one that sets it
+	// gives each keyed instance a track whose corrections glide like a scene view's (`godot.SMOOTHING_DEFAULT` for
+	// the defaults). `pose = .Script` is a scene view's only.
+	multi_policy: [MultiView]View_Policy,
 
 	// Main thread, optional: where an event (the game's union) goes. `.View`: the scene view of that kind and key;
 	// `.No_View`: none; `.Subject` (the zero value: a bare `return`): the routing by its subject (its first handle or
@@ -151,6 +166,21 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 		key: u64,
 		route: Event_Route,
 	),
+}
+
+// How the host shows one view kind (Glue.view_policy, multi_policy); the zero value is the default.
+View_Policy :: struct {
+	pose:      Posed_By,
+	smoothing: Smoothing, // zero fields: their defaults (smoothing_of)
+}
+
+// Who sets a scene view's root pose.
+Posed_By :: enum u8 {
+	Host, // the host sets the root's position and rotation before any other node's _process: the default
+	// The host calls the root script's `_sim_pose(position: Vector3, rotation: Quaternion)` (2D: `(position:
+	// Vector2, rotation: float)`) with the pose it would have set, in view units, whenever it changes, and leaves the
+	// root alone: the script may draw it elsewhere (what the local player holds, at render rate from the camera).
+	Script,
 }
 
 // An event's subject as the host reads it (Glue.event_key): its first sim.Player field, and its first handle or
@@ -422,13 +452,23 @@ push_view_out :: proc(
 		player      = sim.player_key(item.player),
 		pos         = ([3]f32)(item.pos),
 		rot         = item.rot == {} ? IDENTITY : item.rot,
+		warp        = item.warp,
 		data_type   = data_type,
 		data_offset = u32(out.n_data),
 		data_size   = u32(len(data)),
 	}
 	copy(out.data[out.n_data:], data)
 	out.n_data += len(data)
-	previous, found := pose_remember(frame.poses, .View, kind, view_out.key, frame.tick, view_out.pos, view_out.rot)
+	previous, found := pose_remember(
+		frame.poses,
+		.View,
+		kind,
+		view_out.key,
+		frame.tick,
+		view_out.pos,
+		view_out.rot,
+		item.warp,
+	)
 	if found do view_out.has_prev, view_out.prev_pos, view_out.prev_rot = true, previous.pos, previous.rot
 }
 
@@ -450,6 +490,7 @@ push_multi_view :: proc(
 		scale  = item.scale,
 		color  = ([4]f32)(item.color),
 		custom = item.custom,
+		warp   = item.warp,
 	}
 	if item.key != 0 {
 		previous, found := pose_remember(
@@ -460,6 +501,7 @@ push_multi_view :: proc(
 			frame.tick,
 			multi_out.pos,
 			multi_out.rot,
+			item.warp,
 		)
 		if found do multi_out.has_prev, multi_out.prev_pos, multi_out.prev_rot = true, previous.pos, previous.rot
 	}
