@@ -486,17 +486,18 @@ ensure_test_binaries :: proc(opts: Test_Options) -> (exes: []string, ok: bool) {
 suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 	exes, ok := ensure_test_binaries(opts)
 	if !ok do return false
-	passed := run_test_binaries(exes, opts.only)
 	if !opts.bless {
-		return passed
+		return run_test_binaries(exes, opts.only)
 	}
-	// what it re-pinned, read now: the plain run below rewrites the logs, and the warnings of both runs bury it
-	changes: [dynamic]string
-	for exe in exes {
-		text, _ := read_text(aprintf("%s.log", exe))
-		append(&changes, ..test_output_repins(text))
-	}
-	defer bless_summary(changes[:])
+	// The bless run's records of what it changed (scenarios.bless_record), listed last: the warnings of both runs
+	// bury the ones it prints as it goes.
+	records := join(state.project.out, "test", "bless.jsonl")
+	os.remove(records)
+	_ = os.set_env(BLESS_LOG_ENV, records)
+	passed := run_test_binaries(exes, opts.only)
+	_ = os.unset_env(BLESS_LOG_ENV)
+	text, _ := read_text(records)
+	defer bless_summary(bless_changes(text), passed)
 	repinned := false
 	for build in test_builds(opts) {
 		repinned ||= stale(build) // built current just before the run: a source of it changed during the run
@@ -511,15 +512,44 @@ suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 	return plain_ok && run_test_binaries(plain_exes, opts.only) && passed
 }
 
-// The odin suite's last words under --bless: every pin it changed, each with its file and old -> new
-// (test_output_repins), or that it changed none.
-@(private)
-bless_summary :: proc(changes: []string) {
-	if len(changes) == 0 {
-		log("uni: test --bless: nothing re-pinned")
-		return
+// The environment variable naming the file a bless run's test binaries append their records to
+// (scenarios.BLESS_LOG_ENV: the CLI imports none of the library).
+BLESS_LOG_ENV :: "UNIFIED_BLESS_LOG"
+
+// What a bless run changed, from its records (one JSON object per line: scenarios.Bless_Record), a line each: the
+// file, then the value with old -> new, or the replay blessed with what its run reported. Lines that aren't a record
+// are skipped. Temp-allocated.
+bless_changes :: proc(records: string) -> []string {
+	Record :: struct {
+		check, file, value, old, new: string,
 	}
-	log("uni: test --bless re-pinned:")
+	out := make([dynamic]string, context.temp_allocator)
+	for line in strings.split_lines(records, context.temp_allocator) {
+		if strings.trim_space(line) == "" do continue
+		record: Record
+		if json.unmarshal_string(line, &record, allocator = context.temp_allocator) != nil do continue
+		if record.old == "" {
+			append(&out, aprintf("%s: %s blessed (%s)", record.file, record.value, record.new))
+		} else {
+			append(&out, aprintf("%s: %s: %s -> %s", record.file, record.value, record.old, record.new))
+		}
+	}
+	return out[:]
+}
+
+// The odin suite's last words under --bless: every pin the bless run changed (bless_changes), or that it changed
+// none; when the run failed, that it failed, and what it had changed.
+@(private)
+bless_summary :: proc(changes: []string, passed: bool) {
+	switch {
+	case len(changes) == 0:
+		log("uni: test --bless%s: nothing re-pinned", passed ? "" : " failed")
+		return
+	case passed:
+		log("uni: test --bless re-pinned:")
+	case:
+		log("uni: test --bless failed, after re-pinning:")
+	}
 	for change in changes do log("  %s", change)
 }
 

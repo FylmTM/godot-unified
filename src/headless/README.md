@@ -114,8 +114,9 @@ Everything a run pins, a game's reference run and replay regressions and the lib
 re-pins instead, in the test binary: a replay regression writes its `expected.unie`; a reference run or a golden trace
 rewrites its literal in its test's source (`scenarios.bless_pin`). The rewrite finds the literal by the value the test
 was compiled with and changes only the numbers and strings that differ, in place, so the file stays as odinfmt left
-it, and a warning names each value with its old and new text: the diff is the review. The run closes with all of
-them again (`uni` reads them out of the run's output), or "nothing re-pinned". A second bless changes nothing.
+it, and a warning names each value with its old and new text: the diff is the review. Each change is also a record
+(`scenarios.bless_record`) in a file `uni` names, and the run closes with all of them again, or "nothing re-pinned".
+A second bless changes nothing.
 
 **A bless never re-pins results that moved on the build that pinned them.** A build's identity (`sim.compat_of`,
 `src/sim/README.md`, Build identity) must change whenever what it computes does, or two builds that disagree would
