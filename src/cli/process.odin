@@ -73,8 +73,7 @@ start :: proc(spec: Run) -> Proc {
 		make_dirs(os.dir(base))
 		child.out_path = aprintf("%s.stdout", base)
 		child.err_path = aprintf("%s.stderr", base)
-		// Inheritable: on Windows a child gets only the handles opened so
-		flags := os.File_Flags{.Write, .Create, .Trunc, .Inheritable}
+		flags := os.File_Flags{.Write, .Create, .Trunc} // not inheritable: spawn passes them to this child only
 		out_file, out_error := os.open(child.out_path, flags)
 		err_file, err_error := os.open(child.err_path, flags)
 		if out_error != nil || err_error != nil {
@@ -86,7 +85,7 @@ start :: proc(spec: Run) -> Proc {
 		desc.stdout, desc.stderr = os.stderr, os.stderr
 	}
 	child.start = time.tick_now()
-	process, err_file := os.process_start(desc)
+	process, err_file := spawn(desc, stdin_read, child.files[0], child.files[1])
 	if stdin_read != nil {
 		os.close(stdin_read) // the child holds its own copy
 	}
@@ -133,13 +132,14 @@ wait :: proc(child: ^Proc) -> Ran {
 @(private)
 kill_tree :: proc(process: os.Process) {
 	when ODIN_OS == .Windows {
-		if null, null_err := os.open("NUL", {.Write, .Inheritable}); null_err == nil {
-			taskkill, err := os.process_start(
-			{
-				command = strs("taskkill", "/T", "/F", "/PID", aprintf("%d", process.pid)),
-				stdout  = null, // "SUCCESS: ..." would end up in the command's result
-				stderr  = null,
-			},
+		if null, null_err := os.open("NUL", {.Write}); null_err == nil {
+			taskkill, err := spawn(
+				{
+					command = strs("taskkill", "/T", "/F", "/PID", aprintf("%d", process.pid)),
+					stdout  = null, // "SUCCESS: ..." would end up in the command's result
+					stderr  = null,
+				},
+				null,
 			)
 			if err == nil {
 				_, _ = os.process_wait(taskkill, 10 * time.Second)
@@ -302,10 +302,31 @@ lines_with :: proc(text: string, needles: ..string) -> []string {
 	return out[:]
 }
 
+@(private)
+spawn_lock: sync.Mutex
+
+// Starts a process whose stdio are among `own`, files opened for it alone. On Windows a child inherits every
+// inheritable handle open while it starts, so those files are opened not inheritable and made so only for this start,
+// under a lock no other start runs beside: each child holds its own stdio and nothing else, and a capture file its
+// caller has collected can be removed though a sibling started later still runs.
+spawn :: proc(desc: os.Process_Desc, own: ..^os.File) -> (os.Process, os.Error) {
+	sync.mutex_guard(&spawn_lock)
+	for file in own do set_inheritable(file, true)
+	defer for file in own do set_inheritable(file, false)
+	return os.process_start(desc)
+}
+
 // A pipe's read end holding `quit` and then its end (nil when no pipe can be made: the child's stdin is then closed).
+// Neither end is inheritable (spawn passes the read end to its child).
 @(private)
 debugger_quit_stdin :: proc() -> ^os.File {
+	sync.mutex_lock(&spawn_lock) // os.pipe's ends are inheritable until set_inheritable: no start in between
 	read_end, write_end, err := os.pipe()
+	if err == nil {
+		set_inheritable(read_end, false)
+		set_inheritable(write_end, false)
+	}
+	sync.mutex_unlock(&spawn_lock)
 	if err != nil {
 		return nil
 	}
