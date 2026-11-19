@@ -63,6 +63,20 @@ The host remembers every keyed item's pose, so a view or instance seen at tick â
 never pass previous poses. After a rollback the remembered pose is the old prediction, so the host sends an estimate
 of the corrected one (`poses.odin`); a correction glides over the smoothing's `tau_s`, it never pops.
 
+The host never guesses a teleport the sim can name: a game keeps a **warp epoch** per thing in its state (a `u8` it
+bumps where it teleports it) and pushes it with the view (`View_Item.warp`). A change snaps the view: no
+interpolation and no correction crosses it. It is compared with the epoch the main thread last **showed**, not the
+last fill's, because the hand-off drops frames the main thread never took. It is rollback-safe by construction: a
+re-simulated teleport bumps the counter to the same value, an undone one puts the old value back and the view snaps
+back. A long move with no bump still snaps past the smoothing's `teleport_dist`, the fallback.
+
+**View policy.** How each kind is shown is one Odin literal in the Glue (`view_policy`, `multi_policy`), not
+properties spread over the kinds' scenes: its smoothing (a bullet, a heavy crate and a remote player want different
+ones) and, for a scene view, who poses its root. A script-posed kind's root is left alone and its script gets the
+pose the host would have set (`Posed_By.Script`), so it can draw what the local player holds at render rate from the
+camera. A MultiMesh kind keeps a track per instance only when its policy sets a smoothing: thousands of instances
+cost nothing per instance by default.
+
 ### Data and classes
 
 **Session data** (values that belong to no entity: a HUD's score, the wave) are the `Data_*` structs of `Glue.data`,

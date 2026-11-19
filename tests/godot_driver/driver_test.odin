@@ -378,6 +378,17 @@ driver_sessions :: proc(t: ^testing.T) {
 		godot.install(&toy.GAME, bad)
 		testing.expect(t, !godot.api.installed)
 		testing.expectf(t, len(godot.api.problems) == 2, "both problems: %v", godot.api.problems)
+		// a view policy install refuses: a script-posed MultiMesh kind, a ramp without its time constant
+		policies := GLUE
+		policies.multi_policy = {
+			.Spark = {pose = .Script},
+		}
+		policies.view_policy = {
+			.Dot = {smoothing = {ramp_dist = 2}},
+		}
+		godot.install(&toy.GAME, policies)
+		testing.expect(t, !godot.api.installed)
+		testing.expectf(t, len(godot.api.problems) == 2, "both policy problems: %v", godot.api.problems)
 	}
 }
 

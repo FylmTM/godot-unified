@@ -432,3 +432,131 @@ track_push_prev_glides :: proc(t: ^testing.T) {
 quat_yaw_angle :: proc(yaw: f32) -> [4]f32 {
 	return {0, math.sin(yaw * 0.5), 0, math.cos(yaw * 0.5)}
 }
+
+// ---- warp epochs and per-kind smoothing (Glue.view_policy)
+
+// A 3-unit respawn that reaches the view as a rollback correction (shorter than teleport_dist): without a warp it
+// glides from the old place; with the epoch bumped it is on the new pose in the first frame.
+@(test)
+track_warp_snaps_where_a_move_glides :: proc(t: ^testing.T) {
+	smoothing := godot.SMOOTHING_DEFAULT
+	frame :: proc(track: ^godot.Track, shown: ^u8, warp: u8, x: f32, smoothing: godot.Smoothing) -> f32 {
+		godot.track_warp(track, shown, warp)
+		godot.track_push(track, 11, at(x), smoothing)
+		return godot.track_sample(track, 11, 1, 1.0 / 120, smoothing).pos.x
+	}
+	gliding, snapping: godot.Track
+	glide_shown, snap_shown: u8
+	for track in ([]^godot.Track{&gliding, &snapping}) {
+		godot.track_push(track, 10, at(0.7), smoothing)
+		godot.track_push(track, 11, at(0.7), smoothing)
+		_ = godot.track_sample(track, 11, 1, 0, smoothing)
+	}
+	glided := frame(&gliding, &glide_shown, 0, 3.7, smoothing)
+	snapped := frame(&snapping, &snap_shown, 1, 3.7, smoothing)
+	testing.expectf(t, glided < 1, "the same move without a warp glides: %v", glided)
+	testing.expectf(t, abs(snapped - 3.7) < 1e-4, "a warp snaps: %v", snapped)
+	testing.expect_value(t, snap_shown, 1)
+}
+
+// The fill that carried the change was never shown (the triple buffer dropped it): the next one still differs from
+// the shown epoch and snaps; a re-filled tick of the same epoch keeps gliding; an undone teleport snaps back.
+@(test)
+track_warp_against_the_shown_epoch :: proc(t: ^testing.T) {
+	smoothing := godot.SMOOTHING_DEFAULT
+	track: godot.Track
+	shown: u8
+	godot.track_push(&track, 10, at(0), smoothing)
+	godot.track_push(&track, 11, at(0.1), smoothing)
+	_ = godot.track_sample(&track, 11, 1, 0, smoothing)
+	// tick 12's fill (warp 1, x = 3) dropped; tick 13's arrives with its tick - 1 pose
+	testing.expect(t, godot.track_warp(&track, &shown, 1))
+	godot.track_push_prev(&track, 13, at(3), true, smoothing)
+	godot.track_push(&track, 13, at(3.1), smoothing)
+	pose := godot.track_sample(&track, 13, 0, 0, smoothing)
+	testing.expectf(t, abs(pose.pos.x - 3) < 1e-4, "snapped to the new epoch's tick - 1: %v", pose.pos.x)
+	// a rollback re-fills 13 a little elsewhere, same epoch: a glide, no snap
+	testing.expect(t, !godot.track_warp(&track, &shown, 1))
+	_ = godot.track_sample(&track, 13, 1, 0, smoothing)
+	godot.track_push(&track, 13, at(3.3), smoothing)
+	pose = godot.track_sample(&track, 13, 1, 0, smoothing)
+	testing.expectf(t, abs(pose.pos.x - 3.1) < 1e-4, "a correction in the same epoch glides: %v", pose.pos.x)
+	// the verified timeline has no teleport: the old epoch comes back, the view snaps back
+	testing.expect(t, godot.track_warp(&track, &shown, 0))
+	godot.track_push(&track, 13, at(0.3), smoothing)
+	pose = godot.track_sample(&track, 13, 1, 0, smoothing)
+	testing.expectf(t, abs(pose.pos.x - 0.3) < 1e-4, "an undone teleport snaps back: %v", pose.pos.x)
+	// 255 -> 0 is a change too
+	shown = 255
+	testing.expect(t, godot.track_warp(&track, &shown, 0))
+}
+
+// The session thread's memory gives no previous pose across a change of epoch, for scene views and instances: no
+// interpolation and no correction estimate crosses a teleport.
+@(test)
+pose_memory_forgets_across_a_warp :: proc(t: ^testing.T) {
+	fill :: proc(memory: ^godot.Pose_Memory, domain: godot.Pose_Domain, tick: u32, x: f32, warp: u8) -> bool {
+		godot.pose_memory_begin(memory)
+		_, found := godot.pose_remember(memory, domain, 1, 7, tick, {x, 0, 0}, godot.IDENTITY, warp)
+		return found
+	}
+	for domain in godot.Pose_Domain {
+		memory: godot.Pose_Memory
+		godot.pose_memory_init(&memory, 4, 4)
+		defer godot.pose_memory_destroy(&memory)
+		_ = fill(&memory, domain, 5, 0, 0)
+		testing.expect(t, fill(&memory, domain, 6, 0.1, 0), "the same epoch: tick - 1 known")
+		testing.expect(t, !fill(&memory, domain, 7, 3, 1), "a new epoch: no tick - 1")
+		testing.expect(t, fill(&memory, domain, 8, 3.1, 1), "then known again")
+		testing.expect(t, !fill(&memory, domain, 8, 0.2, 0), "a re-fill that undid the teleport: no estimate")
+	}
+}
+
+// A zero policy is the default; tau_s < 0 snaps; teleport_dist defaults on its own.
+@(test)
+smoothing_of_fills_defaults :: proc(t: ^testing.T) {
+	testing.expect_value(t, godot.smoothing_of({}), godot.SMOOTHING_DEFAULT)
+	testing.expect_value(t, godot.smoothing_of({tau_s = 0.2}), godot.Smoothing{tau_s = 0.2, teleport_dist = 4})
+	testing.expect_value(t, godot.smoothing_of({tau_s = -1, teleport_dist = 6}).tau_s, 0)
+	snap := godot.smoothing_of({tau_s = -1})
+	track: godot.Track
+	godot.track_push(&track, 1, at(1), snap)
+	_ = godot.track_sample(&track, 1, 1, 0, snap)
+	godot.track_push(&track, 1, at(2), snap)
+	pose := godot.track_sample(&track, 1, 1, 0, snap)
+	testing.expectf(t, abs(pose.pos.x - 2) < 1e-4, "tau_s < 0 snaps a correction: %v", pose.pos.x)
+}
+
+// The correction left after `dt` of a correction of length `correction`.
+correction_left :: proc(smoothing: godot.Smoothing, correction, dt: f32) -> f32 {
+	track: godot.Track
+	godot.track_push(&track, 1, at(0), smoothing)
+	_ = godot.track_sample(&track, 1, 1, 0, smoothing)
+	godot.track_push(&track, 1, at(correction), smoothing)
+	return correction - godot.track_sample(&track, 1, 1, dt, smoothing).pos.x
+}
+
+// Two kinds, the same correction: each decays with its own tau.
+@(test)
+smoothing_per_kind :: proc(t: ^testing.T) {
+	light := correction_left(godot.smoothing_of({tau_s = 0.05}), 1, 0.1)
+	heavy := correction_left(godot.smoothing_of({tau_s = 0.2, teleport_dist = 6}), 1, 0.1)
+	testing.expectf(t, abs(light - math.exp(f32(-2))) < 1e-3, "tau 0.05 after 0.1 s: %v", light)
+	testing.expectf(t, abs(heavy - math.exp(f32(-0.5))) < 1e-3, "tau 0.2 after 0.1 s: %v", heavy)
+}
+
+// The ramp: a large error closes faster than the plain decay, a tiny one as the plain decay, and it never overshoots
+// whatever the frame's length.
+@(test)
+smoothing_ramp :: proc(t: ^testing.T) {
+	plain := godot.smoothing_of({tau_s = 0.2})
+	ramp := godot.smoothing_of({tau_s = 0.2, ramp_dist = 2, ramp_tau_s = 0.05})
+	large_ramp, large_plain := correction_left(ramp, 3, 0.05), correction_left(plain, 3, 0.05)
+	testing.expectf(t, large_ramp < large_plain / 2, "large: %v vs %v", large_ramp, large_plain)
+	tiny_ramp, tiny_plain := correction_left(ramp, 0.001, 0.05), correction_left(plain, 0.001, 0.05)
+	testing.expectf(t, abs(tiny_ramp - tiny_plain) < 1e-5, "tiny: %v vs %v", tiny_ramp, tiny_plain)
+	for dt in ([]f32{0.016, 0.1, 1, 10}) {
+		rest := correction_left(ramp, 3, dt)
+		testing.expectf(t, rest >= 0 && rest <= 3, "no overshoot at dt %v: %v", dt, rest)
+	}
+}

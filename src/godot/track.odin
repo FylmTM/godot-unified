@@ -10,20 +10,37 @@ Pose :: struct {
 
 IDENTITY :: [4]f32{0, 0, 0, 1}
 
-// How a view's track smooths rollback corrections: the error offset decays as exp(-dt / tau_s), and a jump longer than
-// teleport_dist snaps.
+// How a view kind's track smooths rollback corrections (Glue.view_policy, multi_policy): the error offset decays
+// exponentially, and a jump longer than teleport_dist snaps. In a policy every zero field is its default
+// (smoothing_of fills them in); the track procs take a filled-in one.
 Smoothing :: struct {
 	// Time constant of the error decay: after `tau_s` a correction has shrunk to 1/e (37%), after 3 tau to 5%.
-	// 0 disables smoothing (corrections snap).
+	// In a policy, 0 is the default (0.1 s) and a negative value snaps corrections; filled in, <= 0 snaps.
 	tau_s:         f32,
-	// A correction or a tick-to-tick move longer than this (in the pushed units: unified:godot's are sim units, the
-	// default suits metres) snaps instead of smoothing/interpolating.
+	// A correction or a tick-to-tick move longer than this (sim units; the default, 4, suits metres) snaps instead of
+	// smoothing or interpolating: the fallback for teleports the sim marks with no `warp` (View_Item.warp).
 	teleport_dist: f32,
+	// An error this long or longer decays with ramp_tau_s instead of tau_s, a shorter one with a time constant between
+	// the two (by its length): a large correction closes fast and the last centimetres stay soft. 0: no ramp.
+	ramp_dist:     f32,
+	// The time constant at ramp_dist (> 0 when ramp_dist is set).
+	ramp_tau_s:    f32,
 }
 
+// The smoothing of a kind that sets none: a correction decays over 0.1 s, a jump of more than 4 sim units snaps.
 SMOOTHING_DEFAULT :: Smoothing {
 	tau_s         = 0.1,
 	teleport_dist = 4,
+}
+
+// A policy's smoothing with its zero fields filled in (tau_s 0: SMOOTHING_DEFAULT's, negative: snaps; teleport_dist
+// 0: SMOOTHING_DEFAULT's), as the track procs take it.
+smoothing_of :: proc(smoothing: Smoothing) -> Smoothing {
+	filled := smoothing
+	if filled.tau_s == 0 do filled.tau_s = SMOOTHING_DEFAULT.tau_s
+	if filled.tau_s < 0 do filled.tau_s = 0
+	if filled.teleport_dist == 0 do filled.teleport_dist = SMOOTHING_DEFAULT.teleport_dist
+	return filled
 }
 
 @(private)
@@ -75,6 +92,16 @@ track_push :: proc(track: ^Track, tick: u32, pose: Pose, smoothing := SMOOTHING_
 	track.n = min(track.n + 1, len(track.hist))
 }
 
+// Before pushing a frame's pose: a `warp` epoch other than `shown` (the one last shown) starts the track over, so the
+// view snaps to the new pose with no interpolation or correction across the teleport, and remembers it. Compared with
+// what was shown, not with the last frame the session published: a frame the main thread never took still snaps.
+track_warp :: proc(track: ^Track, shown: ^u8, warp: u8) -> (warped: bool) {
+	if warp == shown^ do return false
+	track^ = {}
+	shown^ = warp
+	return true
+}
+
 // Records the pose at tick - 1 before a new `tick` (`prev`, has_prev false: unknown). After a rollback it is the
 // corrected one: if the history has tick - 1 the difference goes into the error offset. If the history lacks tick - 1
 // (the renderer skipped a frame, or the sim published several ticks at once), the last shown pose starts it instead,
@@ -105,7 +132,7 @@ track_at :: proc(track: ^Track, tick: u32) -> (Pose, bool) {
 // The pose to display: between ticks `tick - 1` and `tick` at `alpha`, plus the decaying correction error.
 // `dt_s` is the render frame's duration (drives the decay).
 track_sample :: proc(track: ^Track, tick: u32, alpha: f32, dt_s: f32, smoothing := SMOOTHING_DEFAULT) -> Pose {
-	return track_sample_decayed(track, tick, alpha, track_decay(dt_s, smoothing), smoothing)
+	return track_sample_decayed(track, tick, alpha, track_decay(dt_s, smoothing), dt_s, smoothing)
 }
 
 // How much of a correction is left after a render frame of `dt_s`: the same for every view in a frame.
@@ -114,13 +141,15 @@ track_decay :: proc(dt_s: f32, smoothing := SMOOTHING_DEFAULT) -> f32 {
 	return smoothing.tau_s > 0 ? math.exp(-max(dt_s, 0) / smoothing.tau_s) : 0
 }
 
-// track_sample with the frame's track_decay computed once for all views.
+// track_sample with the kind's track_decay computed once per frame for all its views; `dt_s` is used only for a ramp
+// (Smoothing.ramp_dist), whose decay depends on each track's error.
 @(private)
 track_sample_decayed :: proc(
 	track: ^Track,
 	tick: u32,
 	alpha: f32,
 	decay: f32,
+	dt_s: f32,
 	smoothing := SMOOTHING_DEFAULT,
 ) -> Pose {
 	current, ok := track_at(track, tick)
@@ -136,8 +165,12 @@ track_sample_decayed :: proc(
 		}
 	}
 	if smoothing.tau_s > 0 {
-		track.err_pos *= decay
-		track.err_rot = nlerp(IDENTITY, err_rot_or_identity(track), decay)
+		keep := decay
+		if smoothing.ramp_dist > 0 && track.err_pos != {} {
+			keep = ramp_decay(length(track.err_pos), dt_s, smoothing)
+		}
+		track.err_pos *= keep
+		track.err_rot = nlerp(IDENTITY, err_rot_or_identity(track), keep)
 		if length(track.err_pos) < 1e-4 do track.err_pos = {}
 	} else {
 		track.err_pos, track.err_rot = {}, IDENTITY
@@ -146,6 +179,15 @@ track_sample_decayed :: proc(
 	track.out = out
 	track.has_out = true
 	return out
+}
+
+// How much of an error of length `err` is left after `dt_s` with a ramp: the decay rate goes from 1 / tau_s (no
+// error) to 1 / ramp_tau_s (an error of ramp_dist or more), and stays exponential, so it never overshoots.
+@(private)
+ramp_decay :: proc(err, dt_s: f32, smoothing: Smoothing) -> f32 {
+	far := min(err / smoothing.ramp_dist, 1)
+	rate := (1 - far) / smoothing.tau_s + far / smoothing.ramp_tau_s
+	return math.exp(-max(dt_s, 0) * rate)
 }
 
 // ---- small vector and quaternion helpers (render side)

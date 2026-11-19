@@ -36,7 +36,7 @@ func near_all(got: PackedFloat32Array, want: Array) -> bool:
 	return true
 
 
-func multimesh_view(parent: Node, two_d: bool, colors: bool, custom: bool, kind: String, smooth := false) -> MultiMesh:
+func multimesh_view(parent: Node, two_d: bool, colors: bool, custom: bool, kind: String) -> MultiMesh:
 	var mm := MultiMesh.new()
 	mm.transform_format = MultiMesh.TRANSFORM_2D if two_d else MultiMesh.TRANSFORM_3D
 	mm.use_colors = colors
@@ -53,7 +53,6 @@ func multimesh_view(parent: Node, two_d: bool, colors: bool, custom: bool, kind:
 		instance = instance3d
 	var marker := UnifiedMultiView.new()
 	marker.kind = kind
-	marker.smooth = smooth
 	instance.add_child(marker)
 	parent.add_child(instance)
 	return mm
@@ -80,7 +79,7 @@ func _initialize() -> void:
 	root.add_child(world)
 	var typed_multi := multimesh_view(world, true, true, true, "multi2d")
 	var plain_multi := multimesh_view(world, true, false, false, "multi2d")
-	var multi3d := multimesh_view(world, false, true, false, "multi3d", true)
+	var multi3d := multimesh_view(world, false, true, false, "smooth3d")  # smooth: GLUE.multi_policy
 	const GAME_BOUNDS := AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2))
 	plain_multi.custom_aabb = GAME_BOUNDS  # the game's own bounds: the host keeps them
 	var views := Node2D.new()
@@ -161,6 +160,18 @@ func _initialize() -> void:
 	var p3 := child_of_kind(views, "plain3d") as Node3D
 	check("3D view under a 2D root", p3 != null and p3.position.is_equal_approx(POS_3D) \
 		and near(p3.rotation.y, YAW_3D) and near(p3.get("last_yaw"), YAW_3D), [p3.position, p3.rotation] if p3 else null)
+	var scripted := child_of_kind(views, "scripted3d") as Node3D
+	check("a script-posed kind: its script gets _sim_pose (view units) and keeps the transform it set",
+		scripted != null and scripted.get("poses") > 0 and scripted.get("sim_position").is_equal_approx(POS_3D) \
+		and (scripted.get("sim_rotation") as Quaternion).is_equal_approx(Quaternion(Vector3.UP, YAW_3D)) \
+		and scripted.position.is_equal_approx(scripted.get("OWN_POSITION")),
+		[scripted.get("poses"), scripted.get("sim_position"), scripted.position] if scripted else null)
+	if scripted != null:
+		var poses: int = scripted.get("poses")
+		for i in 5:
+			await create_timer(0.02).timeout
+		check("an unchanged pose is not handed over again", scripted.get("poses") == poses,
+			[poses, scripted.get("poses")])
 	check("the same key in another kind is another view", plain != null and p3 != null \
 		and (p3.get("marker") as UnifiedView).key == 2, (p3.get("marker") as UnifiedView).key if p3 else null)
 	check("a view that leaves gets _sim_despawned once and is no longer posed while it lingers, then is freed",

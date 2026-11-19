@@ -16,6 +16,7 @@ View :: enum u8 {
 	Plain2D,
 	Plain3D,
 	Decoy2D,
+	Scripted3D, // posed by its script (GLUE.view_policy)
 }
 
 // The decoy views' subject: another table's handle, given each thing's key (fill_frame).
@@ -24,6 +25,7 @@ Decoy :: struct {}
 MultiView :: enum u8 {
 	Multi2D,
 	Multi3D,
+	Smooth3D, // corrections glide: a track per instance (GLUE.multi_policy)
 }
 
 Frame :: godot.Frame(toy.Game, View, MultiView)
@@ -119,12 +121,14 @@ BLINK_TO :: 40
 
 GLUE := godot.Glue(toy.Game, View, MultiView) {
 	sample_input = sample_input,
-	fill_frame   = fill_frame,
-	data         = Data,
-	is_2d        = true,
-	view_scale   = VIEW_SCALE,
-	event_key    = event_key,
+	fill_frame = fill_frame,
+	data = Data,
+	is_2d = true,
+	view_scale = VIEW_SCALE,
+	event_key = event_key,
 	input_values = Input_Values,
+	view_policy = #partial{.Scripted3D = {pose = .Script}, .Plain3D = {smoothing = {tau_s = 0.05}}},
+	multi_policy = #partial{.Smooth3D = {smoothing = godot.SMOOTHING_DEFAULT}},
 }
 
 // The toy with the view benchmark's hook (sim.Game.bench_prepare), set by the entry point.
@@ -220,6 +224,11 @@ fill_frame :: proc(f: ^Frame) {
 		pos  = POS_3D / VIEW_SCALE,
 		rot  = q3,
 	})
+	godot.push_view(f, sim.entity(3), {
+		kind = .Scripted3D,
+		pos  = POS_3D / VIEW_SCALE,
+		rot  = q3,
+	})
 	if f.tick >= BLINK_FROM && f.tick < BLINK_TO {
 		godot.push_view(f, sim.entity(5), {
 			kind = .Plain2D,
@@ -275,7 +284,7 @@ fill_frame :: proc(f: ^Frame) {
 	tumble := [4]f32{math.sin(f32(TUMBLE_3D) / 2), 0, 0, math.cos(f32(TUMBLE_3D) / 2)}
 	godot.push_multi_view(f, {
 		key   = 2,
-		kind  = .Multi3D,
+		kind  = .Smooth3D,
 		pos   = POS_3D / VIEW_SCALE,
 		rot   = godot.qmul(q3, tumble),
 		scale = {1, 2, 1},
