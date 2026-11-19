@@ -31,6 +31,7 @@ Api :: struct {
 	view_scale:      f32, // view units per sim unit (Glue.view_scale; 1 when unset)
 	view_policy:     []Kind_Policy, // Glue.view_policy by kind, filled in
 	multi_policy:    []Kind_Policy, // Glue.multi_policy by kind, filled in
+	appear_verified: bool, // some kind appears on verified: the driver fills verified ticks too (verified_state)
 	events:          []Event_Layout, // the game's event union, by kind (events.odin)
 	commands:        []Command_Layout, // the game's command union, by kind (command.odin)
 	commands_type:   typeid, // the union itself
@@ -158,6 +159,9 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	stop_at:        i64,
 	frames:         Triple(Frame_Data),
 	poses:          Pose_Memory, // every keyed item's pose at the fill before (session thread)
+	// Appear-on-verified (api.appear_verified): the keys of the last verified tick filled, and that fill's Frame
+	verified_poses: Pose_Memory,
+	verified_out:   Frame_Data,
 	states:         Triple(sim.part(G, sim.GAME_STATE)),
 	queue:          Queue(Message, 64), // statuses, the join code, desync reports, the result: never full in practice
 	events:         Queue(Event_Message, 4096), // full: dropped and counted
@@ -344,6 +348,8 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	api.multi_policy = make([]Kind_Policy, len(multi_names))
 	for policy, kind in glue.view_policy do api.view_policy[int(kind)] = kind_policy(policy, false)
 	for policy, kind in glue.multi_policy do api.multi_policy[int(kind)] = kind_policy(policy, true)
+	for policy in glue.view_policy do api.appear_verified ||= policy.appear == .Verified
+	for policy in glue.multi_policy do api.appear_verified ||= policy.appear == .Verified
 	for variant in sim.union_variants(glue.data) do append_elem(&kept_data, data_layout(variant))
 	api.data = kept_data[:]
 	if constants.id != nil {
@@ -399,6 +405,10 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		}
 		roster_reset()
 		pose_memory_init(&driver.poses, FRAME_VIEWS, FRAME_MULTIS)
+		if api.appear_verified {
+			pose_memory_init(&driver.verified_poses, FRAME_VIEWS, FRAME_MULTIS)
+			driver.verified_out.alloc = context.allocator
+		}
 		input_sample_reset()
 		triple_init(&driver.states)
 		triple_init(&driver.inputs)
@@ -439,6 +449,10 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		delete(driver.recording.log)
 		delete(driver.recording.snapshot)
 		pose_memory_destroy(&driver.poses)
+		if driver.verified_poses.alloc.procedure != nil do pose_memory_destroy(&driver.verified_poses)
+		delete(driver.verified_out.views, driver.verified_out.alloc)
+		delete(driver.verified_out.multis, driver.verified_out.alloc)
+		delete(driver.verified_out.data, driver.verified_out.alloc)
 		delete(driver.scratch)
 		delete(driver.req.arg)
 		delete(driver.req.name)
@@ -601,6 +615,7 @@ fill_inputs_view :: proc(
 // A view kind's policy as the host applies it: the smoothing filled in, and whether its views keep a track.
 @(private)
 Kind_Policy :: struct {
+	appear:    Appear,
 	pose:      Posed_By,
 	smoothing: Smoothing, // smoothing_of(policy.smoothing)
 	tracks:    bool, // scene views always; a MultiMesh kind when its policy sets a smoothing
@@ -608,7 +623,12 @@ Kind_Policy :: struct {
 
 @(private)
 kind_policy :: proc(policy: View_Policy, multi: bool) -> Kind_Policy {
-	return {pose = policy.pose, smoothing = smoothing_of(policy.smoothing), tracks = !multi || policy.smoothing != {}}
+	return {
+		appear    = policy.appear,
+		pose      = policy.pose,
+		smoothing = smoothing_of(policy.smoothing),
+		tracks    = !multi || policy.smoothing != {},
+	}
 }
 
 // What install refuses in a kind's policy (`kind`: its enum member's name).
@@ -720,7 +740,7 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 	Input :: sim.part(G, sim.GAME_INPUT)
 	Cmd :: sim.part(G, sim.GAME_CMD)
 	This_Driver :: Driver(G, View, MultiView)
-	return {
+	hooks := netcode.Hooks(G) {
 		user = driver,
 		sample = proc(user: rawptr, slot: int, tick: u32, state: ^State) -> Input {
 			driver := (^This_Driver)(user)
@@ -780,7 +800,7 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 			}
 			roster_copy(client.roster[:], &driver.roster, client.roster_changes)
 			out.net = netcode.client_stats(client)
-			pose_memory_begin(&driver.poses, info.resim_from < info.tick)
+			pose_memory_begin(&driver.poses, info.resim_from < info.tick, info.resim_from)
 			frame := Frame(G, View, MultiView) {
 				state        = current,
 				world        = simulation.world,
@@ -849,6 +869,37 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 			post(driver, message)
 		},
 	}
+	if api.appear_verified {
+		hooks.verified_state = proc(user: rawptr, simulation: ^sim.Sim(G)) {fill_verified(
+				(^This_Driver)(user),
+				simulation,
+			)}
+	}
+	return hooks
+}
+
+// Appear-on-verified (netcode's verified_state hook, while some kind asks for it): the sim stands on the newest
+// verified tick; fill it into a scratch Frame for its keys, which the next frame's pose memory reads (`since`).
+@(private)
+fill_verified :: proc(driver: ^Driver($G, $View, $MultiView), simulation: ^sim.Sim(G)) {
+	out := &driver.verified_out
+	out.n_views, out.n_multis, out.n_data, out.n_datas, out.data_pushed = 0, 0, 0, 0, 0
+	pose_memory_begin(&driver.verified_poses)
+	client := driver.client
+	local := client.slot >= 0 ? simulation.state.players.slots[client.slot] : {}
+	frame := Frame(G, View, MultiView) {
+		state        = &simulation.state,
+		world        = simulation.world,
+		tick         = simulation.tick,
+		local_player = local,
+		out          = out,
+		poses        = &driver.verified_poses,
+	}
+	sync.atomic_store(&driver.in_fill, true) // the watchdog
+	driver.glue.fill_frame(&frame)
+	sync.atomic_store(&driver.in_fill, false)
+	driver.poses.verified = &driver.verified_poses
+	driver.poses.verified_tick = simulation.tick
 }
 
 // How long a stopping session may say goodbye (peers that don't answer: the relay's 3 s End timeout), and the

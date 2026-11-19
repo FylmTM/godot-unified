@@ -73,6 +73,7 @@ View_Out :: struct {
 	subject:     typeid, // the subject's type: sim.Player, sim.Entity, a sim.Handle(T); nil: none (push_view)
 	has_prev:    bool,
 	warp:        u8,
+	since:       u32, // the earliest tick its key is known to be in the current timeline (appear-on-verified)
 	player:      u64, // the player's key (sim.player_key; 0: none)
 	pos:         [3]f32,
 	rot:         [4]f32,
@@ -88,6 +89,7 @@ Multi_Out :: struct {
 	kind:     u8,
 	has_prev: bool,
 	warp:     u8,
+	since:    u32, // like View_Out's (keyed instances; 0: none)
 	key:      u64,
 	pos:      [3]f32,
 	prev_pos: [3]f32,
@@ -184,8 +186,27 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 
 // How the host shows one view kind (Glue.view_policy, multi_policy); the zero value is the default.
 View_Policy :: struct {
+	appear:    Appear,
 	pose:      Posed_By,
 	smoothing: Smoothing, // zero fields: their defaults (smoothing_of)
+}
+
+// When a view (or a keyed MultiMesh instance) of a kind first shows.
+Appear :: enum u8 {
+	// With the prediction: at once, and cancelled (_sim_cancelled) if a rollback removes it before its spawn tick is
+	// verified. The default.
+	Predicted,
+	// Once a verified tick has its key: a mispredicted spawn never shows, and a key a rollback handed to another thing
+	// shows only once that thing's spawn is final; from then on it is posed from the prediction like any other. A
+	// view's appear effect goes in _ready; it gets its subject's events from its appearance on. Costs one more
+	// fill_frame per step that re-stepped verified ticks (a rollback, a catch-up), only while some kind asks for it.
+	Verified,
+}
+
+// Whether an item of a kind with `appear` shows yet: an item first known in the current timeline at tick `since`,
+// with `verified` the newest verified tick.
+appear_now :: proc(appear: Appear, since, verified: u32) -> bool {
+	return appear == .Predicted || since <= verified
 }
 
 // Who sets a scene view's root pose.
@@ -476,7 +497,7 @@ push_view_out :: proc(
 	}
 	copy(out.data[out.n_data:], data)
 	out.n_data += len(data)
-	previous, found := pose_remember(
+	previous, found, since := pose_remember(
 		frame.poses,
 		.View,
 		kind,
@@ -486,6 +507,7 @@ push_view_out :: proc(
 		view_out.rot,
 		item.warp,
 	)
+	view_out.since = since
 	if found do view_out.has_prev, view_out.prev_pos, view_out.prev_rot = true, previous.pos, previous.rot
 }
 
@@ -510,7 +532,7 @@ push_multi_view :: proc(
 		warp   = item.warp,
 	}
 	if item.key != 0 {
-		previous, found := pose_remember(
+		previous, found, since := pose_remember(
 			frame.poses,
 			.Multi,
 			u8(item.kind),
@@ -520,6 +542,7 @@ push_multi_view :: proc(
 			multi_out.rot,
 			item.warp,
 		)
+		multi_out.since = since
 		if found do multi_out.has_prev, multi_out.prev_pos, multi_out.prev_rot = true, previous.pos, previous.rot
 	}
 }

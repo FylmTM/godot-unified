@@ -230,8 +230,9 @@ line below (`tests/netcode/delay_test.odin` and `policy_test.odin` pin them at 3
 ## Hooks
 
 Every hook is called from `client_step`, on the caller's thread. In one step: `status` and `desync` as the relay's
-messages arrive; then `verified` for each newly verified tick, in order; then `sample` and `commands` for each tick
-the clock generates; then `frame` once, when the step computed ticks.
+messages arrive; then `verified` for each newly verified tick, in order, and `verified_state` at most once, while the
+sim stands on the newest of them; then `sample` and `commands` for each tick the clock generates; then `frame` once,
+when the step computed ticks.
 
 ## Commands
 

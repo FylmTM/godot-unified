@@ -127,7 +127,10 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 	view_scale = VIEW_SCALE,
 	event_key = event_key,
 	input_values = Input_Values,
-	view_policy = #partial{.Scripted3D = {pose = .Script}, .Plain3D = {smoothing = {tau_s = 0.05}}},
+	view_policy = #partial {
+		.Scripted3D = {appear = .Verified, pose = .Script},
+		.Plain3D = {smoothing = {tau_s = 0.05}},
+	},
 	multi_policy = #partial{.Smooth3D = {smoothing = godot.SMOOTHING_DEFAULT}},
 }
 

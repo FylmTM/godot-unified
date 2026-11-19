@@ -620,10 +620,14 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 		set_begin(&V.set)
 		for &item in frame.views[:frame.n_views] {
 			id := View_Id{item.kind, item.key}
+			appear := kind_of(item.kind).appear
+			// appear-on-verified: no view, no entry, until a verified tick has its key
+			if !appear_now(appear, item.since, frame.verified) && set_get(&V.set, id) == nil do continue
 			entry, spawned, revived := set_see(&V.set, id)
 			if spawned {
 				entry.view = spawn_view(root, &item, frame)
 				if entry.view != nil do entry.linger_s = entry.view.linger_s
+				if entry.view != nil && appear == .Verified do entry.view.verified = true // final: never cancelled
 			}
 			scene_view := entry.view
 			if scene_view == nil do continue
@@ -921,6 +925,7 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 	for &item in frame.multis[:frame.n_multis] {
 		view_index := first[item.kind]
 		if view_index < 0 do continue
+		if int(item.kind) < len(api.multi_policy) && !appear_now(api.multi_policy[item.kind].appear, item.since, frame.verified) do continue
 		pos := item.pos
 		rot := item.rot
 		if item.has_prev {
