@@ -118,8 +118,10 @@ header says how it works.
 
 A ragdoll, ported from Box3D's sample human, since a co-op physics game knocks people over, throws them and piles them
 up: its state is a `Ragdoll` in the block (bodies, joints and filter joints, found by `check_refs` and freed by
-`destroy_refs` like any refs), its tuning a `Ragdoll_Def` in game code. Its bones are the sample's, numbers and all, so
-a view draws them from `ragdoll_capsules`; `ragdoll.odin`'s header says how it differs from the sample.
+`destroy_refs` like any refs), its tuning a `Ragdoll_Def` in game code. Its bones are the sample's, numbers and all (a
+view draws them from `ragdoll_capsules`), but it faces +Z with its left at +X, as a character does, and its springs hold
+the pose it was made in: a game hands over a falling character's pose and motion (`ragdoll_rest_pose`, a pose of its
+own, `ragdoll_set_velocity`). `ragdoll.odin`'s header lists every difference from the sample.
 
 ## Kinematic paths
 

@@ -1,10 +1,16 @@
 // The ragdoll (src/physics/README.md, Ragdoll), ported from Box3D's sample ragdoll (shared/human.c): 12 capsule
 // bones in a 1.8 m human's rest pose, each held to its parent by a joint with the human's limits (spherical with a
 // swing cone and a twist range at the spine, neck, hips and shoulders; revolute with an angle range at the knees and
-// elbows), whose motor at zero speed is the joint's friction and whose optional spring pulls it back toward the rest
-// pose. Changes from the sample: the bones that never touch each other are kept apart by filter joints only (the sample
-// adds a collision group the game would have to number per ragdoll), the state is a plain struct in the block, and a
-// ragdoll can be made turned (`rotation`), not only upright.
+// elbows), whose motor at zero speed is the joint's friction and whose optional spring pulls it back toward the pose
+// the ragdoll was made in. Changes from the sample:
+//
+// - it faces +Z (a Character's, quat_yaw's forward) with its left side at +X: the sample's human faces -Z, and its
+//   `_l` bones are on its right, so the table is the sample's turned a half turn about +Y, its sides named anew;
+// - each joint's spring targets the pose the ragdoll was made in (the sample's target each joint's zero, a crouch);
+// - the bones that never touch each other are kept apart by filter joints only (the sample adds a collision group the
+//   game would have to number per ragdoll);
+// - it can be made turned, in a pose of the game's (a character's at the moment it falls) and at any scale;
+// - its state is a plain struct in the block.
 package physics
 
 import "unified:dmath"
@@ -15,7 +21,7 @@ Ragdoll_Bone :: enum u8 {
 	Spine, // on the pelvis
 	Chest, // on the spine
 	Head, // on the chest
-	Left_Thigh, // on the pelvis
+	Left_Thigh, // on the pelvis, at +X
 	Left_Calf, // on the left thigh (a revolute knee; the foot is a second capsule of the calf)
 	Right_Thigh,
 	Right_Calf,
@@ -39,33 +45,52 @@ Ragdoll :: struct {
 }
 #assert(size_of(Ragdoll) == 232)
 
-// Tuning; constants in game code, not in the block. Newton-metres, hertz, kg/m³.
+// Tuning; constants in game code, not in the block. Newton-metres, hertz, kg/m³, metres.
 Ragdoll_Def :: struct {
 	friction_torque: f32, // the torque each joint's motor holds against (the arms take a share of it: their bones' table)
-	hertz:           f32, // the joints' springs toward the rest pose (0: no spring, a limp ragdoll)
+	hertz:           f32, // the joints' springs toward the pose it was made in (0: no spring, a limp ragdoll)
 	damping_ratio:   f32, // the springs' damping (1: critical)
 	density:         f32, // the bones' (the feet's capsules half of it); 1000, water's, makes the sample's 146 kg
+	scale:           f32, // every length: the bones' places, capsules and joint anchors (1: the sample's 1.8 m human)
 	category:        u64, // filter bits of every bone (0: Box3D's default)
 	mask:            u64,
 	material:        u64, // every bone's user material id (how others recognise a ragdoll)
 	hit_events:      bool, // the bones report contact hit events
 	sensor_events:   bool, // sensors see the bones (Shape_Def.enable_sensor_events)
-	_:               [2]u8,
 }
 
-// The sample's numbers (its ragdoll on a box: 5 N·m of friction, a 1 Hz spring at 0.7 damping, water's density): a game
-// starts from them and sets its own fields (`def := physics.RAGDOLL_DEFAULT`, then `def.hertz = 0`).
+// The sample's numbers (its ragdoll on a box: 5 N·m of friction, a 1 Hz spring at 0.7 damping, water's density, full
+// size): a game starts from them and sets its own fields (`def := physics.RAGDOLL_DEFAULT`, then `def.hertz = 0`).
 RAGDOLL_DEFAULT :: Ragdoll_Def {
 	friction_torque = 5,
 	hertz           = 1,
 	damping_ratio   = 0.7,
 	density         = 1000,
+	scale           = 1,
 }
 
-// Creates the ragdoll's bodies (each tagged `tag`, as create_body's), joints and filter joints in its rest pose,
-// standing on `pos` (the point between its feet; the pelvis is about 1 m above it) turned by `rotation` (x, y, z, w),
-// facing +Z unturned. Its bodies are made in Ragdoll_Bone order, then its joints, then its filter joints: a fixed
-// creation order, as the block's bodies need.
+// Each bone's world transform in the ragdoll's rest pose, standing on `pos` (the point between its feet; the pelvis
+// is about `scale` metres above it), facing +Z turned by `rotation` (x, y, z, w): what ragdoll_create makes without a
+// pose, and the start of one a game poses.
+ragdoll_rest_pose :: proc(
+	pos: [3]f32,
+	rotation := [4]f32{0, 0, 0, 1},
+	scale: f32 = 1,
+) -> (
+	pose: [Ragdoll_Bone]Transform,
+) {
+	for bone in Ragdoll_Bone {
+		frame := RAGDOLL_BONES[bone].frame // the sample's, facing -Z: turned a half turn about +Y
+		turned := dmath.quat_mul(rotation, HALF_TURN_Y)
+		pose[bone] = {pos + dmath.quat_rotate(turned, frame.p * scale), unit_quat(dmath.quat_mul(turned, frame.q))}
+	}
+	return pose
+}
+
+// Creates the ragdoll's bodies (each tagged `tag`, as create_body's), joints and filter joints: in its rest pose on
+// `pos` turned by `rotation` (ragdoll_rest_pose), or with each bone at `pose`'s world transform (a character's at the
+// moment it falls: then `pos` and `rotation` are unused). The joints' springs target that pose. Its bodies are made in
+// Ragdoll_Bone order, then its joints, then its filter joints: a fixed creation order, as the block's bodies need.
 ragdoll_create :: proc(
 	world: ^World,
 	ragdoll: ^Ragdoll,
@@ -73,16 +98,16 @@ ragdoll_create :: proc(
 	pos: [3]f32,
 	rotation := [4]f32{0, 0, 0, 1},
 	tag: u64 = 0,
+	pose: Maybe([Ragdoll_Bone]Transform) = nil,
 	loc := #caller_location,
 ) {
+	assert(def.scale > 0, "a ragdoll's scale must be positive (RAGDOLL_DEFAULT's is 1)", loc)
 	ragdoll^ = {}
+	transforms, posed := pose.?
+	if !posed do transforms = ragdoll_rest_pose(pos, rotation, def.scale)
 	for bone in Ragdoll_Bone {
 		spec := &RAGDOLL_BONES[bone]
-		body_def := body_def(
-			.Dynamic,
-			pos + dmath.quat_rotate(rotation, spec.frame.p),
-			dmath.quat_mul(rotation, spec.frame.q),
-		)
+		body_def := body_def(.Dynamic, transforms[bone].p, transforms[bone].q)
 		body_def.name = spec.name
 		ref := create_body(world, body_def, tag, loc)
 		ragdoll.bones[bone] = ref
@@ -95,18 +120,23 @@ ragdoll_create :: proc(
 		shape_def.base_material.user_material_id = def.material
 		shape_def.enable_hit_events = def.hit_events
 		shape_def.enable_sensor_events = def.sensor_events
-		create_capsule_shape(world, ref, shape_def, spec.capsules[0], loc)
-		if spec.capsules[1].radius > 0 {
+		capsules, count := ragdoll_capsules(bone, def.scale)
+		create_capsule_shape(world, ref, shape_def, capsules[0], loc)
+		if count > 1 {
 			shape_def.density = def.density / 2 // the foot
-			create_capsule_shape(world, ref, shape_def, spec.capsules[1], loc)
+			create_capsule_shape(world, ref, shape_def, capsules[1], loc)
 		}
 	}
 	for bone in Ragdoll_Bone {
 		spec := &RAGDOLL_BONES[bone]
 		if bone == .Pelvis do continue
 		parent, child := link(ragdoll.bones[spec.parent]), link(ragdoll.bones[bone])
-		frame_a := Transform{spec.joint_a.p, unit_quat(spec.joint_a.q)}
-		frame_b := Transform{spec.joint_b.p, unit_quat(spec.joint_b.q)}
+		frame_a := Transform{spec.joint_a.p * def.scale, unit_quat(spec.joint_a.q)}
+		frame_b := Transform{spec.joint_b.p * def.scale, unit_quat(spec.joint_b.q)}
+		// The pose made: frame B's rotation relative to frame A's, each in the world (what the spring holds).
+		frame_a_world := dmath.quat_mul(transforms[spec.parent].q, frame_a.q)
+		frame_b_world := dmath.quat_mul(transforms[bone].q, frame_b.q)
+		relative := dmath.quat_mul(quat_conjugate(frame_a_world), frame_b_world)
 		if spec.revolute {
 			joint_def := default_revolute_joint_def()
 			joint_def.base.local_frame_a, joint_def.base.local_frame_b = frame_a, frame_b
@@ -116,7 +146,10 @@ ragdoll_create :: proc(
 			joint_def.hertz, joint_def.damping_ratio = def.hertz, def.damping_ratio
 			joint_def.enable_motor = true
 			joint_def.max_motor_torque = spec.friction_share * def.friction_torque
-			ragdoll.joints[bone] = create_revolute_joint(world, parent, child, joint_def, loc)
+			joint := create_revolute_joint(world, parent, child, joint_def, loc)
+			// The made pose's angle, as Box3D measures it (about frame A's z, from the bodies as they are).
+			revolute_joint_set_target_angle(world, joint, revolute_joint_angle(world, joint))
+			ragdoll.joints[bone] = joint
 		} else {
 			joint_def := default_spherical_joint_def()
 			joint_def.base.local_frame_a, joint_def.base.local_frame_b = frame_a, frame_b
@@ -126,6 +159,7 @@ ragdoll_create :: proc(
 			joint_def.lower_twist_angle, joint_def.upper_twist_angle = spec.twist[0], spec.twist[1]
 			joint_def.enable_spring = def.hertz > 0
 			joint_def.hertz, joint_def.damping_ratio = def.hertz, def.damping_ratio
+			joint_def.target_rotation = unit_quat(relative)
 			joint_def.enable_motor = true
 			joint_def.max_motor_torque = spec.friction_share * def.friction_torque
 			ragdoll.joints[bone] = create_spherical_joint(world, parent, child, joint_def, loc)
@@ -156,17 +190,22 @@ ragdoll_joint_type :: proc "contextless" (bone: Ragdoll_Bone) -> (type: Joint_Ty
 	return RAGDOLL_BONES[bone].revolute ? .Revolute : .Spherical, true
 }
 
-// A bone's capsules, body-local (what a view draws at the bone's body): its own, and a calf's foot as a second one
-// (`count` 2; else 1).
-ragdoll_capsules :: proc "contextless" (bone: Ragdoll_Bone) -> (capsules: [2]Capsule, count: int) {
+// A bone's capsules at `scale` (Ragdoll_Def.scale), body-local (what a view draws at the bone's body): its own, and a
+// calf's foot as a second one (`count` 2; else 1).
+ragdoll_capsules :: proc "contextless" (bone: Ragdoll_Bone, scale: f32 = 1) -> (capsules: [2]Capsule, count: int) {
 	capsules = RAGDOLL_BONES[bone].capsules
-	return capsules, capsules[1].radius > 0 ? 2 : 1
+	count = capsules[1].radius > 0 ? 2 : 1
+	for &capsule in capsules {
+		capsule = {capsule.center1 * scale, capsule.center2 * scale, capsule.radius * scale}
+	}
+	return capsules, count
 }
 
-// Sets the torque every joint's motor holds against (Ragdoll_Def.friction_torque: each bone takes its share).
+// Sets the torque every joint's motor holds against (Ragdoll_Def.friction_torque: each bone takes its share). Joints
+// gone (a ragdoll partly destroyed, or none) are skipped.
 ragdoll_set_friction_torque :: proc(world: ^World, ragdoll: ^Ragdoll, torque: f32) {
 	for bone in Ragdoll_Bone {
-		if bone == .Pelvis do continue
+		if bone == .Pelvis || !joint_valid(world, ragdoll.joints[bone]) do continue
 		share := RAGDOLL_BONES[bone].friction_share * torque
 		if RAGDOLL_BONES[bone].revolute {
 			revolute_joint_set_max_motor_torque(world, {ragdoll.joints[bone]}, share)
@@ -176,10 +215,11 @@ ragdoll_set_friction_torque :: proc(world: ^World, ragdoll: ^Ragdoll, torque: f3
 	}
 }
 
-// Sets the joints' springs toward the rest pose (Ragdoll_Def.hertz; 0 turns them off).
+// Sets the joints' springs toward the pose the ragdoll was made in (Ragdoll_Def.hertz; 0 turns them off). Joints gone
+// are skipped.
 ragdoll_set_spring_hertz :: proc(world: ^World, ragdoll: ^Ragdoll, hertz: f32) {
 	for bone in Ragdoll_Bone {
-		if bone == .Pelvis do continue
+		if bone == .Pelvis || !joint_valid(world, ragdoll.joints[bone]) do continue
 		if RAGDOLL_BONES[bone].revolute {
 			revolute_joint_enable_spring(world, {ragdoll.joints[bone]}, hertz > 0)
 			revolute_joint_set_spring_hertz(world, {ragdoll.joints[bone]}, hertz)
@@ -190,10 +230,10 @@ ragdoll_set_spring_hertz :: proc(world: ^World, ragdoll: ^Ragdoll, hertz: f32) {
 	}
 }
 
-// Sets the springs' damping ratio (Ragdoll_Def.damping_ratio).
+// Sets the springs' damping ratio (Ragdoll_Def.damping_ratio). Joints gone are skipped.
 ragdoll_set_spring_damping_ratio :: proc(world: ^World, ragdoll: ^Ragdoll, damping_ratio: f32) {
 	for bone in Ragdoll_Bone {
-		if bone == .Pelvis do continue
+		if bone == .Pelvis || !joint_valid(world, ragdoll.joints[bone]) do continue
 		if RAGDOLL_BONES[bone].revolute {
 			revolute_joint_set_spring_damping_ratio(world, {ragdoll.joints[bone]}, damping_ratio)
 		} else {
@@ -202,14 +242,30 @@ ragdoll_set_spring_damping_ratio :: proc(world: ^World, ragdoll: ^Ragdoll, dampi
 	}
 }
 
-// Gives every bone the linear velocity `velocity` (m/s): a ragdoll thrown, or taking over a character's motion.
-ragdoll_set_velocity :: proc(world: ^World, ragdoll: ^Ragdoll, velocity: [3]f32) {
-	for bone in ragdoll.bones do body_set_linear_velocity(world, bone, velocity)
+// Moves the ragdoll as one rigid body would: each bone gets `linear` (m/s, the pelvis's centre of mass) plus
+// `angular` × its centre of mass's offset from the pelvis's, and the angular velocity `angular` (rad/s): a ragdoll
+// thrown, or taking over a character's motion as it falls. Bodies gone are skipped (the pelvis gone: about the origin).
+ragdoll_set_velocity :: proc(world: ^World, ragdoll: ^Ragdoll, linear: [3]f32, angular := [3]f32{}) {
+	pivot: [3]f32
+	if body_valid(world, link(ragdoll.bones[.Pelvis])) do pivot = body_world_center(world, ragdoll.bones[.Pelvis])
+	for bone in ragdoll.bones {
+		if !body_valid(world, link(bone)) do continue
+		offset := body_world_center(world, bone) - pivot
+		spin := [3]f32 {
+			angular.y * offset.z - angular.z * offset.y,
+			angular.z * offset.x - angular.x * offset.z,
+			angular.x * offset.y - angular.y * offset.x,
+		}
+		body_set_linear_velocity(world, bone, linear + spin)
+		body_set_angular_velocity(world, bone, angular)
+	}
 }
 
-// Makes every bone a bullet (continuous collision against dynamic bodies too), or not.
+// Makes every bone a bullet (continuous collision against dynamic bodies too), or not. Bodies gone are skipped.
 ragdoll_set_bullet :: proc(world: ^World, ragdoll: ^Ragdoll, flag: bool) {
-	for bone in ragdoll.bones do body_set_bullet(world, bone, flag)
+	for bone in ragdoll.bones {
+		if body_valid(world, link(bone)) do body_set_bullet(world, bone, flag)
+	}
 }
 
 // One bone of the sample's human: its rest pose (relative to the point between the feet), capsules, surface, and its
@@ -233,7 +289,8 @@ Ragdoll_Bone_Spec :: struct {
 @(private)
 DEG :: 0.017453292519943295 // radians per degree (folded at compile time)
 
-// The sample's human (shared/human.c), its numbers as it writes them.
+// The sample's human (shared/human.c), its numbers as it writes them, facing -Z (ragdoll_rest_pose turns it), its sides
+// named anew: the sample's `_l` bones are on its right (Right_* here).
 @(private, rodata)
 RAGDOLL_BONES := [Ragdoll_Bone]Ragdoll_Bone_Spec {
 	.Pelvis = {
@@ -283,8 +340,8 @@ RAGDOLL_BONES := [Ragdoll_Bone]Ragdoll_Bone_Spec {
 		twist = {-17.5 * DEG, 17.5 * DEG},
 		friction_share = 1,
 	},
-	.Left_Thigh = {
-		name = "left thigh",
+	.Right_Thigh = {
+		name = "right thigh",
 		parent = .Pelvis,
 		frame = {{0.092175, 0.971562, -0.011177}, {0.471412, 0.52951, -0.499888, -0.497495}},
 		capsules = {0 = {{-0.047269, 0.000001, 0}, {-0.379769, 0.000005, 0}, 0.091539}},
@@ -296,9 +353,9 @@ RAGDOLL_BONES := [Ragdoll_Bone]Ragdoll_Bone_Spec {
 		twist = {-10 * DEG, 10 * DEG},
 		friction_share = 1,
 	},
-	.Left_Calf = {
-		name           = "left calf",
-		parent         = .Left_Thigh,
+	.Right_Calf = {
+		name           = "right calf",
+		parent         = .Right_Thigh,
 		frame          = {{0.11872, 0.534541, -0.035362}, {0.521188, 0.480597, -0.54638, -0.445935}},
 		capsules       = {
 			{{-0.445, 0.000001, 0}, {0.005, -0.000001, 0}, 0.08},
@@ -311,8 +368,8 @@ RAGDOLL_BONES := [Ragdoll_Bone]Ragdoll_Bone_Spec {
 		twist          = {-30 * DEG, 30 * DEG},
 		friction_share = 1,
 	},
-	.Right_Thigh = {
-		name = "right thigh",
+	.Left_Thigh = {
+		name = "left thigh",
 		parent = .Pelvis,
 		frame = {{-0.092175, 0.971562, -0.011177}, {-0.497495, 0.499888, 0.52951, -0.471412}},
 		capsules = {0 = {{0.047269, -0.000001, 0}, {0.379769, -0.000005, 0}, 0.092587}},
@@ -324,9 +381,9 @@ RAGDOLL_BONES := [Ragdoll_Bone]Ragdoll_Bone_Spec {
 		twist = {-10 * DEG, 10 * DEG},
 		friction_share = 1,
 	},
-	.Right_Calf = {
-		name           = "right calf",
-		parent         = .Right_Thigh,
+	.Left_Calf = {
+		name           = "left calf",
+		parent         = .Left_Thigh,
 		frame          = {{-0.11872, 0.534541, -0.035362}, {-0.445935, 0.54638, 0.480597, -0.521188}},
 		capsules       = {
 			{{0.445, -0.000002, 0.000003}, {-0.005, 0, 0.000003}, 0.08},
@@ -339,8 +396,8 @@ RAGDOLL_BONES := [Ragdoll_Bone]Ragdoll_Bone_Spec {
 		twist          = {-30 * DEG, 30 * DEG},
 		friction_share = 1,
 	},
-	.Left_Upper_Arm = {
-		name = "left upper arm",
+	.Right_Upper_Arm = {
+		name = "right upper arm",
 		parent = .Chest,
 		frame = {{0.185817, 1.44363, 0.031306}, {0.56022, -0.307179, 0.366233, -0.676512}},
 		capsules = {0 = {{0.296038, 0.004386, -0.000794}, {-0.016086, 0.004384, -0.016127}, 0.065}},
@@ -352,9 +409,9 @@ RAGDOLL_BONES := [Ragdoll_Bone]Ragdoll_Bone_Spec {
 		twist = {-20 * DEG, 20 * DEG},
 		friction_share = 0.8,
 	},
-	.Left_Forearm = {
-		name = "left forearm",
-		parent = .Left_Upper_Arm,
+	.Right_Forearm = {
+		name = "right forearm",
+		parent = .Right_Upper_Arm,
 		frame = {{0.347683, 1.193455, 0.029378}, {0.406736, -0.493012, 0.089135, -0.763911}},
 		capsules = {0 = {{0.312329, -0.008256, -0.016454}, {0.033153, 0.008259, -0.002741}, 0.06}},
 		friction = 0.3,
@@ -365,8 +422,8 @@ RAGDOLL_BONES := [Ragdoll_Bone]Ragdoll_Bone_Spec {
 		twist = {-35 * DEG, 35 * DEG},
 		friction_share = 0.06,
 	},
-	.Right_Upper_Arm = {
-		name = "right upper arm",
+	.Left_Upper_Arm = {
+		name = "left upper arm",
 		parent = .Chest,
 		frame = {{-0.185817, 1.44363, 0.031306}, {0.676512, 0.366233, 0.307179, 0.56022}},
 		capsules = {0 = {{-0.300237, -0.000001, -0.000319}, {0.011887, 0.000001, 0.015013}, 0.065}},
@@ -378,9 +435,9 @@ RAGDOLL_BONES := [Ragdoll_Bone]Ragdoll_Bone_Spec {
 		twist = {-20 * DEG, 20 * DEG},
 		friction_share = 0.8,
 	},
-	.Right_Forearm = {
-		name = "right forearm",
-		parent = .Right_Upper_Arm,
+	.Left_Forearm = {
+		name = "left forearm",
+		parent = .Left_Upper_Arm,
 		frame = {{-0.347683, 1.193455, 0.029378}, {0.763911, 0.089135, 0.493012, 0.406736}},
 		capsules = {0 = {{-0.312649, -0.000003, 0.016471}, {-0.032986, 0, 0.002732}, 0.06}},
 		friction = 0.3,
@@ -393,6 +450,10 @@ RAGDOLL_BONES := [Ragdoll_Bone]Ragdoll_Bone_Spec {
 	},
 }
 
+// A half turn about +Y: the sample's -Z-facing human turned to face +Z.
+@(private)
+HALF_TURN_Y :: [4]f32{0, 1, 0, 0}
+
 // The bone pairs a filter joint keeps apart: neither jointed nor meant to touch.
 @(private, rodata)
 RAGDOLL_FILTER_PAIRS := [RAGDOLL_FILTERS][2]Ragdoll_Bone {
@@ -403,9 +464,15 @@ RAGDOLL_FILTER_PAIRS := [RAGDOLL_FILTERS][2]Ragdoll_Bone {
 	{.Spine, .Right_Thigh},
 }
 
-// `quat` scaled to unit length (sqrt only).
+// `quat` scaled to unit length (times 1 / sqrt of its squared length, as b3NormalizeQuat does).
 @(private)
 unit_quat :: proc(quat: [4]f32) -> [4]f32 {
-	length := dmath.sqrt(quat.x * quat.x + quat.y * quat.y + quat.z * quat.z + quat.w * quat.w)
-	return {quat.x / length, quat.y / length, quat.z / length, quat.w / length}
+	scale := 1 / dmath.sqrt(quat.x * quat.x + quat.y * quat.y + quat.z * quat.z + quat.w * quat.w)
+	return quat * scale
+}
+
+// The inverse rotation of a unit quaternion.
+@(private)
+quat_conjugate :: proc(quat: [4]f32) -> [4]f32 {
+	return {-quat.x, -quat.y, -quat.z, quat.w}
 }
