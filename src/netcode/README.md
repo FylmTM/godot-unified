@@ -322,9 +322,10 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
 - Every client sends the checksum of every `CHECKSUM_EVERY`th verified tick (`sim.DEEP_CHECKSUM_EVERY`: they cover
   every extra's whole state); a joiner from its first checksum tick after S on.
 - The relay judges a checksum tick once every connection expected to report it has, or a fixed wait after it is
-  due: the majority value, one vote per connection, since a connection is one sim whatever its seats (a tie goes to
-  the connection holding the lowest slot: with 2 players, the host). The slots of the connections that differ from it
-  are a **desync**: counted, logged, and reported to every client (`Desync_Report`); the `desync` hook gets it, the dev UI
+  due. A connection waiting to be resynced, or one the ring no longer reaches, is not expected (its reports are no
+  votes): the ticks around a resync are judged as soon as the others' reports are in. The majority value, one vote
+  per connection, since a connection is one sim whatever its seats (a tie goes to the connection holding the lowest
+  slot: with 2 players, the host). The slots of the connections that differ from it are a **desync**: counted, logged, and reported to every client (`Desync_Report`); the `desync` hook gets it, the dev UI
   shows it, `session_run`'s `ok` turns false. A late report that differs from a judged tick is reported too.
   Checksums of ticks the relay has not finalized are dropped.
 - **Kept ticks**: every client keeps its last few checksum ticks (Welcome's `Keep_Images`) as copies
@@ -333,13 +334,19 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
   stays on in every build.
 - **The recovery ladder**: after a desync is reported, each diverged connection is **resynced in place**
   (`Relay_Config.leave_diverged` turns it off, for tests). The relay picks B, the newest judged checksum tick a
-  connection on the majority's side reported (and kept), that no target can still report from its old state, asks
-  that connection for its kept snapshot of B and sends it to the targets (`Resync`, then its chunks). A target freezes
+  connection on the majority's side reported and still keeps (`RESYNC_REACH`), asks that connection for its kept
+  snapshot of B and sends it to the targets (`Resync`, then its chunks). B is one no target can still report from its
+  old state, whose report would read as its restore's: a diverged target's B is a tick it reported, at or after the
+  one it diverged on (an older one would replay the fault); a target that only fell behind may also take one it never
+  received. With no such B yet, or when the fetch fails (the provider left, answered empty, stalled, or took
+  `IMAGE_GIVE_UP_MS`), the targets wait and try again (another provider, a newer tick), uncounted. A target freezes
   (`Status.Recovering`), restores it, is checked like a joiner (`Snap_Ok`) and is streamed the finalized ticks after
   B again. It keeps its seat, member, clock and input stream: nobody sees a leave or a join. `Resync` says which of its
   commands B already holds (the relay keeps each seat's newest placed command per tick, `Seat.placed`), so none is
-  predicted twice or lost. A connection that can't be resynced (nobody on the majority's side keeps such a tick, the
-  snapshot never comes, what it restores fails the check, or `RESYNCS_MAX` resyncs before) is dropped (`Desynced`).
+  predicted twice or lost: the client drops its own commands by seq, as verified ticks carry them, so the ticks after B
+  verified a second time drop none twice. A connection that can't be resynced (no majority player can send it a
+  snapshot within `IMAGE_GIVE_UP_MS` of the desync, what it restores fails the check, or `RESYNCS_MAX` resyncs before)
+  is dropped (`Desynced`).
   With 2 players the tie goes to the host, so the other is resynced from the host's state. A client the ring no longer
   reaches is resynced the same way (the re-anchor), dropped as `Too_Far_Behind` when it can't be. `session_run`'s
   `ok` stays false after any desync, recovered or not: nondeterminism is a bug.

@@ -155,6 +155,7 @@ Local_Seat :: struct($G: typeid) {
 	own_cmds:   [dynamic]Own_Command, // sent (until acked) and predicted until a verified tick carries them, seq order
 	cmd_seq:    u32, // the last seq given
 	cmd_acked:  u32, // the relay has every seq up to this one
+	cmd_final:  u32, // the newest seq a verified tick carries (the relay places them in seq order, without gaps)
 }
 
 // A joiner waiting for our snapshot: of the first checksum tick >= min_tick we verify.
@@ -993,6 +994,7 @@ load_resync :: proc(client: ^Client($G), now: i64) {
 			k += 1
 		}
 		remove_range(&seat.own_cmds, 0, k)
+		seat.cmd_final = client.resync_placed[local] // the ticks after the base are verified again, counting on from it
 		if seat.state != .Seated do continue
 		seat.own_last = max(seat.own_last, base)
 		seat.own_acked = max(seat.own_acked, base) // finalized: nothing of them to send
@@ -1072,13 +1074,17 @@ predicted_inputs :: proc(client: ^Client($G), tick: u32, out: ^usim.Inputs(G)) {
 	}
 }
 
-// A verified tick carries the own commands the relay put in it: they are no longer predicted.
+// A verified tick carries the own commands the relay put in it: they are no longer predicted. Dropped by seq, not by
+// count: after a resync the ticks past its base are verified a second time, and their commands left own_cmds the
+// first time.
 @(private)
 drop_verified_commands :: proc(client: ^Client($G), tick: u32) {
 	for &seat in client.locals {
 		if seat.state != .Seated || tick < seat.first_tick do continue
-		carried := len(usim.slot_commands(&client.fin[tick % FIN_RING], seat.slot))
-		remove_range(&seat.own_cmds, 0, min(carried, len(seat.own_cmds)))
+		seat.cmd_final += u32(len(usim.slot_commands(&client.fin[tick % FIN_RING], seat.slot)))
+		k := 0
+		for k < len(seat.own_cmds) && seat.own_cmds[k].seq <= seat.cmd_final do k += 1
+		remove_range(&seat.own_cmds, 0, k)
 	}
 }
 
@@ -1713,7 +1719,7 @@ reconnect :: proc(client: ^Client($G), lost_us: i64) {
 		seat.join_tick = 0
 		seat.slot = -1
 		clear(&seat.own_cmds)
-		seat.cmd_seq, seat.cmd_acked = 0, 0
+		seat.cmd_seq, seat.cmd_acked, seat.cmd_final = 0, 0, 0
 	}
 	client.slot = -1
 	clear(&client.snap_reqs)

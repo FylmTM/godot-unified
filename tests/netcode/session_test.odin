@@ -109,11 +109,19 @@ net_log :: proc(session: ^Net) -> ^sim.Input_Log(toy.Game) {
 	return &session.log
 }
 
-// A host with `remotes` remote clients under `wan`; `record`: the relay records the session (net_log).
-net_make :: proc(session: ^Net, ticks: u32, remotes: int, record := true, setup := toy.Setup{}) {
+// A host with `remotes` remote clients under `wan`; `record`: the relay records the session (net_log); `game`: the
+// host's game (default the toy; the remotes play the toy).
+net_make :: proc(
+	session: ^Net,
+	ticks: u32,
+	remotes: int,
+	record := true,
+	setup := toy.Setup{},
+	game: ^toy.Game = nil,
+) {
 	session.clock.now = 1_000_000
 	session.hub = netcode.hub_create(8)
-	session.host = netcode.host_create(&toy.GAME, {
+	session.host = netcode.host_create(game != nil ? game : &toy.GAME, {
 			seed = SEED,
 			setup = setup,
 			ticks = ticks,
@@ -130,14 +138,24 @@ net_make :: proc(session: ^Net, ticks: u32, remotes: int, record := true, setup 
 }
 
 // A plain relay (no host player) whose clock starts once `start_players` clients connected; `desync_detail`: typed
-// desync reports.
-net_make_relay :: proc(session: ^Net, start_players: int, ticks: u32, desync_detail := false) {
+// desync reports; `record`: it records the session (net_log); `game`: its game (default the toy).
+net_make_relay :: proc(
+	session: ^Net,
+	start_players: int,
+	ticks: u32,
+	desync_detail := false,
+	record := false,
+	game: ^toy.Game = nil,
+) {
 	session.clock.now = 1_000_000
 	session.hub = netcode.hub_create(8)
-	session.relay = netcode.relay_create(
-		&toy.GAME,
-		{seed = SEED, ticks = ticks, start_players = start_players, desync_detail = desync_detail},
-	)
+	session.relay = netcode.relay_create(game != nil ? game : &toy.GAME, {
+		seed          = SEED,
+		ticks         = ticks,
+		start_players = start_players,
+		desync_detail = desync_detail,
+		recording     = record ? sim.log_sink_memory(&session.recording) : {},
+	})
 	netcode.relay_add_link(session.relay, netcode.loopback_link(session.hub, 0))
 }
 
