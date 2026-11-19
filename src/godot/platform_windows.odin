@@ -1,6 +1,7 @@
-// Thread classes and the file lock on Windows. Sleep rounds up to the timer resolution (15.6 ms by default), so a
-// session asks for 1 ms (timeBeginPeriod) and opts out of power throttling: Windows 11 ignores a minimised or
-// occluded process's timer resolution request, and EcoQoS slows a background process's threads.
+// Thread classes and the file lock on Windows. The session thread runs two above normal priority, so it wakes on time
+// on a busy machine. Sleep rounds up to the timer resolution (15.6 ms by default), so a session asks for 1 ms
+// (timeBeginPeriod) and opts out of power throttling: Windows 11 ignores a minimised or occluded process's timer
+// resolution request, and EcoQoS slows a background process's threads.
 #+private
 package godot
 
@@ -64,9 +65,17 @@ set_power_throttling :: proc(control: u32) {
 	_ = SetProcessInformation(win.GetCurrentProcess(), PROCESS_POWER_THROTTLING, &throttling, size_of(throttling)) // Windows 8+; best effort
 }
 
-// Nothing on Windows: the session thread keeps its class; the 1 ms timer resolution session_power_begin asks for
-// is what makes its sleeps wake on time.
-set_realtime_thread :: proc(tick_hz: int) {}
+// The session thread: two above normal (THREAD_PRIORITY_HIGHEST, still the normal class, no privilege needed). At
+// normal priority a thread that wakes while every core is busy waits for a quantum: `uni bench`'s wake row measured
+// 11-41 ms late, wakes a whole tick late; at HIGHEST it preempts and wakes ~0.3 ms late (the high-resolution
+// timer's granularity) whatever the load. Real-time priority (TIME_CRITICAL, MMCSS) measured no better. Running
+// flat out (a joiner's catch-up) it holds its core against normal-priority threads, as macOS's time-constraint
+// class does.
+set_realtime_thread :: proc(tick_hz: int) {
+	if !win.SetThreadPriority(win.GetCurrentThread(), win.THREAD_PRIORITY_HIGHEST) {
+		fmt.eprintln("unified: SetThreadPriority(HIGHEST) failed")
+	}
+}
 
 // Starts a session's power requests (session thread): 1 ms timer resolution and no power throttling, so a game
 // hosting in the background keeps its tick rate. Paired with session_power_end; a second call does nothing.

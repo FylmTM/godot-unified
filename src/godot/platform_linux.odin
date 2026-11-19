@@ -1,4 +1,6 @@
-// Thread classes on Linux: plain sleeps (to be measured), nothing asked of the system for a session.
+// Thread classes on Linux: plain sleeps, nothing asked of the system for a session. A woken thread preempts busy
+// ones there: `uni bench`'s wake row measured ~60 µs late (a few ms at worst) with every core busy, so no real-time
+// class (SCHED_FIFO needs CAP_SYS_NICE or rtkit).
 #+private
 package godot
 
