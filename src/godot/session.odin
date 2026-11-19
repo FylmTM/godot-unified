@@ -36,6 +36,8 @@ Session_Node :: struct {
 	pending:     Start, // a start that waits for the previous session's goodbye (has_pending)
 	has_pending: bool,
 	roster_seen: u32, // roster.changes when roster_changed was last emitted
+	slots_seen:  [sim.MAX_PLAYERS]u64, // the shown frame's slots when roster_changed was last emitted
+	known_seen:  int, // the shown frame's n_members then
 	mode:        Mode, // the session started last (UnifiedSession.mode; the dev UI: no netsim in single player)
 	level:       Level_Host, // the level on screen and its scene (level_host.odin)
 	locals_seen: [LOCAL_MAX]u64, // the local players' keys when local_players_changed was last emitted
@@ -473,7 +475,7 @@ register_session_class :: proc() {
 	gd.bind_signal(
 		class,
 		"roster_changed",
-		doc = "A player's name, connection or account changed (the get_player_* methods).",
+		doc = "Who is in the session at the shown tick changed ([method get_players], [method get_known_players], [method get_player_slot]: a player joined, left or moved slots), or a player's name, connection or account did (the get_player_* methods): redraw a player list here.",
 	)
 	for name, status in STATUS_NAMES {
 		gd.bind_constant(
@@ -1006,10 +1008,19 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 	drain_events(session)
 	V.stats.delivery += time.tick_since(delivering)
 	drain_messages(session)
+	// The relay's roster and who the shown tick has present come apart: a joiner's roster entry arrives ticks before
+	// the tick that seats them is on screen, so either one changing is a roster change.
+	roster_moved := false
 	if changes := sync.atomic_load(&roster.changes); changes != session.roster_seen {
 		session.roster_seen = changes
-		gd.emit_signal(session.obj, gd.sn("roster_changed"))
+		roster_moved = true
 	}
+	if frame := session.frame;
+	   frame != nil && (frame.slots != session.slots_seen || frame.n_members != session.known_seen) {
+		session.slots_seen, session.known_seen = frame.slots, frame.n_members
+		roster_moved = true
+	}
+	if roster_moved do gd.emit_signal(session.obj, gd.sn("roster_changed"))
 	if session.frame != nil && session.frame.local_players != session.locals_seen {
 		session.locals_seen = session.frame.local_players
 		gd.emit_signal(session.obj, gd.sn("local_players_changed"))
