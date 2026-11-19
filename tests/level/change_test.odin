@@ -243,7 +243,8 @@ level_change_does_not_grow :: proc(t: ^testing.T) {
 		}
 		level_bodies := 0
 		for entry in session.world.phys.bodies do level_bodies += int(.Level in entry.flags)
-		testing.expect_value(t, level_bodies, 1 if session.state.level.id == .Yard else 3) // the pit's field has a body
+		// One compound each (the yard's hulls and mesh; the pit's floor and ball), and the pit's field on a body of its own.
+		testing.expect_value(t, level_bodies, 1 if session.state.level.id == .Yard else 2)
 		if session.state.level.id == .Yard && visit > 0 do append(&yard_sizes, len(session.world.phys.bodies))
 	}
 	testing.expect(t, len(yard_sizes) >= 2)

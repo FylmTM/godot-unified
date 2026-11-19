@@ -28,6 +28,26 @@ Physics_Report :: struct {
 		workers_1: Physics_Rollback,
 		workers_4: Physics_Rollback,
 	},
+	// A generated level of 10k static shapes built as a game's is (compounds by cell), with 100 and 500 dynamic
+	// bodies: what the level costs each operation a session repeats.
+	large_level:    []Physics_Large_Level,
+}
+
+Physics_Large_Level :: struct {
+	shapes:          int,
+	statics:         int, // the level's static bodies (compounds, and shapes alone in their cell)
+	dynamic_bodies:  int,
+	world_create_ms: f64, // create_with_levels: the level parsed, built and baked
+	level_change_us: cli.Bench_Stat, // entering the level (its static bodies destroyed and made)
+	step_us:         cli.Bench_Stat,
+	save_us:         cli.Bench_Stat,
+	restore_us:      cli.Bench_Stat,
+	hash_deep_us:    cli.Bench_Stat,
+	rollback_us:     cli.Bench_Stat, // a restore `rollback_depth` ticks back, then as many steps, each saved
+	rollback_depth:  int,
+	snapshot_bytes:  int, // a ring slot
+	image_bytes:     int, // a late joiner's image (the level's compounds ride in it)
+	load_us:         cli.Bench_Stat, // its load into another world
 }
 
 Physics_Rollback :: struct {
@@ -90,5 +110,25 @@ physics_bench :: proc(work: string) -> (data: any, ok: bool) {
 		cli.BENCH_TARGET_US / 1000,
 		four.bodies_fit,
 	)
+	for row in report.large_level {
+		cli.log(
+			"%-12s %d static shapes (%d bodies), %d dynamic: change %.0f us, step %.0f us, save %.0f us (%d bytes), restore %.0f us, deep hash %.0f us, %d-tick rollback %.2f ms; image %d bytes, load %.0f us; built in %.0f ms",
+			"",
+			row.shapes,
+			row.statics,
+			row.dynamic_bodies,
+			row.level_change_us.mean,
+			row.step_us.mean,
+			row.save_us.mean,
+			row.snapshot_bytes,
+			row.restore_us.mean,
+			row.hash_deep_us.mean,
+			row.rollback_depth,
+			row.rollback_us.mean / 1000,
+			row.image_bytes,
+			row.load_us.mean,
+			row.world_create_ms,
+		)
+	}
 	return report^, true
 }

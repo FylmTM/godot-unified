@@ -10,20 +10,45 @@ import "unified:dmath"
 import "unified:level"
 import "unified:sim"
 
-// One of the World's levels (create_with_levels): its parsed file and its geometry, immutable while the world lives.
+// One of the World's levels (create_with_levels): its parsed file, its geometry and the static bodies a change makes,
+// immutable while the world lives.
 @(private)
 Baked_Level :: struct {
 	name:          string,
 	data:          level.Level,
-	// The geometry of each shape, by its index in data.shapes (nil for the kinds that need none: spheres, capsules).
+	statics:       []Level_Static, // in the order level_change creates them
+	compounds:     []^Compound_Data, // the statics' compounds
+	// The geometry of each shape that stays a shape of its own, by its index in data.shapes (nil for a shape in a
+	// compound, which holds a copy, and for the kinds that need none: spheres, capsules).
 	hulls:         []^Hull_Data, // boxes and hulls, in their body's frame
 	meshes:        []^Mesh_Data,
 	height_fields: []^Height_Field_Data,
 }
 
+// One static body of a level, as level_change creates it: a compound of the shapes of one cell and category (at the
+// cell's corner, unrotated), or one shape alone at its level body's pose (a cell's only shape of its category; a
+// height field, which no compound holds, at its own pose).
+@(private)
+Level_Static :: struct {
+	pos:      [3]f32,
+	rot:      [4]f32,
+	category: u64,
+	compound: ^Compound_Data, // nil: `shape` alone
+	shape:    int, // the shape alone, by its index in data.shapes
+}
+
+// The default edge of a level's compound cell (Settings.level_cell), in metres.
+LEVEL_CELL_DEFAULT :: f32(64)
+
+// The furthest cell from the origin on each axis, so a level shape's cell index stays an i32 (a shape past it shares
+// the edge cell).
+@(private)
+LEVEL_CELL_LIMIT :: f32(1 << 20)
+
 // A physics world for a game with levels (world_create): `settings`' world, then every level of `levels`
-// (sim.Game.levels) parsed and its geometry built (hulls, meshes, height fields), so a level change creates bodies
-// and builds nothing. No static body is made: the game's init enters a level (level_change). Shapes without a
+// (sim.Game.levels) parsed and its geometry built (hulls, meshes, height fields), and its shapes baked into compounds
+// by cell and category (src/physics/README.md, Levels), so a level change creates bodies and builds nothing. No static
+// body is made: the game's init enters a level (level_change). Shapes without a
 // category in the file get `default_category`. `problem` names a file that is no level, or the first shape Box3D
 // refuses in any level (a hull under 4 points or past its 128 edges, a mesh of degenerate triangles), with its level,
 // body and shape: a bad level shows at startup, never at a change mid-session. `world` is nil with a problem. destroy
@@ -39,8 +64,10 @@ create_with_levels :: proc(
 	world: ^World,
 	problem: string,
 ) {
+	assert(settings.level_cell >= 0, "physics: Settings.level_cell is a cell's edge in metres (0: LEVEL_CELL_DEFAULT)")
 	world = create(settings)
 	world.level_category = default_category
+	world.level_cell = settings.level_cell if settings.level_cell > 0 else LEVEL_CELL_DEFAULT
 	for file in levels {
 		baked := Baked_Level {
 			name = file.name,
@@ -52,7 +79,7 @@ create_with_levels :: proc(
 			return nil, fmt.tprintf("level %q: not a level file of this version (src/level/README.md)", file.name)
 		}
 		append(&world.levels, baked)
-		if problem = bake_level(&world.levels[len(world.levels) - 1]); problem != "" {
+		if problem = bake_level(world, &world.levels[len(world.levels) - 1]); problem != "" {
 			destroy(world)
 			return nil, problem
 		}
@@ -71,8 +98,8 @@ level_data :: proc(
 }
 
 // Makes `id` the active level, inside init or tick: destroys the static bodies of the level now built (in body index
-// order) and creates `id`'s from what create_with_levels built (in file order, each height field's body after its
-// level body's), then sim.level_enter. Box3D's snapshot holds static bodies like any other, so a rollback across the
+// order) and creates `id`'s from what create_with_levels built (its compounds in cell and category order, then its
+// height fields in file order), then sim.level_enter. Box3D's snapshot holds static bodies like any other, so a rollback across the
 // change, a late join after it and a replay of it are exact. Entering the active level rebuilds it.
 //
 // Destroy what hangs on the old level first: a joint to a level body goes with it (a character standing on the level
@@ -147,9 +174,10 @@ create_level_shape :: proc(
 	assert(created, "physics: Box3D refused a level shape it built", loc)
 }
 
-// Builds every shape's geometry of a level once; the first refused shape is the problem, by level, body and shape.
+// Builds every shape's geometry of a level once, then bakes its static bodies (bake_statics); the first refused shape
+// is the problem, by level, body and shape.
 @(private)
-bake_level :: proc(baked: ^Baked_Level) -> (problem: string) {
+bake_level :: proc(world: ^World, baked: ^Baked_Level) -> (problem: string) {
 	count := len(baked.data.shapes)
 	baked.hulls = make([]^Hull_Data, count)
 	baked.meshes = make([]^Mesh_Data, count)
@@ -184,50 +212,236 @@ bake_level :: proc(baked: ^Baked_Level) -> (problem: string) {
 			index += 1
 		}
 	}
+	if problem == "" do bake_statics(world, baked)
 	return problem
 }
 
-// Frees a level's geometry and parsed file (after the Box3D world: its shapes point at the meshes and height fields).
+// A level shape on its way into a static body (bake_statics): the cell and category that group it, and where it is.
 @(private)
-unbake_level :: proc(baked: ^Baked_Level) {
-	for hull in baked.hulls do if hull != nil do destroy_hull(hull)
-	for mesh in baked.meshes do if mesh != nil do destroy_mesh(mesh)
-	for height_field in baked.height_fields do if height_field != nil do destroy_height_field(height_field)
-	delete(baked.hulls)
-	delete(baked.meshes)
-	delete(baked.height_fields)
-	level.destroy(&baked.data)
+Level_Cell_Entry :: struct {
+	center:   [3]f32, // of its bounds in the world
+	cell:     [3]i32,
+	category: u64,
+	index:    int, // in data.shapes
+	body:     int, // in data.bodies
 }
 
-// Creates a level's static bodies from its baked geometry, flagged as the level's in the body table.
+// Groups a level's shapes by cell and filter category, sorted by cell x, y, z then category (file order inside a
+// group), and makes each group of two shapes or more one compound at its cell's corner. The cells are cubes of edge
+// world.level_cell from the lowest corner of the level's bounds, so a level smaller than a cell is one compound per
+// category wherever it sits; a shape's cell is the one holding the centre of its bounds. A group of one stays a shape
+// of its own; height fields, which no compound holds, come after, in file order. The order and the bytes depend on
+// the level and the cell size alone, so every peer builds the same statics. The geometry copied into a compound is
+// freed.
 @(private)
-build_level :: proc(world: ^World, baked: ^Baked_Level) {
+bake_statics :: proc(world: ^World, baked: ^Baked_Level) {
+	entries := make([dynamic]Level_Cell_Entry, 0, len(baked.data.shapes), context.temp_allocator)
+	statics: [dynamic]Level_Static
+	compounds: [dynamic]^Compound_Data
+	corner: [3]f32 // the lowest corner of the shapes' bounds: the cells' origin
 	index := 0
+	for &level_body, body_index in baked.data.bodies {
+		category := level_body.category if level_body.category != 0 else world.level_category
+		pose := Transform{level_body.pos, level_body.rot}
+		for &shape in level_body.shapes {
+			if shape.kind != .Height_Field {
+				bounds := level_shape_bounds(&shape, pose, baked.hulls[index], baked.meshes[index])
+				if len(entries) == 0 do corner = bounds.lower_bound
+				for axis in 0 ..< 3 do corner[axis] = dmath.min(corner[axis], bounds.lower_bound[axis])
+				center := (bounds.lower_bound + bounds.upper_bound) * 0.5
+				append(
+					&entries,
+					Level_Cell_Entry{center = center, category = category, index = index, body = body_index},
+				)
+			}
+			index += 1
+		}
+	}
+	for &entry in entries do entry.cell = level_cell_of(entry.center - corner, world.level_cell)
+	sort_results(world, entries[:], proc(a, b: Level_Cell_Entry) -> bool {
+		for axis in 0 ..< 3 do if a.cell[axis] != b.cell[axis] do return a.cell[axis] < b.cell[axis]
+		return a.category < b.category
+	})
+	for start := 0; start < len(entries); {
+		end := start + 1
+		for end < len(entries) &&
+		    entries[end].cell == entries[start].cell &&
+		    entries[end].category == entries[start].category {
+			end += 1
+		}
+		group := entries[start:end]
+		start = end
+		if len(group) == 1 {
+			level_body := &baked.data.bodies[group[0].body]
+			append(&statics, Level_Static {
+				pos      = level_body.pos,
+				rot      = level_body.rot,
+				category = group[0].category,
+				shape    = group[0].index,
+			})
+			continue
+		}
+		origin := corner + [3]f32{f32(group[0].cell.x), f32(group[0].cell.y), f32(group[0].cell.z)} * world.level_cell
+		compound := level_compound(baked, group, origin)
+		append(&compounds, compound)
+		append(
+			&statics,
+			Level_Static{pos = origin, rot = {0, 0, 0, 1}, category = group[0].category, compound = compound},
+		)
+	}
+	index = 0
 	for &level_body in baked.data.bodies {
-		body := level_body_create(world, level_body.pos, level_body.rot)
-		shape_def := transmute(Shape_Def)box3d.DefaultShapeDef()
-		shape_def.filter.category = level_body.category if level_body.category != 0 else world.level_category
+		category := level_body.category if level_body.category != 0 else world.level_category
 		for &shape in level_body.shapes {
 			if shape.kind == .Height_Field {
 				pose := transmute(Transform)box3d.MulTransforms(
 					transmute(box3d.Transform)Transform{level_body.pos, level_body.rot},
 					transmute(box3d.Transform)Transform{shape.pos, shape.rot},
 				)
-				field_body := level_body_create(world, pose.p, pose.q)
-				field_def := shape_def
-				field_def.base_material = surface_material(shape.surface)
-				id := box3d.CreateHeightFieldShape(
-					field_body,
-					(^box3d.ShapeDef)(&field_def),
-					baked.height_fields[index],
-				)
-				assert(id.index1 != 0, "physics: Box3D refused a level height field it built")
-			} else {
-				built := level_shape(body, &shape_def, &shape, baked.hulls[index], baked.meshes[index])
-				assert(built, "physics: Box3D refused a level shape it built")
+				append(&statics, Level_Static{pos = pose.p, rot = pose.q, category = category, shape = index})
 			}
 			index += 1
 		}
+	}
+	baked.statics = statics[:]
+	baked.compounds = compounds[:]
+}
+
+// A level shape's bounds in the world, its level body at `pose`.
+@(private)
+level_shape_bounds :: proc(shape: ^level.Shape, pose: Transform, hull: ^Hull_Data, mesh: ^Mesh_Data) -> AABB {
+	#partial switch shape.kind {
+	case .Box, .Hull:
+		return compute_hull_aabb(hull, pose)
+	case .Mesh:
+		return compute_mesh_aabb(mesh, pose)
+	case .Sphere:
+		return compute_sphere_aabb({shape.pos, shape.radius}, pose)
+	case .Capsule:
+		return compute_capsule_aabb(level_capsule(shape), pose)
+	}
+	return {}
+}
+
+// The cell holding `point` (from the cells' origin), in cells of edge `cell` (clamped to LEVEL_CELL_LIMIT on each axis).
+@(private)
+level_cell_of :: proc(point: [3]f32, cell: f32) -> (index: [3]i32) {
+	for axis in 0 ..< 3 {
+		index[axis] = i32(dmath.clamp(dmath.floor(point[axis] / cell), -LEVEL_CELL_LIMIT, LEVEL_CELL_LIMIT))
+	}
+	return
+}
+
+// One compound of a group of level shapes (two or more, no height field), in the frame of a static body at `origin`,
+// unrotated: each child at its level body's pose with its surface. A box's, hull's or mesh's geometry is copied in, so
+// the level's own copy is freed.
+@(private)
+level_compound :: proc(baked: ^Baked_Level, group: []Level_Cell_Entry, origin: [3]f32) -> ^Compound_Data {
+	hulls := make([dynamic]Compound_Hull_Def, 0, len(group), context.temp_allocator)
+	meshes := make([dynamic]Compound_Mesh_Def, 0, len(group), context.temp_allocator)
+	spheres := make([dynamic]Compound_Sphere_Def, 0, len(group), context.temp_allocator)
+	capsules := make([dynamic]Compound_Capsule_Def, 0, len(group), context.temp_allocator)
+	for entry in group {
+		level_body := &baked.data.bodies[entry.body]
+		shape := &baked.data.shapes[entry.index]
+		pose := Transform{level_body.pos - origin, level_body.rot} // the level body in the compound's frame
+		material := surface_material(shape.surface)
+		#partial switch shape.kind {
+		case .Box, .Hull:
+			append(&hulls, Compound_Hull_Def{hull = baked.hulls[entry.index], transform = pose, material = material})
+		case .Mesh:
+			mesh := baked.meshes[entry.index]
+			// One surface per material index the mesh's triangles use (Box3D's count; the file may name more).
+			materials := make([]Surface_Material, mesh.materialCount, context.temp_allocator)
+			for &surface, i in materials do surface = surface_material(shape.materials[i])
+			append(&meshes, Compound_Mesh_Def {
+				mesh_data      = mesh,
+				transform      = pose,
+				scale          = {1, 1, 1},
+				materials      = raw_data(materials),
+				material_count = i32(len(materials)),
+			})
+		case .Sphere:
+			sphere := Sphere{level_point(pose, shape.pos), shape.radius}
+			append(&spheres, Compound_Sphere_Def{sphere = sphere, material = material})
+		case .Capsule:
+			capsule := level_capsule(shape)
+			capsule.center1 = level_point(pose, capsule.center1)
+			capsule.center2 = level_point(pose, capsule.center2)
+			append(&capsules, Compound_Capsule_Def{capsule = capsule, material = material})
+		}
+	}
+	compound := create_compound({
+		capsules      = raw_data(capsules),
+		capsule_count = i32(len(capsules)),
+		hulls         = raw_data(hulls),
+		hull_count    = i32(len(hulls)),
+		meshes        = raw_data(meshes),
+		mesh_count    = i32(len(meshes)),
+		spheres       = raw_data(spheres),
+		sphere_count  = i32(len(spheres)),
+	})
+	for entry in group {
+		if hull := baked.hulls[entry.index]; hull != nil do destroy_hull(hull)
+		if mesh := baked.meshes[entry.index]; mesh != nil do destroy_mesh(mesh)
+		baked.hulls[entry.index] = nil
+		baked.meshes[entry.index] = nil
+	}
+	return compound
+}
+
+// A body-local point moved by the body's pose.
+@(private)
+level_point :: proc(pose: Transform, point: [3]f32) -> [3]f32 {
+	return pose.p + dmath.quat_rotate(pose.q, point)
+}
+
+// A level capsule in its body's frame.
+@(private)
+level_capsule :: proc(shape: ^level.Shape) -> Capsule {
+	axis := dmath.quat_rotate(shape.rot, {0, shape.half_height, 0})
+	return {shape.pos - axis, shape.pos + axis, shape.radius}
+}
+
+// Frees a level's geometry and parsed file (after the Box3D world: its shapes point at the compounds, meshes and
+// height fields).
+@(private)
+unbake_level :: proc(baked: ^Baked_Level) {
+	for compound in baked.compounds do destroy_compound(compound)
+	for hull in baked.hulls do if hull != nil do destroy_hull(hull)
+	for mesh in baked.meshes do if mesh != nil do destroy_mesh(mesh)
+	for height_field in baked.height_fields do if height_field != nil do destroy_height_field(height_field)
+	delete(baked.statics)
+	delete(baked.compounds)
+	delete(baked.hulls)
+	delete(baked.meshes)
+	delete(baked.height_fields)
+	level.destroy(&baked.data)
+}
+
+// Creates a level's static bodies (bake_statics), flagged as the level's in the body table.
+@(private)
+build_level :: proc(world: ^World, baked: ^Baked_Level) {
+	for &level_static in baked.statics {
+		body := level_body_create(world, level_static.pos, level_static.rot)
+		shape_def := transmute(Shape_Def)box3d.DefaultShapeDef()
+		shape_def.filter.category = level_static.category
+		if level_static.compound != nil {
+			id := box3d.CreateBakedCompoundShape(body, (^box3d.ShapeDef)(&shape_def), level_static.compound)
+			assert(id.index1 != 0, "physics: Box3D refused a level compound it built")
+			continue
+		}
+		shape := &baked.data.shapes[level_static.shape]
+		if shape.kind == .Height_Field {
+			shape_def.base_material = surface_material(shape.surface)
+			field := baked.height_fields[level_static.shape]
+			id := box3d.CreateHeightFieldShape(body, (^box3d.ShapeDef)(&shape_def), field)
+			assert(id.index1 != 0, "physics: Box3D refused a level height field it built")
+			continue
+		}
+		hull, mesh := baked.hulls[level_static.shape], baked.meshes[level_static.shape]
+		built := level_shape(body, &shape_def, shape, hull, mesh)
+		assert(built, "physics: Box3D refused a level shape it built")
 	}
 }
 
@@ -279,8 +493,7 @@ level_shape :: proc(
 		sphere := Sphere{shape.pos, shape.radius}
 		id = box3d.CreateSphereShape(body, (^box3d.ShapeDef)(shape_def), (^box3d.Sphere)(&sphere))
 	case .Capsule:
-		axis := dmath.quat_rotate(shape.rot, {0, shape.half_height, 0})
-		capsule := Capsule{shape.pos - axis, shape.pos + axis, shape.radius}
+		capsule := level_capsule(shape)
 		id = box3d.CreateCapsuleShape(body, (^box3d.ShapeDef)(shape_def), (^box3d.Capsule)(&capsule))
 	case .Mesh:
 		materials := make([]Surface_Material, len(shape.materials), context.temp_allocator)

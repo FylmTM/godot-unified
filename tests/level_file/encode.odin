@@ -1,6 +1,6 @@
 // The reader's round-trip oracle: a level file written from Odin values, in the format the Godot exporter writes from a
-// scene (src/level/level.odin's header).
-package test_level
+// scene (src/level/level.odin's header). Shared by tests/level and the physics bench's generated level.
+package level_file
 
 import "unified:level"
 import "unified:wire"

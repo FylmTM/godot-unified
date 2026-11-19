@@ -64,7 +64,7 @@ PHYSICS_IMPORTS :: []string {
 	"box3d:bindings",
 	"base:intrinsics",
 	"base:runtime",
-	"core:fmt", // create_static names the level shape Box3D refused
+	"core:fmt", // create_with_levels names the level shape Box3D refused
 	"core:math/bits",
 	"core:sync",
 }

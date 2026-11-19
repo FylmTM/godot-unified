@@ -8,11 +8,14 @@ import box3d "box3d:bindings"
 // A contact between two shapes: touching began or ended (both shapes with contact events on), or a hit (one with
 // hit events on, approaching faster than Settings.hit_event_threshold).
 Contact_Event :: struct {
-	kind:   Contact_Kind,
-	a, b:   Overlap, // an End's shape may be gone (destroyed this step): zero
-	point:  [3]f32, // .Hit only
-	normal: [3]f32, // .Hit only: from a to b
-	speed:  f32, // .Hit only: the approach speed
+	kind:                   Contact_Kind,
+	a, b:                   Overlap, // an End's shape may be gone (destroyed this step): zero
+	point:                  [3]f32, // .Hit only
+	normal:                 [3]f32, // .Hit only: from a to b
+	speed:                  f32, // .Hit only: the approach speed
+	// .Hit only: the user material id where each shape was hit (a mesh's triangle's, a compound's child's: what
+	// names a level shape)
+	material_a, material_b: u64,
 }
 
 // What a contact event reports: touching began, touching ended, or a hit.
@@ -61,12 +64,14 @@ world_contact_events :: proc(world: ^World, out: ^[dynamic]Contact_Event) {
 	}
 	for event in events.hitEvents[:events.hitCount] {
 		append(out, Contact_Event {
-			kind   = .Hit,
-			a      = overlap_of(world, event.shapeIdA),
-			b      = overlap_of(world, event.shapeIdB),
-			point  = transmute([3]f32)event.point,
-			normal = transmute([3]f32)event.normal,
-			speed  = event.approachSpeed,
+			kind       = .Hit,
+			a          = overlap_of(world, event.shapeIdA),
+			b          = overlap_of(world, event.shapeIdB),
+			point      = transmute([3]f32)event.point,
+			normal     = transmute([3]f32)event.normal,
+			speed      = event.approachSpeed,
+			material_a = event.userMaterialIdA,
+			material_b = event.userMaterialIdB,
 		})
 	}
 }

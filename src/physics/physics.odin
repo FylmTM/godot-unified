@@ -19,6 +19,9 @@ Settings :: struct {
 	workers:             i32,
 	gravity:             Maybe([3]f32), // nil: Box3D's default
 	hit_event_threshold: f32, // approach speed (m/s) above which contacts report hit events; 0: Box3D's default
+	// The edge (m) of the cubic cells a level's shapes are baked into compounds by (create_with_levels); 0:
+	// LEVEL_CELL_DEFAULT. Smaller cells overlap fewer moving bodies; larger ones make fewer static bodies.
+	level_cell:          f32,
 }
 
 // What physics keeps about a body, by body index, beside Box3D's state and rolled back with it: its tag, whether it is
@@ -67,6 +70,7 @@ World :: struct {
 	// The game's levels, parsed and built (create_with_levels), and the filter category of their shapes that have none.
 	levels:         [dynamic]Baked_Level,
 	level_category: u64,
+	level_cell:     f32, // Settings.level_cell, resolved
 	level_hulls:    [dynamic]^Hull_Data, // what build_level_shape built (shapes point at it)
 	level_meshes:   [dynamic]^Mesh_Data,
 }

@@ -204,9 +204,9 @@ level_bodies_2d :: proc(t: ^testing.T) {
 	expect_miss(t, world, 0, 10.6)
 	_, ground_hit, _ := front(world, 0, 10)
 	testing.expect_value(t, ground_hit.material, 7)
-	ground, _ := physics.resolve(world, ground_hit.body)
-	ground_pos := physics.body_position(world, ground)
-	testing.expect(t, ground_pos == {0, 10, 0})
+	// The level is smaller than a cell: the ground, alone in its category, stays a shape; the Shapes body's are one
+	// compound (src/physics/README.md, Levels), so the rays below check each shape's pose.
+	testing.expect_value(t, physics.shape_type(world, ground_hit.shape), physics.Shape_Type.Hull)
 	// Shapes, turned 90° at (10, 4): the ball (radius 1) at its origin, the capsule's centre 2 m along the
 	// body's +x = world +y, lying along world x (the body's local y), the wedge's tip at (9, 2), the box (0.5 x 1
 	// half, turned 45° more) 2 m along the body's +y = world -x.
@@ -217,9 +217,9 @@ level_bodies_2d :: proc(t: ^testing.T) {
 	expect_front(t, world, 9.2, 2, -0.25)
 	expect_miss(t, world, 8.8, 2)
 	expect_front(t, world, 8, 4, -0.25)
-	shapes_body, _ := physics.resolve(world, front_body(world, 10, 4))
-	sid := physics.body_rotation(world, shapes_body)
-	testing.expectf(t, near_q(sid, qz(math.PI / 2)), "%v", sid)
+	_, ball, _ := front(world, 10, 4)
+	testing.expect_value(t, physics.shape_type(world, ball.shape), physics.Shape_Type.Compound)
+	testing.expect(t, front_body(world, 8, 4) == ball.body, "the Shapes body's shapes are one compound")
 	// Walls: the L at (-10, 0): its top arm and its stem, not the notch.
 	expect_front(t, world, -8.5, 0.5, -0.25)
 	expect_front(t, world, -9.5, 2.5, -0.25)
