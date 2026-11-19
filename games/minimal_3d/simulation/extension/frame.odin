@@ -36,6 +36,8 @@ Data_Hud :: struct {
 	players: u32,
 	balls:   u32,
 	color:   godot.Color,
+	paused:  bool, // the co-op pause (the State's Clock)
+	_pad:    [3]u8,
 }
 
 fill_frame :: proc(f: ^Frame) {
@@ -72,6 +74,7 @@ fill_frame_hud :: proc(f: ^Frame) {
 		players = u32(sim.present_count(&f.state.players)),
 		balls   = u32(f.state.balls.count),
 		color   = player_color(f, f.local_player),
+		paused  = f.state.clock.paused,
 	})
 }
 

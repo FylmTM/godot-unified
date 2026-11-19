@@ -19,3 +19,8 @@ unique_name_in_owner = true
 
 [node name="Balls" type="Label" parent="Row"]
 unique_name_in_owner = true
+
+[node name="Paused" type="Label" parent="Row"]
+unique_name_in_owner = true
+visible = false
+text = "Paused (Esc)"

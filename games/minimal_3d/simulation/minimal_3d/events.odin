@@ -7,6 +7,7 @@ Event :: union {
 	sim.Event_Player_Joined,
 	sim.Event_Player_Left,
 	Event_Ball_Thrown,
+	Event_Paused,
 }
 
 // A ball left `player`'s hand at `speed` metres per second.

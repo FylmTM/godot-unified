@@ -1,7 +1,7 @@
 // minimal_3d (games/minimal_3d/README.md): 1-4 players move capsules on a floor and throw balls straight up.
 //
-// The files, by feature: game (this: the descriptor and the tick), input (the input and the command), state, events,
-// players, balls and the scripted inputs (script).
+// The files, by feature: game (this: the descriptor and the tick), input (the input and the commands), state, events,
+// players, balls, the co-op pause (pause) and the scripted inputs (script).
 package minimal_3d
 
 import "unified:sim"
@@ -18,7 +18,7 @@ Tick :: sim.Tick(Game)
 @(rodata)
 GAME := Game {
 	name              = "minimal_3d",
-	version           = "1",
+	version           = "2", // 2: the co-op pause, a throw cooldown
 	tick_hz           = TICK_HZ,
 	tick              = tick,
 	scripted_input    = scripted_input,
@@ -27,7 +27,9 @@ GAME := Game {
 
 // One tick: the systems in their order (games/minimal_3d/README.md, Systems).
 tick :: proc(t: ^Tick) {
-	place_new_players(t)
+	place_new_players(t) // presence first: people come and go while paused
+	apply_pause(t) // commands are read on paused ticks too
+	if t.paused do return // the co-op pause: no system runs (a physics game returns before physics.step)
 	move_players(t)
 	throw_balls(t)
 	move_balls(t)

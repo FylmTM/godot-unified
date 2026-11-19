@@ -3,6 +3,7 @@ extends Control
 @onready var swatch: ColorRect = %Swatch
 @onready var players_label: Label = %Players
 @onready var balls_label: Label = %Balls
+@onready var paused_label: Label = %Paused
 
 
 func _ready() -> void:
@@ -14,3 +15,4 @@ func _on_hud_changed() -> void:
 	swatch.color = Unified.data.hud.color
 	players_label.text = "Players: %d" % Unified.data.hud.players
 	balls_label.text = "Balls: %d" % Unified.data.hud.balls
+	paused_label.visible = Unified.data.hud.paused

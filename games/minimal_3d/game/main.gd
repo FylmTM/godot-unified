@@ -14,6 +14,10 @@ func _unhandled_input(event: InputEvent) -> void:
 		var throw := CommandThrowBall.new()
 		throw.speed = 4
 		session.send_command(throw)
+	elif event.is_action_pressed("ui_cancel"):  # Esc pauses or resumes the game for everyone (the co-op pause)
+		var pause := CommandSetPaused.new()
+		pause.paused = not Unified.data.hud.paused
+		session.send_command(pause)
 
 
 func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
