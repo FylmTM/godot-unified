@@ -27,17 +27,29 @@ deckbuilder_init :: proc "c" (
 Card_Text :: struct {
 	text:     string,
 	upgraded: string, // its upgraded version's
+	target:   g.Target_Kind, // also what gives GDScript EnumTargetKind (an enum only view data uses has no class)
+	_pad:     [7]u8,
 }
 
-// The constants (Unified.constants): each card's text and each relic's, by their enums.
+// The constants (Unified.constants): each card's text and each relic's, and each enemy's name, by their enums.
 Data_Constants :: struct {
-	cards:  [g.Card_Id]Card_Text,
-	relics: [g.Relic]string,
+	cards:   [g.Card_Id]Card_Text,
+	relics:  [g.Relic]string,
+	enemies: [g.Enemy_Kind]string,
+	floors:  i32, // the map's (g.FLOORS)
+	lanes:   i32,
 }
 
 constants :: proc() -> Data_Constants {
 	result: Data_Constants
-	for id in g.Card_Id do result.cards[id] = {card_text(id, false), card_text(id, true)}
+	for id in g.Card_Id do result.cards[id] = {text = card_text(id, false), upgraded = card_text(id, true), target = g.CARDS[id].target}
+	result.floors, result.lanes = g.FLOORS, g.LANES
+	result.enemies = {
+		.Gnasher     = "Gnasher",
+		.Spitter     = "Spitter",
+		.Bulwark     = "Bulwark",
+		.Hollow_King = "The Hollow King",
+	}
 	result.relics = {
 		.Whetstone     = fmt.aprintf("The first attack of each fight deals %d more.", g.WHETSTONE_BONUS),
 		.Ember_Charm   = fmt.aprintf("The first turn of each fight: +%d energy.", g.EMBER_CHARM_ENERGY),

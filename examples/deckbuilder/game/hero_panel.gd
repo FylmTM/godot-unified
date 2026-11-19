@@ -23,6 +23,8 @@ func _ready() -> void:
 	_style.set_content_margin_all(8)
 	_style.border_color = COLORS[index]
 	add_theme_stylebox_override(&"panel", _style)
+	_hp.add_theme_stylebox_override(&"fill", Bars.fill(Color(0.3, 0.7, 0.3)))
+	_hp.add_theme_stylebox_override(&"background", Bars.fill(Color(0.1, 0.1, 0.1)))
 	_hand.add_to_group(StringName("hand_%d" % index))
 	gui_input.connect(_on_gui_input)
 	mouse_entered.connect(func() -> void: get_tree().call_group(&"table", &"hero_hovered", index))
@@ -39,8 +41,10 @@ func refresh() -> void:
 	visible = hero.in_run
 	if not hero.in_run:
 		return
-	var name := Unified.session.get_player_name(hero.player) if hero.awake else ""
-	_name.text = "%s - %s%s" % [name if name != "" else "Hero %d" % (index + 1), EnumHeroClass.name(hero.hero_class).capitalize(),
+	var player_name := Unified.session.get_player_name(hero.player) if hero.awake else ""
+	if player_name == "":
+		player_name = "Hero %d" % (index + 1)
+	_name.text = "%s - %s%s" % [player_name, EnumHeroClass.name(hero.hero_class).capitalize(),
 		"" if hero.awake else " (asleep)"]
 	_hp.max_value = maxi(hero.max_hp, 1)
 	_hp.value = hero.hp
@@ -78,7 +82,7 @@ func _aim_text(hero: DataHeroRow) -> String:
 	for node in get_tree().get_nodes_in_group(&"enemies"):
 		var enemy := node as DeckEnemy
 		if hero.aim_enemy > 0 and enemy.index == hero.aim_enemy - 1:
-			text += " at the %s" % EnumEnemyKind.name(enemy.kind).capitalize()
+			text += " at the %s" % Unified.constants.enemies[enemy.kind]
 	if hero.aim_hero > 0:
 		text += " for hero %d" % hero.aim_hero
 	return text

@@ -3,6 +3,22 @@
 [ext_resource type="Script" path="res://game/main.gd" id="1"]
 [ext_resource type="PackedScene" path="res://game/hero_panel.tscn" id="2"]
 
+[sub_resource type="StyleBoxFlat" id="panel_style"]
+content_margin_left = 18.0
+content_margin_top = 14.0
+content_margin_right = 18.0
+content_margin_bottom = 14.0
+bg_color = Color(0.13, 0.14, 0.17, 0.97)
+border_width_left = 2
+border_width_top = 2
+border_width_right = 2
+border_width_bottom = 2
+border_color = Color(0.45, 0.4, 0.3, 1)
+corner_radius_top_left = 10
+corner_radius_top_right = 10
+corner_radius_bottom_right = 10
+corner_radius_bottom_left = 10
+
 [node name="Main" type="Control"]
 layout_mode = 3
 anchors_preset = 15
@@ -80,6 +96,7 @@ alignment = 1
 [node name="Heroes" type="HBoxContainer" parent="Margin/Layout/Board"]
 layout_mode = 2
 mouse_filter = 2
+alignment = 1
 
 [node name="Hero0" parent="Margin/Layout/Board/Heroes" instance=ExtResource("2")]
 layout_mode = 2
@@ -128,6 +145,7 @@ mouse_filter = 2
 [node name="Panel" type="PanelContainer" parent="Overlay"]
 custom_minimum_size = Vector2(420, 0)
 layout_mode = 2
+theme_override_styles/panel = SubResource("panel_style")
 
 [node name="Box" type="VBoxContainer" parent="Overlay/Panel"]
 layout_mode = 2

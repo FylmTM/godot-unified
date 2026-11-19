@@ -121,7 +121,7 @@ func _on_end_turn() -> void:
 	if local < 0:
 		return
 	var end := CommandEndTurn.new()
-	end.ready = not (Unified.data.heroes.heroes[local] as DataHeroRow).ready
+	end.ready = not (Unified.data.heroes.heroes[local] as DataHeroRow).ready  # a value, not a toggle
 	session.send_command(end)
 
 
@@ -135,8 +135,8 @@ func _refresh() -> void:
 	var fighting := run.phase == EnumPhase.HEROES or run.phase == EnumPhase.ENEMIES
 	_end_turn.visible = fighting and local >= 0
 	if local >= 0:
-		var ready := (Unified.data.heroes.heroes[local] as DataHeroRow).ready
-		_end_turn.text = "Play on" if ready else "End turn"
+		var done := (Unified.data.heroes.heroes[local] as DataHeroRow).ready
+		_end_turn.text = "Play on" if done else "End turn"
 		_end_turn.disabled = run.phase != EnumPhase.HEROES
 	if not fighting and _selected != null:
 		_select(null)
@@ -149,19 +149,19 @@ func _status_text(run: DataRun) -> String:
 			return "Camp"
 		EnumPhase.OVER:
 			return "The run is over"
-	var floor := "Floor %d of %d" % [run.floor + 1, run.map_nodes.size() / 3] if run.floor != 255 else "The act"
+	var where := "Floor %d of %d" % [run.floor + 1, Unified.constants.floors] if run.floor != 255 else "The act"
 	match run.phase:
 		EnumPhase.HEROES:
-			return "%s - %s, round %d - your turn" % [floor, EnumNodeKind.name(run.node).capitalize(), run.round]
+			return "%s - %s, round %d - your turn" % [where, EnumNodeKind.name(run.node).capitalize(), run.round]
 		EnumPhase.ENEMIES:
-			return "%s - %s, round %d - the enemies act" % [floor, EnumNodeKind.name(run.node).capitalize(), run.round]
+			return "%s - %s, round %d - the enemies act" % [where, EnumNodeKind.name(run.node).capitalize(), run.round]
 		EnumPhase.MAP:
-			return "%s - vote for the next node" % floor
+			return "%s - vote for the next node" % where
 		EnumPhase.REWARD:
-			return "%s - rewards" % floor
+			return "%s - rewards" % where
 		EnumPhase.REST:
-			return "%s - rest" % floor
-	return floor
+			return "%s - rest" % where
+	return where
 
 
 ## The phase's panel, rebuilt only when what it shows changes.
@@ -221,18 +221,18 @@ func _map_panel(run: DataRun) -> void:
 	var grid := GridContainer.new()
 	grid.columns = 3
 	_body.add_child(grid)
-	var floors: int = run.map_nodes.size() / 3
-	for floor in range(floors - 1, -1, -1):
-		for lane in 3:
-			var node: int = run.map_nodes[floor * 3 + lane]
+	var lanes := Unified.constants.lanes
+	for row in range(Unified.constants.floors - 1, -1, -1):
+		for lane in lanes:
+			var node: int = run.map_nodes[row * lanes + lane]
 			var cell := Button.new()
 			cell.custom_minimum_size = Vector2(130, 30)
 			cell.focus_mode = Control.FOCUS_NONE
 			cell.text = EnumNodeKind.name(node).capitalize() if node != EnumNodeKind.NONE else ""
 			var next := 0 if run.floor == 255 else run.floor + 1
-			var here := floor == run.floor and lane == run.lane
-			cell.disabled = not (floor == next and run.can_go[lane])
-			if floor == next and run.votes[lane] > 0:
+			var here := row == run.floor and lane == run.lane
+			cell.disabled = not (row == next and run.can_go[lane])
+			if row == next and run.votes[lane] > 0:
 				cell.text += " (%d)" % run.votes[lane]
 			if here:
 				cell.text = "> " + cell.text + " <"
@@ -390,8 +390,8 @@ func _flash_hero(event: UnifiedEvent) -> void:
 
 func _hero_name(hero: int) -> String:
 	var row: DataHeroRow = Unified.data.heroes.heroes[hero]
-	var name := session.get_player_name(row.player)
-	return name if name != "" else "Hero %d" % (hero + 1)
+	var player_name := session.get_player_name(row.player)
+	return player_name if player_name != "" else "Hero %d" % (hero + 1)
 
 
 func _say(line: String) -> void:

@@ -34,6 +34,8 @@ func _ready() -> void:
 	_style.set_corner_radius_all(8)
 	_style.set_content_margin_all(8)
 	add_theme_stylebox_override(&"panel", _style)
+	_hp.add_theme_stylebox_override(&"fill", Bars.fill(Color(0.8, 0.25, 0.2)))
+	_hp.add_theme_stylebox_override(&"background", Bars.fill(Color(0.1, 0.1, 0.1)))
 	add_to_group(&"enemies")
 	gui_input.connect(_on_gui_input)
 	mouse_entered.connect(func() -> void: get_tree().call_group(&"table", &"enemy_hovered", self))
@@ -41,7 +43,7 @@ func _ready() -> void:
 
 ## Every field is set before any node's _process, so one redraw a frame shows them all.
 func _process(_delta: float) -> void:
-	_name.text = EnumEnemyKind.name(kind).capitalize()
+	_name.text = Unified.constants.enemies[kind]
 	_hp.max_value = maxi(max_hp, 1)
 	_hp.value = hp
 	var stats := "%d / %d HP" % [hp, max_hp]
@@ -66,8 +68,8 @@ func hero_name(hero: int) -> String:
 	if hero == Unified.data.run.local_hero:
 		return "you"
 	var row: DataHeroRow = Unified.data.heroes.heroes[hero]
-	var name := Unified.session.get_player_name(row.player)
-	return name if name != "" else "hero %d" % (hero + 1)
+	var player_name := Unified.session.get_player_name(row.player)
+	return player_name if player_name != "" else "hero %d" % (hero + 1)
 
 
 func _intent_text() -> String:
