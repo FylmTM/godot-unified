@@ -1,4 +1,4 @@
-package extension
+package drift_extension
 
 import "unified:sim"
 

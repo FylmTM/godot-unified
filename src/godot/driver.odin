@@ -317,10 +317,8 @@ g_bench_count: int
 
 // Installs the game: call once, before godot.entry. `constants`: the game's fixed values for its scripts
 // (Unified.constants, a plain `Data_` struct, strings allowed), copied here (nil: none). It never stops the load (the
-// editor loads the extension too): it collects every problem (no sample_input or fill_frame, a bad view_scale, a View
-// or MultiView enum that doesn't count up from 0, sim.game_violation, netcode.game_violation, a Glue.data, constants
-// or input values type that isn't a struct, isn't plain or holds one of Godot's own types) and registers nothing of
-// the game; they are printed when the extension loads, and starting a session fails with the first one.
+// editor loads the extension too): it collects every problem (install_problems) and registers nothing of the game;
+// they are printed when the extension loads, and starting a session fails with the first one.
 install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = nil) {
 	State :: sim.part(G, sim.GAME_STATE)
 	Input :: sim.part(G, sim.GAME_INPUT)
@@ -331,39 +329,18 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	This_Driver :: Driver(G, View, MultiView)
 	This_Glue :: Glue(G, View, MultiView)
-	#assert(size_of(Input) <= MAX_INPUT_BYTES, "unified:godot: the game's Input is larger than MAX_INPUT_BYTES")
 	context.allocator = runtime.heap_allocator() // everything here lives as long as the process
-	problems: [dynamic]string
-	if glue.sample_input == nil || glue.fill_frame == nil {
-		append(&problems, "the Glue needs sample_input and fill_frame")
-	}
-	if !(glue.view_scale >= 0 && glue.view_scale < 1e9) {
-		append(
-			&problems,
-			fmt.tprintf("Glue.view_scale is %v: view units per sim unit, positive (zero: 1)", glue.view_scale),
-		)
-	}
-	view_names, view_ok := enum_names(View)
-	multi_names, multi_ok := enum_names(MultiView)
-	if !view_ok do append(&problems, fmt.aprintf("the View enum %v must count up from 0", typeid_of(View)))
-	if !multi_ok do append(&problems, fmt.aprintf("the MultiView enum %v must count up from 0", typeid_of(MultiView)))
-	if reason := sim.game_violation(game); reason != "" {
-		append(&problems, strings.clone(reason))
-	}
-	if reason := netcode.game_violation(game); reason != "" {
-		append(&problems, strings.clone(reason))
-	}
-	data_problems(glue.data, constants.id, glue.input_values, &problems)
-	for policy, kind in glue.view_policy do policy_problems(policy, fmt.tprint(kind), false, &problems)
-	for policy, kind in glue.multi_policy do policy_problems(policy, fmt.tprint(kind), true, &problems)
+	problems := problems_of(game, glue, constants.id)
 	if len(problems) > 0 {
 		api = {
 			game_name = game.name,
 			tick_hz   = game.tick_hz,
-			problems  = problems[:],
+			problems  = problems,
 		}
 		return
 	}
+	view_names, _ := enum_names(View)
+	multi_names, _ := enum_names(MultiView)
 	kept_glue := new(This_Glue)
 	kept_glue^ = glue
 	g_game = game
@@ -773,6 +750,64 @@ policy_problems :: proc(policy: View_Policy, kind: string, multi: bool, problems
 	}
 }
 
+// The problems `install` would report for this game, Glue and constants (empty: it installs), installing nothing: no
+// sample_input or fill_frame, a bad view_scale, a View or MultiView enum that doesn't count up from 0,
+// sim.game_violation, netcode.game_violation, a Glue.data, constants or input values type that isn't a struct, isn't
+// plain (pointers, implicit padding) or holds one of Godot's own types, a view policy it refuses. A game's own test
+// calls it (the template's `the_extension_installs`), so `uni test` reports these in a second, without Godot. The
+// list and its strings live as long as the process.
+install_problems :: proc {
+	install_problems_with_constants,
+	install_problems_without_constants,
+}
+
+install_problems_with_constants :: proc(
+	game: ^$G,
+	glue: Glue(G, $View, $MultiView),
+	constants: proc() -> $Constants,
+) -> []string {
+	context.allocator = runtime.heap_allocator()
+	return problems_of(game, glue, Constants)
+}
+
+install_problems_without_constants :: proc(game: ^$G, glue: Glue(G, $View, $MultiView)) -> []string {
+	context.allocator = runtime.heap_allocator()
+	return problems_of(game, glue, nil)
+}
+
+// install_problems for any constants type (nil: none), in the context's allocator.
+@(private)
+problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: typeid) -> []string {
+	Input :: sim.part(G, sim.GAME_INPUT)
+	#assert(size_of(Input) <= MAX_INPUT_BYTES, "unified:godot: the game's Input is larger than MAX_INPUT_BYTES")
+	problems: [dynamic]string
+	if glue.sample_input == nil || glue.fill_frame == nil {
+		append(&problems, "the Glue needs sample_input and fill_frame")
+	}
+	if !(glue.view_scale >= 0 && glue.view_scale < 1e9) {
+		append(
+			&problems,
+			fmt.aprintf("Glue.view_scale is %v: view units per sim unit, positive (zero: 1)", glue.view_scale),
+		)
+	}
+	if _, view_ok := enum_names(View); !view_ok {
+		append(&problems, fmt.aprintf("the View enum %v must count up from 0", typeid_of(View)))
+	}
+	if _, multi_ok := enum_names(MultiView); !multi_ok {
+		append(&problems, fmt.aprintf("the MultiView enum %v must count up from 0", typeid_of(MultiView)))
+	}
+	if reason := sim.game_violation(game); reason != "" {
+		append(&problems, strings.clone(reason))
+	}
+	if reason := netcode.game_violation(game); reason != "" {
+		append(&problems, strings.clone(reason))
+	}
+	data_problems(glue.data, constants, glue.input_values, &problems)
+	for policy, kind in glue.view_policy do policy_problems(policy, fmt.tprint(kind), false, &problems)
+	for policy, kind in glue.multi_policy do policy_problems(policy, fmt.tprint(kind), true, &problems)
+	return problems[:]
+}
+
 // The session data layouts (api.data's storage).
 @(private)
 kept_data: [dynamic]Data_Layout
@@ -1162,6 +1197,7 @@ publish_frame :: proc(
 		tick          = info.tick,
 		local_players = local_players,
 		seed          = simulation.seed,
+		setup         = &simulation.setup,
 		time          = sim.game_time(current, info.tick),
 		out           = out,
 		poses         = &driver.poses,
@@ -1214,6 +1250,9 @@ fill_verified :: proc(driver: ^Driver($G, $View, $MultiView), simulation: ^sim.S
 		world         = simulation.world,
 		tick          = simulation.tick,
 		local_players = frame_local_players(driver.client, simulation.state.players.slots[:], simulation.tick),
+		seed          = simulation.seed,
+		setup         = &simulation.setup,
+		time          = sim.game_time(&simulation.state, simulation.tick),
 		out           = out,
 		poses         = &driver.verified_poses,
 	}

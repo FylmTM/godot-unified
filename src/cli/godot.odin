@@ -100,6 +100,11 @@ godot_version :: proc(exe: string) -> string {
 	return len(lines) > 0 ? lines[len(lines) - 1] : ""
 }
 
+// Whether godot_problems found that the game's extension did not install (its problems are then all it lists).
+not_installed :: proc(problems: []string) -> bool {
+	return len(problems) > 0 && strings.has_prefix(problems[0], "the extension is not installed: ")
+}
+
 // Godot's error lines.
 godot_errors :: proc(text: string) -> []string {
 	return lines_with(text, "ERROR", "Parse Error")
@@ -107,10 +112,17 @@ godot_errors :: proc(text: string) -> []string {
 
 // What fails a Godot run besides its exit code, each with what it is: an error line, a leak at exit, a GDScript
 // warning, and a warning a game's own script raised (its backtrace names a res://game/ frame; the engine's warnings
-// and the library's pass).
+// and the library's pass). When the game's extension did not install (godot.install_problems), only why: every
+// other error (scripts naming the game's classes, a session that can't start) follows from it.
 godot_problems :: proc(text: string) -> []string {
 	problems: [dynamic]string
 	lines := strings.split_lines(text)
+	for line in lines {
+		if _, _, reason := strings.partition(line, " is not installed: "); reason != "" {
+			append(&problems, aprintf("the extension is not installed: %s", strings.trim_space(reason)))
+		}
+	}
+	if len(problems) > 0 do return problems[:]
 	for line, i in lines {
 		if strings.contains(line, "leaked at exit") || strings.contains(line, "still in use at exit") {
 			append(&problems, aprintf("leak at exit: %s", strings.trim_space(line)))
@@ -356,7 +368,7 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 	}
 	report.problems = problems[:]
 	report.ok = len(problems) == 0
-	if !report.ok && !echo {
+	if !report.ok && !echo && !not_installed(problems[:]) {
 		log("%s", tail(out, 6000))
 	}
 	for problem in problems {

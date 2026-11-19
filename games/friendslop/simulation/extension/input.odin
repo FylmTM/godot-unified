@@ -1,5 +1,5 @@
 // The input (main thread): the stick moves relative to the camera, the aim is the camera's look.
-package extension
+package friendslop_extension
 
 import "unified:dmath"
 import "unified:godot"

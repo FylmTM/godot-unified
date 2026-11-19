@@ -376,7 +376,7 @@ test_details :: proc() -> string {
 		if suite.name == "godot" {
 			fmt.sbprintf(
 				&builder,
-				"  %-*s  steps, in order (--only): %s\n",
+				"  %-*s  steps, in order (--only; a failing one skips those after it): %s\n",
 				width,
 				"",
 				strings.join(GODOT_STEPS, ", "),

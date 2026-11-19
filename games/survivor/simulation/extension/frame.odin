@@ -1,4 +1,4 @@
-package extension
+package survivor_extension
 
 import "unified:dmath"
 import "unified:godot"

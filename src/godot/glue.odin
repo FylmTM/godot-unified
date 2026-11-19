@@ -77,6 +77,7 @@ Frame :: struct($G, $View, $MultiView: typeid) {
 	// player's game reads [0]; is_local asks about a player.
 	local_players: [LOCAL_MAX]sim.Player,
 	seed:          u64, // the session's seed: a keyed roll the sim will make, computed early (sim.roll_below_at)
+	setup:         ^sim.part(G, sim.GAME_SETUP), // the session's Setup (fixed for the session; a joiner's is the host's)
 	time:          sim.Game_Time, // at this tick (sim.game_time): what a view reads timers and stamps with
 	out:           ^Frame_Data, // what the main thread gets
 	poses:         ^Pose_Memory, // every keyed item's pose at the fill before

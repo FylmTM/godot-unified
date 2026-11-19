@@ -2,7 +2,7 @@
 // unified:godot, plus the game's glue (this file) and the constants for the scripts; the view contract and the frame
 // (frame.odin), how the InputMap and the camera become an Input (input.odin) and the HUD's session data (hud.odin).
 // Built by `uni build friendslop`.
-package extension
+package friendslop_extension
 
 import "unified:eos"
 import "unified:godot"

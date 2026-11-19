@@ -5,7 +5,9 @@ package test_survivor
 
 import "core:testing"
 
+import ext "../extension"
 import g "../survivor"
+import "unified:godot"
 import "unified:headless/scenarios"
 @(require) import "unified:physics" // the workers check (in the long tier while the game ships one worker)
 @(require) import "unified:sim"
@@ -90,4 +92,11 @@ when scenarios.LONG {
 	four_clients_agree_on_an_ideal_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Ideal)}
 	@(test)
 	four_clients_agree_on_a_wan :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Wan)}
+}
+
+// The extension installs: what Godot would report when it loads it (a Data_ struct with padding, a bad Glue), here in
+// a second.
+@(test)
+the_extension_installs :: proc(t: ^testing.T) {
+	for problem in godot.install_problems(&g.GAME, ext.GLUE, ext.constants) do testing.expect(t, false, problem)
 }

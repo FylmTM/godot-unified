@@ -3,7 +3,7 @@
 // properties, `changed` when it changes): `phase` is an EnumPhase value, `players` an Array[DataHudPlayer] by slot
 // (zero for an empty slot). Who holds a slot, the names and the local player come from the session. View code, not
 // simulation code: f32 for display only. Plain and padding-free (`_pad`).
-package extension
+package survivor_extension
 
 import "unified:sim"
 
