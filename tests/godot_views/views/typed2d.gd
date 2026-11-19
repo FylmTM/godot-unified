@@ -22,6 +22,7 @@ var ticks_sets := 0
 var charge := 0.0
 var dir := Vector2.ZERO
 var tint := Color.BLACK
+var area: DataMarkArea
 
 
 # The host posed it before any other node's _process (its own runs at priority -1000).

@@ -6,8 +6,9 @@ import g "../minimal_3d"
 
 GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
-	fill_frame   = fill_frame,
-	data         = Data,
+	fill_frame = fill_frame,
+	data = Data,
+	view_data = {.Player = Player_View_Data},
 }
 
 @(export, link_name = "minimal_3d_init")

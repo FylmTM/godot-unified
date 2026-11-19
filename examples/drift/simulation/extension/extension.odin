@@ -21,11 +21,12 @@ drift_init :: proc "c" (
 
 GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
-	fill_frame   = fill_frame,
-	data         = Data,
-	is_2d        = true,
-	view_scale   = 32, // pixels per metre: the scale the art and the level are drawn at (the host maps positions)
-	event_key    = event_key,
+	fill_frame = fill_frame,
+	data = Data,
+	view_data = {.Ship = Ship_View, .Station = Station_View, .Gate = Gate_View},
+	is_2d = true,
+	view_scale = 32, // pixels per metre: the scale the art and the level are drawn at (the host maps positions)
+	event_key = event_key,
 	input_values = Input_Values,
 }
 

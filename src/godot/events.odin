@@ -93,8 +93,7 @@ is_integer :: proc(type: ^runtime.Type_Info) -> bool {
 // Vector2/3/4, [2]/[3]/[4]i32 a Vector2i/3i/4i, Color a Color, Quat a Quaternion, a sim.Position a Vector2 (2D) or
 // Vector3; a handle or a sim.Player an int (its key), a sim.Entity an int (its index, -1: none), an enum an int, a
 // bit_set an Array[int], a sim.List or sim.Queue an Array of its items, a sim.Bits an Array[int] of its indices
-// (collections.odin), a nested struct an object of its class (a Dictionary when it has none: a struct only view data
-// uses).
+// (collections.odin), a nested struct an object of its class (a Dictionary for an anonymous struct, which has none).
 field_kind :: proc(type: ^runtime.Type_Info) -> (kind: gdi.VariantType, class_name: string) {
 	switch {
 	case type.id == sim.Position:
@@ -273,7 +272,7 @@ nested_variant :: proc(nested: ^Data_Class, bytes: []u8, units: Units) -> gd.Var
 	return value
 }
 
-// A struct only view data uses (it has no class): its fields into a Dictionary (`_` fields are padding).
+// An anonymous struct (it has no class): its fields into a Dictionary (`_` fields are padding).
 struct_fields :: proc(dict: ^gd.Dictionary, type: ^runtime.Type_Info, data: []u8, units: Units) {
 	info := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
 	for i in 0 ..< int(info.field_count) {

@@ -40,6 +40,7 @@ Api :: struct {
 	constants:       Data_Layout, // the constants' type (type nil: none)
 	constants_bytes: []u8, // the constants' value (install's)
 	input_values:    Data_Layout, // Glue.input_values (type nil: none)
+	view_data:       []typeid, // Glue.view_data, by view kind (nil: not declared)
 	setup:           Data_Layout, // the game's Setup (sim.Game's; the class UnifiedSetup, no fields for sim.No_Setup)
 	setup_default:   []u8, // Game.setup's bytes: a new UnifiedSetup's
 	profile:         Data_Layout, // the game's Profile (the class UnifiedProfile, Unified.profile)
@@ -80,7 +81,8 @@ Api :: struct {
 	result:          proc() -> string, // the finished session's result JSON (after a Result message)
 	send:            proc(command: sim.Raw_Command, local: int) -> bool, // queue local player `local`'s command (false: full)
 	// Ask the session to add local player `local` (1 ..< LOCAL_MAX) with this name and Profile's bytes, or to remove it.
-	local_player:    proc(local: int, add: bool, name: string, profile: []u8) -> bool,
+	// `explicit`: `profile` is the script's own (add_local_player's argument), else Unified.profile's
+	local_player:    proc(local: int, add: bool, name: string, profile: []u8, explicit := false) -> bool,
 	// Ask a running single-player session to open to friends (Host_Online, Host_Direct on `port`) or to close (Single).
 	open:            proc(mode: Mode, port: int) -> bool,
 	replay_control:  proc(control: Replay_Control) -> bool, // queue a control for a running replay (false: full)
@@ -398,6 +400,8 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		api.constants_bytes = slice.clone(([^]u8)(constants.data)[:type_info_of(constants.id).size])
 	}
 	if glue.input_values != nil do api.input_values = data_layout(type_info_of(glue.input_values))
+	api.view_data = make([]typeid, len(view_names))
+	for type, kind in glue.view_data do api.view_data[int(kind)] = type
 	api.setup = data_layout(type_info_of(Setup))
 	api.setup_default = slice.clone(sim.bytes_of(&game.setup))
 	api.profile = data_layout(type_info_of(Profile))
@@ -428,6 +432,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	for layout in api.data do append(&enum_sources, layout.type)
 	if api.constants.type != nil do append(&enum_sources, api.constants.type)
 	if api.input_values.type != nil do append(&enum_sources, api.input_values.type)
+	for type in api.view_data do if type != nil do append(&enum_sources, type_info_of(type))
 	append(&enum_sources, api.setup.type, api.profile.type)
 	enums: [dynamic]^runtime.Type_Info
 	enum_types_of(enum_sources[:], &enums)
@@ -463,6 +468,11 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		driver.game = game
 		driver.glue = glue
 		driver.req = request
+		if request.scripted && (!joining(request.mode) || request.slot >= 0) {
+			// the offline run's player in that slot: a host's local player 0 holds slot 0, a joiner its --slot
+			scripted_profile(game, request, request.slot if request.slot >= 0 else 0, driver.req.profile[:])
+		}
+		driver.req.profile_text = strings.clone(request.profile_text)
 		driver.req.arg = strings.clone(request.arg)
 		driver.req.name = strings.clone(request.name)
 		driver.verified_level = NO_LEVEL
@@ -593,7 +603,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		}
 		return true
 	}
-	api.local_player = proc(local: int, add: bool, name: string, profile: []u8) -> bool {
+	api.local_player = proc(local: int, add: bool, name: string, profile: []u8, explicit := false) -> bool {
 		if g_driver == nil || local <= 0 || local >= LOCAL_MAX do return false
 		driver := (^This_Driver)(g_driver)
 		sync.guard(&driver.local_mu)
@@ -602,8 +612,15 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 			gen  = request.gen + 1,
 			add  = add,
 			name = text_of_name(name),
+			slot = -1,
 		}
 		copy(request.profile[:], profile)
+		if add && driver.req.scripted && !joining(driver.req.mode) {
+			// a scripted host's local k holds slot k (refused when it is taken: nothing silently diverges), with
+			// that slot's scripted Profile unless the script gave one
+			request.slot = local
+			if !explicit do scripted_profile(driver.game, driver.req, local, request.profile[:])
+		}
 		return true
 	}
 	api.result = proc() -> string {
@@ -838,6 +855,9 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 		append(&problems, strings.clone(reason))
 	}
 	data_problems(glue.data, constants, glue.input_values, &problems)
+	for type, kind in glue.view_data {
+		if type != nil do struct_problems(fmt.tprintf("Glue.view_data[.%v]", kind), type_info_of(type), true, &problems)
+	}
 	// every type GDScript reads by field names and classes
 	named := make([dynamic]^runtime.Type_Info, context.temp_allocator)
 	for variant in sim.union_variants(sim.part(G, sim.GAME_EVENT)) do append(&named, variant)
@@ -846,7 +866,10 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 	if constants != nil do append(&named, type_info_of(constants))
 	if glue.input_values != nil do append(&named, type_info_of(glue.input_values))
 	append(&named, type_info_of(sim.part(G, sim.GAME_SETUP)), type_info_of(sim.part(G, sim.GAME_PROFILE)))
-	generic_problems(named[:], &problems)
+	name_problems(named[:], false, &problems)
+	views := make([dynamic]^runtime.Type_Info, context.temp_allocator)
+	for type in glue.view_data do if type != nil do append(&views, type_info_of(type))
+	name_problems(views[:], true, &problems)
 	for policy, kind in glue.view_policy do policy_problems(policy, fmt.tprint(kind), false, &problems)
 	for policy, kind in glue.multi_policy do policy_problems(policy, fmt.tprint(kind), true, &problems)
 	return problems[:]
@@ -1038,6 +1061,22 @@ refused_reason :: proc(why: netcode.Reject_Reason) -> string {
 	return fmt.tprint(why)
 }
 
+// Whether a session joins another's (its slots are the relay's to give).
+@(private)
+joining :: proc(mode: Mode) -> bool {
+	return mode == .Join_Online || mode == .Join_Direct
+}
+
+// The Profile of the offline run's scripted player in `slot` (Game.scripted_profile; none: the bytes stay), with the
+// request's --profile assignments over it, into `out`.
+@(private)
+scripted_profile :: proc(game: ^$G, request: Start, slot: int, out: []u8) {
+	if game.scripted_profile == nil do return
+	profile := game.scripted_profile(request.seed, slot)
+	copy(out, sim.bytes_of(&profile))
+	if request.profile_text != "" do _ = api.profile_text(out[:size_of(profile)], request.profile_text) // read at start
+}
+
 // A main thread request about a local player (UnifiedSession.add_local_player, remove_local_player).
 @(private)
 Local_Request :: struct {
@@ -1045,6 +1084,7 @@ Local_Request :: struct {
 	add:     bool,
 	name:    netcode.Player_Name,
 	profile: [sim.PROFILE_MAX]u8,
+	slot:    int, // the slot asked for (-1: any; a scripted host's local k asks for k)
 }
 
 @(private)
@@ -1063,7 +1103,7 @@ driver_local_requests :: proc(driver: ^Driver($G, $View, $MultiView), now: i64) 
 		driver.local_seen[local] = request.gen
 		if request.add {
 			cfg := netcode.Local_Config(G) {
-				slot        = -1,
+				slot        = request.slot,
 				player_name = netcode.text_string(&request.name),
 				profile     = (^Profile)(&request.profile)^,
 			}
@@ -1463,7 +1503,7 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 	client_config := netcode.Client_Config(G) {
 		player_name = request.name,
 		profile     = (^Profile)(&request.profile)^,
-		slot        = -1,
+		slot        = request.slot, // -1: any (a scripted joiner's --slot)
 		token       = request.token,
 		dev         = DEVUI,
 	}

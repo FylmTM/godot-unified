@@ -293,6 +293,7 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 		),
 		capture = true,
 		timeout = DEBUGGER_ERROR_TIMEOUT,
+		env     = cli.user_env(projects[0].dir),
 	}
 	for project, i in projects {
 		cli.write_extension_list_dir(project.dir)
@@ -315,6 +316,7 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 			cmd     = cmd[:],
 			capture = true,
 			timeout = 30 * time.Second,
+			env     = cli.user_env(project.dir),
 		}
 	}
 	ok := true

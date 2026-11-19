@@ -122,26 +122,99 @@ data_problems :: proc(data: typeid, constants: typeid, input_values: typeid, pro
 	if input_values != nil do struct_problems("Glue.input_values", type_info_of(input_values), true, problems)
 }
 
-// A problem for every generic struct (its type's name holds its parameters: `Ring($T=u8, $N=4)`) in these types and the
-// structs, arrays and collections they hold, which no GDScript class can be named after; sim's List, Queue and Bits
-// are Arrays (collections.odin), a handle an int.
-generic_problems :: proc(types: []^runtime.Type_Info, problems: ^[dynamic]string) {
+// What a field of a class-backed type (an event, a command, session data, the Setup, the Profile, input values, a nested
+// struct) can't be named: GDScript reads `row.true` as the literal (in the pinned Godot it reads every other keyword
+// after a dot as the attribute).
+@(private)
+CLASS_FIELD_RESERVED :: []string{"true", "false", "null"}
+
+// What a field of declared view data (Glue.view_data) can't be named: it is set on the root script's own `var` of that
+// name, which can't be a GDScript keyword, a built-in type's name or `_` (a capitalised name is refused too: it would
+// shadow a class, String, Color, Node...).
+@(private)
+VIEW_FIELD_RESERVED :: []string {
+	"and",
+	"as",
+	"assert",
+	"await",
+	"bool",
+	"break",
+	"breakpoint",
+	"class",
+	"class_name",
+	"const",
+	"continue",
+	"elif",
+	"else",
+	"enum",
+	"extends",
+	"false",
+	"float",
+	"for",
+	"func",
+	"if",
+	"in",
+	"int",
+	"is",
+	"match",
+	"namespace",
+	"not",
+	"null",
+	"or",
+	"pass",
+	"preload",
+	"return",
+	"self",
+	"signal",
+	"static",
+	"super",
+	"trait",
+	"true",
+	"var",
+	"void",
+	"when",
+	"while",
+	"yield",
+	"_",
+}
+
+// A problem for every field GDScript can't take as it is, in these types and the structs, arrays and collections they
+// hold: a name it can't read (CLASS_FIELD_RESERVED; `view_data`: the types' own fields are root script vars,
+// VIEW_FIELD_RESERVED), and a generic struct (its type's name holds its parameters: `Ring($T=u8, $N=4)`), which no
+// GDScript class can be named after. sim's List, Queue and Bits are Arrays (collections.odin), a handle an int.
+name_problems :: proc(types: []^runtime.Type_Info, view_data: bool, problems: ^[dynamic]string) {
 	context.allocator = runtime.heap_allocator()
-	walk :: proc(type: ^runtime.Type_Info, seen: ^[dynamic]typeid, problems: ^[dynamic]string) {
+	walk :: proc(type: ^runtime.Type_Info, root_vars: bool, seen: ^[dynamic]typeid, problems: ^[dynamic]string) {
 		if type == nil || type.id == sim.Position || type.id == sim.Player || is_handle(type) do return
 		if collection, is_collection := collection_of(type); is_collection {
-			walk(collection.elem, seen, problems)
+			walk(collection.elem, false, seen, problems)
 			return
 		}
 		#partial switch info in runtime.type_info_base(type).variant {
 		case runtime.Type_Info_Array:
-			walk(info.elem, seen, problems)
+			walk(info.elem, false, seen, problems)
 		case runtime.Type_Info_Enumerated_Array:
-			walk(info.elem, seen, problems)
+			walk(info.elem, false, seen, problems)
 		case runtime.Type_Info_Struct:
 			for known in seen do if known == type.id do return
 			append(seen, type.id)
 			for i in 0 ..< int(info.field_count) {
+				name := info.names[i]
+				if root_vars {
+					capitalised := len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z'
+					if slice.contains(VIEW_FIELD_RESERVED, name) || capitalised {
+						append(
+							problems,
+							fmt.aprintf(
+								"%v.%s: a view's data field is its root script's var, which can't be named so: rename it",
+								type.id,
+								name,
+							),
+						)
+					}
+				} else if slice.contains(CLASS_FIELD_RESERVED, name) {
+					append(problems, fmt.aprintf("%v.%s: GDScript reads it as the literal: rename it", type.id, name))
+				}
 				field := info.types[i]
 				named, is_named := field.variant.(runtime.Type_Info_Named)
 				_, is_collection := collection_of(field)
@@ -162,12 +235,12 @@ generic_problems :: proc(types: []^runtime.Type_Info, problems: ^[dynamic]string
 					)
 					continue
 				}
-				walk(field, seen, problems)
+				walk(field, false, seen, problems)
 			}
 		}
 	}
 	seen := make([dynamic]typeid, context.temp_allocator)
-	for type in types do walk(type, &seen, problems)
+	for type in types do walk(type, view_data, &seen, problems)
 }
 
 // A Glue struct type's problems: not a struct, not plain (`plain`: padding-free, no pointers: sim.plain_violation), or
@@ -244,6 +317,7 @@ register_nested_classes :: proc() {
 	for layout in api.events do append(&roots, layout.type)
 	for layout in api.commands do append(&roots, layout.type)
 	for layout in api.data do append(&roots, layout.type)
+	for type in api.view_data do if type != nil do append(&roots, type_info_of(type))
 	if api.constants.type != nil do append(&roots, api.constants.type)
 	if api.input_values.type != nil do append(&roots, api.input_values.type)
 	if api.setup.type != nil do append(&roots, api.setup.type)

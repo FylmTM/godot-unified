@@ -34,6 +34,7 @@ event_key :: proc(_: g.Event, subject: godot.Subject) -> godot.Event_Target(View
 Player_View :: struct {
 	limp:    bool, // stunned or held: the body tips over
 	holding: bool,
+	_pad:    [2]u8,
 	charge:  f32, // throw charge 0..1
 }
 

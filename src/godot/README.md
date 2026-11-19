@@ -77,7 +77,11 @@ and when the window gets the focus back, an action still held counts only once r
 the click that focused the window never fire). An unfocused window still reads input: Godot releases what was held
 when it lost the focus, and tool runs drive windows that never take it. A press on the dev UI never reaches the
 actions (`src/devui/README.md`, How it works). The game's scripted player (`sim.Game.scripted_input`) replaces the
-sample in `--scripted` runs.
+sample in `--scripted` runs, and its players join as the offline binary's scripted players do, so the session computes
+what that run does: a host's local player k asks for slot k (refused when it is taken: nothing silently diverges) and
+joins with that slot's `sim.Game.scripted_profile`, a joiner started with `--slot n` asks for slot n with slot n's
+(without it, the relay picks the slot and the player joins with `Unified.profile`). `--profile`'s assignments go over
+a scripted Profile too, and a Profile a script passes to `add_local_player` is kept as given.
 
 ### View space
 
@@ -141,11 +145,17 @@ the tail after a `bool`, is an explicit `_pad: [n]u8` field), because the host c
 refuses a type that isn't, naming the `_pad` to add; `godot.install_problems` reports the same without Godot, and a
 game's own `the_extension_installs` test (the template's) calls it, so `uni test` catches it.
 
-The host registers a class per such type at load, plus one per **nested struct** any of them or the event and command
-unions hold (`Hud_Player` -> `DataHudPlayer`, a RefCounted value: each read is a new one, its fields settable, so a
-command can take it), and a class per enum they use. The engine singleton `Unified` holds the data, the constants,
-the input values and the session. Godot classes have no namespaces, so prefixes group them (`Data`, `Event`,
-`Command`, `Enum`); a name that clashes with an existing class is an error and is not registered.
+The host registers a class per such type at load, plus one per **nested struct** any of them, the event and command
+unions, the Setup, the Profile or a declared view data type (`Glue.view_data`) hold (`Hud_Player` -> `DataHudPlayer`,
+a RefCounted value: each read is a new one, its fields settable, so a command can take it), and a class per enum they
+use. Every view kind that pushes data declares its type there, as `Glue.data` declares the session data (a push of a
+kind not declared, or of another type, panics). The engine singleton `Unified` holds the data, the constants, the
+input values and the session. Godot classes have no namespaces, so prefixes group them (`Data`, `Event`, `Command`,
+`Enum`); a name that clashes with an existing class is an error and is not registered. What GDScript can't take is an
+install problem naming the field: a generic struct (`Ring($T=u8, $N=4)`, which no class can be named after; sim's
+List, Queue and Bits are Arrays); a class's field named `true`, `false` or `null` (read as the literal; every other
+keyword reads as the attribute); and a view data field, which is its root script's own `var`, named like a keyword, a
+built-in type (`int`, `float`, `bool`), `_`, or with a capital (it would shadow a class).
 
 Every sim-facing field (events, commands, view and session data, constants, input values) converts by type, the same
 everywhere:
@@ -157,7 +167,7 @@ everywhere:
 - a `sim.Position` a `Vector2` (`Glue.is_2d`) or `Vector3`, in view units; by shape, `[2]/[3]/[4]f32` a
   `Vector2/3/4` and `[2]/[3]/[4]i32` a `Vector2i/3i/4i`; `godot.Color` a `Color`, `godot.Quat` a `Quaternion`;
 - other arrays and enumerated arrays a typed `Array` (an array of arrays untyped); a nested struct an object of its
-  class (a struct only view data uses has no class: a `Dictionary`); a string (constants) a `String`;
+  class (an anonymous struct, which has none, a `Dictionary`); a string (constants) a `String`;
 - a `sim.List` or `sim.Queue` a typed `Array` of its live items (a Queue's oldest first), a `sim.Bits` an
   `Array[int]` of the indices it holds; a settable one (a Setup, a Profile, input values, a nested value, a command)
   takes such an Array back, refused past its capacity.

@@ -37,6 +37,7 @@ Ship_View :: struct {
 	boost_ready: f32, // 0 just boosted .. 1 ready
 	thrust:      bool,
 	local:       bool, // one of this machine's players (godot.is_local): no name tag, louder sounds
+	_pad:        [2]u8,
 }
 
 Station_View :: struct {

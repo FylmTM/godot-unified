@@ -179,6 +179,10 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	fill_frame:   proc(frame: ^Frame(G, View, MultiView)),
 	// Optional: the game's session data types, a union of `Data_` structs (Unified.<name>, push_data).
 	data:         typeid,
+	// Each scene view kind's data type (push_view's `data`), `#partial {.Card = Card_View}`: a kind that pushes data
+	// declares it, as Glue.data declares the session data, so GDScript has the classes of what it holds at load (its
+	// enums, EnumX, and nested structs, DataX). A push with data of a kind not declared, or of another type, panics.
+	view_data:    [View]typeid,
 	// Optional: what only scripts know for sample_input (a camera's look direction), a plain struct: scripts set its
 	// fields on Unified.input, sample_input reads them with input_values(T).
 	input_values: typeid,
@@ -311,24 +315,27 @@ Mode :: enum u8 {
 
 @(private)
 Start :: struct {
-	mode:      Mode,
-	arg:       string, // join code or host:port
-	port:      int, // Host_Direct
-	local:     bool, // Host_Direct: listen on 127.0.0.1 only (--local-net), else on every interface
-	name:      string,
-	seed:      u64,
-	ticks:     u32, // 0: endless
-	scripted:  bool, // scripted input instead of the InputMap (headless checks)
-	bench:     int, // Single only: Game.bench_prepare(count) after the game's init (dev benchmarks)
-	token:     netcode.Token, // what the relay knows this player by when they come back over LAN (user://)
+	mode:         Mode,
+	arg:          string, // join code or host:port
+	port:         int, // Host_Direct
+	local:        bool, // Host_Direct: listen on 127.0.0.1 only (--local-net), else on every interface
+	name:         string,
+	seed:         u64,
+	ticks:        u32, // 0: endless
+	scripted:     bool, // scripted input instead of the InputMap (headless checks)
+	bench:        int, // Single only: Game.bench_prepare(count) after the game's init (dev benchmarks)
+	token:        netcode.Token, // what the relay knows this player by when they come back over LAN (user://)
 	// A host's: the session's Setup's bytes (has_setup; else the game's, Game.setup). A joiner gets the host's.
-	setup:     [sim.SETUP_MAX]u8,
-	has_setup: bool,
-	profile:   [sim.PROFILE_MAX]u8, // local player 0's Profile's bytes (Unified.profile at the start)
+	setup:        [sim.SETUP_MAX]u8,
+	has_setup:    bool,
+	profile:      [sim.PROFILE_MAX]u8, // local player 0's Profile's bytes (Unified.profile at the start; scripted: Game.scripted_profile's)
+	slot:         int, // a joiner's slot to ask for (-1: any; --slot)
+	// --profile's assignments: laid over a scripted player's Profile too (Unified.profile has them already)
+	profile_text: string,
 	// Dev UI builds: watch the session thread for a freeze (watchdog.odin), dumping into `dumps` (<user data>/feedback)
-	watchdog:  bool,
-	dumps:     string,
-	quit:      bool, // Replay: the session ends at the recording's last tick (--quit-at-end) instead of pausing there
+	watchdog:     bool,
+	dumps:        string,
+	quit:         bool, // Replay: the session ends at the recording's last tick (--quit-at-end) instead of pausing there
 }
 
 @(private)

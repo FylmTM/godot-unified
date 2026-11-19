@@ -312,7 +312,11 @@ drive_start :: proc(game: Game, opts: Drive_Opts, game_args: []string) -> Result
 	// the game outlives this command: it must not hold our stdout open (a caller reading it to its end would wait
 	// for the game), so our stdio are not inherited while it starts
 	for file in ([]^os.File{os.stdin, os.stdout, os.stderr}) do set_inheritable(file, false)
-	process, err := spawn({command = cmd[:], stdin = stdin, stdout = log_file, stderr = log_file}, stdin, log_file)
+	process, err := spawn(
+		{command = cmd[:], env = user_env(game.dir), stdin = stdin, stdout = log_file, stderr = log_file},
+		stdin,
+		log_file,
+	)
 	for file in ([]^os.File{os.stdin, os.stdout, os.stderr}) do set_inheritable(file, true)
 	os.close(log_file)
 	if stdin != nil do os.close(stdin)

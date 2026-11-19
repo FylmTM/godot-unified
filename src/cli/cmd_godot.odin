@@ -113,6 +113,8 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 			if !ok do log("uni: %s %s: skipped (a step before it failed)", game.name, step)
 			return !ok
 		}
+		// a whole run starts from no user data: a drive or tool run's save never reaches its session step (user_env)
+		if len(only) == 0 do remove_tree(user_base(game.dir))
 		// whatever steps run: each starts Godot on the project, which needs a current class cache
 		import_start := time.tick_now()
 		ensure_game(game)
@@ -181,7 +183,7 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 				args    = script_step.args,
 				timeout = script_step.timeout,
 				quiet   = true,
-				env     = env_with(..SUITE_OFFLINE_ENV),
+				env     = user_env(game.dir, ..SUITE_OFFLINE_ENV),
 			})
 			ok = pass(game, script_step.step, result.ok, result.seconds) && ok
 		}
@@ -321,7 +323,7 @@ session_vs_offline :: proc(game: Game, ticks, seed: int) -> bool {
 			aprintf("%d", ticks),
 			"--seed",
 			aprintf("%d", seed),
-		}, f64(ticks) / 64 + 30)
+		}, f64(ticks) / 64 + 30, user_env(game.dir))
 	errs := godot_problems(strings.concatenate({result.stdout, result.stderr}))
 	if not_installed(errs) {
 		for line in errs do log("uni: %s session: %s", game.name, line)
@@ -632,19 +634,22 @@ clear_shader_cache :: proc(game: Game) {
 	config, _ := config_load(join(game.dir, "project.godot"))
 	name, ok := config_get(config, "application", "config/name")
 	if ok {
-		dir := join(godot_user_dir(), "app_userdata", name, "shader_cache")
-		remove_tree(dir)
+		remove_tree(join(godot_user_dir(), "app_userdata", name, "shader_cache"))
+		// a check's or a driven run's own (user_env)
+		remove_tree(join(godot_user_dir(user_base(game.dir)), "app_userdata", name, "shader_cache"))
 		log("uni: cleared the shader caches of %s", game.name)
 	}
 }
 
-// Godot's user data directory on this OS.
-godot_user_dir :: proc() -> string {
+// Godot's user data directory on this OS: the developer's, or under `base` (a run with user_env's: `user_base`).
+godot_user_dir :: proc(base := "") -> string {
 	when ODIN_OS == .Darwin {
+		if base != "" do return join(base, "Godot")
 		return join(os.get_env("HOME", context.allocator), "Library", "Application Support", "Godot")
 	} else when ODIN_OS == .Windows {
-		return join(os.get_env("APPDATA", context.allocator), "Godot")
+		return join(base if base != "" else os.get_env("APPDATA", context.allocator), "Godot")
 	} else {
+		if base != "" do return join(base, "godot")
 		xdg := os.get_env("XDG_DATA_HOME", context.allocator)
 		return xdg != "" ? join(xdg, "godot") : join(os.get_env("HOME", context.allocator), ".local", "share", "godot")
 	}
@@ -705,6 +710,7 @@ cmd_coop :: proc(args: []string) -> Result {
 		window = opts.window,
 		shots  = opts.window ? "coop" : "",
 		place  = AGENT_WINDOW,
+		env    = user_env(selected.dir), // the joiners share it: each running copy claims its own LAN token
 	}
 	cleanup := opts.window ? with_window(selected.dir, AGENT_WINDOW) : no_cleanup
 	defer cleanup(selected.dir)
@@ -712,6 +718,7 @@ cmd_coop :: proc(args: []string) -> Result {
 		cmd     = tool_cmd(host_run),
 		capture = true,
 		timeout = 300 * time.Second,
+		env     = host_run.env,
 		log_to  = join(selected.dir, ".out", "coop_host"),
 	})
 	code := ""
@@ -733,8 +740,8 @@ cmd_coop :: proc(args: []string) -> Result {
 	} else {
 		append(&joiner_args, "--join-code", code)
 	}
-	friend := env_with("USER=Friend", "USERNAME=Friend") // the second player's default name
-	fresh := opts.lan ? friend : env_with("USER=Friend", "USERNAME=Friend", "UNIFIED_EOS_FRESH_DEVICE=1")
+	friend := user_env(selected.dir, "USER=Friend", "USERNAME=Friend") // the second player's default name
+	fresh := opts.lan ? friend : user_env(selected.dir, "USER=Friend", "USERNAME=Friend", "UNIFIED_EOS_FRESH_DEVICE=1")
 	joiner := start_joiner(selected, script, joiner_args[:], fresh, "coop_join")
 	if !opts.crash {
 		join_ran := wait(&joiner)

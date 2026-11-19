@@ -53,6 +53,7 @@ Args :: struct {
 	host_port:        int, // host_direct on this port at once
 	local_net:        bool, // direct hosting listens on 127.0.0.1 only (tool runs: no firewall prompt)
 	scripted:         bool, // scripted input (the offline binary's), for hash checks
+	slot:             string, // --slot n: a joiner asks for slot n (scripted: and joins as the offline run's player n)
 	ticks:            int, // session length (0: endless)
 	seed:             i64,
 	quit:             bool, // quit when the session ends, printing its result
@@ -803,13 +804,15 @@ bind_local_players :: proc(class: ^gd.Class) {
 			for active, k in input_sample.active do if !active && local < 0 do local = k
 			if local < 0 do return gd.to_variant(i64(-1))
 			profile: [sim.PROFILE_MAX]u8
+			explicit := false
 			if D.profile != nil && D.profile.instance != nil do copy(profile[:], D.profile.instance.bytes)
 			if profile_object.ptr != nil && D.profile != nil {
 				if given := (^Data_Object)(gd.instance_of(profile_object, &D.profile.class)); given != nil {
 					copy(profile[:], given.bytes)
+					explicit = true
 				}
 			}
-			if !api.local_player(local, true, name, profile[:]) do return gd.to_variant(i64(-1))
+			if !api.local_player(local, true, name, profile[:], explicit) do return gd.to_variant(i64(-1))
 			input_sample.active[local], input_sample.devices[local] = true, int(device)
 			return gd.to_variant(i64(local))
 		}, nil, {{"device", .INT, ""}, {"name", .STRING, ""}, {"profile", .OBJECT, PROFILE_CLASS}}, gd.Dynamic_Arg{"", .INT, ""}, doc = "Adds a local player to the running session, played on [param device] ([constant DEVICE_ANY], [constant DEVICE_KEYBOARD], a joypad's id), named [param name], arriving with [param profile] (null: [code]Unified.profile[/code]'s). Returns its local index (1 and up; 0 is the first player), or -1 when no session runs or [constant LOCAL_MAX] play already. It joins like a late joiner, without a snapshot; [signal local_players_changed] says when it is in.", defaults = {gd.to_variant(i64(DEVICE_ANY)), gd.to_variant(""), gd.variant_nil()})
@@ -926,6 +929,16 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	request.name = session.name
 	request.token = client_token()
 	if D.profile != nil && D.profile.instance != nil do copy(request.profile[:], D.profile.instance.bytes)
+	request.profile_text = session.args.profile
+	request.slot = -1
+	if session.args.slot != "" {
+		slot, slot_ok := strconv.parse_int(session.args.slot, 10)
+		if !slot_ok || slot < 0 || slot >= sim.MAX_PLAYERS {
+			emit_status(session, .Failed, fmt.tprintf("--slot %s: not a slot", session.args.slot))
+			return false
+		}
+		request.slot = slot
+	}
 	if !request.has_setup && session.args.setup != "" {
 		// the command line's (--setup): the game's default with its assignments
 		copy(request.setup[:], api.setup_default)
@@ -1296,6 +1309,7 @@ FLAGS := [?]Flag {
 	{"--control", true, .Text, offset_of(Args, control), 0, 0, "a file for the port"},
 	{"--setup", false, .Text, offset_of(Args, setup), 0, 0, "key=value[,key=value]"},
 	{"--profile", false, .Text, offset_of(Args, profile), 0, 0, "key=value[,key=value]"},
+	{"--slot", true, .Text, offset_of(Args, slot), 0, 0, "a slot (0 ..)"},
 }
 
 // Reads unified:godot's flags from the user args (after `--`; strings are cloned or temp-allocated). `problems`:

@@ -150,6 +150,13 @@ the stack names the innermost proc that was not inlined. LLVM's lldb for Windows
 on PATH, and exits at once without it; any debugger that reads PDBs works there as well. `uni test <package> --only
 <pkg.test>` runs it alone without one.
 
+**No test touches the developer's data.** Every Godot run that is a check or an agent's (the godot suite's steps, the
+project's own Godot suites, tool scripts, `tool`, `bake`, `drive`, `coop`'s host and joiners, `view-bench`) gets the
+project's own user data directory, `.out/user/` (`user_env`): the game's `user://` (a save, its settings, the LAN
+token: each running copy claims its own) is there, kept between such runs, cleared when the godot suite starts a whole
+run of a game, and with `.out/`. `run` and `editor` are the developer's own, with the real one: an agent play-checks
+with `drive`.
+
 Benchmarks are no suite: `bench` runs each game's standard benchmark and its sessions on the virtual clock, plus the
 project's own rows, into `.out/bench.json`, reported and never gated by time (`uni bench -h`, `BENCH_TARGET_US`).
 
