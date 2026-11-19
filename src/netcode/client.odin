@@ -15,14 +15,18 @@ import "unified:wire"
 
 // What a client asks the relay for and who it says it is (client_create).
 Client_Config :: struct {
-	slot:        int, // the slot to ask for; -1: any free one
-	join_tick:   u32, // the earliest tick to become present (0: as soon as possible)
-	compat:      u64, // build/game id the relay checks (0: sim.compat_of(game, content))
-	content:     []u8, // the level (src/level/README.md; nil: the game's own, sim.Game.content); borrowed for the client's lifetime
-	player_name: string, // the player's display name (sent to the relay, shared with everyone)
+	slot:          int, // the slot to ask for; -1: any free one
+	join_tick:     u32, // the earliest tick to become present (0: as soon as possible)
+	compat:        u64, // build/game id the relay checks (0: sim.compat_of(game, content))
+	content:       []u8, // the level (src/level/README.md; nil: the game's own, sim.Game.content); borrowed for the client's lifetime
+	player_name:   string, // the player's display name (sent to the relay, shared with everyone)
 	// On a link that vouches for no account (LAN, direct UDP): what the relay recognizes this person by when they
 	// come back (the same member, in any free slot). All zero: none (a new member every time).
-	token:       Token,
+	token:         Token,
+	// The most finalized ticks one client_step verifies while it holds more (a joiner's backlog, a long hitch); 0: the
+	// prediction cap, so a step that catches up costs what a full-depth rollback costs, which the game's benchmark
+	// bounds. The channel, the clock and own inputs are served between the steps.
+	catchup_ticks: u32,
 }
 
 // Where a client stands (Client.status), reported through Hooks.status.
@@ -103,8 +107,8 @@ FIN_RING :: 2048
 #assert(CATCHUP_TICKS <= FIN_RING - 64) // a relay never streams ticks the ring would refuse
 OWN_RING :: 512
 PRED_RING :: 64
-// The checksums of verified checksum ticks, until reported: a joiner's first step verifies every finalized tick it
-// holds, up to FIN_RING of them.
+// The checksums of verified checksum ticks, until reported: the ticks a client verifies before its reports go out (a
+// step's, at most catchup_ticks), and a joiner's snapshot tick's.
 CHK_RING :: FIN_RING / CHECKSUM_EVERY
 #assert(CHK_RING * CHECKSUM_EVERY >= FIN_RING)
 CHECKSUMS_KEPT :: 64 // an endless session's client keeps its last this many checksums (Client.checksums)
@@ -885,13 +889,27 @@ restore_to :: proc(client: ^Client($G), target: u32) -> bool {
 	return true
 }
 
-// Advances the verified frame with newly finalized ticks, rolling back on a misprediction.
+// The most finalized ticks one client_step verifies: Client_Config.catchup_ticks, else the prediction cap.
+@(private)
+catchup_budget :: proc(client: ^Client($G)) -> u32 {
+	return client.cfg.catchup_ticks != 0 ? client.cfg.catchup_ticks : client.tm.prediction_cap
+}
+
+// Whether the client holds finalized ticks it has not verified after this step's budget: it is catching up (no
+// prediction: the final ticks are next).
+@(private)
+catching_up :: #force_inline proc(client: ^Client($G)) -> bool {
+	return client.sim != nil && !client.checking && client.fin_upto > client.verified
+}
+
+// Advances the verified frame with newly finalized ticks (at most catchup_budget of them), rolling back on a
+// misprediction.
 @(private)
 advance_verified :: proc(client: ^Client($G), now: i64) {
-	new_verified := client.fin_upto
-	if client.sim == nil || client.checking || new_verified <= client.verified {
+	if client.sim == nil || client.checking || client.fin_upto <= client.verified {
 		return
 	}
+	new_verified := min(client.fin_upto, client.verified + catchup_budget(client))
 	old_verified := client.verified
 	limit := min(new_verified, client.predicted)
 	mispredicted: u32 = 0
@@ -927,6 +945,11 @@ advance_verified :: proc(client: ^Client($G), now: i64) {
 		for tick in mispredicted ..= new_verified {
 			step_final(client, tick, new_verified, .Resim, now)
 			client.stats.resim_ticks += 1
+		}
+		if client.fin_upto > new_verified {
+			// Catching up: the ticks past this step's budget are final already and come next; predicting them again
+			// from an older tick's inputs would only be rolled back.
+			client.predicted = new_verified
 		}
 		for tick in new_verified + 1 ..= client.predicted {
 			step_predicted(client, tick, .Resim)
@@ -1198,7 +1221,7 @@ clock_ticks :: proc(ticks: f64) -> u32 {
 
 @(private)
 predict :: proc(client: ^Client($G)) {
-	if client.sim == nil || client.checking {
+	if client.sim == nil || client.checking || catching_up(client) {
 		return
 	}
 	for client.predicted < client.local &&
@@ -1289,6 +1312,9 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 	wake_us = now + client.poll_us
 	if client.started && !client.leaving {
 		wake_us = min(wake_us, i64(client.next_tick_us) + 1) // a leaving client's clock stopped: it only lingers
+	}
+	if catching_up(client) && !client.leaving {
+		wake_us = now // the next budget's worth at once, after this step's poll, clock, inputs and flush
 	}
 	return
 }
