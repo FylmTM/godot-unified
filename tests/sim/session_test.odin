@@ -222,9 +222,9 @@ setups_and_profiles_are_checked_like_commands :: proc(t: ^testing.T) {
 @(test)
 no_profile_takes_no_bytes :: proc(t: ^testing.T) {
 	Without :: sim.Players(u32, sim.No_Profile, toy.Input, 3)
-	testing.expect_value(t, offset_of(Without, data), offset_of(Without, profile))
+	#assert(offset_of(Without, data) == offset_of(Without, profile))
 	With :: sim.Players(u32, Pick_Profile, toy.Input, 3)
-	testing.expect_value(t, offset_of(With, data) % 8, 0)
+	#assert(offset_of(With, data) % 8 == 0)
 	testing.expect_value(t, sim.plain_violation(type_info_of(With)), "")
 }
 

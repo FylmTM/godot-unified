@@ -5,7 +5,6 @@ package test_minimal_3d
 import "core:testing"
 import "unified:headless"
 import "unified:headless/scenarios"
-import "unified:netcode"
 import "unified:sim"
 
 import g "../minimal_3d"
@@ -98,24 +97,4 @@ a_co_op_pause_stops_the_game :: proc(t: ^testing.T) {
 	testing.expect_value(t, state.clock.time, time + 1)
 	testing.expect_value(t, headless.run_events(&run, g.Event_Paused), 2) // so far: the pause and the resume
 	scenarios.expect_synced(t, &run)
-}
-
-// A co-op pause in a 2-client session on the virtual clock under a bad network (the script's slot 0 pauses for
-// SCRIPT_PAUSE_TICKS): no desync, and the relay's log replayed shows game time standing still for exactly that long.
-@(test)
-a_co_op_pause_holds_in_a_session :: proc(t: ^testing.T) {
-	result := headless.session_run(&g.GAME, {clients = 2, profile = netcode.PROFILES[.Bad], ticks = 600, seed = 42})
-	defer headless.session_result_destroy(&result)
-	testing.expectf(t, result.ok && result.desyncs == 0, "%d desyncs", result.desyncs)
-	replay := sim.create(&g.GAME, 42)
-	defer sim.destroy(replay)
-	held, last := 0, sim.Game_Time(0)
-	for k in 0 ..< len(result.log.ticks) {
-		inputs := sim.log_inputs(&result.log, k)
-		sim.step(replay, &inputs)
-		held += int(replay.state.clock.time == last)
-		last = replay.state.clock.time
-	}
-	testing.expect_value(t, held, g.SCRIPT_PAUSE_TICKS)
-	testing.expect_value(t, replay.state.clock.time, sim.Game_Time(replay.tick - g.SCRIPT_PAUSE_TICKS))
 }

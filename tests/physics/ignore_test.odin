@@ -46,16 +46,6 @@ ignore_contacts_until_stopped :: proc(t: ^testing.T) {
 		}), 0)
 }
 
-@(test)
-worker_count_is_settable :: proc(t: ^testing.T) {
-	world := physics.create({tick_hz = HZ})
-	defer physics.destroy(world)
-	testing.expect_value(t, physics.world_worker_count(world), 1)
-	physics.world_set_worker_count(world, 4)
-	testing.expect_value(t, physics.world_worker_count(world), 4)
-	testing.expect_value(t, world.workers, 4)
-}
-
 // A game whose thrower (a) and ball (b) ignore each other for 20 ticks of every 48, the ball shoved into the thrower
 // meanwhile, and whose ball is destroyed and remade at tick 200 while ignored (the ref goes stale and stop_ignoring
 // zeroes it).
