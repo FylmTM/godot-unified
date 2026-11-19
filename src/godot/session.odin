@@ -885,6 +885,11 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	ok, err := api.start(request)
 	if !ok {
 		emit_status(session, .Failed, err)
+		if session.quit_at_end {
+			// a session that can't start (a game that did not install) has no result to wait for: say why and quit
+			fmt.eprintfln("unified: the session did not start: %s", err)
+			quit_when_quiet(session, 1)
+		}
 		return false
 	}
 	emit_status(session, .Connecting, "")
