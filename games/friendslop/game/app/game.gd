@@ -33,6 +33,8 @@ var status := UnifiedSession.STATUS_IDLE
 var status_detail := ""
 ## The port Host on LAN listens on (a tool may pick another, so parallel runs don't collide).
 var lan_port := LAN_PORT
+## This single-player session was opened to friends from the pause menu (open_direct): it stays the host's.
+var invited := false
 ## Shown by the main menu once after a failure, then cleared.
 var last_error := ""
 ## True while the player is using a gamepad (the last input event came from one).
@@ -76,6 +78,7 @@ func _ready() -> void:
 	session.local_name = Settings.player_name
 	session.status_changed.connect(_on_status_changed)
 	session.join_code_changed.connect(_on_join_code)
+	session.mode_changed.connect(_on_mode_changed)
 	add_child(session)
 
 
@@ -221,6 +224,7 @@ func copy_with_feedback(button: Button, text: String) -> void:
 func _begin(m: Mode) -> void:
 	mode = m
 	last_error = ""
+	invited = false
 	session.local_name = Settings.player_name
 	flow = Flow.CONNECTING
 	if m != Mode.SINGLE:
@@ -263,6 +267,21 @@ func _adopt() -> void:
 			_begin(Mode.HOST_LAN)
 		_:
 			_begin(Mode.JOIN)
+
+
+## The session's mode changed while it ran (a single-player session opened to friends), or an open failed: the flow
+## follows the mode; a failure's reason is the last error (shown on the menu when the player leaves).
+func _on_mode_changed(new_mode: UnifiedSession.Mode, detail: String) -> void:
+	if detail != "":
+		last_error = detail
+	match new_mode:
+		UnifiedSession.MODE_HOST_ONLINE:
+			mode = Mode.HOST
+		UnifiedSession.MODE_HOST_DIRECT:
+			mode = Mode.HOST_LAN
+		UnifiedSession.MODE_SINGLE:
+			mode = Mode.SINGLE
+			invited = false
 
 
 func _on_join_code(code: String) -> void:

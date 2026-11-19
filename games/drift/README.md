@@ -17,6 +17,11 @@ WASD / left stick to thrust (world directions), mouse / right stick to aim, LMB 
 LT or A to boost, Enter / X to start (and to restart when the station is lost), Esc / Start for the menu, F1 for the
 dev UI.
 
+**Couch co-op**: a pad that presses Start during play joins as another local player (one session, one connection,
+each player its own member; up to the library's local players). The first player keeps the keyboard and mouse; each
+pad player thrusts and aims with its own sticks (`sample_input` reads the sampled player's device), and the camera
+frames every local ship.
+
 ## World
 
 The arena is a level drawn in Godot's 2D editor (`game/levels/arena.tscn`, baked to `arena.level`,
