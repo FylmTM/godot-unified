@@ -23,10 +23,12 @@ friendslop_init :: proc "c" (
 
 GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
-	fill_frame   = fill_frame,
-	data         = Data,
-	event_key    = event_key,
+	fill_frame = fill_frame,
+	data = Data,
+	event_key = event_key,
 	input_values = Input_Values,
+	// an item the local player holds is drawn at their hand, at render rate (marker_view.gd)
+	view_policy = #partial{.Marker = {pose = .Script}},
 }
 
 // ---- constants for the scripts (Unified.constants), from the sim's own definitions
@@ -43,6 +45,9 @@ Data_Constants :: struct {
 	player_radius:      f32,
 	player_half_height: f32,
 	handle_outset:      f32, // a two-handle item's grab points are this far past its ends
+	hold_dist:          f32, // a held thing is this far in front of the holder (along the facing)
+	hold_up:            f32, // and this far above the capsule centre
+	hold_pitch:         f32, // plus the look's pitch (its y) times this
 	item_sizes:         [len(g.Item_Kind)]Item_Size, // by kind
 }
 
@@ -53,6 +58,9 @@ constants :: proc() -> Data_Constants {
 		player_radius      = g.PLAYER_RADIUS,
 		player_half_height = g.PLAYER_HALF_HEIGHT,
 		handle_outset      = g.HANDLE_OUTSET,
+		hold_dist          = g.HOLD_DIST,
+		hold_up            = g.HOLD_UP,
+		hold_pitch         = g.HOLD_PITCH,
 	}
 	for spec, kind in g.ITEM_SPECS {
 		size := spec.half == {} ? [3]f32{spec.radius, spec.radius, spec.radius} * 2 : spec.half * 2

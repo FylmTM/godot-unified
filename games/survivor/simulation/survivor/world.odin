@@ -163,6 +163,7 @@ character_reset :: proc(character: ^Character, role: Role) {
 		level         = 1,
 		speed         = PLAYER_SPEED,
 		role          = role,
+		warp          = character.warp, // kept: the next spawn's bump is a change the view sees
 	}
 	switch role {
 	case .Gunner:
@@ -180,12 +181,13 @@ scripted_profile :: proc(seed: u64, slot: int) -> Profile {
 	return {role = Role(slot % len(Role))}
 }
 
-// A body at the start spot of `slot` (the level's spawn marker), with full HP.
+// A body at the start spot of `slot` (the level's spawn marker), with full HP; the view snaps there (Character.warp).
 character_spawn :: proc(world: ^World, character: ^Character, slot: int) {
 	character.alive = true
 	character.hp = PLAYER_HP
 	sim.timer_stop(&character.respawn)
 	character.pos = world.spawns[slot]
+	character.warp += 1
 	body_def := physics.body_def(.Dynamic, world.spawns[slot])
 	body_def.motion_locks = {
 		angular_x = true,

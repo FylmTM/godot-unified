@@ -76,6 +76,7 @@ fill_frame :: proc(f: ^Frame) {
 			kind = .Ship,
 			pos  = sim.position_2d(physics.body_position_2d(f.world.phys, ship.body)),
 			rot  = physics.quat_2d(physics.body_rotation_2d(f.world.phys, ship.body)),
+			warp = ship.warp,
 		}, Ship_View{boost_ready = sim.timer_fraction(f.time, ship.boost_cooldown), thrust = ship.thrust})
 	}
 	godot.push_view(f, {

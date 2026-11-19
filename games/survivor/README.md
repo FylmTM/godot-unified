@@ -115,7 +115,8 @@ samples at another tick, and lives with the tests (`simulation/tests/bot.odin`).
 
 ## View contract (`simulation/extension`)
 
-- Scene views: `player` (keyed by `sim.player_key`, its data `hp` and `dashing`), `crate` and `barrel` (keyed by the
+- Scene views: `player` (keyed by `sim.player_key`, its data `hp` and `dashing`; each spawn bumps its warp epoch,
+  `Character.warp`, so the view, which stays while the player is dead, snaps to the new body), `crate` and `barrel` (keyed by the
   item's index, posed with their physics rotation). A destroyed barrel's view goes; the one that comes back is new.
 - MultiMesh views: `grunt`, `runner`, `brute` (in `Enemy_Kind`'s order), `projectile`, `gem`, keyed by handle, on the
   ground plane facing their velocity; custom data r = hit flash, g = age in seconds.

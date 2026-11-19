@@ -135,6 +135,7 @@ respawn_fallen :: proc(t: ^Tick) {
 		physics.character_set_limp(t.world.phys, &character.controller, true)
 		park := [3]f32{f32(sim.player_slot(t, player)) * PARK_SPACING, PARK_Y, 0}
 		physics.body_teleport(t.world.phys, character.controller.body, park)
+		character.controller.warp += 1 // the view snaps away too (character_teleport bumps it on the way back)
 		sim.emit(t, Event_Fell{position = sim.Position(pos), player = player})
 	}
 }

@@ -35,6 +35,21 @@ func _run() -> void:
 	await wait_for(func() -> bool: return _holding() == EnumHeldKind.ITEM, 1.0, "holding the crate")
 	await seconds(0.5)
 	await shot("r03_holding")
+	# what the local player holds is drawn at their hand (script-posed, marker_view.gd), not where its spring lags
+	var held: Node3D = null
+	for v: Node in views(EnumView.MARKER):
+		if v.get(&"held_by") as int == session.local_player:
+			held = v as Node3D
+	expect(held != null, "the held item's view knows its holder")
+	if held != null:
+		var me := _me()
+		var facing := me.quaternion * Vector3.BACK
+		var offset := held.global_position - me.global_position
+		var along := Vector2(offset.x, offset.z).dot(Vector2(facing.x, facing.z))
+		expect(
+			absf(along - Unified.constants.hold_dist) < 0.02,
+			"the held item is drawn at the hand (%.3f m ahead, hold_dist %.2f)" % [along, Unified.constants.hold_dist],
+		)
 	step("grabbed a crate next to %s" % Steering.fmt(crate.global_position))
 	var before := _marker_positions()
 	await hold(&"throw", 0.4)

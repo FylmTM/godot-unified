@@ -74,7 +74,8 @@ Character :: struct {
 	pending_levelups: i32,
 	alive:            bool, // has a body (present, not dead)
 	role:             Role, // the Profile's on the tick they joined or came back
-	_pad:             [2]u8,
+	warp:             u8, // bumped by each spawn: the view (it lives while the player is dead) snaps to the new body
+	_pad:             u8,
 }
 
 Item_Kind :: enum u8 {

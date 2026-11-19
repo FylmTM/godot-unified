@@ -58,6 +58,7 @@ reset_world :: proc(t: ^Tick) {
 	ships := sim.iterate_present(t)
 	for ship, player in sim.next(&ships) {
 		physics.body_teleport_2d(t.world.phys, ship.body, t.world.spawns[sim.player_slot(t, player)], UP)
+		ship.warp += 1
 		ship.fire_cooldown, ship.boost_cooldown, ship.gate_cooldown = {}, {}, {}
 	}
 	t.state.gates = {}

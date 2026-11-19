@@ -44,6 +44,7 @@ fill_frame :: proc(f: ^Frame) {
 			kind = .Player,
 			pos  = sim.Position(physics.body_position(f.world.phys, character.controller.body)),
 			rot  = dmath.quat_yaw(character.facing),
+			warp = character.controller.warp,
 		}, Player_View {
 			limp    = character.stun > 0 || character.held_by != {},
 			holding = character.held_kind != .None,
@@ -52,7 +53,10 @@ fill_frame :: proc(f: ^Frame) {
 	}
 	// The active level's things: a marker index names a marker of the level active at this tick.
 	places := &f.world.places[f.state.level.id]
-	for i in 0 ..< places.item_count do push_body(f, f.state.items[i].body, places.items[i].marker)
+	for i in 0 ..< places.item_count {
+		item := &f.state.items[i]
+		push_body(f, item.body, places.items[i].marker, item.warp, held_by_one(item, places.items[i].kind))
+	}
 	for i in 0 ..< places.platform_count do push_body(f, f.state.platforms[i].body, places.platforms[i].marker)
 	for i in 0 ..< places.trigger_count {
 		marker := places.triggers[i].marker
@@ -60,17 +64,28 @@ fill_frame :: proc(f: ^Frame) {
 			kind = .Marker,
 			pos  = sim.Position(places.triggers[i].volume.pos),
 			rot  = physics.level_data(f.world.phys, f.state.level.id).markers[marker].rot,
-		})
+		}, Marker_View{})
 	}
 	godot.push_data(f, hud_of(f.state, f.tick))
 }
 
+// The marker view's data: an item's holder, whom the view follows when that is the local player (marker_view.gd).
+Marker_View :: struct {
+	held_by: sim.Player, // the one player holding a one-handle item ({}: nobody, a two-handle item, not an item)
+}
+
 // The marker view of a body the block owns (an item or a platform), where the body is.
-push_body :: proc(f: ^Frame, body: physics.Body_Ref, marker: int) {
+push_body :: proc(f: ^Frame, body: physics.Body_Ref, marker: int, warp: u8 = 0, held_by: sim.Player = {}) {
 	if body == {} do return
 	godot.push_view(f, sim.entity(marker), {
 		kind = .Marker,
 		pos  = sim.Position(physics.body_position(f.world.phys, body)),
 		rot  = physics.body_rotation(f.world.phys, body),
-	})
+		warp = warp,
+	}, Marker_View{held_by = held_by})
+}
+
+// Who holds a one-handle item ({} for a two-handle one: it hangs from its grab point, not at the hand).
+held_by_one :: proc(item: ^g.Item, kind: g.Item_Kind) -> sim.Player {
+	return g.ITEM_SPECS[kind].grab_points > 1 ? {} : item.holders[0]
 }

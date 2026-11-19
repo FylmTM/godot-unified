@@ -16,6 +16,7 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_view(f, player, {
 			kind = .Player,
 			pos  = sim.Position(character.pos),
+			warp = character.warp,
 		}, Player_View{hp = max(character.hp, 0), dashing = sim.timer_running(f.time, character.dash)})
 	}
 	for &item, i in f.state.items[:f.world.items.count] {
