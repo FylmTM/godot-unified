@@ -4,8 +4,8 @@ import "unified:physics"
 import "unified:sim"
 
 // Moves the run on: a player in the hub's start gate takes the team to the route and starts the run timer, players
-// reaching checkpoints advance the team's checkpoint, the trophy on the finish ends the run (keeping the best time), and
-// the team is back in the hub after the hold or as soon as nobody is present.
+// reaching checkpoints advance the team's checkpoint, the trophy on the finish ends the run (keeping the best time),
+// and the team is back in the hub after the hold or as soon as nobody is present.
 advance_phase :: proc(t: ^Tick) {
 	if sim.present_count(t) == 0 {
 		if t.state.phase != .Hub do reset_route(t)
@@ -38,15 +38,15 @@ advance_phase :: proc(t: ^Tick) {
 			}
 		}
 		if places(t).finish.half == {} do return
-		for i in 0 ..< places(t).item_count {
-			if places(t).items[i].kind != .Trophy do continue
+		for def, i in sim.slice(&places(t).items) {
+			if def.kind != .Trophy do continue
 			if !in_volume(places(t).finish, physics.body_position(t.world.phys, t.state.items[i].body)) do continue
 			t.state.phase = .Finished
 			t.state.finish_tick = t.number
 			ticks := t.number - t.state.run_tick
 			if t.state.best_ticks == 0 || ticks < t.state.best_ticks do t.state.best_ticks = ticks
 			sim.emit(t, Event_Run_Finished {
-				entity     = sim.entity(places(t).items[i].marker),
+				entity     = sim.entity(def.marker),
 				position   = sim.Position(places(t).finish.pos),
 				duration_s = sim.seconds(ticks, TICK_HZ),
 			})

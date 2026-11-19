@@ -46,7 +46,8 @@ break_rocks :: proc(t: ^Tick) {
 
 // During a match: wave k (0, 1, ...) every WAVE_EVERY_TICKS brings WAVE_ROCKS + WAVE_ROCKS_MORE * k large rocks, one
 // every ROCK_EVERY_TICKS from the rock_spawn markers in turn, at ROCK_SPEED + ROCK_SPEED_PER_WAVE * k along the
-// marker's direction turned up to ROCK_SPREAD_TURNS (dmath.rotate2); the turn, the spin (up to ROCK_SPIN_MAX) and the shape are keyed rolls.
+// marker's direction turned up to ROCK_SPREAD_TURNS (dmath.rotate2); the turn, the spin (up to ROCK_SPIN_MAX) and the
+// shape are keyed rolls.
 spawn_waves :: proc(t: ^Tick) {
 	if t.state.phase != .Match do return
 	if t.number >= t.state.next_wave_tick {

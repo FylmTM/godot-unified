@@ -6,6 +6,7 @@ import "core:testing"
 
 import "unified:dmath"
 import "unified:headless"
+import "unified:headless/scenarios"
 import "unified:level"
 import "unified:physics"
 import "unified:sim"
@@ -28,12 +29,12 @@ index_at_marker :: proc(run: ^Run, list: []$Def, name: string) -> int {
 
 item_at_marker :: proc(run: ^Run, name: string) -> int {
 	places := places_of(run)
-	return index_at_marker(run, places.items[:places.item_count], name)
+	return index_at_marker(run, sim.slice(&places.items), name)
 }
 
 platform_at_marker :: proc(run: ^Run, name: string) -> int {
 	places := places_of(run)
-	return index_at_marker(run, places.platforms[:places.platform_count], name)
+	return index_at_marker(run, sim.slice(&places.platforms), name)
 }
 
 // Puts an item at rest at `at`, then re-saves the tick (the sync-test never rewinds past it).
@@ -84,7 +85,7 @@ route_start_checkpoint_respawn :: proc(t: ^testing.T) {
 		at,
 		check3.pos,
 	)
-	expect_clean(t, &run)
+	scenarios.expect_synced(t, &run)
 }
 
 @(test)
@@ -106,7 +107,7 @@ route_plate_holds_gate :: proc(t: ^testing.T) {
 	idle(&run, 96)
 	testing.expect(t, headless.run_events(&run, g.Event_Plate_Off) >= 1)
 	testing.expectf(t, abs(platform_y(&run, gate) - closed) < 0.01, "gate didn't close: %v", platform_y(&run, gate))
-	expect_clean(t, &run)
+	scenarios.expect_synced(t, &run)
 }
 
 @(test)
@@ -135,7 +136,7 @@ route_bell_bridge :: proc(t: ^testing.T) {
 		bridge_x_before,
 		bridge_x_after,
 	)
-	expect_clean(t, &run)
+	scenarios.expect_synced(t, &run)
 }
 
 @(test)
@@ -167,7 +168,7 @@ route_key_lock_and_scale :: proc(t: ^testing.T) {
 	put_item(&run, key, lock.pos + {2, 0, 0})
 	idle(&run, 96)
 	testing.expectf(t, platform_y(&run, lock_gate) < lock_closed - 4, "the lock's gate didn't stay open")
-	expect_clean(t, &run)
+	scenarios.expect_synced(t, &run)
 }
 
 // Toss: a friend thrown up onto the perch touches the switch, which lowers the gate.
@@ -211,7 +212,7 @@ route_toss_friend_to_switch :: proc(t: ^testing.T) {
 	)
 	idle(&run, 96)
 	testing.expectf(t, platform_y(&run, gate) < closed - 4, "the toss gate didn't open")
-	expect_clean(t, &run)
+	scenarios.expect_synced(t, &run)
 }
 
 @(test)
@@ -232,18 +233,12 @@ route_finish_and_reset :: proc(t: ^testing.T) {
 	testing.expect_value(t, run.simulation.state.checkpoint, -1)
 	testing.expect_value(t, run.simulation.state.level.id, g.Level_Id.Hub)
 	hub := places_of(&run)
-	for i in 0 ..< hub.item_count {
+	for def, i in sim.slice(&hub.items) {
 		at := item_pos(&run, i)
-		testing.expectf(
-			t,
-			abs(at.x - hub.items[i].pos.x) + abs(at.z - hub.items[i].pos.z) < 0.5,
-			"hub item %d at %v",
-			i,
-			at,
-		)
+		testing.expectf(t, abs(at.x - def.pos.x) + abs(at.z - def.pos.z) < 0.5, "hub item %d at %v", i, at)
 	}
 	testing.expectf(t, abs(player_pos(&run, 0).z) < 2, "the player is back in the hub? %v", player_pos(&run, 0))
-	expect_clean(t, &run)
+	scenarios.expect_synced(t, &run)
 }
 
 // When the last player leaves, the run ends there: back to the hub, the checkpoint cleared (like drift and survivor).
@@ -262,7 +257,7 @@ route_resets_when_nobody_is_present :: proc(t: ^testing.T) {
 	idle(&run, 4)
 	testing.expect_value(t, run.simulation.state.phase, g.Phase.Hub)
 	testing.expect_value(t, run.simulation.state.checkpoint, -1)
-	expect_clean(t, &run)
+	scenarios.expect_synced(t, &run)
 }
 
 // The ferry follows the designer curve on its marker (platform.gd's `easing`, level.prop_curve): a slow start through
@@ -273,7 +268,7 @@ the_ferry_eases_by_its_curve :: proc(t: ^testing.T) {
 	defer headless.run_end(&run)
 	ferry := platform_at_marker(&run, "Ferry")
 	if !testing.expect(t, ferry >= 0, "the Ferry marker") do return
-	path := &places_of(&run).platforms[ferry].path
+	path := &sim.slice(&places_of(&run).platforms)[ferry].path
 	testing.expect_value(t, path.ease, physics.Path_Ease.Curve)
 	testing.expect(t, path.curve.samples[0] == 0 && path.curve.samples[31] == 1, "from 0 to 1")
 	eased := dmath.curve_sample(path.curve, 0.6)

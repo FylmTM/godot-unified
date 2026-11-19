@@ -1,7 +1,8 @@
 package drift
 
-// Every rule's number. Metres, seconds and radians; times are written in seconds and converted to ticks at compile
-// time: a value that is not a whole number of ticks does not compile.
+// Every rule's number. Metres and seconds; angular velocities in radians (Box3D's), angles in turns (dmath's). Times
+// are written in seconds and converted to ticks at compile time: a value that is not a whole number of ticks does not
+// compile.
 
 // ---- sizes
 

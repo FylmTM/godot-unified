@@ -7,16 +7,19 @@ import "unified:dmath"
 import "unified:sim"
 
 SCRIPT_PERIOD :: 24
+SCRIPT_IDLE_ONE_IN :: 9 // one block in this many the scripted player stands still
+SCRIPT_DASH_ONE_IN :: 13 // and one in this many it dashes
+
 // The scripted input hook (what the headless modes and test sessions feed in): the input of the player in `slot`
 // for `tick` (>= 1). It ignores the state.
 scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> (input: Input) {
 	roll := sim.script_bits(seed, slot, tick, SCRIPT_PERIOD)
-	if roll % 9 != 8 {
+	if roll % SCRIPT_IDLE_ONE_IN != SCRIPT_IDLE_ONE_IN - 1 {
 		direction := roll % 8
 		input.move_x = dmath.axis_i8(dmath.DIR8[direction].x)
 		input.move_z = dmath.axis_i8(dmath.DIR8[direction].y)
 	}
-	if roll % 13 == 0 {
+	if roll % SCRIPT_DASH_ONE_IN == 0 {
 		input.buttons += {.Dash}
 	}
 	return
@@ -26,6 +29,6 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> (input
 // pending (the sim ignores it then), so the script depends on (seed, slot, tick) only, like the inputs.
 scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
 	if (tick - 1) % SCRIPT_PERIOD == 0 {
-		sim.send_command(out, Cmd_Pick{Upgrade(sim.script_bits(seed, slot, tick, SCRIPT_PERIOD) % 3)})
+		sim.send_command(out, Cmd_Pick{Upgrade(sim.script_bits(seed, slot, tick, SCRIPT_PERIOD) % len(Upgrade))})
 	}
 }

@@ -32,39 +32,45 @@ Data_Hud :: struct {
 	_pad:          [3]u8,
 	time_s:        f32, // match time: 0 in the lobby, frozen when over
 	wave:          u32, // 1-based during a match, 0 in the lobby
+	best_wave:     u32, // the most waves reached in this session (g.State.best_wave, from the Setup)
 	enemies_alive: i32,
 	reset_in_s:    f32, // over: seconds until the world resets and the lobby begins again (0 otherwise)
 	players:       [g.PLAYERS]Hud_Player,
 }
 
-hud_of :: proc(state: ^g.State, tick: u32, seed: u64) -> (hud: Data_Hud) {
-	hud.phase = state.phase
-	switch state.phase {
+hud_of :: proc(f: ^Frame) -> (hud: Data_Hud) {
+	hud.phase = f.state.phase
+	switch f.state.phase {
 	case .Lobby:
 	case .Match:
-		hud.time_s = sim.seconds(tick - state.match_tick, g.TICK_HZ)
-		hud.wave = state.wave + 1
+		hud.time_s = sim.seconds(f.tick - f.state.match_tick, g.TICK_HZ)
+		hud.wave = f.state.wave + 1
 	case .Over:
-		hud.time_s = sim.seconds(state.over_tick - state.match_tick, g.TICK_HZ)
-		hud.wave = state.wave + 1
-		hud.reset_in_s = sim.seconds(state.over_tick + g.OVER_HOLD_TICKS - tick, g.TICK_HZ)
+		hud.time_s = sim.seconds(f.state.over_tick - f.state.match_tick, g.TICK_HZ)
+		hud.wave = f.state.wave + 1
+		hud.reset_in_s = sim.seconds(f.state.over_tick + g.OVER_HOLD_TICKS - f.tick, g.TICK_HZ)
 	}
-	hud.enemies_alive = state.enemies.count
+	hud.best_wave = f.state.best_wave
+	hud.enemies_alive = f.state.enemies.count
 	for slot in 0 ..< g.PLAYERS {
-		character := sim.slot_data(&state.players, slot)
+		character := sim.slot_data(&f.state.players, slot)
 		if character == nil do continue
 		hud.players[slot] = {
 			alive            = character.alive,
 			hp               = max(character.hp, 0),
 			hp_max           = g.PLAYER_HP,
 			xp               = character.xp,
-			xp_next          = g.xp_next(&state.tuning, character.level),
+			xp_next          = g.xp_next(&f.state.tuning, character.level),
 			level            = character.level,
 			pending_levelups = character.pending_levelups,
-			respawn_s        = character.alive ? 0 : sim.timer_remaining_s(sim.game_time(state, tick), character.respawn, g.TICK_HZ),
+			respawn_s        = character.alive ? 0 : sim.timer_remaining_s(f.time, character.respawn, g.TICK_HZ),
 		}
 		if character.pending_levelups > 0 { 	// the roll the sim makes for the pick, peeked: nothing in the block changes
-			offers := g.upgrade_offers(seed, state.players.slots[slot], g.oldest_pending_level(character))
+			offers := g.upgrade_offers(
+				f.seed,
+				sim.player_in_slot(&f.state.players, slot),
+				g.oldest_pending_level(character),
+			)
 			hud.players[slot].offer_a, hud.players[slot].offer_b = offers[0], offers[1]
 		}
 	}

@@ -33,7 +33,7 @@ var status := UnifiedSession.STATUS_IDLE
 var status_detail := ""
 ## The port Host on LAN listens on (a tool may pick another, so parallel runs don't collide).
 var lan_port := LAN_PORT
-## This single-player session was opened to friends from the pause menu (open_direct): it stays the host's.
+## This single-player session was opened to friends from the pause menu (invite_friends): it stays the host's.
 var invited := false
 ## Shown by the main menu once after a failure, then cleared.
 var last_error := ""
@@ -41,6 +41,8 @@ var last_error := ""
 var using_pad := false
 
 var _quitting := false
+## An invite asked for online and its lobby isn't up yet: if it fails, the invite falls back to the LAN port.
+var _inviting_online := false
 var _overlay_layer: CanvasLayer
 var _connect_overlay: Control
 var _fps_label: Label
@@ -118,6 +120,14 @@ func host_online() -> void:
 func host_direct(port := lan_port) -> void:
 	_begin(Mode.HOST_LAN)
 	session.host_direct(port)
+
+
+## Opens the running single-player session to friends and keeps it running: online (the lobby service; the code a
+## friend types) when this build can, else on the LAN port. The join code arrives with join_code_changed, the new mode
+## with mode_changed.
+func invite_friends() -> void:
+	_inviting_online = session.open_online()  # false, or a failure later, when this build has no online play
+	invited = _inviting_online or session.open_direct(lan_port)
 
 
 func join_online(code: String) -> void:
@@ -226,6 +236,7 @@ func _begin(m: Mode) -> void:
 	mode = m
 	last_error = ""
 	invited = false
+	_inviting_online = false
 	session.local_name = Settings.player_name
 	flow = Flow.CONNECTING
 	if m != Mode.SINGLE:
@@ -271,8 +282,13 @@ func _adopt() -> void:
 
 
 ## The session's mode changed while it ran (a single-player session opened to friends), or an open failed: the flow
-## follows the mode; a failure's reason is the last error (shown on the menu when the player leaves).
+## follows the mode; a failure's reason is the last error (shown on the menu when the player leaves). An online invite
+## that fails opens on the LAN port instead.
 func _on_mode_changed(new_mode: UnifiedSession.Mode, detail: String) -> void:
+	var fell_back := _inviting_online and new_mode == UnifiedSession.MODE_SINGLE
+	_inviting_online = false
+	if fell_back and session.open_direct(lan_port):
+		return
 	if detail != "":
 		last_error = detail
 	match new_mode:

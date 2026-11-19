@@ -11,10 +11,10 @@ warp_ships :: proc(t: ^Tick) {
 	for ship, player in sim.next(&ships) {
 		if sim.timer_running(t, ship.gate_cooldown) do continue
 		pos := physics.body_position_2d(t.world.phys, ship.body)
-		for gate_def, gate in t.world.gates[:t.world.gate_count] {
+		for gate_def, gate in sim.slice(&t.world.gates) {
 			if gate_def.pair < 0 || sim.timer_running(t, t.state.gates[gate].charge) do continue
 			if dmath.dist_sq(pos, gate_def.pos) > GATE_RADIUS * GATE_RADIUS do continue
-			to := t.world.gates[gate_def.pair].pos
+			to := sim.slice(&t.world.gates)[gate_def.pair].pos
 			heading := physics.body_rotation_2d(t.world.phys, ship.body)
 			physics.body_set_transform_2d(t.world.phys, ship.body, to, heading) // its velocities are kept
 			ship.warp += 1

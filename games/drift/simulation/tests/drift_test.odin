@@ -88,11 +88,11 @@ a_ship_warps_through_a_gate :: proc(t: ^testing.T) {
 	world := run.simulation.world
 	testing.expect(
 		t,
-		world.gate_count == 2 && world.gates[0].pair == 1 && world.gates[1].pair == 0,
+		world.gates.count == 2 && sim.slice(&world.gates)[0].pair == 1 && sim.slice(&world.gates)[1].pair == 0,
 		"the arena's gate pair",
 	)
 	// a setup: the ship just short of gate 0, flying into it
-	gate := world.gates[0].pos
+	gate := sim.slice(&world.gates)[0].pos
 	ship := sim.slot_data(run.simulation, 0)
 	physics.body_teleport_2d(world.phys, ship.body, gate - {1.5, 0}, g.UP)
 	physics.body_set_linear_velocity_2d(world.phys, ship.body, {6, 0})
@@ -110,7 +110,7 @@ a_ship_warps_through_a_gate :: proc(t: ^testing.T) {
 	testing.expect_value(t, warp.from_gate, 0)
 	testing.expect_value(t, warp.to_gate, 1)
 	pos := physics.body_position_2d(world.phys, ship.body)
-	to := world.gates[1].pos
+	to := sim.slice(&world.gates)[1].pos
 	testing.expect_value(t, warp.position, sim.position_2d(to))
 	testing.expect(t, dmath.dist_sq(pos, to) < 1, "the ship comes out of the other gate")
 	vel := physics.body_linear_velocity_2d(world.phys, ship.body)

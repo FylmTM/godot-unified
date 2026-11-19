@@ -25,12 +25,11 @@ var _pulse := 0.0
 func _ready() -> void:
 	_place(0.0)  # _sim_pose came before _ready
 	var index := _view_marker.key
-	var arena := get_tree().current_scene as Arena
-	var m: Node3D = arena.marker(index) if arena != null else null
-	if m == null:
+	var level_marker := Unified.session.level_marker(index) as Node3D
+	if level_marker == null:
 		push_warning("marker view: no level marker %d" % index)
 		return
-	for c in m.get_children():
+	for c in level_marker.get_children():
 		var visual := c as Node3D
 		if visual != null and not (visual is Path3D):
 			visual.reparent(self, false)
@@ -69,11 +68,11 @@ func _place(delta: float) -> void:
 	quaternion = _sim_rotation.slerp(_hand_rotation, _follow)
 
 
-## Effects play once, when the event is emitted (whether a prediction or the verified tick produced it).
+## Effects play once, when the event is emitted (whether a prediction or the verified tick produced it). A marker
+## gets the events about it with no player (an event about a player goes to the player's view: event_key): a bell
+## rung, a plate pressed or let go, an item a pad launched, a lock opened, the trophy at the pedestal.
 func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_EMITTED:
 		return
 	if event is EventBellRung or event is EventLaunched or event is EventPlateOn or event is EventSwitchOn:
 		_pulse = 1.0
-	elif event is EventThrown:
-		Sfx.play(&"pop", -3.0, 1.1)

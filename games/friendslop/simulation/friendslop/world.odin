@@ -95,18 +95,15 @@ World :: struct {
 // What the sim reads from one level's markers, in the level's marker order: its items, platforms, triggers, pads,
 // bumpers, checkpoints, spawns, its door to the route (the hub's start) and the route's finish.
 Places :: struct {
-	items:          [MAX_ITEMS]Item_Def,
-	item_count:     int,
-	platforms:      [MAX_PLATFORMS]Platform_Def,
-	platform_count: int,
-	triggers:       [MAX_TRIGGERS]Trigger_Def,
-	trigger_count:  int,
-	pads:           sim.List(Pad_Def, MAX_PADS),
-	bumpers:        sim.List(Bumper_Def, MAX_BUMPERS),
-	checkpoints:    sim.List(Checkpoint_Def, MAX_CHECKPOINTS),
-	spawns:         [PLAYERS][3]f32, // by slot: a spawn marker each
-	start:          Volume, // walking in takes the team to the route and starts its run (zero: none)
-	finish:         Volume, // the trophy in it ends the run (zero: none)
+	items:       sim.List(Item_Def, MAX_ITEMS),
+	platforms:   sim.List(Platform_Def, MAX_PLATFORMS),
+	triggers:    sim.List(Trigger_Def, MAX_TRIGGERS),
+	pads:        sim.List(Pad_Def, MAX_PADS),
+	bumpers:     sim.List(Bumper_Def, MAX_BUMPERS),
+	checkpoints: sim.List(Checkpoint_Def, MAX_CHECKPOINTS),
+	spawns:      [PLAYERS][3]f32, // by slot: a spawn marker each
+	start:       Volume, // walking in takes the team to the route and starts its run (zero: none)
+	finish:      Volume, // the trophy in it ends the run (zero: none)
 }
 
 // The active level's places: tick code reads the level through the block's value, so a rollback across a change
@@ -171,10 +168,9 @@ read_places :: proc(places: ^Places, level_data: ^level.Level) {
 		case:
 			continue
 		}
-		assert(places.trigger_count < MAX_TRIGGERS, "friendslop: too many triggers")
-		trigger_of[marker.index] = places.trigger_count
-		places.triggers[places.trigger_count] = def
-		places.trigger_count += 1
+		trigger_of[marker.index] = int(places.triggers.count)
+		added := sim.append(&places.triggers, def)
+		assert(added, "friendslop: too many triggers")
 	}
 	spawned: [PLAYERS]bool
 	for &marker in level_data.markers {
@@ -188,14 +184,12 @@ read_places :: proc(places: ^Places, level_data: ^level.Level) {
 			spawned[slot] = true
 			places.spawns[slot] = marker.pos
 		case "item":
-			assert(places.item_count < MAX_ITEMS, "friendslop: too many items")
 			kind, known := level.prop_enum(&marker, "kind", Item_Kind.Crate) // item.gd's export_enum: the names, lowercased
 			assert(known, "friendslop: an item's kind is no Item_Kind")
-			places.items[places.item_count] = {kind, marker.pos, marker.rot, marker.index}
-			places.item_count += 1
+			added := sim.append(&places.items, Item_Def{kind, marker.pos, marker.rot, marker.index})
+			assert(added, "friendslop: too many items")
 		case "platform":
-			assert(places.platform_count < MAX_PLATFORMS, "friendslop: too many platforms")
-			def := &places.platforms[places.platform_count]
+			def: Platform_Def
 			def.origin = marker.pos
 			def.rot = marker.rot
 			def.half = volume_of(&marker).half
@@ -209,7 +203,9 @@ read_places :: proc(places: ^Places, level_data: ^level.Level) {
 			wait := level.prop_f32(&marker, "wait")
 			assert(seconds > 0 && wait >= 0, "friendslop: a platform needs seconds per leg, and no negative wait")
 			def.path.ease = level.prop_bool(&marker, "smooth") ? .Smooth : .Linear
-			if curve, has := level.prop_curve(level_data, &marker, "easing"); has do def.path.ease, def.path.curve = .Curve, curve
+			if curve, has := level.prop_curve(level_data, &marker, "easing"); has {
+				def.path.ease, def.path.curve = .Curve, curve
+			}
 			def.path.mode = def.mode == .Loop ? .Loop : def.mode == .Ping_Pong ? .Ping_Pong : .Once
 			point_count := dmath.min(len(marker.path), physics.MAX_PATH_POINTS)
 			if point_count == 0 {
@@ -222,7 +218,8 @@ read_places :: proc(places: ^Places, level_data: ^level.Level) {
 				def.path.wait_s[i] = def.mode == .Follow ? 0 : wait
 			}
 			def.path.count = u8(point_count)
-			places.platform_count += 1
+			added := sim.append(&places.platforms, def)
+			assert(added, "friendslop: too many platforms")
 		case "pad":
 			pad := Pad_Def{volume_of(&marker), level.prop_vec3(&marker, "launch")}
 			assert(pad.launch != {}, "friendslop: a pad's launch is zero")
@@ -255,8 +252,8 @@ volume_of :: proc(marker: ^level.Marker) -> Volume {
 	return {marker.pos, half}
 }
 
-// A trigger's static body, the block's (the level's things are made when it is entered). A plate, switch or lock is a sensor box over its
-// volume that sees the bodies with sensor events on (items, characters): a plate's reaches PLATE_REACH above it (what
+// A trigger's static body, the block's (the level's things are made when it is entered). A plate, switch or lock is a
+// sensor box over its volume that sees the bodies with sensor events on (items, characters): a plate's reaches PLATE_REACH above it (what
 // stands on it) and sees items, and players unless it is items_only; a switch sees players; a lock sees items. A bell
 // is a sphere that reports hits (apply_hits rings it).
 //
@@ -265,7 +262,7 @@ volume_of :: proc(marker: ^level.Marker) -> Volume {
 // and the finish).
 @(private)
 create_trigger_body :: proc(t: ^Tick, index: int) {
-	def := &places(t).triggers[index]
+	def := &sim.slice(&places(t).triggers)[index]
 	trigger := &t.state.triggers[index]
 	mask: u64
 	volume := def.volume
@@ -337,11 +334,10 @@ enter_level :: proc(t: ^Tick, to: Level_Id) {
 
 	physics.level_change(t, t.world.phys, to)
 
-	for i in 0 ..< places(t).item_count {
+	for _, i in sim.slice(&places(t).items) {
 		t.state.items[i].body = create_item_body(t, i)
 	}
-	for i in 0 ..< places(t).platform_count {
-		def := &places(t).platforms[i]
+	for &def, i in sim.slice(&places(t).platforms) {
 		body_def := physics.body_def(.Kinematic, def.origin, def.rot)
 		body_def.enable_sleep = false
 		shape_def := physics.shape_def(CAT_PLATFORM)
@@ -352,7 +348,7 @@ enter_level :: proc(t: ^Tick, to: Level_Id) {
 			running = def.trigger < 0,
 		}
 	}
-	for i in 0 ..< places(t).trigger_count do create_trigger_body(t, i)
+	for _, i in sim.slice(&places(t).triggers) do create_trigger_body(t, i)
 	entering := sim.iterate_present(t)
 	for _, player in sim.next(&entering) do spawn_character(t, player)
 }

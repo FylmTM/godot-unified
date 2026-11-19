@@ -51,7 +51,7 @@ hit_player :: proc(t: ^Tick, index: int, player: sim.Player, hit: ^physics.Conta
 
 // A hit on trigger `index`: a bell rings when the hit is fast enough and it is not cooling down.
 ring_bell :: proc(t: ^Tick, index: int, hit: ^physics.Contact_Event) {
-	def := &places(t).triggers[index]
+	def := &sim.slice(&places(t).triggers)[index]
 	trigger := &t.state.triggers[index]
 	if def.kind != .Bell || hit.speed < BELL_SPEED || sim.timer_running(t, trigger.cooldown) do return
 	trigger.active = true

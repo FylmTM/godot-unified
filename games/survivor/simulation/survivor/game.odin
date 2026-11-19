@@ -129,7 +129,9 @@ apply_dev_commands :: proc(t: ^Tick) {
 			case Cmd_Dev_Give_Xp:
 				if character := sim.player_data(t, command.player); character != nil do character.xp += command.xp
 			case Cmd_Dev_Skip_Wave:
-				t.state.wave += 1
+				// The wave is the match's age (advance_phase), so the match starts one wave earlier. Early in a match
+				// that is before tick 0: the u32 wraps, and the age, a difference, stays exact.
+				if t.state.phase == .Match do t.state.match_tick -= t.state.tuning.wave_ticks
 			case Cmd_Dev_Spawn:
 				for i in 0 ..< int(command.count) {
 					if !spawn_enemy(t.state, command.kind, dmath.DIR8[i % 8] * SPAWN_RING, t.number) do break

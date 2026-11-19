@@ -10,13 +10,20 @@ import "unified:headless"
 import "unified:headless/scenarios"
 import "unified:sim"
 
-BARRELS := [8]int{2, 7, 12, 17, 22, 27, 32, 37}
-
 // g.tick with forced events by tick number (deterministic: same ticks on every peer).
 scenario_tick :: proc(t: ^g.Tick) {
 	if t.state.phase == .Match {
 		if t.number % 23 == 0 {
-			item := &t.state.items[BARRELS[(t.number / 23) % 8]]
+			// the level's barrels in turn, found by their kind
+			barrels: [g.MAX_ITEMS]int
+			count := 0
+			for spot, i in sim.slice(&t.world.items) {
+				if spot.kind != .Barrel do continue
+				barrels[count] = i
+				count += 1
+			}
+			assert(count > 0, "the arena has barrels")
+			item := &t.state.items[barrels[int(t.number / 23) % count]]
 			if item.alive {
 				item.hp = 0 // explodes this tick
 			}

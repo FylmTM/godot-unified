@@ -86,11 +86,6 @@ const LABELS: Dictionary[StringName, String] = {
 		_changed(&"show_fps")
 
 @export_category("stats")
-## The longest survival, in seconds.
-@export var best_time := 0.0:
-	set(value):
-		best_time = value
-		_changed(&"best_time")
 ## The most waves a session this player hosted reached, at each difficulty: the next session's Setup.best_wave.
 @export var best_wave_normal := 0:
 	set(value):

@@ -5,6 +5,7 @@ import "core:testing"
 
 import g "../survivor"
 import "unified:headless"
+import "unified:headless/scenarios"
 import "unified:sim"
 
 // Hard scales the burst sizes and the enemies' HP growth; the best wave comes from the Setup.
@@ -43,5 +44,5 @@ a_players_role_is_their_profiles_from_their_first_tick :: proc(t: ^testing.T) {
 		g.Role.Runner,
 	)
 	for _ in 0 ..< 60 do step(&run)
-	testing.expect_value(t, run.mismatches, 0)
+	scenarios.expect_synced(t, &run)
 }

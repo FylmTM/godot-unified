@@ -32,29 +32,29 @@ Data_Hud :: struct {
 	players:    [g.PLAYERS]Hud_Player,
 }
 
-hud_of :: proc(state: ^g.State, tick: u32) -> (hud: Data_Hud) {
-	hud.phase = state.phase
-	hud.best_s = sim.seconds(state.best_ticks, g.TICK_HZ)
-	hud.checkpoint = state.checkpoint
-	switch state.phase {
+hud_of :: proc(f: ^Frame) -> (hud: Data_Hud) {
+	hud.phase = f.state.phase
+	hud.best_s = sim.seconds(f.state.best_ticks, g.TICK_HZ)
+	hud.checkpoint = f.state.checkpoint
+	switch f.state.phase {
 	case .Hub:
 	case .Run:
-		hud.run_s = sim.seconds(tick - state.run_tick, g.TICK_HZ)
+		hud.run_s = sim.seconds(f.tick - f.state.run_tick, g.TICK_HZ)
 	case .Finished:
-		hud.run_s = sim.seconds(state.finish_tick - state.run_tick, g.TICK_HZ)
+		hud.run_s = sim.seconds(f.state.finish_tick - f.state.run_tick, g.TICK_HZ)
 		hud.reset_in_s = sim.seconds(
-			g.FINISH_HOLD_TICKS - dmath.min(tick - state.finish_tick, g.FINISH_HOLD_TICKS),
+			g.FINISH_HOLD_TICKS - dmath.min(f.tick - f.state.finish_tick, g.FINISH_HOLD_TICKS),
 			g.TICK_HZ,
 		)
 	}
 	for slot in 0 ..< g.PLAYERS {
-		character := sim.slot_data(&state.players, slot)
+		character := sim.slot_data(&f.state.players, slot)
 		if character == nil do continue
 		hud.players[slot] = {
 			holding = character.held_kind,
 			held    = character.held_by != {},
 			stunned = character.stun > 0,
-			fallen  = sim.timer_running(sim.game_time(state, tick), character.respawn),
+			fallen  = sim.timer_running(f.time, character.respawn),
 			charge  = f32(character.charge) / f32(g.THROW_CHARGE_TICKS),
 		}
 	}

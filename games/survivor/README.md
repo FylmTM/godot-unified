@@ -39,14 +39,14 @@ rotation locked, created at their slot's spot when they become present.
   level (`upgrade_offers`) that the HUD peeks to show only those cards. A pick with nothing pending, or not
   offered, is ignored.
 - Dev commands (the dev UI's Commands panel; a public build never applies them): `Cmd_Dev_Give_Xp` (XP for a
-  player), `Cmd_Dev_Skip_Wave` (the next wave), `Cmd_Dev_Spawn` (enemies of a kind on `SPAWN_RING`), applied first in
-  the tick (`apply_dev_commands`).
+  player), `Cmd_Dev_Skip_Wave` (the next wave: in a match only, which starts one `wave_ticks` earlier), `Cmd_Dev_Spawn`
+  (enemies of a kind on `SPAWN_RING`), applied first in the tick (`apply_dev_commands`).
 
 ## Phases
 
 - **lobby** (tick 0, and after every reset): no enemies; the start circle (`START_RADIUS`) at the centre. The match
-  starts on the tick an alive player's centre leaves it (`match_started`).
-- **match**: waves (Tuning). When every present player is dead at once: **over** (`match_over`, its length). When
+  starts on the tick an alive player's centre leaves it (`Event_Match_Started`).
+- **match**: waves (Tuning). When every present player is dead at once: **over** (`Event_Match_Over`, its length). When
   nobody is present: a reset.
 - **over**: dead players don't respawn; after `OVER_HOLD_S` the world resets (`reset_world`): every known player's
   progress starts fresh, the items and present players are rebuilt, enemies, projectiles and gems go, back to the
@@ -65,7 +65,8 @@ end-to-end suite and the bench run (`GAME_STRESS`), `bench` an endless match hol
 
 - **The session's Setup** (`Setup`): a difficulty and the host's best wave. `init` scales the `play` tuning on Hard
   (`HARD_SPAWN_PCT`, `HARD_HP_PCT_PER_WAVE`) and starts `State.best_wave` from the Setup; a match that ends past it
-  raises it, and `Event_Match_Over` carries the waves reached and the record.
+  raises it, and `Event_Match_Over` carries the waves reached and the record, which the match-over panel shows (`New
+  best!` when the match raised it).
 - **The save** is the game's own settings file: whoever hosts (single player too) writes the record at that
   difficulty when the match-over event is confirmed, and the next hosted session's Setup carries it back into the sim.
 - **A player's role** (`Profile`): Gunner fires sooner (`ROLE_FIRE_TICKS`), Bruiser hits harder (`ROLE_DAMAGE`),
@@ -74,6 +75,7 @@ end-to-end suite and the bench run (`GAME_STRESS`), `bench` an endless match hol
 
 ## Systems (`tick`, in this order)
 
+0. `apply_dev_commands`: the dev commands (Input and commands).
 1. `update_players`: leaves, joins and returns; respawns after `PLAYER_RESPAWN_TICKS`; movement at the player's
    speed, `DASH_SPEEDUP` times it while dashing (`DASH_TICKS`, then `DASH_COOLDOWN_TICKS`).
 2. `pick_upgrades`: each pick, in order, if it is one of the oldest pending level-up's two offers (`upgrade_offers`).
@@ -87,12 +89,12 @@ end-to-end suite and the bench run (`GAME_STRESS`), `bench` an endless match hol
    at the nearest enemy within `FIRE_RANGE` (the interval runs on while the player is dead).
 7. `move_projectiles`: a projectile hits an enemy, else the level or an item (a barrel takes the damage), else moves
    on; it expires after `PROJECTILE_LIFE_TICKS`.
-8. `explode_barrels`: due barrels come back; a barrel at HP ≤ 0 explodes (`barrel_exploded`): an impulse within
+8. `explode_barrels`: due barrels come back; a barrel at HP ≤ 0 explodes (`Event_Barrel_Exploded`): an impulse within
    `BLAST_RADIUS`, damage to the enemies within it and to the players within `BLAST_PLAYER_RADIUS`; it comes back
    after `BARREL_RESPAWN_TICKS`.
-9. `kill_enemies`: an enemy at HP ≤ 0 dies (`enemy_died`) and drops a gem worth its XP.
-10. `collect_gems`: within `GEM_REACH` of an alive player (`gem_collected`).
-11. `level_up`: XP past the threshold becomes levels and pending level-ups (`level_up`).
+9. `kill_enemies`: an enemy at HP ≤ 0 dies (`Event_Enemy_Died`) and drops a gem worth its XP.
+10. `collect_gems`: within `GEM_REACH` of an alive player (`Event_Gem_Collected`).
+11. `level_up`: XP past the threshold becomes levels and pending level-ups (`Event_Level_Up`).
 12. The physics step, then the players' positions read back (`read_back`).
 13. `advance_phase`.
 
@@ -102,9 +104,9 @@ state; none of it is state.
 
 ## Events
 
-`player_died`, `player_respawned`, `match_started`, `match_over`, `level_up`, `enemy_died`, `gem_collected`,
-`barrel_exploded` (its subject the item, by index, so it reaches the barrel's view), and the library's joins and
-leaves.
+`Event_Player_Died`, `Event_Player_Respawned`, `Event_Match_Started`, `Event_Match_Over`, `Event_Level_Up`,
+`Event_Enemy_Died`, `Event_Gem_Collected`, `Event_Barrel_Exploded` (its subject the item, by index, so it reaches the
+barrel's view), and the library's joins and leaves.
 
 ## Scripted inputs
 
@@ -116,14 +118,15 @@ samples at another tick, and lives with the tests (`simulation/tests/bot.odin`).
 ## View contract (`simulation/extension`)
 
 - Scene views: `player` (keyed by `sim.player_key`, its data `hp` and `dashing`; each spawn bumps its warp epoch,
-  `Character.warp`, so the view, which stays while the player is dead, snaps to the new body), `crate` and `barrel` (keyed by the
-  item's index, posed with their physics rotation). A destroyed barrel's view goes; the one that comes back is new.
+  `Character.warp`, so the view, which stays while the player is dead, snaps to the new body), `crate` and `barrel`
+  (keyed by the item's index, posed with their physics rotation). A destroyed barrel's view goes; the one that comes
+  back is new.
 - MultiMesh views: `grunt`, `runner`, `brute` (in `Enemy_Kind`'s order), `projectile`, `gem`, keyed by handle, on the
   ground plane facing their velocity; custom data r = hit flash, g = age in seconds.
-- Session data `Data_Hud` (`Unified.data.hud`): the phase, the match time and wave, enemies alive, the time until the
-  reset, and each slot's player (with their oldest pending level-up's offers).
+- Session data `Data_Hud` (`Unified.data.hud`): the phase, the match time and wave, the session's record, enemies
+  alive, the time until the reset, and each slot's player (with their oldest pending level-up's offers).
 - Constants (`Unified.constants`): `start_radius`, `blast_radius`, the three level-up cards.
 - Events: effects, sounds, shake and rumble on EMITTED (a prediction too; a cancelled one is left as it played);
-  banners and the best time on CONFIRMED.
+  banners and the record on CONFIRMED.
 - Input: the stick and the dash from the InputMap; the HUD sends the pick (`CommandPick`) on a key, pad button or
   click.

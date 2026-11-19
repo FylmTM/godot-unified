@@ -55,7 +55,7 @@ fill_frame :: proc(f: ^Frame) {
 			custom = {0, age_s(f.tick, gem.spawn_tick), 0, 0},
 		})
 	}
-	godot.push_data(f, hud_of(f.state, f.tick, f.seed))
+	godot.push_data(f, hud_of(f))
 }
 
 HIT_FLASH_S :: 0.15

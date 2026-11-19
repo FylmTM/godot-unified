@@ -84,7 +84,7 @@ fill_frame :: proc(f: ^Frame) {
 		pos  = sim.position_2d(physics.body_position_2d(f.world.phys, f.state.station)),
 		rot  = physics.quat_2d(physics.body_rotation_2d(f.world.phys, f.state.station)),
 	}, Station_View{hp_frac = f32(f.state.station_hp) / g.STATION_HP})
-	for gate_def, gate in f.world.gates[:f.world.gate_count] {
+	for gate_def, gate in sim.slice(&f.world.gates) {
 		godot.push_view(f, sim.entity(gate), {
 			kind = .Gate,
 			pos  = sim.position_2d(gate_def.pos),

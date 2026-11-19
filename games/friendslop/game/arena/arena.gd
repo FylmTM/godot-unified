@@ -18,11 +18,6 @@ func _ready() -> void:
 	Unified.session.sim_event.connect(_on_sim_event)
 
 
-## The marker node for a marker view's key (its marker index in the level on screen), or null.
-func marker(index: int) -> Node3D:
-	return Unified.session.level_marker(index) as Node3D
-
-
 ## Verified events only (predictions are the views' business).
 func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:

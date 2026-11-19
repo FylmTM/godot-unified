@@ -7,7 +7,7 @@ import "unified:sim"
 // Creates an item's dynamic body at its level placement (a sphere or a box, its density set from the item's mass),
 // tagged with its index, with hit events on and sensor events on (plates and locks see it).
 create_item_body :: proc(t: ^Tick, index: int) -> physics.Body_Ref {
-	def := &places(t).items[index]
+	def := &sim.slice(&places(t).items)[index]
 	spec := &ITEM_SPECS[def.kind]
 	body_def := physics.body_def(.Dynamic, def.pos, def.rot)
 	shape_def := physics.shape_def(CAT_ITEM)
@@ -39,7 +39,8 @@ send_item_home :: proc(t: ^Tick, index: int) {
 	for holder in item.holders {
 		if holder != {} do drop(t, holder)
 	}
-	physics.body_teleport(t.world.phys, item.body, places(t).items[index].pos, places(t).items[index].rot)
+	def := &sim.slice(&places(t).items)[index]
+	physics.body_teleport(t.world.phys, item.body, def.pos, def.rot)
 	item.warp += 1
 	sim.timer_stop(&item.thrown)
 	item.thrown_by = {}
@@ -48,7 +49,7 @@ send_item_home :: proc(t: ^Tick, index: int) {
 
 // Items that fell below KILL_Y go home.
 return_fallen_items :: proc(t: ^Tick) {
-	for i in 0 ..< places(t).item_count {
+	for _, i in sim.slice(&places(t).items) {
 		if physics.body_position(t.world.phys, t.state.items[i].body).y < KILL_Y do send_item_home(t, i)
 	}
 }
@@ -57,7 +58,7 @@ return_fallen_items :: proc(t: ^Tick) {
 // (THROW_CLEAR_DIST), its tag ran out or the thrower left (their body went with the ignore: the stale ref is zeroed
 // here, before the tick ends). From then a bounce back hits the thrower like any hit.
 age_throws :: proc(t: ^Tick) {
-	for i in 0 ..< places(t).item_count {
+	for _, i in sim.slice(&places(t).items) {
 		item := &t.state.items[i]
 		if item.thrower_ignore == {} do continue
 		clear := !sim.timer_running(t, item.thrown) || !sim.player_present(t, item.thrown_by)

@@ -14,6 +14,8 @@ const PICK_HOLD_S := 0.35
 var _t := 0.0
 var _last_phase := EnumPhase.LOBBY
 var _last_wave := 0
+## The record before the match that ended: Unified.data.hud.best_wave while no match is over (-1: not seen yet).
+var _best_before := -1
 var _last_hp := -1
 var _last_xp := -1
 var _named_slot := -1
@@ -137,7 +139,9 @@ func _on_hud_changed() -> void:
 	if over and _last_phase != EnumPhase.OVER:
 		_on_match_over(hud, me)
 	elif not over and _last_phase == EnumPhase.OVER:
-		_best.text = ""  # the next match's best time shows when its end is confirmed
+		_best.text = ""  # the next match's record shows when its end is confirmed
+	if not over:
+		_best_before = hud.best_wave
 	_over.visible = over
 	_banner.visible = not over
 	_notice.visible = not over
@@ -153,14 +157,14 @@ func _on_roster_changed() -> void:
 	_show_session()
 
 
-## Banners and the best time follow an event once it is confirmed (its tick verified), never a prediction: they
+## Banners and the record follow an event once it is confirmed (its tick verified), never a prediction: they
 ## stay. Effects and sounds play on the prediction (arena.gd).
 func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
 	var local := Unified.session.local_player
 	if event is EventMatchOver:
-		_show_best((event as EventMatchOver).duration_s)
+		_show_best(event as EventMatchOver)
 	elif event is EventMatchStarted:
 		_banner.show_message("SURVIVE!", UiTheme.ACCENT)
 		_flash.color.a = 0.12
@@ -295,15 +299,12 @@ func _on_match_over(hud: DataHud, me: DataHudPlayer) -> void:
 	tween.tween_property(_over_panel, "modulate:a", 1.0, 0.25)
 
 
-## The match's end is confirmed: its length against the best time (kept in the settings).
-func _show_best(duration_s: float) -> void:
-	var best := Settings.best_time
-	var new_best := duration_s > best + 0.01
-	if new_best:
-		Settings.best_time = duration_s
-	_best.text = "New best!" if new_best else "Best: %s" % UiTheme.clock(best)
+## The match's end is confirmed: the waves it reached against the session's record (the sim's, from the Setup: the
+## host saves it, game.gd).
+func _show_best(over: EventMatchOver) -> void:
+	var new_best := _best_before >= 0 and over.waves > _best_before
+	_best.text = "New best!" if new_best else "Best: wave %d" % over.best_wave
 	_best.add_theme_color_override(&"font_color", UiTheme.GOLD if new_best else UiTheme.TEXT_DIM)
-
 
 ## A player's name for a banner: the session's (it still knows a player who left), else "P<slot + 1>".
 func _name_of(player: int, slot: int) -> String:
