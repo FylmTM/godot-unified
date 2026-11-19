@@ -17,21 +17,19 @@ import uheadless "unified:headless"
 import "unified:netcode"
 @(require) import "unified:sim"
 
-// The `--profile` option as a network profile (ideal, wan, bad); exits through die on an unknown name.
+// A `--profile` option's network profile (ideal, wan, bad; "": `fallback`); exits through die on an unknown name.
 @(private)
-profile_opt :: proc(args: ^Args, fallback: netcode.Network) -> netcode.Profile {
-	name := opt_str(args, "profile", netcode.PROFILES[fallback].name)
-	profile, ok := netcode.profile_by_name(name)
+check_profile :: proc(args: ^Args, name: string, fallback: netcode.Network) -> netcode.Profile {
+	profile, ok := netcode.profile_by_name(name if name != "" else netcode.PROFILES[fallback].name)
 	if !ok {
 		die("%s: unknown profile %q (ideal, wan, bad)", args.mode, name)
 	}
 	return profile
 }
 
-// `--log F`: the relay's recording, streamed to F as ticks are finalized (none without the option).
+// A `--log F` option: the relay's recording, streamed to F as ticks are finalized (none without the option).
 @(private)
-log_opt :: proc(args: ^Args) -> sim.Log_Sink {
-	path := opt_str(args, "log")
+log_sink :: proc(args: ^Args, path: string) -> sim.Log_Sink {
 	if path == "" {
 		return {}
 	}
@@ -48,36 +46,62 @@ console_logger :: proc(name: string) -> log.Logger {
 	return log.create_console_logger(.Info, {.Level}, name)
 }
 
+@(private)
+Session_Options :: struct {
+	clients:   int,
+	ticks:     int `hint:"T"`,
+	profile:   string `hint:"ideal|wan|bad"`,
+	latency:   int `hint:"MS"`, // a profile of its own: one way, with --jitter (ms) and --loss (per mille)
+	jitter:    int `hint:"MS"`,
+	loss:      int `hint:"PERMILLE"`,
+	late_join: string `hint:"P@T"`,
+	script:    string `hint:"steady|churn"`,
+	log:       string `hint:"F"`,
+	seed:      int `hint:"S"`,
+}
+
 // The `session` mode: an in-process relay and `--clients` scripted clients on the virtual clock (session_run): the
 // netcode's cost (wall time is the clients' and the relay's CPU time), rollbacks, stalls, step times, bytes per
 // second, a late joiner's join; fails on a desync. `uni bench` runs it under `bad` and under `wan` with a late joiner.
 @(private)
 mode_session :: proc(game: ^$G, args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
+	options := Session_Options {
+		clients = min(PLAYERS, 4),
+		ticks   = 1200,
+		latency = -1,
+		script  = "steady",
+		seed    = 1,
+	}
+	parse(args, &options)
+	in_range(args, "clients", options.clients, 1, PLAYERS)
+	in_range(args, "ticks", options.ticks, 64, 1_000_000)
 	cfg := uheadless.Session_Config {
-		clients = opt_int(args, "clients", min(PLAYERS, 4), low = 1, high = PLAYERS),
-		profile = profile_opt(args, .Wan),
-		ticks   = u32(opt_int(args, "ticks", 1200, low = 64, high = 1_000_000)),
-		seed    = seed_opt(args),
+		clients = options.clients,
+		profile = check_profile(args, options.profile, .Wan),
+		ticks   = u32(options.ticks),
+		seed    = check_seed(args, options.seed),
 		dev     = true, // zones per client step in each client's JSON
 	}
-	// A profile of its own: --latency and --jitter one way (ms), --loss per mille.
-	if latency := opt_int(args, "latency", -1, low = -1, high = 2000); latency >= 0 {
+	if options.latency >= 0 {
+		in_range(args, "latency", options.latency, 0, 2000)
+		in_range(args, "jitter", options.jitter, 0, 1000)
+		in_range(args, "loss", options.loss, 0, 1000)
 		cfg.profile = {
 			name    = "custom",
-			latency = i64(latency) * 1000,
-			jitter  = i64(opt_int(args, "jitter", 0, low = 0, high = 1000)) * 1000,
-			loss    = u32(opt_int(args, "loss", 0, low = 0, high = 1000)),
+			latency = i64(options.latency) * 1000,
+			jitter  = i64(options.jitter) * 1000,
+			loss    = u32(options.loss),
 		}
 	}
-	switch script := opt_str(args, "script", "steady"); script {
+	switch script := options.script; script {
 	case "steady":
 	case "churn":
 		cfg.churn = true
 	case:
 		die("session: --script must be steady or churn, got %q", script)
 	}
-	if late_join := opt_str(args, "late-join"); late_join != "" {
+	if late_join := options.late_join; late_join != "" {
 		parts := strings.split(late_join, "@", context.temp_allocator)
 		slot, tick: int
 		slot_ok, tick_ok: bool
@@ -97,7 +121,7 @@ mode_session :: proc(game: ^$G, args: ^Args) -> bool {
 	defer uheadless.session_result_destroy(&result)
 	wall_ms := time.duration_milliseconds(time.tick_since(start))
 	ok := result.ok
-	if path := opt_str(args, "log"); path != "" {
+	if path := options.log; path != "" {
 		ok &&= uheadless.log_write(path, &result.log)
 	}
 	seconds := f64(cfg.ticks) / f64(game.tick_hz)
@@ -167,6 +191,14 @@ mode_session :: proc(game: ^$G, args: ^Args) -> bool {
 	return ok
 }
 
+@(private)
+Relay_Options :: struct {
+	port:    int `args:"required" hint:"P"`,
+	players: int `args:"required"`,
+	ticks:   int `args:"required" hint:"T"`,
+	log:     string `hint:"F"`,
+}
+
 // The `relay` mode: a relay alone on a local UDP port, run until its session ends, for the multi-process test
 // (`uni test --suite net`) with `client` processes; fails on a desync.
 @(private)
@@ -174,14 +206,20 @@ mode_relay :: proc(game: ^$G, args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	context.logger = console_logger("relay")
 	defer log.destroy_console_logger(context.logger)
-	port := opt_int(args, "port", required = true, low = 1, high = 65535)
-	players := opt_int(args, "players", required = true, low = 1, high = PLAYERS)
-	ticks := u32(opt_int(args, "ticks", required = true, low = 1, high = 1_000_000))
+	options: Relay_Options
+	parse(args, &options)
+	in_range(args, "port", options.port, 1, 65535)
+	in_range(args, "players", options.players, 1, PLAYERS)
+	in_range(args, "ticks", options.ticks, 1, 1_000_000)
+	port, players, ticks := options.port, options.players, u32(options.ticks)
 	link, link_ok := netcode.udp_listen(port, .Local)
 	if !link_ok {
 		die("relay: cannot bind UDP port %d", port)
 	}
-	relay := netcode.relay_create(game, {seed = 1, ticks = ticks, start_players = players, recording = log_opt(args)})
+	relay := netcode.relay_create(
+		game,
+		{seed = 1, ticks = ticks, start_players = players, recording = log_sink(args, options.log)},
+	)
 	defer netcode.relay_destroy(relay)
 	netcode.relay_add_link(relay, link)
 	ok := uheadless.run_relay(relay, uheadless.session_timeout_s(ticks, game.tick_hz))
@@ -197,25 +235,36 @@ mode_relay :: proc(game: ^$G, args: ^Args) -> bool {
 	return ok && relay.desyncs == 0
 }
 
+@(private)
+Client_Options :: struct {
+	connect: string `args:"required" hint:"HOST:PORT"`,
+	slot:    int `args:"required" hint:"I"`,
+	ticks:   int `args:"required" hint:"T"`,
+	profile: string `hint:"ideal|wan|bad"`,
+}
+
 // The `client` mode: one scripted client connecting to a `relay` process over UDP, behind a netsim profile;
 // prints its result as the JSON line.
 @(private)
 mode_client :: proc(game: ^$G, args: ^Args) -> bool {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
-	address := opt_str(args, "connect", required = true)
+	options: Client_Options
+	parse(args, &options)
+	address := options.connect
 	endpoint, endpoint_ok := cnet.parse_endpoint(address)
 	if !endpoint_ok || endpoint.port == 0 {
 		die("client: --connect must be HOST:PORT (numeric address), got %q", address)
 	}
-	slot := opt_int(args, "slot", required = true, low = 0, high = PLAYERS - 1)
-	ticks := u32(opt_int(args, "ticks", required = true, low = 1, high = 1_000_000))
+	in_range(args, "slot", options.slot, 0, PLAYERS - 1)
+	in_range(args, "ticks", options.ticks, 1, 1_000_000)
+	slot, ticks := options.slot, u32(options.ticks)
 	context.logger = console_logger(fmt.tprintf("client%d", slot))
 	defer log.destroy_console_logger(context.logger)
 	link, link_ok := netcode.udp_connect(endpoint)
 	if !link_ok {
 		die("client: cannot open a UDP socket")
 	}
-	link = netcode.netsim_wrap(link, profile_opt(args, .Ideal), u32(slot) * 104729 + 17)
+	link = netcode.netsim_wrap(link, check_profile(args, options.profile, .Ideal), u32(slot) * 104729 + 17)
 	scripted := uheadless.Scripted_User(G) {
 		game = game,
 		seed = 1,
@@ -231,11 +280,11 @@ mode_client :: proc(game: ^$G, args: ^Args) -> bool {
 	return ok
 }
 
-// The build a lobby mode opens its lobby with: the game's name (or --bucket), its build id and player count.
+// The build a lobby mode opens its lobby with: the game's name (or `bucket`), its build id and player count.
 @(private)
-lobby_build :: proc(game: ^$G, args: ^Args) -> netcode.Lobby_Build {
+lobby_build :: proc(game: ^$G, bucket: string) -> netcode.Lobby_Build {
 	return {
-		game    = opt_str(args, "bucket", game.name),
+		game    = bucket if bucket != "" else game.name,
 		compat  = sim.compat_of(game),
 		version = "headless", // the readable version a joiner on another build is shown
 		players = sim.part(G, sim.GAME_PLAYERS),
@@ -258,6 +307,19 @@ lobby_wait_ready :: proc(lobby: ^netcode.Lobby, timeout_s: f64) -> (status: netc
 	}
 }
 
+// A `<name>-host` mode's options. `--wait-s N`: keep the lobby open up to N s until a remote player connects, then
+// start the clock (a joiner far away, e.g. a CI runner that still has to build, plays the whole session).
+// `--players N`: the session counts as played once this many joined.
+@(private)
+Lobby_Host_Options :: struct {
+	ticks:     int `args:"required" hint:"T"`,
+	wait_s:    int,
+	players:   int,
+	bucket:    string `hint:"B"`,
+	code_file: string `hint:"F"`,
+	log:       string `hint:"F"`,
+}
+
 // The `<name>-host` mode: opens a lobby on the game's lobby service, prints its code and hosts a scripted session
 // over it; ok once the host verified every tick, `--players` joined and nobody desynced.
 mode_lobby_host :: proc(game: ^$G, args: ^Args) -> bool {
@@ -265,14 +327,17 @@ mode_lobby_host :: proc(game: ^$G, args: ^Args) -> bool {
 	lobby := args.lobby
 	context.logger = console_logger("host")
 	defer log.destroy_console_logger(context.logger)
-	ticks := u32(opt_int(args, "ticks", required = true, low = 1, high = 1_000_000))
-	// --wait-s N: keep the lobby open up to N s until a remote player connects, then start the clock
-	// (a joiner far away, e.g. a CI runner that still has to build, plays the whole session).
-	wait_s := opt_int(args, "wait-s", 0, low = 0, high = 3600)
-	want := opt_int(args, "players", 2, low = 1, high = PLAYERS) // the session counts as played once this many joined
+	options := Lobby_Host_Options {
+		players = 2,
+	}
+	parse(args, &options)
+	in_range(args, "ticks", options.ticks, 1, 1_000_000)
+	in_range(args, "wait-s", options.wait_s, 0, 3600)
+	in_range(args, "players", options.players, 1, PLAYERS)
+	ticks, wait_s, want := u32(options.ticks), options.wait_s, options.players
 	defer if lobby.shutdown != nil do lobby.shutdown()
 	started := time.tick_now()
-	link, link_ok := lobby.open_host(lobby_build(game, args))
+	link, link_ok := lobby.open_host(lobby_build(game, options.bucket))
 	if !link_ok {
 		fmt.eprintfln("%s: %s", args.mode, lobby.pump().detail)
 		return false
@@ -288,7 +353,7 @@ mode_lobby_host :: proc(game: ^$G, args: ^Args) -> bool {
 	code := strings.clone(status.code, context.temp_allocator)
 	ready_ms := time.duration_milliseconds(time.tick_since(started))
 	fmt.eprintfln("%s: game code %s (as %s, lobby ready in %.0f ms)", args.mode, code, status.local, ready_ms)
-	if path := opt_str(args, "code-file"); path != "" {
+	if path := options.code_file; path != "" {
 		_ = os.write_entire_file(path, code)
 	}
 	if wait_s > 0 {
@@ -312,7 +377,7 @@ mode_lobby_host :: proc(game: ^$G, args: ^Args) -> bool {
 	}
 	host := netcode.host_create(
 		game,
-		{seed = 1, ticks = ticks, recording = log_opt(args)},
+		{seed = 1, ticks = ticks, recording = log_sink(args, options.log)},
 		uheadless.scripted_hooks(&scripted),
 	)
 	defer netcode.host_destroy(host)
@@ -347,17 +412,27 @@ mode_lobby_host :: proc(game: ^$G, args: ^Args) -> bool {
 	return ok && relay.desyncs == 0
 }
 
+// A `<name>-client` mode's options.
+@(private)
+Lobby_Client_Options :: struct {
+	code:   string `args:"required" hint:"CODE"`,
+	ticks:  int `args:"required" hint:"T"`,
+	bucket: string `hint:"B"`,
+}
+
 // The `<name>-client` mode: joins a `<name>-host` lobby by `--code` and plays a scripted remote player to the end of
 // the host's session.
 mode_lobby_client :: proc(game: ^$G, args: ^Args) -> bool {
 	lobby := args.lobby
 	context.logger = console_logger("client")
 	defer log.destroy_console_logger(context.logger)
-	code := opt_str(args, "code", required = true)
-	ticks := u32(opt_int(args, "ticks", required = true, low = 1, high = 1_000_000))
+	options: Lobby_Client_Options
+	parse(args, &options)
+	in_range(args, "ticks", options.ticks, 1, 1_000_000)
+	code, ticks := options.code, u32(options.ticks)
 	defer if lobby.shutdown != nil do lobby.shutdown()
 	started := time.tick_now()
-	link, link_ok := lobby.open_join(lobby_build(game, args), code)
+	link, link_ok := lobby.open_join(lobby_build(game, options.bucket), code)
 	if !link_ok {
 		fmt.eprintfln("%s: %s", args.mode, lobby.pump().detail)
 		return false
