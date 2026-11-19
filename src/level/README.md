@@ -7,14 +7,32 @@ Godot host finds a marker's node by its index (`Unified.level_markers`).
 
 ## Authoring
 
-- **Geometry:** Godot's `StaticBody3D` + `CollisionShape3D` (box, sphere, capsule, convex polygon). Uniform scale only
-  for spheres and capsules; any scale is baked into boxes and hulls. Friction and restitution come from the body's
-  `PhysicsMaterial`, the filter category and user material from its metadata (`unified_category`,
-  `unified_material`).
+- **Geometry:** Godot's `StaticBody3D` + `CollisionShape3D` children, each shape in its body's frame:
+
+  | Godot | File | Box3D |
+  |---|---|---|
+  | `BoxShape3D` | Box (scale baked in) | a hull |
+  | `SphereShape3D`, `CapsuleShape3D` | Sphere, Capsule (uniform scale; a capsule's x and z) | a sphere, a capsule |
+  | `ConvexPolygonShape3D` | Hull (scale baked in), at most 44 distinct points | a hull |
+  | `CylinderShape3D` | Hull of 2 × 16 points from a constant table of directions | a hull |
+  | `ConcavePolygonShape3D` | Mesh: body-local vertices welded where exactly equal, triangles turned counter-clockwise (Godot's front faces are clockwise) | a mesh, collided from the front |
+  | `HeightMapShape3D` | Height_Field: Godot's centred one-unit grid as its corner pose and the node's scale | a height field on a static body of its own |
+
+  Export errors name the node: a convex shape past 44 points (a hull of V points has up to 3V − 6 edges, and Box3D
+  takes 128: use a simplified convex collision, a cylinder, or split it; nothing is simplified behind the author's
+  back), `backface_collision`, a mirrored or flat height map, NaN heights, world boundary and separation ray shapes,
+  and a `PhysicsMaterial` with `rough` or `absorbent` (Box3D mixes surfaces its own way, so they would silently mean
+  nothing). Box3D splits a height map's cells along the same diagonal as Godot's physics, so the surface is the one
+  the editor collides with; Godot's trimesh has no per-face data, so the exporter writes one surface per mesh shape
+  though the file can hold one per triangle.
+- **Surfaces:** friction and restitution from the body's `PhysicsMaterial`, the rest from its metadata:
+  `unified_category` (the filter category), `unified_material` (the user material a ray or contact reports),
+  `unified_rolling_resistance` and `unified_tangent_velocity` (a conveyor). The last three on a `CollisionShape3D`
+  give its shape a surface of its own, the body's with those values over it.
 - **Markers:** any node whose script has `const UNIFIED_KIND := "platform"` (a script for several kinds: a
   `unified_kind` property; a node without a script: metadata `unified_kind`), in the game's own vocabulary. The
   exporter writes the kind, the node's name and transform, every exported script property (bool, int, float, Vector3,
-  String, a NodePath to another marker), and the points of a `Path3D` child. Every exported property is written,
+  String, a NodePath to another marker, a Curve as its samples), and the points of a `Path3D` child. Every exported property is written,
   defaults included, so the marker script is a property's one home: the sim reads it without a default of its own
   (a `prop_*` default only covers a marker whose script lacks the property) and asserts what its rule needs. Markers
   are in scene-tree order (depth-first, parents first); at run time `Unified.level_markers(level_root)` returns the
@@ -45,8 +63,12 @@ one-way collision, scene tiles, a 3D body or marker in a 2D level (and the rever
 
 Little-endian through `unified:wire`; the layout is in `level.odin`'s header. Bodies and markers are both in
 scene-tree order. Transforms are f32 as Godot computed them at export: the bits are committed, so the sim sees the
-same ones everywhere. The exporter uses no trig of its own (a 2D rotation's quaternion comes from the transform's x
-axis with + − × ÷ sqrt in doubles), so the staleness check gives the same bytes on every platform.
+same ones everywhere. The exporter uses no trig or float code of the engine's beyond transforms (a 2D rotation's
+quaternion comes from the transform's x axis with + − × ÷ sqrt in doubles, a cylinder's sides from a constant table,
+a Curve's samples from its points and tangents with Godot's cubic in doubles), so the staleness check gives the same
+bytes on every platform. The file names the scene it was exported from (`level.scene_of` reads it alone), so a host
+can show a level's scene from its bytes. Readers take the current version only: every `.level` is committed and
+re-baked with the exporter that writes it.
 
 ## A level's identity
 

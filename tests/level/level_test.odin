@@ -1,5 +1,5 @@
 // src/level/README.md: the UNLV file round-trips every record and property type, bad files are refused,
-// and physics.create_static builds the bodies.
+// and physics.create_static builds the bodies, meshes and height fields included.
 package test_level
 
 import "core:math"
@@ -10,6 +10,9 @@ import "unified:physics"
 
 fixture :: proc() -> []u8 {
 	hull := [][3]f32{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 1, 1}}
+	mesh_points := [][3]f32{{10, 0, -2}, {14, 2, -2}, {14, 2, 2}, {10, 0, 2}}
+	mesh_triangles := [][3]u32{{0, 2, 1}, {0, 3, 2}}
+	curves := [][level.CURVE_SAMPLES]f32{curve_ramp()}
 	shapes := []level.Shape {
 		{
 			kind = .Box,
@@ -23,10 +26,11 @@ fixture :: proc() -> []u8 {
 			rot  = {0, 0.38268343, 0, 0.9238795},
 		},
 		{
-			kind   = .Sphere,
-			pos    = {3, 1, 0},
+			kind = .Sphere,
+			pos = {3, 1, 0},
 			radius = 0.5,
-			rot    = {0, 0, 0, 1},
+			rot = {0, 0, 0, 1},
+			surface = {friction = 0.9, rolling_resistance = 0.1, tangent_velocity = {2, 0, 0}, material = 78},
 		},
 		{
 			kind        = .Capsule,
@@ -36,28 +40,47 @@ fixture :: proc() -> []u8 {
 			rot         = {0, 0, 0.70710677, 0.70710677},
 		},
 		{
-			kind   = .Hull,
+			kind = .Hull,
 			points = hull,
-			rot    = {0, 0, 0, 1},
+			rot = {0, 0, 0, 1},
+			surface = {friction = 0.9, rolling_resistance = 0.1, tangent_velocity = {2, 0, 0}, material = 78},
+		},
+		// a ramp mesh on the far side: two triangles rising from x = 10 (y 0) to x = 14 (y 2), its second triangle
+		// of material 1 (an extra surface)
+		{
+			kind               = .Mesh,
+			rot                = {0, 0, 0, 1},
+			points             = mesh_points,
+			triangles          = mesh_triangles,
+			triangle_materials = {0, 1},
+			materials          = {{}, {friction = 0.1, material = 91}},
+		},
+		// a 3 x 2 height field from (-14, 0, -2), 2 m cells: flat at 1 except its middle column at 3
+		{
+			kind    = .Height_Field,
+			pos     = {-14, 0, -2},
+			rot     = {0, 0, 0, 1},
+			count_x = 3,
+			count_z = 2,
+			scale   = {2, 1, 4},
+			heights = {1, 3, 1, 1, 3, 1},
 		},
 	}
 	bodies := []level.Body {
 		{
-			name     = "floor",
-			pos      = {0, -0.5, 0},
-			rot      = {0, 0, 0, 1},
-			friction = 0.6,
-			shapes   = shapes[:1],
+			name = "floor",
+			pos = {0, -0.5, 0},
+			rot = {0, 0, 0, 1},
+			surface = {friction = 0.6},
+			shapes = shapes[:1],
 		},
 		{
-			name        = "props",
-			pos         = {0, 0, 5},
-			rot         = {0, 0, 0, 1},
-			friction    = 0.4,
-			restitution = 0.2,
-			category    = 4,
-			material    = 77,
-			shapes      = shapes[1:],
+			name = "props",
+			pos = {0, 0, 5},
+			rot = {0, 0, 0, 1},
+			surface = {friction = 0.4, restitution = 0.2, material = 77},
+			category = 4,
+			shapes = shapes[1:],
 		},
 	}
 	props := []level.Prop {
@@ -67,6 +90,7 @@ fixture :: proc() -> []u8 {
 		{key = "push", value = [3]f32{1, 2, 3}},
 		{key = "label", value = "lift"},
 		{key = "gate", value = level.Marker_Ref(1)},
+		{key = "falloff", value = level.Curve_Ref(0)},
 	}
 	path := [][3]f32{{0, 0, 0}, {0, 3, 0}}
 	markers := []level.Marker {
@@ -93,7 +117,13 @@ fixture :: proc() -> []u8 {
 			scale = {1, 1, 1},
 		},
 	}
-	return encode(bodies, markers)
+	return encode(bodies, markers, scene = "res://levels/fixture.tscn", curves = curves)
+}
+
+// A curve's samples rising from 0 to 1.
+curve_ramp :: proc() -> (samples: [level.CURVE_SAMPLES]f32) {
+	for &sample, i in samples do sample = f32(i) / (level.CURVE_SAMPLES - 1)
+	return
 }
 
 @(test)
@@ -106,13 +136,28 @@ round_trip :: proc(t: ^testing.T) {
 	if !ok do return
 	testing.expect_value(t, len(loaded.bodies), 2)
 	testing.expect_value(t, len(loaded.markers), 3)
+	testing.expect_value(t, loaded.scene, "res://levels/fixture.tscn")
+	testing.expect_value(t, level.scene_of(data), "res://levels/fixture.tscn")
 	testing.expect_value(t, loaded.bodies[1].name, "props")
-	testing.expect_value(t, loaded.bodies[1].material, 77)
+	testing.expect_value(t, loaded.bodies[1].surface.material, 77)
 	testing.expect_value(t, loaded.bodies[1].category, 4)
-	testing.expect_value(t, len(loaded.bodies[1].shapes), 4)
-	testing.expect_value(t, loaded.bodies[1].shapes[2].half_height, 0.5)
-	testing.expect_value(t, len(loaded.bodies[1].shapes[3].points), 5)
-	testing.expect(t, loaded.bodies[1].shapes[3].points[4] == {1, 1, 1})
+	props := loaded.bodies[1].shapes
+	testing.expect_value(t, len(props), 6)
+	testing.expect_value(t, props[2].half_height, 0.5)
+	testing.expect_value(t, len(props[3].points), 5)
+	testing.expect(t, props[3].points[4] == {1, 1, 1})
+	testing.expect(t, props[0].surface == loaded.bodies[1].surface, "a shape without its own surface has its body's")
+	testing.expect(t, props[1].surface.material == 78 && props[1].surface.tangent_velocity == {2, 0, 0})
+	mesh := props[4]
+	testing.expect(t, mesh.kind == .Mesh && len(mesh.points) == 4 && len(mesh.triangles) == 2)
+	testing.expect(t, mesh.triangles[1] == {0, 3, 2} && len(mesh.triangle_materials) == 2)
+	testing.expect(
+		t,
+		len(mesh.materials) == 2 && mesh.materials[0] == mesh.surface && mesh.materials[1].material == 91,
+	)
+	field := props[5]
+	testing.expect(t, field.kind == .Height_Field && field.count_x == 3 && field.count_z == 2)
+	testing.expect(t, field.scale == {2, 1, 4} && len(field.heights) == 6 && field.heights[4] == 3)
 	marker := level.find_named(&loaded, "Lift")
 	testing.expect(t, marker != nil)
 	if marker == nil do return
@@ -143,6 +188,10 @@ round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, level.prop_ref(marker, "nope"), -1)
 	testing.expect_value(t, level.prop_f32(marker, "nope", 9), 9)
 	testing.expect_value(t, len(marker.path), 2)
+	falloff := marker.props[len(marker.props) - 1]
+	curve, is_curve := falloff.value.(level.Curve_Ref)
+	testing.expect(t, falloff.key == "falloff" && is_curve, "a Curve property")
+	testing.expect(t, is_curve && loaded.curves[curve] == curve_ramp(), "a Curve property's samples")
 	platforms: [dynamic]string
 	defer delete(platforms)
 	for &each in loaded.markers {
@@ -151,7 +200,7 @@ round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(platforms), 2)
 	if len(platforms) == 2 do testing.expect_value(t, platforms[1], "Ferry")
 	// Encoding what was read gives the same bytes.
-	again := encode(loaded.bodies, loaded.markers)
+	again := encode(loaded.bodies, loaded.markers, scene = loaded.scene, curves = loaded.curves)
 	defer delete(again)
 	testing.expect(t, string(again) == string(data))
 }
@@ -175,6 +224,41 @@ bad_files :: proc(t: ^testing.T) {
 	bad[0] = 'X'
 	_, ok = level.load(bad)
 	testing.expect(t, !ok)
+	// An index past its table: a mesh triangle naming a vertex it lacks, a triangle material past its surfaces,
+	// a height field under 2 x 2.
+	mesh_points := [][3]f32{{0, 0, 0}, {1, 0, 0}, {0, 0, 1}}
+	good_triangles := [][3]u32{{0, 2, 1}}
+	bad_triangles := [][3]u32{{0, 1, 4}}
+	good_materials := []u8{1}
+	bad_materials := []u8{2}
+	surfaces := []level.Surface{{}, {material = 5}}
+	heights := []f32{0, 0, 0, 0}
+	for broken in 0 ..< 4 {
+		shapes := []level.Shape {
+			{
+				kind               = .Mesh,
+				rot                = {0, 0, 0, 1},
+				points             = mesh_points,
+				triangles          = bad_triangles if broken == 1 else good_triangles,
+				triangle_materials = bad_materials if broken == 2 else good_materials,
+				materials          = surfaces,
+			},
+			{
+				kind    = .Height_Field,
+				rot     = {0, 0, 0, 1},
+				count_x = 1 if broken == 3 else 2,
+				count_z = 2,
+				scale   = 1,
+				heights = heights[:2] if broken == 3 else heights,
+			},
+		}
+		bodies := []level.Body{{name = "ground", rot = {0, 0, 0, 1}, shapes = shapes}}
+		encoded := encode(bodies, nil)
+		defer delete(encoded)
+		loaded, loaded_ok := level.load(encoded)
+		testing.expectf(t, loaded_ok == (broken == 0), "case %d loaded: %v", broken, loaded_ok)
+		level.destroy(&loaded)
+	}
 	// Trailing bytes are refused too.
 	long := make([]u8, len(data) + 1)
 	defer delete(long)
@@ -206,6 +290,19 @@ create_static_bodies :: proc(t: ^testing.T) {
 	expect_top(t, world, -3.2, 5, 1.25) // along x from -3.5 to -2.5
 	hit, _ := physics.world_cast_ray_closest(world, {0, 10, 5}, {0, -20, 0})
 	testing.expect_value(t, hit.material, 77)
+	// The sphere has its own surface; the mesh ramp rises 1 in 2 from x = 10, its second triangle of material 91; the
+	// height field's middle column stands at 3, its others at 1.
+	hit, _ = physics.world_cast_ray_closest(world, {3, 10, 5}, {0, -20, 0})
+	testing.expect_value(t, hit.material, 78)
+	expect_top(t, world, 13, 4, 1.5)
+	expect_top(t, world, 11, 6, 0.5)
+	hit, _ = physics.world_cast_ray_closest(world, {13, 10, 4}, {0, -20, 0})
+	testing.expect_value(t, hit.material, 77)
+	hit, _ = physics.world_cast_ray_closest(world, {11, 10, 6}, {0, -20, 0})
+	testing.expect_value(t, hit.material, 91)
+	expect_top(t, world, -12, 5, 3)
+	expect_top(t, world, -13, 5, 2)
+	expect_top(t, world, -11, 5, 2)
 }
 
 // create_with_level: the level loaded and its static bodies in a new world, in one call; no level: a problem, no world.

@@ -5,9 +5,11 @@ extends SceneTree
 ## res://game/levels/*.tscn (not subfolders: those hold the parts a level instances), to the .level file next to each. --check writes nothing and fails when a committed file differs from a fresh
 ## export. A scene with findings is not written. Level scenes are instantiated, not run: no node is added to the
 ## tree and no _ready runs.
-## A 3D level (any root but a Node2D): StaticBody3D + CollisionShape3D children (box, sphere, capsule, convex
-## polygon); the body's physics_material_override gives friction and bounce, metadata unified_category /
-## unified_material the filter category and user material.
+## A 3D level (any root but a Node2D): StaticBody3D + CollisionShape3D children (box, sphere, capsule, cylinder,
+## convex polygon, concave polygon, height map); the body's physics_material_override gives friction and bounce,
+## metadata unified_category the filter category, unified_material the user material, unified_rolling_resistance and
+## unified_tangent_velocity the rest of its surface. A CollisionShape3D's own unified_material,
+## unified_rolling_resistance or unified_tangent_velocity give its shape a surface of its own.
 ## A 2D level (a Node2D root) maps onto the sim's XY plane at z = 0 (x right, y down, rotations about +Z), pixels
 ## divided by the game's view_scale (Unified.view_scale; a fixture baked without a game: the root's metadata
 ## unified_px_per_m), shapes extruded to ±unified_depth_m / 2 (default 1): StaticBody2D + CollisionShape2D
@@ -20,10 +22,27 @@ extends SceneTree
 ## fixture in tests/godot).
 
 const MAGIC := "UNLV"
-const VERSION := 2
-const MAX_POLYGON := 32  # points of one 2D convex part: extruded, a hull of 64, Box3D's vertex cap
-enum Shape { BOX, SPHERE, CAPSULE, HULL }
-enum Prop { BOOL, INT, FLOAT, VEC3, STRING, REF }
+const VERSION := 3
+const MAX_POLYGON := 32  # points of one 2D convex part: extruded, a prism of 64 points and 96 edges
+## Points of a 3D convex shape: a hull of V points has at most 3V - 6 edges, so 44 always fit Box3D's 128.
+const MAX_HULL := 44
+## A Curve property's samples, evenly spaced over its domain (level.CURVE_SAMPLES).
+const CURVE_SAMPLES := 32
+## cos(k * 22.5 degrees), k = 0..15: a cylinder's 16 sides with no trig of the platform's (sin is cos 4 steps back).
+const CIRCLE_16: Array[float] = [1.0, 0.9238795325112867, 0.7071067811865476, 0.3826834323650898, 0.0,
+		-0.3826834323650898, -0.7071067811865476, -0.9238795325112867, -1.0, -0.9238795325112867,
+		-0.7071067811865476, -0.3826834323650898, 0.0, 0.3826834323650898, 0.7071067811865476, 0.9238795325112867]
+enum Shape { BOX, SPHERE, CAPSULE, HULL, MESH, HEIGHT_FIELD }
+enum Prop { BOOL, INT, FLOAT, VEC3, STRING, REF, CURVE }
+
+
+## What a contact with a level shape mixes, and the game's id for it (level.Surface).
+class Surface:
+	var friction := 0.6
+	var restitution := 0.0
+	var rolling_resistance := 0.0
+	var tangent_velocity := Vector3.ZERO
+	var material := 0
 
 
 ## One shape as the file stores it, in its body's frame (metres), from either dimension.
@@ -31,14 +50,21 @@ class ShapeRec:
 	var kind: Shape
 	var pos := Vector3.ZERO
 	var rot := Quaternion.IDENTITY
+	var surface_node: Node = null  # the CollisionShape3D whose metadata gives it a surface of its own (null: none)
 	var half := Vector3.ZERO  # BOX
 	var radius := 0.0  # SPHERE, CAPSULE
 	var half_height := 0.0  # CAPSULE: half the segment, along local Y
-	var points := PackedVector3Array()  # HULL
+	var points := PackedVector3Array()  # HULL, MESH
+	var triangles := PackedInt32Array()  # MESH: 3 indices each, counter-clockwise seen from the front
+	var count_x := 0  # HEIGHT_FIELD
+	var count_z := 0
+	var scale := Vector3.ONE
+	var heights := PackedFloat32Array()
 
 
 var errors: Array[String] = []
 var _root: Node
+var _scene_path := ""
 var _ppm := 0.0  # a 2D level's pixels per metre; 0: a 3D level
 var _depth := 0.0  # a 2D level's extrusion depth, metres
 
@@ -110,6 +136,7 @@ func export_scene(path: String) -> PackedByteArray:
 	# Not added to the tree (it isn't running yet): transforms are composed by _xf / _xf2, and no _ready runs.
 	var scene := ps.instantiate()
 	_root = scene
+	_scene_path = path
 	_ppm = 0.0
 	if scene is Node2D:
 		# pixels per metre: the game's Glue.view_scale (Unified.view_scale); a level baked without a game (a fixture)
@@ -223,6 +250,7 @@ func _props(n: Node) -> Array[Array]:
 func _encode(bodies: Array[Node], markers: Array[Node], marker_index: Dictionary, strings: Array[String]) \
 		-> PackedByteArray:
 	# The string table comes first, in the order the reader meets the strings.
+	_intern(strings, _scene_path)
 	for b in bodies:
 		_intern(strings, b.name)
 	var marker_props: Array[Array] = []
@@ -245,6 +273,7 @@ func _encode(bodies: Array[Node], markers: Array[Node], marker_index: Dictionary
 		var u: PackedByteArray = s.to_utf8_buffer()
 		w.put_u16(u.size())
 		w.put_data(u)
+	w.put_u32(_intern(strings, _scene_path))
 	w.put_u32(bodies.size())
 	for b in bodies:
 		_body(w, b, strings)
@@ -269,7 +298,11 @@ func _body(w: StreamPeerBuffer, b: Node, strings: Array[String]) -> void:
 		var frame := Transform3D(brot, bt.origin)
 		for c in b.get_children():
 			if c is CollisionShape3D and c.shape != null and not c.disabled:
+				var before := recs.size()
 				_shape3d(recs, frame.affine_inverse() * _xf(c), c.shape, _where(c))
+				if _has_surface_meta(c):
+					for k in range(before, recs.size()):
+						recs[k].surface_node = c
 	else:
 		# a StaticBody2D or TileMapLayer: the node's position and rotation about Z
 		var g := _xf2(b)
@@ -278,22 +311,59 @@ func _body(w: StreamPeerBuffer, b: Node, strings: Array[String]) -> void:
 		origin = _m3(g.origin)
 		rot = _qdir(u)
 		mat = _shapes2d(recs, b as Node2D, inv, g)
+	if mat and (mat.rough or mat.absorbent):
+		_error(_where(b), "PhysicsMaterial rough and absorbent are not supported (Box3D mixes surfaces its own way)")
+	var surface := Surface.new()
+	if mat:
+		surface.friction = mat.friction
+		surface.restitution = mat.bounce
+	_surface_meta(surface, b)
 	w.put_u32(_intern(strings, b.name))
 	_v3(w, origin)
 	_quat(w, rot)
-	w.put_float(mat.friction if mat else 0.6)
-	w.put_float(mat.bounce if mat else 0.0)
+	_write_surface(w, surface)
 	w.put_u64(int(b.get_meta("unified_category", 0)))
-	w.put_u64(int(b.get_meta("unified_material", 0)))
 	w.put_u16(recs.size())
 	for r in recs:
-		_write_shape(w, r)
+		_write_shape(w, r, surface)
 
 
-func _write_shape(w: StreamPeerBuffer, r: ShapeRec) -> void:
+## Whether a CollisionShape3D's metadata gives its shapes a surface of their own.
+func _has_surface_meta(c: Node) -> bool:
+	return c.has_meta(&"unified_material") or c.has_meta(&"unified_rolling_resistance") \
+			or c.has_meta(&"unified_tangent_velocity")
+
+
+## A node's surface metadata over `surface`: unified_material, unified_rolling_resistance, unified_tangent_velocity.
+func _surface_meta(surface: Surface, n: Node) -> void:
+	surface.material = int(n.get_meta(&"unified_material", surface.material))
+	surface.rolling_resistance = float(n.get_meta(&"unified_rolling_resistance", surface.rolling_resistance))
+	surface.tangent_velocity = n.get_meta(&"unified_tangent_velocity", surface.tangent_velocity)
+
+
+func _write_surface(w: StreamPeerBuffer, surface: Surface) -> void:
+	w.put_float(surface.friction)
+	w.put_float(surface.restitution)
+	w.put_float(surface.rolling_resistance)
+	_v3(w, surface.tangent_velocity)
+	w.put_u64(surface.material)
+
+
+## One shape: its own surface is the body's with its CollisionShape3D's metadata over it.
+func _write_shape(w: StreamPeerBuffer, r: ShapeRec, body: Surface) -> void:
 	w.put_u8(r.kind)
 	_v3(w, r.pos)
 	_quat(w, r.rot)
+	w.put_u8(0 if r.surface_node == null else 1)
+	if r.surface_node != null:
+		var own := Surface.new()
+		own.friction = body.friction
+		own.restitution = body.restitution
+		own.rolling_resistance = body.rolling_resistance
+		own.tangent_velocity = body.tangent_velocity
+		own.material = body.material
+		_surface_meta(own, r.surface_node)
+		_write_surface(w, own)
 	match r.kind:
 		Shape.BOX:
 			_v3(w, r.half)
@@ -306,6 +376,21 @@ func _write_shape(w: StreamPeerBuffer, r: ShapeRec) -> void:
 			w.put_u16(r.points.size())
 			for p in r.points:
 				_v3(w, p)
+		Shape.MESH:
+			w.put_u32(r.points.size())
+			for p in r.points:
+				_v3(w, p)
+			w.put_u32(r.triangles.size() / 3)
+			for i in r.triangles:
+				w.put_u32(i)
+			w.put_u32(0)  # no per-triangle materials: Godot's trimesh has none (every triangle is the shape's)
+			w.put_u8(0)
+		Shape.HEIGHT_FIELD:
+			w.put_u16(r.count_x)
+			w.put_u16(r.count_z)
+			_v3(w, r.scale)
+			for h in r.heights:
+				w.put_float(h)
 
 
 func _rec(kind: Shape, pos := Vector3.ZERO, rot := Quaternion.IDENTITY) -> ShapeRec:
@@ -358,6 +443,9 @@ func _marker(w: StreamPeerBuffer, m: Node, props: Array, marker_index: Dictionar
 				elif v is Node:
 					target = v
 				w.put_32(marker_index.get(target, -1))
+			Prop.CURVE:
+				for sample in _curve_samples(v as Curve):
+					w.put_float(sample)
 	var pts := PackedVector3Array()
 	for c in m.get_children():
 		if c is Path3D and c.curve != null:
@@ -501,13 +589,115 @@ func _shape3d(recs: Array[ShapeRec], local: Transform3D, s: Shape3D, where: Stri
 		r.radius = cap.radius * sc.x
 		r.half_height = maxf(cap.height * 0.5 * sc.y - cap.radius * sc.x, 0.0)
 		recs.append(r)
+	elif s is CylinderShape3D:
+		# a hull of 2 x 16 points (Box3D has no cylinder), the node's scale baked in
+		var cyl := s as CylinderShape3D
+		var r := _rec(Shape.HULL)
+		for y: float in [-cyl.height * 0.5, cyl.height * 0.5]:
+			for k in 16:
+				r.points.append(local * Vector3(cyl.radius * CIRCLE_16[k], y, cyl.radius * CIRCLE_16[(k + 12) % 16]))
+		recs.append(r)
 	elif s is ConvexPolygonShape3D:
 		var r := _rec(Shape.HULL)
+		var distinct := {}
 		for p in (s as ConvexPolygonShape3D).points:
 			r.points.append(local * p)
+			distinct[local * p] = true
+		if distinct.size() > MAX_HULL:
+			_error(where, ("a convex shape of %d points, more than %d (Box3D's 128 hull edges): use a simplified " +
+					"convex collision, a CylinderShape3D, or split it") % [distinct.size(), MAX_HULL])
+			return
 		recs.append(r)
+	elif s is ConcavePolygonShape3D:
+		_mesh3d(recs, local, s as ConcavePolygonShape3D, where)
+	elif s is HeightMapShape3D:
+		_height_map(recs, local, s as HeightMapShape3D, where)
 	else:
-		_error(where, "unsupported shape %s (box, sphere, capsule, convex polygon)" % s.get_class())
+		_error(where, ("unsupported shape %s (box, sphere, capsule, cylinder, convex polygon, concave polygon, " +
+				"height map)") % s.get_class())
+
+
+## A concave polygon as a mesh: its faces in the body's frame, vertices welded where exactly equal (in face order),
+## each triangle turned from Godot's clockwise front to the file's counter-clockwise (a mirroring scale turns it back).
+func _mesh3d(recs: Array[ShapeRec], local: Transform3D, s: ConcavePolygonShape3D, where: String) -> void:
+	if s.backface_collision:
+		_error(where, "backface_collision is not supported (a level mesh collides from the front)")
+		return
+	var faces := s.get_faces()
+	if faces.size() < 3:
+		_error(where, "a concave polygon without faces")
+		return
+	var r := _rec(Shape.MESH)
+	var index := {}
+	var order: Array[int] = [0, 2, 1]
+	if local.basis.determinant() < 0.0:
+		order = [0, 1, 2]
+	for f in range(0, faces.size() - 2, 3):
+		for k in order:
+			var p := local * faces[f + k]
+			if not index.has(p):
+				index[p] = r.points.size()
+				r.points.append(p)
+			r.triangles.append(index[p])
+	recs.append(r)
+
+
+## A height map as a height field: Godot's grid is centred on the shape, one unit per cell, scaled by the node; the
+## file's pose is the grid's corner, its scale the cell size and height scale.
+func _height_map(recs: Array[ShapeRec], local: Transform3D, s: HeightMapShape3D, where: String) -> void:
+	if local.basis.determinant() <= 0.0:
+		_error(where, "a height map needs a positive scale")
+		return
+	if s.map_width < 2 or s.map_depth < 2 or s.map_width > 65535 or s.map_depth > 65535:
+		_error(where, "a height map needs 2 to 65535 points along each side")
+		return
+	for h in s.map_data:
+		if is_nan(h) or is_inf(h):
+			_error(where, "a height map with a NaN or infinite height")
+			return
+	var corner := local * Vector3(-(s.map_width - 1) * 0.5, 0.0, -(s.map_depth - 1) * 0.5)
+	var r := _rec(Shape.HEIGHT_FIELD, corner, local.basis.orthonormalized().get_rotation_quaternion())
+	r.count_x = s.map_width
+	r.count_z = s.map_depth
+	r.scale = local.basis.get_scale()
+	r.heights = s.map_data
+	recs.append(r)
+
+
+## A Curve as CURVE_SAMPLES values over its domain: Godot's cubic between two points (control points a third of the
+## way along, by each point's tangent), in doubles with + - * / only, so every platform bakes the same bytes
+## (Curve.sample is the engine's float code).
+func _curve_samples(curve: Curve) -> PackedFloat64Array:
+	var out := PackedFloat64Array()
+	for i in CURVE_SAMPLES:
+		var x: float = curve.min_domain + (curve.max_domain - curve.min_domain) * float(i) / float(CURVE_SAMPLES - 1)
+		out.append(_curve_at(curve, x))
+	return out
+
+
+func _curve_at(curve: Curve, x: float) -> float:
+	var count := curve.point_count
+	if count == 0:
+		return 0.0
+	var first := curve.get_point_position(0)
+	if count == 1 or x <= first.x:
+		return first.y
+	var last := curve.get_point_position(count - 1)
+	if x >= last.x:
+		return last.y
+	var k := 0
+	while curve.get_point_position(k + 1).x < x:
+		k += 1
+	var a := curve.get_point_position(k)
+	var b := curve.get_point_position(k + 1)
+	var d: float = b.x - a.x
+	if d <= 0.0:
+		return b.y
+	var t: float = (x - a.x) / d
+	var ya: float = a.y + d / 3.0 * curve.get_point_right_tangent(k)
+	var yb: float = b.y - d / 3.0 * curve.get_point_left_tangent(k + 1)
+	var u: float = 1.0 - t
+	return a.y * u * u * u + ya * u * u * t * 3.0 + yb * u * t * t * 3.0 + b.y * t * t * t
 
 
 func _prop_type(v: Variant) -> int:
@@ -521,6 +711,8 @@ func _prop_type(v: Variant) -> int:
 		return Prop.VEC3
 	if v is String or v is StringName:
 		return Prop.STRING
+	if v is Curve:
+		return Prop.CURVE
 	if v is NodePath or v is Node or v == null:
 		return Prop.REF if v != null else -1
 	return -1

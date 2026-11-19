@@ -38,28 +38,31 @@ Body_Flag :: enum u8 {
 // One physics world (create): the Box3D world, its snapshots per ring slot, and physics' table by body index. A game
 // keeps it in its World (outside the block) and plugs it into the harness with `extra`.
 World :: struct {
-	id:           box3d.WorldId,
-	tick_hz:      int, // Settings.tick_hz
-	dt:           f32, // seconds per step: 1 / tick_hz, as the sim's Tick.dt
-	substeps:     int,
+	id:                  box3d.WorldId,
+	tick_hz:             int, // Settings.tick_hz
+	dt:                  f32, // seconds per step: 1 / tick_hz, as the sim's Tick.dt
+	substeps:            int,
 	// In-process snapshots (Box3D's world arena: a memcpy) and the body table, one per ring slot.
-	ring:         [sim.MAX_RING_SIZE]box3d.WorldSnapshot, // slots past the sim's ring_size stay empty
-	body_ring:    [sim.MAX_RING_SIZE][dynamic]Body_Entry,
-	scratch:      box3d.WorldSnapshot, // the live state while `image` builds a past slot's image, and `load`'s backup
-	image:        ^box3d.WorldState, // the last Box3D image `image` built
-	image_bytes:  [dynamic]u8, // the last portable image: Box3D's, then the body table
+	ring:                [sim.MAX_RING_SIZE]box3d.WorldSnapshot, // slots past the sim's ring_size stay empty
+	body_ring:           [sim.MAX_RING_SIZE][dynamic]Body_Entry,
+	scratch:             box3d.WorldSnapshot, // the live state while `image` builds a past slot's image, and `load`'s backup
+	image:               ^box3d.WorldState, // the last Box3D image `image` built
+	image_bytes:         [dynamic]u8, // the last portable image: Box3D's, then the body table
 	// Kept ticks (sim.snapshot_keep): a ring slot's snapshot bytes and body table, copied, imaged only when wanted.
-	kept:         [sim.KEEP_SLOTS][dynamic]u8,
-	kept_bodies:  [sim.KEEP_SLOTS][dynamic]Body_Entry,
-	bodies:       [dynamic]Body_Entry, // by body index (rolled back: body_ring)
-	sealed:       bool, // `extra` was made: bodies created from now on are the block's
-	refs:         Ref_Layout, // the State's (extra)
-	layouts:      [dynamic]Type_Layout, // destroy_refs' cache (a few types: a list, no map in tick code)
-	owned:        [dynamic]bool, // check_refs' scratch
-	visitors:     [dynamic]box3d.ShapeId, // shape_sensor_data's scratch
-	sort_scratch: [dynamic]u64, // sort_results' merge buffer (any result type: words, for alignment)
-	anchor:       box3d.BodyId, // the World's first body (world_anchor)
-	workers:      i32, // Box3D's worker count (Settings.workers, at least 1)
+	kept:                [sim.KEEP_SLOTS][dynamic]u8,
+	kept_bodies:         [sim.KEEP_SLOTS][dynamic]Body_Entry,
+	bodies:              [dynamic]Body_Entry, // by body index (rolled back: body_ring)
+	sealed:              bool, // `extra` was made: bodies created from now on are the block's
+	refs:                Ref_Layout, // the State's (extra)
+	layouts:             [dynamic]Type_Layout, // destroy_refs' cache (a few types: a list, no map in tick code)
+	owned:               [dynamic]bool, // check_refs' scratch
+	visitors:            [dynamic]box3d.ShapeId, // shape_sensor_data's scratch
+	sort_scratch:        [dynamic]u64, // sort_results' merge buffer (any result type: words, for alignment)
+	anchor:              box3d.BodyId, // the World's first body (world_anchor)
+	workers:             i32, // Box3D's worker count (Settings.workers, at least 1)
+	// Level geometry create_static built (shapes point at it): freed after the Box3D world.
+	level_meshes:        [dynamic]^Mesh_Data,
+	level_height_fields: [dynamic]^Height_Field_Data,
 }
 
 // b3CreateWorld/b3DestroyWorld scan and modify Box3D's global world table and lazily initialise its
@@ -122,6 +125,10 @@ destroy :: proc(world: ^World) {
 	box3d.DestroyWorldSnapshot(&world.scratch)
 	box3d.DestroyWorldState(world.image)
 	box3d.DestroyWorld(world.id)
+	for mesh in world.level_meshes do destroy_mesh(mesh)
+	for height_field in world.level_height_fields do destroy_height_field(height_field)
+	delete(world.level_meshes)
+	delete(world.level_height_fields)
 	delete_layout(world.refs)
 	for cached in world.layouts {
 		delete_layout(cached.layout)

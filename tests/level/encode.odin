@@ -5,12 +5,16 @@ package test_level
 import "unified:level"
 import "unified:wire"
 
-// Encodes bodies and markers (their `index` fields are ignored; Ref props hold marker indices), in the
-// current version. `px_per_m`: a 2D level's pixels per metre (Level.px_per_m), 0 for a 3D level.
+// Encodes bodies and markers (their `index` fields are ignored; Ref props hold marker indices, Curve props indices
+// into `curves`), in the current version. `px_per_m`: a 2D level's pixels per metre (Level.px_per_m), 0 for a 3D
+// level. A shape whose surface is zero or its body's is written as having none of its own; a mesh's extra surfaces
+// are its materials past the first.
 encode :: proc(
 	bodies: []level.Body,
 	markers: []level.Marker,
 	px_per_m: f32 = 0,
+	scene := "",
+	curves: [][level.CURVE_SAMPLES]f32 = nil,
 	allocator := context.allocator,
 ) -> []u8 {
 	string_table := make([dynamic]string, 0, 64, context.temp_allocator)
@@ -23,6 +27,7 @@ encode :: proc(
 		return u32(len(string_table) - 1)
 	}
 	// Strings first, in the order the reader meets them.
+	intern(&string_table, scene)
 	for &body in bodies do intern(&string_table, body.name)
 	for &marker in markers {
 		intern(&string_table, marker.kind)
@@ -47,6 +52,15 @@ encode :: proc(
 		wire.w_u16(writer, u16(len(points)))
 		for point in points do write_vec3(writer, point)
 	}
+	write_surface :: proc(writer: ^wire.Writer, surface: level.Surface) {
+		wire.w_f32(writer, surface.friction)
+		wire.w_f32(writer, surface.restitution)
+		wire.w_f32(writer, surface.rolling_resistance)
+		wire.w_f32(writer, surface.tangent_velocity.x)
+		wire.w_f32(writer, surface.tangent_velocity.y)
+		wire.w_f32(writer, surface.tangent_velocity.z)
+		wire.w_u64(writer, surface.material)
+	}
 	wire.w_bytes(&writer, transmute([]u8)string(level.MAGIC))
 	wire.w_u16(&writer, level.VERSION)
 	wire.w_f32(&writer, px_per_m)
@@ -55,20 +69,22 @@ encode :: proc(
 		wire.w_u16(&writer, u16(len(text)))
 		wire.w_bytes(&writer, transmute([]u8)text)
 	}
+	wire.w_u32(&writer, intern(&string_table, scene))
 	wire.w_u32(&writer, u32(len(bodies)))
 	for &body in bodies {
 		wire.w_u32(&writer, intern(&string_table, body.name))
 		write_vec3(&writer, body.pos)
 		write_quat(&writer, body.rot)
-		wire.w_f32(&writer, body.friction)
-		wire.w_f32(&writer, body.restitution)
+		write_surface(&writer, body.surface)
 		wire.w_u64(&writer, body.category)
-		wire.w_u64(&writer, body.material)
 		wire.w_u16(&writer, u16(len(body.shapes)))
 		for &shape in body.shapes {
 			wire.w_u8(&writer, u8(shape.kind))
 			write_vec3(&writer, shape.pos)
 			write_quat(&writer, shape.rot)
+			own := shape.surface != {} && shape.surface != body.surface
+			wire.w_u8(&writer, u8(own))
+			if own do write_surface(&writer, shape.surface)
 			switch shape.kind {
 			case .Box:
 				write_vec3(&writer, shape.half)
@@ -79,6 +95,21 @@ encode :: proc(
 				wire.w_f32(&writer, shape.half_height)
 			case .Hull:
 				write_points(&writer, shape.points)
+			case .Mesh:
+				wire.w_u32(&writer, u32(len(shape.points)))
+				for point in shape.points do write_vec3(&writer, point)
+				wire.w_u32(&writer, u32(len(shape.triangles)))
+				for triangle in shape.triangles do for index in triangle do wire.w_u32(&writer, index)
+				wire.w_u32(&writer, u32(len(shape.triangle_materials)))
+				wire.w_bytes(&writer, shape.triangle_materials)
+				extra := shape.materials[1:] if len(shape.materials) > 1 else nil
+				wire.w_u8(&writer, u8(len(extra)))
+				for surface in extra do write_surface(&writer, surface)
+			case .Height_Field:
+				wire.w_u16(&writer, u16(shape.count_x))
+				wire.w_u16(&writer, u16(shape.count_z))
+				write_vec3(&writer, shape.scale)
+				for height in shape.heights do wire.w_f32(&writer, height)
 			}
 		}
 	}
@@ -111,6 +142,9 @@ encode :: proc(
 			case level.Marker_Ref:
 				wire.w_u8(&writer, u8(level.Prop_Type.Ref))
 				wire.w_u32(&writer, u32(value))
+			case level.Curve_Ref:
+				wire.w_u8(&writer, u8(level.Prop_Type.Curve))
+				for sample in curves[value] do wire.w_f32(&writer, sample)
 			}
 		}
 		write_points(&writer, marker.path)
