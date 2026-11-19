@@ -43,7 +43,7 @@ func _ready() -> void:
 
 ## Every field is set before any node's _process, so one redraw a frame shows them all.
 func _process(_delta: float) -> void:
-	_name.text = Unified.constants.enemies[kind]
+	_name.text = EnumEnemyKind.name(kind).capitalize()
 	_hp.max_value = maxi(max_hp, 1)
 	_hp.value = hp
 	var stats := "%d / %d HP" % [hp, max_hp]

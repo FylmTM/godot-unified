@@ -82,7 +82,7 @@ func _aim_text(hero: DataHeroRow) -> String:
 	for node in get_tree().get_nodes_in_group(&"enemies"):
 		var enemy := node as DeckEnemy
 		if hero.aim_enemy > 0 and enemy.index == hero.aim_enemy - 1:
-			text += " at the %s" % Unified.constants.enemies[enemy.kind]
+			text += " at the %s" % EnumEnemyKind.name(enemy.kind).capitalize()
 	if hero.aim_hero > 0:
 		text += " for hero %d" % hero.aim_hero
 	return text

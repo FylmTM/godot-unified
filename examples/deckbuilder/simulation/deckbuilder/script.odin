@@ -12,10 +12,9 @@ SCRIPT_END_TURN_EVERY :: 64 // ticks between a slot's end of turn (2 s)
 SCRIPT_CHOOSE_EVERY :: 8 // ticks between a slot's vote, reward and rest
 SCRIPT_START_EVERY :: 128 // ticks between slot 0's start of a run (at the camp)
 
-// The slots alternate the classes, slot 0 a Vanguard: the zero Profile, which a Godot scripted session's local player
-// joins with too (Unified.profile's), so its checksums are the offline binary's.
+// The slots alternate the classes, from the seed's.
 scripted_profile :: proc(seed: u64, slot: int) -> Profile {
-	return {hero_class = Hero_Class(slot % 2)}
+	return {hero_class = Hero_Class((u64(slot) + seed) % 2)}
 }
 
 // The slot's commands for a tick: a play every SCRIPT_PLAY_EVERY ticks (a starter of its own deck at an enemy and an

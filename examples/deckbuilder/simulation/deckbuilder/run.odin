@@ -45,10 +45,10 @@ continue_run :: proc(t: ^Tick) {
 		hero := &t.state.heroes[index]
 		hero^ = {
 			hero_class = saved.hero_class,
-			in_run = true,
-			hp     = saved.hp,
-			max_hp = saved.max_hp,
-			relics = saved.relics,
+			in_run     = true,
+			hp         = saved.hp,
+			max_hp     = saved.max_hp,
+			relics     = saved.relics,
 		}
 		for card in sim.slice(&saved.deck) do add_card(t, index, card.id, card.upgraded)
 	}
@@ -177,10 +177,10 @@ save_point :: proc(t: ^Tick) {
 		saved := &run.heroes[index]
 		saved^ = {
 			hero_class = hero.hero_class,
-			in_run = true,
-			relics = hero.relics,
-			hp     = hero.hp,
-			max_hp = hero.max_hp,
+			in_run     = true,
+			relics     = hero.relics,
+			hp         = hero.hp,
+			max_hp     = hero.max_hp,
 		}
 	}
 	cards := sim.iterate(&t.state.cards)

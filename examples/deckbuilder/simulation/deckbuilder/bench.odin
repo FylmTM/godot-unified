@@ -21,8 +21,8 @@ bench_prepare :: proc(state: ^State, world: ^sim.No_World, count: int) {
 		hero := &run.heroes[index]
 		hero^ = {
 			hero_class = class,
-			in_run = true,
-			max_hp = ARCANIST_HP if class == .Arcanist else VANGUARD_HP,
+			in_run     = true,
+			max_hp     = ARCANIST_HP if class == .Arcanist else VANGUARD_HP,
 		}
 		hero.hp = hero.max_hp
 		starter := STARTER_ARCANIST if class == .Arcanist else STARTER_VANGUARD

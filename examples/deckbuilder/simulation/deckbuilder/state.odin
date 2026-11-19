@@ -158,7 +158,7 @@ Player_Data :: struct {
 // What a player chose before joining: the class of the hero a new run gives them.
 Profile :: struct {
 	hero_class: Hero_Class, // not `class`: GDScript reads it as Unified.profile.hero_class
-	_pad:  [3]u8,
+	_pad:       [3]u8,
 }
 
 // Which rules a session plays: `quick` divides enemy HP (QUICK_HP_DIV) so a scripted run crosses the act.
@@ -178,13 +178,13 @@ Saved_Card :: struct {
 // A hero of a saved run.
 Saved_Hero :: struct {
 	hero_class: Hero_Class,
-	in_run: bool,
-	relics: Relics,
-	_pad:   u8,
-	hp:     i16,
-	max_hp: i16,
-	deck:   sim.List(Saved_Card, DECK_MAX),
-	_pad2:  [3]u8,
+	in_run:     bool,
+	relics:     Relics,
+	_pad:       u8,
+	hp:         i16,
+	max_hp:     i16,
+	deck:       sim.List(Saved_Card, DECK_MAX),
+	_pad2:      [3]u8,
 }
 
 // The session's Setup: the tuning, and the run to continue (version 0: none, a new session starts at the camp). A
