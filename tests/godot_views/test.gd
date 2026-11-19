@@ -226,6 +226,7 @@ func _initialize() -> void:
 	check_players(session, me, roster_changes[0])
 	check_view_lookup(session, typed, plain, me)
 	await check_hand(session, hand, me)
+	await check_remote_views(session, views, me)
 
 	# 2D, colors + custom: stride 16 = transform (8) + color (4) + custom (4)
 	check("2D MultiMesh instances", typed_multi.visible_instance_count == 2, typed_multi.visible_instance_count)
@@ -308,6 +309,61 @@ func _initialize() -> void:
 	await check_unnamed()
 	print("VIEWS TESTS: %d failed" % failed)
 	quit(failed)
+
+
+# Remote3D and Rider3D (ext/ext.odin's remote_walk: one walk shown by a remote player, the local player, and a thing
+# whose player alternates each period): the remote player's view is posed from the verified timeline, a few ticks behind the local
+# player's, which is posed from the prediction; it snaps across each jump (a warp: no glide through the gap between the
+# walk's two stretches); and the thing's view follows the remote timeline while it shows the remote player, the
+# prediction while it shows the local one.
+func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
+	const SPEED := 0.1  # view units a tick (REMOTE_SPEED x VIEW_SCALE)
+	const PERIOD := 128
+	var remote: Node3D = null
+	var local: Node3D = null
+	var thing: Node3D = null
+	var lags: Array[float] = []
+	var off_walk: Array[float] = []  # remote x outside the walk's two stretches: a glide across a jump
+	var thing_remote := [0, 0]  # frames the thing matched the remote view / were compared, showing the remote player
+	var thing_local := [0, 0]  # and the local view, showing the local player
+	var start := session.tick
+	for i in 400:  # up to ~8 s, until two periods have passed
+		await create_timer(0.02).timeout
+		if session.tick > start + 2 * PERIOD + 16:
+			break
+		for child in views.get_children():
+			var view_marker := child.get_node_or_null(^"UnifiedView") as UnifiedView
+			if view_marker == null:
+				continue
+			if view_marker.kind == "rider3d":
+				thing = child as Node3D
+			elif view_marker.kind == "remote3d" and view_marker.key == me:
+				local = child as Node3D
+			elif view_marker.kind == "remote3d":
+				remote = child as Node3D
+		if remote == null or local == null or thing == null:
+			continue
+		var x := remote.position.x
+		if not (x > -0.01 and x < 6.41) and not (x > 26.39 and x < 32.71):
+			off_walk.append(x)
+		var phase := session.tick % (PERIOD / 2)
+		if phase < 24 or phase > 60:
+			continue  # near a jump the two views may stand on either side of it
+		lags.append((local.position.x - x) / SPEED)
+		var showing_remote := (session.tick / PERIOD) % 2 == 0
+		if showing_remote:
+			thing_remote[1] += 1
+			thing_remote[0] += int(absf(thing.position.x - x) < 0.01)
+		else:
+			thing_local[1] += 1
+			thing_local[0] += int(absf(thing.position.x - local.position.x) < 0.01)
+	check("remote3d and rider3d: a remote player's, the local player's and a thing's views", remote != null and local != null 		and thing != null, [remote, local, thing])
+	var lags_ok := not lags.is_empty() and lags.all(func(lag: float) -> bool: return lag > 1.5 and lag < 12.0)
+	check("a remote player's view of a Remote.Verified kind runs a few ticks behind the local player's", lags_ok,
+		[lags.min() if lags else null, lags.max() if lags else null])
+	check("it snaps across a warp: never posed between the walk's two stretches", off_walk.is_empty(), off_walk)
+	check("a thing's view showing the remote player is on the verified timeline, the local player on the prediction",
+		thing_remote[1] > 10 and thing_local[1] > 10 and thing_remote[0] == thing_remote[1] 		and thing_local[0] == thing_local[1], [thing_remote, thing_local])
 
 
 # The sim's debug draws (ext/ext.odin's drawn_tick: a line and a text a tick): none until a group is shown, then the

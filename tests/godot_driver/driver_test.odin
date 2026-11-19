@@ -503,17 +503,18 @@ driver_sessions :: proc(t: ^testing.T) {
 		godot.install(&toy.GAME, missing)
 		testing.expect(t, !godot.api.installed)
 		testing.expectf(t, len(godot.api.problems) == 1, "no sample_input: %v", godot.api.problems)
-		// a view policy install refuses: a script-posed MultiMesh kind, a ramp without its time constant
+		// a view policy install refuses: a script-posed MultiMesh kind on the verified timeline, a ramp without its time
+		// constant
 		policies := GLUE
 		policies.multi_policy = {
-			.Spark = {pose = .Script},
+			.Spark = {pose = .Script, remote = .Verified},
 		}
 		policies.view_policy = {
 			.Dot = {smoothing = {ramp_dist = 2}},
 		}
 		godot.install(&toy.GAME, policies)
 		testing.expect(t, !godot.api.installed)
-		testing.expectf(t, len(godot.api.problems) == 2, "both policy problems: %v", godot.api.problems)
+		testing.expectf(t, len(godot.api.problems) == 3, "the three policy problems: %v", godot.api.problems)
 	}
 
 	// A game without an Input (sim.No_Input): its Glue has no sample_input, the main thread's sample does nothing,

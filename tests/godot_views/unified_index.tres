@@ -7,6 +7,8 @@ metadata/views = {
 "decoy2d": "res://views/decoy2d.tscn",
 "plain2d": "res://views/plain2d.tscn",
 "plain3d": "res://views/plain3d.tscn",
+"remote3d": "res://views/remote3d.tscn",
+"rider3d": "res://views/rider3d.tscn",
 "scripted3d": "res://views/scripted3d.tscn",
 "typed2d": "res://views/typed2d.tscn"
 }

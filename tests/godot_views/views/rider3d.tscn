@@ -1,0 +1,11 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://views/plain3d.gd" id="1"]
+
+[node name="rider3d" type="Node3D"]
+script = ExtResource("1")
+
+[node name="Body" type="Node3D" parent="."]
+
+[node name="UnifiedView" type="UnifiedView" parent="."]
+kind = "rider3d"

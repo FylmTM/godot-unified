@@ -33,6 +33,7 @@ Api :: struct {
 	view_policy:     []Kind_Policy, // Glue.view_policy by kind, filled in
 	multi_policy:    []Kind_Policy, // Glue.multi_policy by kind, filled in
 	appear_verified: bool, // some kind appears on verified: the driver fills verified ticks too (verified_state)
+	remote_verified: bool, // some kind poses remote players on the verified timeline (Remote.Verified)
 	events:          []Event_Layout, // the game's event union, by kind (events.odin)
 	commands:        []Command_Layout, // the game's command union, by kind (command.odin)
 	commands_type:   typeid, // the union itself
@@ -90,7 +91,7 @@ Api :: struct {
 	// its .level file names, "": none), in Game.levels' order.
 	level_offset:    int,
 	level_scenes:    []string,
-	// The verified-timeline option's sampler of the session (dev UI builds; nil: none): verified_players.odin.
+	// The session's sampler of the verified timeline (nil: none; Remote.Verified, or a dev UI build): verified_players.odin.
 	sampler:         proc() -> ^Verified_Sampler,
 }
 
@@ -243,7 +244,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	replay:          ^Replay(G),
 	replay_controls: Queue(Replay_Control, 16),
 	epoch:           u32,
-	sampler:         ^Verified_Sampler, // other players on the verified timeline (dev UI builds; verified_players.odin)
+	sampler:         ^Verified_Sampler, // other players on the verified timeline (verified_players.odin)
 }
 
 // The Inspector's state and the tick before it (the op log), copied while the dev UI shows them.
@@ -393,6 +394,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	for policy, kind in glue.multi_policy do api.multi_policy[int(kind)] = kind_policy(policy, true)
 	for policy in glue.view_policy do api.appear_verified ||= policy.appear == .Verified
 	for policy in glue.multi_policy do api.appear_verified ||= policy.appear == .Verified
+	for policy in glue.view_policy do api.remote_verified ||= policy.remote == .Verified
 	for variant in sim.union_variants(glue.data) do append_elem(&kept_data, data_layout(variant))
 	api.data = kept_data[:]
 	if constants.id != nil {
@@ -491,7 +493,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 			pose_memory_init(&driver.verified_poses, FRAME_VIEWS, FRAME_MULTIS)
 			driver.verified_out.alloc = context.allocator
 		}
-		when DEVUI do driver.sampler = verified_sampler_new()
+		if api.remote_verified || DEVUI do driver.sampler = verified_sampler_new() // the dev UI can force it on
 		input_sample_reset()
 		triple_init(&driver.states)
 		triple_init(&driver.inputs)
@@ -765,6 +767,7 @@ Kind_Policy :: struct {
 	pose:      Posed_By,
 	smoothing: Smoothing, // smoothing_of(policy.smoothing)
 	tracks:    bool, // scene views always; a MultiMesh kind when its policy sets a smoothing
+	remote:    Remote, // scene views only
 }
 
 @(private)
@@ -774,6 +777,7 @@ kind_policy :: proc(policy: View_Policy, multi: bool) -> Kind_Policy {
 		pose      = policy.pose,
 		smoothing = smoothing_of(policy.smoothing),
 		tracks    = !multi || policy.smoothing != {},
+		remote    = policy.remote,
 	}
 }
 
@@ -785,6 +789,9 @@ policy_problems :: proc(policy: View_Policy, kind: string, multi: bool, problems
 	field := fmt.tprintf("Glue.%s[.%s]", multi ? "multi_policy" : "view_policy", kind)
 	if multi && policy.pose == .Script {
 		append(problems, fmt.aprintf("%s: pose = .Script is for scene views (an instance has no script)", field))
+	}
+	if multi && policy.remote != .Predicted {
+		append(problems, fmt.aprintf("%s: remote = .Verified is for scene views (an instance shows no player)", field))
 	}
 	distances_ok := finite(smoothing.teleport_dist) && smoothing.teleport_dist >= 0
 	distances_ok &&= finite(smoothing.ramp_dist) && smoothing.ramp_dist >= 0
@@ -1191,8 +1198,8 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 					_ = queue_push(&driver.confirmed, Command_Note{tick, command})
 				}
 				record_tick(driver, simulation, tick, inputs)
-				verified_sampler_tick(driver, simulation, tick)
 			}
+			verified_sampler_tick(driver, simulation, tick)
 		},
 		status = proc(user: rawptr, status: netcode.Status, detail: string) {
 			driver := (^This_Driver)(user)
@@ -1312,10 +1319,8 @@ publish_frame :: proc(
 	sync.atomic_store(&driver.in_fill, true)
 	driver.glue.fill_frame(&frame)
 	sync.atomic_store(&driver.in_fill, false)
-	when DEVUI {
-		dev_publish(driver, out, simulation, info.tick)
-		if client != nil && driver.sampler != nil do verified_sampler_fill(driver.sampler, out, info)
-	}
+	when DEVUI do dev_publish(driver, out, simulation, info.tick)
+	if client != nil && driver.sampler != nil do verified_sampler_fill(driver.sampler, out, info)
 	triple_publish(&driver.frames)
 	fill_stats_add(&driver.fill, time.tick_since(started))
 	if sync.atomic_load(&want_state) {

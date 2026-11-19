@@ -19,6 +19,8 @@ View :: enum u8 {
 	Card, // a Control: data only, never posed
 	Scripted3D, // posed by its script (GLUE.view_policy)
 	Bench2D, // the view benchmark's player view: no data (typed2d's data leaves a field out on purpose)
+	Remote3D, // another player's on the verified timeline (GLUE.view_policy: remote = .Verified)
+	Rider3D, // a thing's that shows a player (a car's driver), the same policy
 }
 
 // The decoy views' subject: another table's handle, given each thing's key (fill_frame).
@@ -143,6 +145,18 @@ YAW_3D :: 0.75
 TUMBLE_3D :: 0.3 // a MultiMesh instance's rotation about +X after the yaw: a full rotation, not a yaw only
 BLINK_FROM :: 20 // the blink view (plain2d key 5) exists for ticks BLINK_FROM ..< BLINK_TO
 BLINK_TO :: 40
+// The remote3d walk (remote_walk): along x at REMOTE_SPEED a tick, REMOTE_JUMP further from the middle of each
+// REMOTE_PERIOD ticks, back to 0 at its start; each jump a warp. A player no session has (never local) shows it, the
+// local player too, and a thing (key REMOTE_THING) that shows the remote player for one period and the local one the
+// next.
+REMOTE_SPEED :: 0.01
+REMOTE_JUMP :: 2 // under the default teleport_dist: only the warp keeps playback from gliding across it
+REMOTE_PERIOD :: 128
+REMOTE_PLAYER :: sim.Player {
+	index = 3,
+	id    = 77,
+}
+REMOTE_THING :: 9
 
 GLUE := godot.Glue(toy.Game, View, MultiView) {
 	sample_input = sample_input,
@@ -155,6 +169,8 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 	view_data = #partial{.Typed2D = Typed2D_Data, .Card = Card_Data}, // every kind with data, as Glue.data's
 	view_policy = #partial {
 		.Scripted3D = {appear = .Verified, pose = .Script},
+		.Remote3D = {remote = .Verified},
+		.Rider3D = {remote = .Verified},
 		.Plain3D = {smoothing = {tau_s = 0.05}},
 	},
 	multi_policy = #partial{.Smooth3D = {smoothing = godot.SMOOTHING_DEFAULT}},
@@ -264,6 +280,7 @@ fill_frame :: proc(f: ^Frame) {
 		pos  = POS_3D / VIEW_SCALE,
 		rot  = q3,
 	})
+	remote_walk(f)
 	if f.tick >= BLINK_FROM && f.tick < BLINK_TO {
 		godot.push_view(f, sim.entity(5), {
 			kind = .Plain2D,
@@ -390,6 +407,22 @@ drawn_tick :: proc(t: ^toy.Tick) {
 	toy.tick(t)
 	sim.debug_line(t, sim.Position{0, 0, 0}, sim.Position{1, 1, 0}, .Green)
 	sim.debug_text(t, sim.Position{1, 1, 0}, "tick %d", t.number)
+}
+
+// The remote3d views: one walk, by the remote player, the local player, and a thing whose player alternates.
+remote_walk :: proc(f: ^Frame) {
+	phase := f.tick % REMOTE_PERIOD
+	x := REMOTE_SPEED * f32(phase) + (REMOTE_JUMP if phase >= REMOTE_PERIOD / 2 else 0)
+	item := godot.View_Item(View) {
+		kind = .Remote3D,
+		pos  = {x, 0, 0},
+		warp = u8(f.tick / (REMOTE_PERIOD / 2)), // a teleport at each jump
+	}
+	godot.push_view(f, REMOTE_PLAYER, item)
+	godot.push_view(f, f.local_players[0], item)
+	item.kind = .Rider3D
+	item.player = REMOTE_PLAYER if (f.tick / REMOTE_PERIOD) % 2 == 0 else f.local_players[0]
+	godot.push_view(f, sim.entity(REMOTE_THING), item)
 }
 
 // Rotation about +Y by `yaw` radians (Godot's up axis).

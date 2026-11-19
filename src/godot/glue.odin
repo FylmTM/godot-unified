@@ -214,6 +214,19 @@ View_Policy :: struct {
 	appear:    Appear,
 	pose:      Posed_By,
 	smoothing: Smoothing, // zero fields: their defaults (smoothing_of)
+	remote:    Remote, // a scene view of another player: from the prediction or the verified timeline
+}
+
+// How a scene view that shows a player who isn't local is posed (View_Policy.remote). The local players' views, the
+// views of things, and MultiMesh instances are always posed from the prediction.
+Remote :: enum u8 {
+	// From the prediction, like every view: at once, corrected when a rollback says otherwise. The default.
+	Predicted,
+	// From final ticks only, played back VERIFIED_DELAY_TICKS behind the newest verified tick (verified_players.odin):
+	// a few ticks late (about the round trip more), and never corrected, so another player never snaps back. For a
+	// game whose remote players' movements are hard to predict (a shooter's teammates). Costs a sample of each player
+	// view per verified tick.
+	Verified,
 }
 
 // When a view (or a keyed MultiMesh instance) of a kind first shows.

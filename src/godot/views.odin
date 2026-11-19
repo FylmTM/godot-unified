@@ -595,7 +595,7 @@ marker_update :: proc(scene_view: ^Scene_View) {
 // when the session node leaves the tree or the extension unloads; the next sync starts from nothing.
 views_clear :: proc() {
 	debug_draw_clear()
-	when DEVUI do verified_players_clear()
+	verified_players_clear()
 	for _, entry in V.set.entries do free_view(entry.view)
 	set_destroy(&V.set)
 	V.set = {}
@@ -739,7 +739,7 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 			free_view(scene_view)
 		}
 	}
-	when DEVUI do verified_players_sync(frame, fresh, dt)
+	verified_players_sync(frame, fresh, dt)
 	decays: [256]f32 = -1 // per kind: computed once a frame, when its first view needs it
 	for _, &entry in V.set.entries {
 		scene_view := entry.view
@@ -749,7 +749,7 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 		decay := &decays[scene_view.kind]
 		if decay^ < 0 do decay^ = track_decay(dt, smoothing)
 		pose := track_sample_decayed(&scene_view.track, frame.tick, alpha, decay^, dt, smoothing) // sim units
-		when DEVUI do if verified, ok := verified_players_pose(scene_view, frame); ok do pose = verified // a dev option, off by default
+		if verified, ok := verified_players_pose(scene_view, frame); ok do pose = verified // Remote.Verified: a snap, no glide
 		pose.pos = to_view_units(pose.pos)
 		// before every other node's _process (priority -1000): a view's script reads it. An unchanged pose (a crate at
 		// rest, a level marker) isn't set again: each set dirties the root's whole subtree. Unchanged within float noise: a

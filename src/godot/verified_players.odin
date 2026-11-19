@@ -1,16 +1,17 @@
-// Other players on the verified timeline: a dev option in dev UI builds, off unless switched on (the dev UI's
-// Conditions panel, `--verified-players`), to compare with the prediction. While on, every scene view that shows a player who
-// isn't local is posed from final ticks only, played back VERIFIED_DELAY_TICKS behind the newest verified tick,
-// instead of from the prediction: it never corrects, and it lags by about the round trip plus that delay. Everything
-// else (the local players, the things a remote player carries, events) stays on the prediction.
+// Other players on the verified timeline (View_Policy.remote = .Verified): a scene view of such a kind that shows a
+// player who isn't local is posed from final ticks only, played back VERIFIED_DELAY_TICKS behind the newest verified
+// tick, instead of from the prediction: it never corrects, and it lags by about the round trip plus that delay.
+// Everything else (the local players, the things a remote player carries, events) stays on the prediction. Dev UI
+// builds can force it on for every kind (the Conditions panel, `--verified-players`), to compare with the prediction.
+// The switch between the two is a snap: the view shows the other timeline's pose at once, with no glide.
 //
 // The session thread sends a sample of each player view per verified tick. A tick stepped as final is filled once more
 // (the sim stands on it when netcode's `verified` hook runs); a tick verified because its prediction was right takes
 // the pose the normal fill of that tick showed, kept in a ring by tick and dropped when a rollback re-simulates it. A
 // tick no fill showed has no sample: playback interpolates across it. The main thread keeps each view's samples and a
 // playback clock that runs at the tick rate, nudged toward its target by at most VERIFIED_RATE_MAX, never past the
-// newest verified tick, and reset when it strays VERIFIED_WINDOW_TICKS from the target. Off, it costs an atomic load
-// per published and per verified tick.
+// newest verified tick, and reset when it strays VERIFIED_WINDOW_TICKS from the target. Off (no kind asks for it, and
+// not forced), it costs an atomic load per published and per verified tick.
 package godot
 
 import "core:sync"
@@ -98,12 +99,13 @@ verified_clock_step :: proc(play: f64, started: bool, verified: u32, dt_s: f32, 
 
 // ---- the session thread
 
-// Whether other players are on the verified timeline (atomic: the main thread sets it every frame from the dev UI).
+// Whether the dev UI forces every kind's remote players onto the verified timeline (atomic: the main thread sets it
+// every frame).
 @(private)
 verified_players_on: bool
 
-// The session thread's side, one per live session (dev UI builds): the player views of recent predicted fills by tick,
-// and the samples for the main thread.
+// The session thread's side, one per live session (when some kind asks for it, and in dev UI builds): the player views
+// of recent predicted fills by tick, and the samples for the main thread.
 Verified_Sampler :: struct {
 	ring:   [VERIFIED_RING]Verified_Fill,
 	queue:  Queue(Verified_Sample, 4096), // full: dropped (the main thread takes them every frame)
@@ -121,7 +123,7 @@ Verified_Fill :: struct {
 	samples: [VERIFIED_PER_TICK]Verified_Sample,
 }
 
-// A new sampler (dev UI builds, at a session's start).
+// A new sampler (at a session's start).
 @(private)
 verified_sampler_new :: proc() -> ^Verified_Sampler {
 	sampler := new(Verified_Sampler)
@@ -139,10 +141,11 @@ verified_sampler_free :: proc(sampler: ^Verified_Sampler) {
 	free(sampler)
 }
 
-// Whether sampling is on. Switched off, the ring is dropped: the rollbacks while off were not seen.
+// Whether sampling is on: some kind asks for it, or the dev UI forces it. Switched off, the ring is dropped: the
+// rollbacks while off were not seen.
 @(private)
 verified_sampler_live :: proc(sampler: ^Verified_Sampler) -> bool {
-	on := sync.atomic_load(&verified_players_on)
+	on := api.remote_verified || sync.atomic_load(&verified_players_on)
 	if !on && sampler.was_on do for &fill in sampler.ring do fill.valid = false
 	sampler.was_on = on
 	return on
@@ -219,17 +222,18 @@ verified_send :: proc(sampler: ^Verified_Sampler, fill: ^Verified_Fill) {
 
 @(private)
 VP: struct {
-	wanted:    bool, // the dev UI's switch, this frame
+	forced:    bool, // the dev UI's switch, this frame
+	wanted:    bool, // forced, or some kind asks for it
 	sampler:   ^Verified_Sampler, // the session's whose samples the histories hold
 	histories: map[View_Id]Verified_History,
 	play:      f64, // the playback clock (a fractional tick)
 	started:   bool,
 }
 
-// Main thread, every frame: the dev UI's switch, for the views and the session thread.
+// Main thread, every frame (dev UI builds): the dev UI's switch, for the views and the session thread.
 @(private)
 verified_players_want :: proc(on: bool) {
-	VP.wanted = on
+	VP.forced = on
 	sync.atomic_store(&verified_players_on, on)
 }
 
@@ -237,6 +241,7 @@ verified_players_want :: proc(on: bool) {
 // playback clock.
 @(private)
 verified_players_sync :: proc(frame: ^Frame_Data, fresh: bool, dt_s: f32) {
+	VP.wanted = VP.forced || api.remote_verified
 	sampler := api.installed && api.sampler != nil ? api.sampler() : nil
 	if !VP.wanted || sampler != VP.sampler {
 		clear(&VP.histories)
@@ -266,11 +271,12 @@ verified_players_sync :: proc(frame: ^Frame_Data, fresh: bool, dt_s: f32) {
 	VP.started = true
 }
 
-// The pose a scene view shows on the verified timeline (sim units): while the option is on, for a view that shows a
-// player who isn't local and has samples.
+// The pose a scene view shows on the verified timeline (sim units): for a view of a Remote.Verified kind (any kind,
+// when the dev UI forces it) that shows a player who isn't local and has samples.
 @(private)
 verified_players_pose :: proc(scene_view: ^Scene_View, frame: ^Frame_Data) -> (pose: Pose, ok: bool) {
 	if !VP.wanted || !VP.started || scene_view.player == 0 do return
+	if !VP.forced && kind_of(scene_view.kind).remote != .Verified do return
 	for local in frame.local_players do if local == scene_view.player do return
 	id := View_Id{scene_view.kind, scene_view.key}
 	if id not_in VP.histories do return
