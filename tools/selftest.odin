@@ -123,7 +123,7 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		// the same game inside the clone (init --in-repo), against the clone itself
 		Step {
 			what  = "init a game inside the checkout",
-			cmd   = shim(clone, "init", cli.join("games", IN_REPO_GAME), "--in-repo"),
+			cmd   = shim(clone, "init", cli.join(cli.EXAMPLES, IN_REPO_GAME), "--in-repo"),
 			dir   = clone,
 			env   = env,
 			check = check_in_repo,
@@ -290,7 +290,7 @@ download_env :: proc(work, cache: string) -> []string {
 	return out[:]
 }
 
-// The game `init --in-repo` makes inside the clone, at games/<it>.
+// The game `init --in-repo` makes inside the clone, at examples/<it>.
 IN_REPO_GAME :: "selftest_game"
 
 // What `init --in-repo` changed in the clone (next to `game`'s repo): the game's directory, nothing else (its tests
@@ -303,7 +303,7 @@ check_in_repo :: proc(game, head: string) -> string {
 		quiet   = true,
 	})
 	changes := strings.split_lines(strings.trim_right(status.stdout, "\r\n"))
-	want := cli.aprintf("?? games/%s/", IN_REPO_GAME)
+	want := cli.aprintf("?? examples/%s/", IN_REPO_GAME)
 	if len(changes) != 1 || changes[0] != want {
 		return cli.aprintf("the clone's changes are not just the game:\n%s", status.stdout)
 	}

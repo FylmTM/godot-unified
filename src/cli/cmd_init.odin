@@ -6,13 +6,13 @@ import "core:strings"
 
 @(private)
 Init_Opts :: struct {
-	dir:     string `args:"pos=0,required" usage:"the new game repo (outside this unified checkout, or under its .out/ for a scratch game), or games/<name> with --in-repo; its name is the game's"`,
-	in_repo: bool `usage:"a game inside this unified checkout, at games/<name> (no submodule, shims or tools/)"`,
+	dir:     string `args:"pos=0,required" usage:"the new game repo (outside this unified checkout, or under its .out/ for a scratch game), or examples/<name> with --in-repo; its name is the game's"`,
+	in_repo: bool `usage:"a game inside this unified checkout, at examples/<name> (no submodule, shims or tools/)"`,
 	unified: string `hint:"<url>" usage:"where to clone unified from (default: this checkout's origin; a GitHub SSH URL becomes HTTPS)"`,
 	ref:     string `usage:"the unified commit (a full or short hash), tag or branch to pin (default: the source's default branch, main)"`,
 }
 
-// `init <dir>`: a new game, a copy of unified's games/minimal_3d named after the directory (minimal_3d replaced by
+// `init <dir>`: a new game, a copy of unified's examples/minimal_3d named after the directory (minimal_3d replaced by
 // the name in paths and text): its sim, headless binary, extension, Godot scenes and tests, its view index and its
 // GUIDE.md (writing gameplay that survives rollback).
 //
@@ -21,7 +21,7 @@ Init_Opts :: struct {
 // submodule at unified/. The game and the shims come from the submodule, so they always match the library they build
 // against.
 //
-// `--in-repo`: a game inside this unified checkout, at games/<name>: the game's files only (not template/repo/). Its
+// `--in-repo`: a game inside this unified checkout, at examples/<name>: the game's files only (not template/repo/). Its
 // tests join the optimised test compile through tests/games.gen.odin, which uni writes.
 @(private)
 cmd_init :: proc(args: []string) -> Result {
@@ -44,7 +44,7 @@ cmd_init :: proc(args: []string) -> Result {
 		}
 	}
 	init_undo(dir)
-	games := join(state.project.root, "games")
+	examples := join(state.project.root, EXAMPLES)
 	if opts.in_repo {
 		if !is_unified_repo() {
 			usage("--in-repo makes a game inside a unified checkout; this is a game repo")
@@ -52,8 +52,8 @@ cmd_init :: proc(args: []string) -> Result {
 		if opts.unified != "" || opts.ref != "" {
 			usage("--unified and --ref pin a game repo's submodule; an --in-repo game builds against this checkout")
 		}
-		if path_key(os.dir(dir)) != path_key(games) {
-			usage("--in-repo: a game goes in games/<name> of this checkout, not %s", dir)
+		if path_key(os.dir(dir)) != path_key(examples) {
+			usage("--in-repo: a game goes in examples/<name> of this checkout, not %s", dir)
 		}
 		return init_in_repo(dir, name)
 	}
@@ -62,7 +62,7 @@ cmd_init :: proc(args: []string) -> Result {
 	scratch := strings.has_prefix(path_key(dir), aprintf("%s/", path_key(state.project.out)))
 	if is_unified_repo() && inside && !scratch {
 		usage(
-			"%s is inside this unified checkout: a game repo goes outside it (or under .out/ for a scratch game); --in-repo makes a game at games/<name>",
+			"%s is inside this unified checkout: a game repo goes outside it (or under .out/ for a scratch game); --in-repo makes a game at examples/<name>",
 			dir,
 		)
 	}
@@ -136,7 +136,7 @@ init_game_repo :: proc(dir, name, typed_dir, source_arg, ref: string) -> Result 
 	}
 }
 
-// A game inside this checkout at `dir` (games/<name>), from this checkout's minimal_3d. Its tests join the one test
+// A game inside this checkout at `dir` (examples/<name>), from this checkout's minimal_3d. Its tests join the one test
 // compile by themselves (uni writes tests/games.gen.odin): no shared file changes.
 @(private)
 init_in_repo :: proc(dir, name: string) -> Result {
@@ -145,7 +145,7 @@ init_in_repo :: proc(dir, name: string) -> Result {
 	return {
 		ok      = true,
 		summary = aprintf(
-			"init: %s, a new game in games/%s (%d files, a copy of minimal_3d); next: %s test %s --suite all",
+			"init: %s, a new game in examples/%s (%d files, a copy of minimal_3d); next: %s test %s --suite all",
 			name,
 			name,
 			count,
@@ -156,7 +156,7 @@ init_in_repo :: proc(dir, name: string) -> Result {
 }
 
 // What a new game is a copy of, in unified's checkout: the smallest complete game.
-TEMPLATE_GAME :: "games/" + TEMPLATE_NAME
+TEMPLATE_GAME :: "examples/" + TEMPLATE_NAME
 TEMPLATE_NAME :: "minimal_3d"
 // Its files a copy leaves out: its README (template/README.md.tmpl, a draft skeleton of the new game's design, takes
 // its place) and the view index (written below). The `.uid` files are copied: the scenes name their scripts by UID, so
@@ -227,7 +227,7 @@ write_game :: proc(unified, dir, name: string, repo: bool) -> int {
 
 // A copied file's text for the new game (minimal_3d already renamed): its game.odin starts at `VERSION :: "1"`, without
 // minimal_3d's version history; its reference run is unpinned (TEMPLATE_REFERENCE); in a game repo the paths its code's comments name are the repo's: the game's own files
-// at the root (games/<name>/ goes) and unified's under unified/ (src/, games/). The Markdown is written for both.
+// at the root (examples/<name>/ goes) and unified's under unified/ (src/, examples/). The Markdown is written for both.
 @(private)
 template_text :: proc(rel_path, text, name: string, repo: bool) -> string {
 	out := text
@@ -247,9 +247,9 @@ template_text :: proc(rel_path, text, name: string, repo: bool) -> string {
 		out = strings.join(kept[:], "\n")
 	}
 	if repo && (strings.has_suffix(rel_path, ".odin") || strings.has_suffix(rel_path, ".gd")) {
-		out, _ = strings.replace_all(out, aprintf("games/%s/", name), "")
+		out, _ = strings.replace_all(out, aprintf("examples/%s/", name), "")
 		out = prefix_paths(out, "src/", "unified/src/")
-		out = prefix_paths(out, "games/", "unified/games/")
+		out = prefix_paths(out, "examples/", "unified/examples/")
 	}
 	return out
 }

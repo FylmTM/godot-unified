@@ -332,7 +332,7 @@ doc_first_sentence :: proc(doc: []string) -> string {
 }
 
 // A package name or a path, as the directory of its package: `sim` and `unified:sim` are the collection's, a game's
-// name its sim package (games/<game>/simulation/<game>), anything else a directory (`any_dir`; found false: none of
+// name its sim package (examples/<game>/simulation/<game>), anything else a directory (`any_dir`; found false: none of
 // them).
 @(private)
 doc_package_dir :: proc(name: string, any_dir: bool) -> (dir: string, found: bool) {

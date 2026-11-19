@@ -7,7 +7,7 @@ determinism (end-to-end suites and reference runs do, `src/headless/README.md`);
 creeping in.
 
 `tests/lint` holds unified's own import graph: every package of `src/` has a rule there (its kind and the unified
-packages it may import; a package without one fails), and every game under `games/` is linted with `check_game`.
+packages it may import; a package without one fails), and every game under `examples/` is linted with `check_game`.
 
 ## Rules
 

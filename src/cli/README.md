@@ -24,7 +24,7 @@ A project is this repo, or a game repo: a Godot project at its root with `unifie
 delete): the CLI binaries, odinfmt, the headless binaries per build mode, the unpacked unified-box3d release. Only
 this repo has `pins.cfg`; a game repo reads its submodule's.
 
-A game is a directory with `project.godot` and `simulation/`: the project root, else every `games/*/`. Commands take
+A game is a directory with `project.godot` and `simulation/`: the project root, else every `examples/*/`. Commands take
 the game by name, optional when there is one. In a game repo, `test`, `vet`, `fmt` and `verify` cover the game only,
 never the submodule, which `unified`'s own CI proves. Every Odin build gets two collections: `unified` (`src/`) and
 `box3d` (unified-box3d's bindings).
@@ -143,7 +143,7 @@ project's own rows, into `.out/bench.json`, reported and never gated by time (`u
 
 ## The template game
 
-`init` makes a game from `games/minimal_3d`, the smallest complete game, which CI builds, tests and runs on every
+`init` makes a game from `examples/minimal_3d`, the smallest complete game, which CI builds, tests and runs on every
 push: a new game passes its own `verify` at once. In a game repo it adds `unified` as a submodule pinned at a pushed
 commit, never a local one, so the repo clones anywhere, and writes the game and the shims from that submodule, never
 from this checkout, so they always match the library they build against (`cmd_init`).

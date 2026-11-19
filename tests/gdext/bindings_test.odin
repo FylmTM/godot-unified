@@ -18,7 +18,7 @@ godot_dirs :: proc() -> []string {
 	for dir in ([]string{"src/godot", "src/devui", GDEXT_DIR, "tests/godot/ext", "tests/godot_views/ext"}) {
 		append(&dirs, fmt.tprintf("%s/%s", ROOT, dir))
 	}
-	infos, _ := os.read_all_directory_by_path(ROOT + "/games", context.temp_allocator)
+	infos, _ := os.read_all_directory_by_path(ROOT + "/examples", context.temp_allocator)
 	for info in infos {
 		extension := fmt.tprintf("%s/simulation/extension", info.fullpath)
 		if info.type == .Directory && os.exists(extension) do append(&dirs, extension)

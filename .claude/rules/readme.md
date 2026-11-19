@@ -2,15 +2,15 @@
 paths:
   - "src/**/README.md"
   - "src/**/*.odin"
-  - "games/*/README.md"
-  - "games/*/simulation/**/*.odin"
+  - "examples/*/README.md"
+  - "examples/*/simulation/**/*.odin"
 ---
 
 # Package and game READMEs, doc comments
 
 The code is the spec. What a reader needs lives in two places, each fact once:
 
-- **The README** (`src/<pkg>/README.md`, `games/<game>/README.md`): what it is, why it exists, where it fits (what
+- **The README** (`src/<pkg>/README.md`, `examples/<game>/README.md`): what it is, why it exists, where it fits (what
   uses it, what it uses), how it works, and the decisions and contracts a reader could get wrong that no single
   declaration shows (a trust model, an ordering rule, what is deliberately left out, why the obvious design isn't
   used). A game's README also says what the game shows and plays, and its rules in order, naming each tuning constant

@@ -1,4 +1,4 @@
-// Determinism lint (AGENTS.md "Deterministic simulation") over unified's packages and its games, through
+// Determinism lint (AGENTS.md "Deterministic simulation") over unified's packages and its example games, through
 // unified:lint (src/lint/README.md), the way a game outside the repo lints its own. Every package of src/ has a
 // rule here (the import graph); each game's simulation/ is linted by its layout (lint.check_game).
 package test_lint
@@ -11,7 +11,7 @@ import "core:testing"
 import "unified:lint"
 
 SRC_DIR :: #directory + "/../../src"
-GAMES_DIR :: #directory + "/../../games"
+EXAMPLES_DIR :: #directory + "/../../examples"
 
 Rule :: lint.Rule
 TICK_IMPORTS :: lint.TICK_IMPORTS
@@ -108,7 +108,7 @@ library_follows_determinism_rules :: proc(t: ^testing.T) {
 @(test)
 games_follow_determinism_rules :: proc(t: ^testing.T) {
 	for game in game_dirs(t) {
-		lint.check_game(t, fmt.tprintf("%s/%s/simulation", GAMES_DIR, game))
+		lint.check_game(t, fmt.tprintf("%s/%s/simulation", EXAMPLES_DIR, game))
 	}
 }
 
@@ -119,7 +119,7 @@ only_physics_imports_box3d :: proc(t: ^testing.T) {
 	ALLOWED :: []string{"src/physics", "tests/physics"}
 	clean, _ := filepath.clean(SRC_DIR + "/..", context.temp_allocator)
 	root, _ := strings.replace_all(clean, "\\", "/", context.temp_allocator)
-	for top in ([]string{"src", "tests", "games"}) {
+	for top in ([]string{"src", "tests", "examples"}) {
 		files := make([dynamic]string, context.temp_allocator)
 		collect_odin(fmt.tprintf("%s/%s", root, top), &files)
 		file_loop: for path in files {
@@ -160,13 +160,13 @@ collect_odin :: proc(dir: string, out: ^[dynamic]string) {
 }
 
 game_dirs :: proc(t: ^testing.T) -> []string {
-	infos, err := os.read_all_directory_by_path(GAMES_DIR, context.temp_allocator)
-	testing.expectf(t, err == nil, "cannot list %s: %v", GAMES_DIR, err)
+	infos, err := os.read_all_directory_by_path(EXAMPLES_DIR, context.temp_allocator)
+	testing.expectf(t, err == nil, "cannot list %s: %v", EXAMPLES_DIR, err)
 	out := make([dynamic]string, context.temp_allocator)
 	for info in infos {
 		if info.type == .Directory && os.exists(fmt.tprintf("%s/simulation", info.fullpath)) do append(&out, info.name)
 	}
-	testing.expect(t, len(out) > 0, "no games under games/")
+	testing.expect(t, len(out) > 0, "no games under examples/")
 	return out[:]
 }
 
@@ -436,7 +436,7 @@ lint_sim_rule_extra_imports :: proc(t: ^testing.T) {
 game_exports_leave_out_the_tools :: proc(t: ^testing.T) {
 	for game in game_dirs(t) {
 		presets, err := os.read_entire_file(
-			fmt.tprintf("%s/%s/export_presets.cfg", GAMES_DIR, game),
+			fmt.tprintf("%s/%s/export_presets.cfg", EXAMPLES_DIR, game),
 			context.temp_allocator,
 		)
 		if err != nil do continue // no export

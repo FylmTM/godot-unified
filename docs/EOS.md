@@ -10,7 +10,7 @@ are checked single player and LAN only (`uni release --no-eos`). Online-capable 
 machine set up as below.
 
 1. **Product.** At <https://dev.epicgames.com/portal>, create a product (e.g. "unified survivor"). One product per
-   repo: the games in this repo share one (their lobbies are kept apart by game name and build); a game you ship
+   repo: the example games in this repo share one (their lobbies are kept apart by game name and build); a game you ship
    lives in its own repo (`uni init`) with its own `.env`, so its own product.
 2. **Client.** Product Settings → Clients:
    - add a **custom client policy** with only **Lobbies** enabled (all its actions). The client ID and secret ship
@@ -53,9 +53,9 @@ identity: run one at a time. Nothing is stored per player across sessions, so th
   Product User ID. A pass: both play to the end with 0 desyncs, direct and relayed. `uni coop survivor` does the
   same with the game (`--rejoin`: a clean leave and rejoin; `--crash`: the joiner kills itself and rejoins).
 - **Crossplay (macOS ↔ Windows over the internet)**, by hand on two machines: a Mac hosts with the game itself,
-  `godot --headless --path games/survivor -- --host-online --scripted --ticks 15360 --quit-at-end`; Windows joins with
-  the release headless binary, `.out/release/survivor.exe eos-client --code XXXXXX --ticks 15360` (the lobby's build
-  must be the binary's, else it says which version the host runs), or with the exported game from a release zip.
+  `godot --headless --path examples/survivor -- --host-online --scripted --ticks 15360 --quit-at-end`; Windows joins
+  with the release headless binary, `.out/release/survivor.exe eos-client --code XXXXXX --ticks 15360` (the lobby's
+  build must be the binary's, else it says which version the host runs), or with the exported game from a release zip.
   Joining after the host started is a late join with a snapshot. A run passes when every common verified checksum
   of the two sides' result lines matches. The headless `eos-host --wait-s N` hosts too where the binary owns the
   keychain entry (not on a Mac where Godot.app made the device ID). Each side labels the path (Direct, Relayed) from

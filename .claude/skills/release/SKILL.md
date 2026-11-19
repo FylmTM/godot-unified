@@ -45,7 +45,7 @@ pipeline on any branch and publishes nothing: windows-x64 only unless `-f macos=
 
 `uni release` stays local: it is how someone gets a playable build of a game (online-capable with EOS, which CI never
 has). It builds this host's package (macOS arm64 on a Mac, Windows x64 on Windows) into
-`games/<game>/.out/release/`.
+`examples/<game>/.out/release/`.
 
 ```
 ./uni release                               # every game with export_presets.cfg, in turn

@@ -3,7 +3,7 @@
 A purpose-built core for **cooperative games with deterministic rollback netcode**, written in **Odin**, with
 **Godot** as the host for rendering, audio, UI and the editor. Inspired by Photon Quantum's model (deterministic
 sim, input relay, prediction and rollback), built for speed, code-first workflows and AI-agent development. The
-games in `games/` prove it.
+example games in `examples/` prove it.
 
 ## Roles
 
@@ -74,11 +74,12 @@ piece of work. The `board-work` skill has the statuses, the procedure and when a
   host ones. The graph lives in `tests/lint/lint_test.odin` (an import allowlist per package): a new package in
   `src/` needs a rule there (the lint test fails otherwise). A game's `simulation/` is linted by its layout
   (`lint.check_game`: `headless/`, `extension/`, `tests/`, every other directory a sim package).
-- A game is a Godot project in `games/<game>/`; its Odin code is in `simulation/`: the sim package (linted like the
-  core), its headless binary, its GDExtension and its sim tests.
+- This repo's games are examples of building on `unified`, in `examples/<game>/` (a real game lives in its own repo,
+  made with `uni init <dir>`). A game is a Godot project; its Odin code is in `simulation/`: the sim package (linted
+  like the core), its headless binary, its GDExtension and its sim tests.
 - Library tests are black-box packages in `tests/<module>/`, importing `unified:<pkg>` like a game does. A game's
   sim tests, end-to-end suite and reference run live with the game, in `simulation/tests/`. `uni test` runs them all, from two compiles at once (`tests/tooling` unoptimised).
-- The code is the spec. Each package (`src/<pkg>/`) and game (`games/<game>/`) has a `README.md`: what it is, why,
+- The code is the spec. Each package (`src/<pkg>/`) and game (`examples/<game>/`) has a `README.md`: what it is, why,
   where it fits, how it works, and the decisions a reader could get wrong that no single declaration shows. The API
   is the code: each file's header comment and a doc comment on every public proc and type (the lint fails on one
   without), printed by `uni doc <pkg>`. A fact about one declaration lives on it. No API listings, history,

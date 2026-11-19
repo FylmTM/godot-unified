@@ -1,6 +1,6 @@
 // `uni drive`: an agent drives a running game through its control socket (src/godot/README.md, The control socket).
 // `start` launches the game with `--control` as a named instance, every other verb is one request to it, and `stop`
-// quits it and judges its log. An instance's record is games/<game>/.out/drive/<name>.json.
+// quits it and judges its log. An instance's record is examples/<game>/.out/drive/<name>.json.
 package cli
 
 import "core:encoding/json"
