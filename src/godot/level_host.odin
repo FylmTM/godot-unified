@@ -32,6 +32,10 @@ Level_Host :: struct {
 	scene_id: u64,
 	markers:  gd.Array, // the shown scene's markers (level_markers), once asked for
 	marked:   bool,
+	// Loads requested and then dropped before they were taken (a new session, another target, the level_root gone):
+	// each is still taken once it ends (level_host_collect). Godot keeps a load nobody took until exit, and reports
+	// it as a leaked ObjectDB instance.
+	dropped:  [dynamic]string,
 }
 
 // The active level of a state block (`base`: its first byte), by the State's `level` field (install found it).
@@ -44,7 +48,32 @@ level_stamp :: proc(base: rawptr) -> Level_Stamp {
 // A new session: nothing is shown of it yet (the old scene stays until the new one's first level is in).
 level_host_reset :: proc(host: ^Level_Host) {
 	host.shown, host.target = NO_LEVEL, NO_LEVEL
+	level_load_drop(host)
+}
+
+// Drops the load in flight, if any: it is taken later (level_host_collect), never left to Godot.
+level_load_drop :: proc(host: ^Level_Host) {
+	if host.loading != "" do append(&host.dropped, host.loading)
 	host.loading = ""
+}
+
+// Takes the dropped loads that ended (every one with `wait`: Godot waits for those still loading) and frees what they
+// loaded. Every process step, and with `wait` when the session node goes.
+level_host_collect :: proc(host: ^Level_Host, wait: bool) {
+	if len(host.dropped) == 0 do return
+	loader := gd.ResourceLoader_singleton()
+	progress := gd.array_new()
+	defer gd.Array_destroy(&progress)
+	for i := len(host.dropped) - 1; i >= 0; i -= 1 {
+		path := host.dropped[i]
+		status := gd.ResourceLoader_load_threaded_get_status(loader, path, progress)
+		if status == .THREAD_LOAD_IN_PROGRESS && !wait do continue
+		if status != .THREAD_LOAD_INVALID_RESOURCE { 	// (invalid: nobody's request any more, taken by a later one)
+			loaded := gd.ResourceLoader_load_threaded_get(loader, path)
+			if loaded.ptr != nil do gd.unref(&loaded)
+		}
+		ordered_remove(&host.dropped, i)
+	}
 }
 
 // Follows the frame's verified level: a new one starts its scene's load (level_changing), a loaded one is swapped in
@@ -63,12 +92,16 @@ level_host_process :: proc(session: ^Session_Node, frame: ^Frame_Data) -> (hold:
 	}
 	if target != host.target {
 		host.target = target
-		host.loading = ""
+		level_load_drop(host)
 		if target != host.shown {
 			gd.emit_signal(session.obj, gd.sn("level_changing"), i64(target.id))
 			if path := level_scene_path(target.id); level_root_of(session).ptr != nil && path != "" {
 				loader := gd.ResourceLoader_singleton()
-				if gd.ResourceLoader_load_threaded_request(loader, path, "PackedScene") == .OK do host.loading = path
+				if gd.ResourceLoader_load_threaded_request(loader, path, "PackedScene") == .OK {
+					host.loading = path
+					// a dropped load of the same scene is this request's now (Godot keeps one per path)
+					for i := len(host.dropped) - 1; i >= 0; i -= 1 do if host.dropped[i] == path do ordered_remove(&host.dropped, i)
+				}
 			}
 		}
 	}
@@ -90,12 +123,14 @@ level_host_advance :: proc(session: ^Session_Node) {
 		if status == .THREAD_LOAD_IN_PROGRESS do return
 		if status == .THREAD_LOAD_LOADED {
 			packed = transmute(gd.Ref(gd.PackedScene))gd.ResourceLoader_load_threaded_get(loader, host.loading)
+			host.loading = ""
 		} else {
 			gd.print_error(
 				fmt.tprintf("unified: the scene of level %d (%s) did not load", host.target.id, host.loading),
 			)
 		}
 	}
+	level_load_drop(host) // not taken: without a level_root (it went while the scene loaded), or a failed load
 	// Every scene view goes with the old level (a marker index names another marker in the new one).
 	views_root_changed()
 	level_scene_free(host)
@@ -107,7 +142,6 @@ level_host_advance :: proc(session: ^Session_Node) {
 			host.scene_id = gdi.object_get_instance_id(host.scene.ptr)
 		}
 	}
-	host.loading = ""
 	host.shown = host.target
 	gd.emit_signal(session.obj, gd.sn("level_changed"), i64(host.shown.id))
 }
