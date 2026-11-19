@@ -191,11 +191,7 @@ Client :: struct($G: typeid) {
 	own:            [OWN_RING]usim.part(G, usim.GAME_INPUT),
 	own_last:       u32,
 	own_acked:      u32,
-	own_sent:       u32, // the newest own input a packet carried
-	// A burst of own inputs (send_inputs): burst_first..burst_last ride in messages of their own, burst_sends more times
-	burst_first:    u32,
-	burst_last:     u32,
-	burst_sends:    u32,
+	own_sends:      [OWN_RING]u8, // how many Inputs messages carried each own input (send_inputs)
 	// own commands: sent (until acked) and predicted until a verified tick carries them
 	own_cmds:       [dynamic]Own_Command, // seq order
 	cmd_seq:        u32, // the last seq given
@@ -292,17 +288,21 @@ client_destroy :: proc(client: ^Client($G)) {
 }
 
 // Leaves the session: the relay frees the player at once. Keep stepping until client_finished (at most 2 s, so the
-// Leave gets through).
+// Leave gets through). A client stopped before its first step never told the relay anything: it sends nothing and is
+// finished at once. From the stop on the client finishes Disconnected, "left", whatever ends it (a refusal on its way
+// included).
 client_stop :: proc(client: ^Client($G), now: i64) {
 	if client_finished(client) || client.end_us != 0 {
 		return
 	}
-	if client.hello_sent {
-		csend(client, msg_begin(&client.w, .Leave), .Reliable, now)
-	}
-	client.end_us = now
 	client.leaving = true
 	client.detail = "left"
+	if !client.hello_sent {
+		set_status(client, .Disconnected, "left")
+		return
+	}
+	csend(client, msg_begin(&client.w, .Leave), .Reliable, now)
+	client.end_us = now
 }
 
 // Whether the client is done: it left, the session ended, the connection was lost, or it failed. The loop stepping
@@ -339,6 +339,11 @@ client_stats :: proc(client: ^Client($G)) -> Client_Stats {
 
 @(private)
 set_status :: proc(client: ^Client($G), status: Status, detail: string) {
+	status, detail := status, detail
+	if client.leaving && (status == .Failed || status == .Disconnected) {
+		// The player left first: no error for a join they cancelled (a Reject, another build, a lost connection).
+		status, detail = .Disconnected, "left"
+	}
 	if client.status == status {
 		return
 	}
@@ -566,6 +571,8 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 			detail = "the snapshot differed from the other players' and nobody else could send one"
 		case .Too_Far_Behind:
 			detail = "fell too far behind the session"
+		case .Newer_Connection:
+			detail = "this player is in the session on a newer connection"
 		}
 		set_status(client, why == .Too_Far_Behind ? .Disconnected : .Failed, detail)
 	case .Finalized:
@@ -654,7 +661,7 @@ load_snapshot :: proc(client: ^Client($G), now: i64) {
 	client.verified = client.sim.tick
 	client.predicted = client.verified
 	client.own_last = max(client.own_last, client.verified)
-	client.own_sent = max(client.own_sent, client.verified) // finalized: no burst to send
+	client.own_acked = max(client.own_acked, client.verified) // finalized: nothing of them to send
 	client.checking = true
 	tick := client.sim.tick
 	value := usim.checksum(client.sim)
@@ -983,6 +990,7 @@ generate_inputs :: proc(client: ^Client($G)) {
 			client.own[tick % OWN_RING] = {}
 		}
 		client.own_last = tick
+		client.own_sends[tick % OWN_RING] = 0
 		if client.hooks.commands != nil {
 			out := &client.cmd_out
 			out.slot = client.slot
@@ -1011,30 +1019,30 @@ send_inputs :: proc(client: ^Client($G), now: i64) {
 	first := max(client.own_acked + 1, client.first_tick)
 	if client.own_last >= first + window {
 		newest := client.own_last + 1 - window
-		// A step that generated more inputs than the window (the clock's first step samples the input delay's ticks
-		// at once; a jump of the delay or the clock): the oldest of them would ride in no packet, the rest in fewer
-		// than the window. The burst rides in messages of its own beside this one, in this send and the next ones,
-		// as many as the window: unacked inputs that can still be in time, the main message carrying the rest.
-		unsent := max(first, client.own_sent + 1)
+		// Unacked inputs the main message has moved past that rode in fewer packets than the window: a step that
+		// generated several at once (the clock's first step samples the input delay's ticks; a jump of the delay or
+		// the clock; a client stepped late) left the older of them fewer packets, none past the window. They ride in
+		// messages of their own beside this one until each has had the window's packets: those that can still be in
+		// time (max_delay + tolerance back), so a starved client with no acks coming sends a bounded few per step.
+		from := first
 		if reach := client.tm.max_delay + client.tm.tolerance; newest > reach {
-			unsent = max(unsent, newest - reach)
+			from = max(from, newest - reach)
 		}
-		if unsent < newest {
-			client.burst_first = client.burst_sends > 0 ? min(client.burst_first, unsent) : unsent
-			client.burst_last = client.own_last - 1
-			client.burst_sends = window
+		for from < newest {
+			if client.own_sends[from % OWN_RING] >= u8(window) {
+				from += 1
+				continue
+			}
+			last := from
+			for last + 1 < newest && last + 1 < from + window && client.own_sends[(last + 1) % OWN_RING] < u8(window) {
+				last += 1
+			}
+			inputs_message(client, from, last, false, now)
+			from = last + 1
 		}
 		first = newest
 	}
-	if client.burst_sends > 0 {
-		client.burst_sends -= 1
-		last := min(client.burst_last, first - 1)
-		for from := max(client.burst_first, client.own_acked + 1); from <= last; from += window {
-			inputs_message(client, from, min(from + window - 1, last), false, now)
-		}
-	}
 	inputs_message(client, first, client.own_last, true, now)
-	client.own_sent = max(client.own_sent, client.own_last)
 	client.last_send_us = now
 }
 
@@ -1052,6 +1060,7 @@ inputs_message :: proc(client: ^Client($G), first, last: u32, commands: bool, no
 	for tick in first ..< first + count {
 		window_write_input(writer, &client.own[tick % OWN_RING], &base)
 		base = client.own[tick % OWN_RING]
+		client.own_sends[tick % OWN_RING] = min(client.own_sends[tick % OWN_RING] + 1, INPUTS_MAX)
 	}
 	// Commands the relay hasn't acked, in seq order, as many as fit.
 	k := 0
@@ -1211,6 +1220,7 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 		wire.w_bytes(writer, client.cfg.token[:])
 		name := text_of(NAME_MAX, client.cfg.player_name)
 		w_text(writer, &name)
+		w_i64(writer, now)
 		csend(client, writer, .Reliable, now)
 		client.hello_sent = true
 		set_status(client, .Connecting, "")

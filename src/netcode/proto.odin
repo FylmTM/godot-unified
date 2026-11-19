@@ -9,7 +9,7 @@ import "unified:wire"
 
 // Bump on any wire change: a datagram, a message, the snapshots a late joiner gets (the sim-change skill). Every
 // datagram starts with it (channel.odin), so peers on two versions never parse each other's messages.
-PROTOCOL_VERSION :: 16
+PROTOCOL_VERSION :: 17
 #assert(PROTOCOL_VERSION < 0x80) // the datagram's first byte: 0x80 | PROTOCOL_VERSION
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 PLATFORM_MAX :: 15 // bytes of an account's platform name ("eos")
@@ -129,7 +129,8 @@ want_delay :: proc(rtt_us: f64, timing: Timing, min_delay: u32 = 1) -> u32 {
 // A relay <-> client message's type byte. Each value says its direction (c->r, r->c), its delivery (R reliable, U
 // unreliable) and its fields, in order.
 Msg :: enum u8 {
-	// c->r R: slot u8 (ANY_SLOT: any), join tick u32 (0: at start), compat u64, token [16]u8, name len u8 + bytes
+	// c->r R: slot u8 (ANY_SLOT: any), join tick u32 (0: at start), compat u64, token [16]u8, name len u8 + bytes,
+	// sent at i64 (the client's clock when this Hello first went out: the relay orders one person's tries by it)
 	Hello = 1,
 	// r->c R: slot u8, member u16, seed u64, tick_hz u16, ticks u32 (0: endless), first tick u32, flags u8
 	// (Welcome_Flags)
@@ -173,6 +174,9 @@ Reject_Reason :: enum u8 {
 	No_Snapshot, // a joiner: no other player can send a snapshot (or the one who could left)
 	Bad_Snapshot, // a joiner: its snapshot differs from the other players' checksum, and nobody else can send one
 	Too_Far_Behind, // the client fell further behind than the relay keeps ticks (RELAY_RING)
+	// the same person (account or token) is seated on a connection whose Hello went out later, and it is live: this
+	// one is an earlier try whose Hello came late (src/netcode/README.md, Members: newest wins)
+	Newer_Connection,
 }
 
 // Short text as fixed bytes (plain data, no allocation): a player's name, an account's platform and id.

@@ -359,6 +359,7 @@ only_the_asked_provider_sends_snapshots :: proc(t: ^testing.T) {
 	wire.w_u64(&writer, sim.compat_of(&toy.GAME))
 	wire.w_bytes(&writer, make([]u8, netcode.TOKEN_SIZE, context.temp_allocator))
 	wire.w_u8(&writer, 0)
+	wire.w_u64(&writer, u64(session.clock.now)) // sent at
 	netcode.channel_send(evil, evil_peer, writer.buf[:], .Reliable, session.clock.now)
 	for _ in 0 ..< 20 {
 		netcode.channel_flush(evil, session.clock.now)
@@ -461,6 +462,7 @@ evil_seat :: proc(evil: ^Evil, session: ^Net, endpoint: int, slot: u8, token: ne
 	wire.w_u64(writer, sim.compat_of(&toy.GAME))
 	wire.w_bytes(writer, token[:])
 	wire.w_u8(writer, 0)
+	wire.w_u64(writer, u64(session.clock.now)) // sent at
 	evil_send(evil, session)
 }
 
@@ -853,6 +855,7 @@ a_leave_and_a_hello_in_one_datagram_seat_nobody :: proc(t: ^testing.T) {
 	token: netcode.Token
 	wire.w_bytes(writer, token[:])
 	wire.w_u8(writer, 0)
+	wire.w_u64(writer, u64(session.clock.now)) // sent at
 	evil_send(&evil, &session)
 	netcode.channel_flush(evil.channel, session.clock.now) // one datagram: Leave, then Hello; then silence for good
 	net_run(&session, 0.5)

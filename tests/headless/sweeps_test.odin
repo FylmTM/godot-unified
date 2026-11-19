@@ -257,6 +257,97 @@ sweep_round_trips :: proc(t: ^testing.T) {
 	}
 }
 
+// A joiner on `network` leaves `leave_ms` after its Hello (0: before its first step; inside its first round trip;
+// during its snapshot), and with `retry` the same player tries again at once (same token, a new connection, the same
+// frame): the widest accepted Input, every byte changing, at 32, 64 and 128 Hz. No seat is held with nobody behind
+// it, the first finishes "left", the retry is in as the same member, nobody desyncs.
+sweep_leaves :: proc(t: ^testing.T, $G: typeid, name: string) {
+	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
+	starters := PLAYERS > 2 ? 2 : 1
+	for tick_hz in ([]int{32, 64, 128}) {
+		for network in ([]netcode.Network{.Ideal, .Wan, .Bad}) {
+			for leave_ms in ([]int{0, 15, 140, 400}) {
+				for retry in ([]bool{false, true}) {
+					what := fmt.tprintf(
+						"%s at %d Hz on %v, leave %d ms after the Hello, retry %v",
+						name,
+						tick_hz,
+						network,
+						leave_ms,
+						retry,
+					)
+					net := new(Sweep_Net(G))
+					defer free(net)
+					sweep_make(net, 0, tick_hz, starters)
+					defer sweep_destroy(net)
+					for slot in 0 ..< starters do sweep_join(net, slot, .Wan)
+					sweep_run(net, 1.5)
+					token := netcode.Token {
+						0 = u8(tick_hz),
+						1 = u8(leave_ms),
+						2 = 7,
+					}
+					token_join :: proc(
+						net: ^Sweep_Net($G),
+						network: netcode.Network,
+						token: netcode.Token,
+					) -> ^netcode.Client(G) {
+						endpoint := len(net.clients) + 1
+						link := netcode.netsim_wrap(
+							netcode.loopback_link(net.hub, netcode.Peer(endpoint)),
+							netcode.PROFILES[network],
+							u32(endpoint) * 7919 + 13,
+							&net.clock,
+						)
+						client := netcode.client_create(
+							&net.game,
+							{slot = -1, token = token},
+							link,
+							headless.scripted_hooks(&net.scripted),
+						)
+						append(&net.clients, client)
+						return client
+					}
+					first := token_join(net, network, token)
+					if leave_ms > 0 do sweep_run(net, f64(leave_ms) / 1000)
+					netcode.client_stop(first, net.clock.now)
+					again: ^netcode.Client(G)
+					if retry do again = token_join(net, network, token)
+					sweep_run(net, 9)
+					connected := 0
+					for seat in net.relay.seats do connected += int(seat.connected)
+					want := starters + (retry ? 1 : 0)
+					testing.expectf(t, connected == want, "%s: %d seats connected, want %d", what, connected, want)
+					testing.expectf(
+						t,
+						netcode.client_finished(first) && first.detail == "left",
+						"%s: the first is %v (%s)",
+						what,
+						first.status,
+						first.detail,
+					)
+					if retry {
+						testing.expectf(
+							t,
+							again.status == .Connected &&
+							net.relay.finalized - again.verified < u32(tick_hz) &&
+							int(again.member) == starters + 1,
+							"%s: the retry is %v (%s), member %d, verified %d of %d",
+							what,
+							again.status,
+							again.detail,
+							again.member,
+							again.verified,
+							net.relay.finalized,
+						)
+					}
+					testing.expectf(t, net.relay.desyncs == 0, "%s: %d desyncs", what, net.relay.desyncs)
+				}
+			}
+		}
+	}
+}
+
 // The inputs the relay replaced after the first `from` ticks.
 replaced_from :: proc(result: ^headless.Session_Result($G), from: int) -> (count: int) {
 	for &tick, k in result.log.ticks {
@@ -290,4 +381,8 @@ when scenarios.LONG {
 	sweep_widths_32_at_128_hz :: proc(t: ^testing.T) {sweep_widths(t, Plain_32x4, "32 x 4 B", {128})}
 	@(test)
 	sweep_input_round_trips :: proc(t: ^testing.T) {sweep_round_trips(t)}
+	@(test)
+	sweep_leaves_2x116 :: proc(t: ^testing.T) {sweep_leaves(t, Plain_2x116, "2 x 116 B")}
+	@(test)
+	sweep_leaves_8x26 :: proc(t: ^testing.T) {sweep_leaves(t, Plain_8x26, "8 x 26 B")}
 }

@@ -50,6 +50,9 @@ IMAGE_WAIT_MS :: 3000 // how long a typed desync report waits for its two snapsh
 // out without the detail, so no client can hold the desync reports back by sending slowly.
 IMAGE_GIVE_UP_MS :: 30_000
 SNAP_STALL_US :: 5_000_000 // a joiner's snapshot provider that sends nothing this long is replaced by another
+// A seated connection heard from within this long (4 keepalives) is live: an earlier try's Hello of the same person
+// doesn't replace it (on_hello).
+SEATED_LIVE_US :: 4 * KEEPALIVE_US
 IMAGE_MAX :: 256 << 20 // the largest snapshot the relay takes for a desync report
 NO_REPORTS :: max(u32) // Seat.report_from of a slot that sends no checksums yet
 
@@ -98,6 +101,7 @@ Pending_Image :: struct {
 // previous occupant survives into the next.
 Seat :: struct($Input: typeid) {
 	peer:        Peer, // -1: nobody
+	hello_us:    i64, // its Hello's sent time (the client's clock): newest wins by it (on_hello)
 	member:      u16, // the member seated here (NO_MEMBER: none)
 	connected:   bool,
 	welcomed:    bool,
@@ -339,6 +343,7 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 	token: Token
 	copy(token[:], wire.r_bytes(reader, TOKEN_SIZE))
 	name := r_text(reader, NAME_MAX)
+	hello_us := r_i64(reader)
 	if !reader.ok || relay.slot_of[peer] >= 0 {
 		return
 	}
@@ -361,10 +366,19 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 	}
 	known := find_member(relay, key)
 	// Newest wins: a person still seated who connects again (a restarted game) replaces their old connection, once
-	// the new one is accepted (its seat counts as free until then).
+	// the new one is accepted (its seat counts as free until then). Newest by when each try's Hello went out, not by
+	// which arrives last: an earlier try's Hello that comes late (lost once and resent, or on a slower path; its
+	// player cancelled it and tried again) is refused while the seated connection is live. A silent one is
+	// replaced whatever the order (a crashed game; another machine, whose clock says nothing about this one's).
 	replaced := -1
 	if known >= 0 && relay.members[known].entry.connected {
 		replaced = int(relay.members[known].entry.slot)
+		seated := &relay.seats[replaced]
+		if hello_us < seated.hello_us && channel_silence_us(relay.ch, seated.peer, now) < SEATED_LIVE_US {
+			reject(relay, peer, .Newer_Connection, now)
+			log.infof("member %d: an earlier try's Hello after the seated one's, refused", known + 1)
+			return
+		}
 	}
 	if known < 0 && len(relay.members) >= int(max(u16)) {
 		reject(relay, peer, .Full, now) // 65,535 people in one session
@@ -430,6 +444,7 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 	seat_reset(seat) // a new occupant: nothing of the previous one's (inputs, commands, snapshot) carries over
 	seat.member = entry.member
 	seat.peer = peer
+	seat.hello_us = hello_us
 	seat.connected = true
 	relay.slot_of[peer] = slot
 	send_roster_entry(relay, known, now)
@@ -1086,9 +1101,9 @@ seat_left :: proc(relay: ^Relay($G), slot: int, why: string, now: i64) {
 
 @(private)
 handle_relay_msg :: proc(relay: ^Relay($G), peer: Peer, data: []u8, now: i64) {
-	// A message of a connection that ended earlier in this poll (a Leave before it in one datagram, a new epoch's
-	// Hello after the old one's Leave): nothing behind it to seat or answer. A Hello dropped here is reliable and
-	// comes again on the peer's new connection.
+	// A message of a connection that ended earlier in this poll (after its Leave in one datagram): nothing behind it to
+	// seat or answer. (A peer that started over in this poll: the channel delivers none of its old connection's
+	// messages, so they never reach the new connection on this peer number.)
 	if !channel_connected(relay.ch, peer) {
 		return
 	}
@@ -1100,6 +1115,9 @@ handle_relay_msg :: proc(relay: ^Relay($G), peer: Peer, data: []u8, now: i64) {
 	}
 	slot := relay.slot_of[peer]
 	if slot < 0 {
+		if kind == .Leave {
+			channel_drop(relay.ch, peer, now) // refused earlier: its connection is free at once, not in DISCONNECT_US
+		}
 		return
 	}
 	#partial switch kind {
