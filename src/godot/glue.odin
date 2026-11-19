@@ -59,7 +59,8 @@ is_local :: proc(f: ^Frame($G, $View, $MultiView), player: sim.Player) -> bool {
 	return local_index(f, player) >= 0
 }
 
-// Which of this client's local players `player` is (-1: none): the view a split screen or a HUD row is for.
+// Which of this client's local players `player` is (-1: none).
+@(private)
 local_index :: proc(f: ^Frame($G, $View, $MultiView), player: sim.Player) -> int {
 	if player.id == 0 do return -1
 	for local, index in f.local_players do if local == player do return index
@@ -73,7 +74,7 @@ Frame :: struct($G, $View, $MultiView: typeid) {
 	world:         ^sim.part(G, sim.GAME_WORLD), // at the frame's tick
 	tick:          u32,
 	// Who this client's local players are at this tick, by local index ({}: nobody, e.g. before a join tick): one
-	// player's game reads [0]; is_local and local_index ask about a player.
+	// player's game reads [0]; is_local asks about a player.
 	local_players: [LOCAL_MAX]sim.Player,
 	seed:          u64, // the session's seed: a keyed roll the sim will make, computed early (sim.roll_below_at)
 	time:          sim.Game_Time, // at this tick (sim.game_time): what a view reads timers and stamps with
@@ -166,7 +167,8 @@ Frame_Data :: struct {
 // What a game provides, typed by its game (a sim.Game) and its view kinds (enums); install checks it. Its procs are
 // named procs, never inline lambdas.
 Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specialization_of(G, sim.Game) {
-	// Main thread, every frame: the local player's Input from Godot's input (the action helpers, input.odin).
+	// Main thread, every frame, for each local player (`local`: its index): its Input from Godot's input (the action
+	// helpers read its device, input.odin; its input values: input_values).
 	sample_input: proc(local: int, input: ^sim.part(G, sim.GAME_INPUT)),
 	// Session thread, every published tick: the views of the tick's state (push_view, push_multi_view) and the
 	// session data (push_data).
@@ -190,18 +192,13 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	// the defaults). `pose = .Script` is a scene view's only.
 	multi_policy: [MultiView]View_Policy,
 
-	// Main thread, optional: where an event (the game's union) goes. `.View`: the scene view of that kind and key;
-	// `.No_View`: none; `.Subject` (the zero value: a bare `return`): the routing by its subject (its first handle or
-	// sim.Entity field: the views pushed with that subject; else, or when none is, its first sim.Player field: that
-	// player's views). So a game handles only its special events.
-	event_key:    proc(
-		event: sim.part(G, sim.GAME_EVENT),
-		subject: Subject,
-	) -> (
-		kind: View,
-		key: u64,
-		route: Event_Route,
-	),
+	// Main thread, optional: where an event (the game's union) goes, named the way push_view names a view, by kind
+	// and subject: `godot.to_view(View.Player, subject.player)`, `to_view(View.Gate, subject.entity)`,
+	// `to_view(View.Station)` (the one view of its kind); `{route = .No_View}`: none; the zero value (a bare
+	// `return`): the routing by its subject (its first handle or sim.Entity field: the views pushed with that subject;
+	// else, or when none is, its first sim.Player field: that player's views). So a game handles only its special
+	// events.
+	event_key:    proc(event: sim.part(G, sim.GAME_EVENT), subject: Subject) -> Event_Target(View),
 }
 
 // How the host shows one view kind (Glue.view_policy, multi_policy); the zero value is the default.
@@ -253,7 +250,45 @@ Color :: distinct [4]f32
 // A rotation (a unit quaternion: x, y, z, w) in sim-facing data: a Quaternion in GDScript.
 Quat :: distinct [4]f32
 
-// Where Glue.event_key sends an event.
+// Where Glue.event_key sends an event: to_view's scene view, `{route = .No_View}`, or the zero value (by its subject).
+Event_Target :: struct($View: typeid) {
+	kind:  View,
+	key:   u64, // the view's key, as push_view keys it (to_view)
+	route: Event_Route,
+}
+
+// The scene view of `kind` that push_view made with this subject (none: the one view of its kind), as an
+// Event_Target: Glue.event_key's answer.
+to_view :: proc {
+	to_view_alone,
+	to_view_of_player,
+	to_view_of_entity,
+	to_view_of_handle,
+}
+
+// to_view of the one view of its kind (push_view_alone's, key 0).
+to_view_alone :: proc(kind: $View) -> Event_Target(View) {
+	return {kind, 0, .View}
+}
+
+// to_view of a player's view.
+to_view_of_player :: proc(kind: $View, player: sim.Player) -> Event_Target(View) {
+	return {kind, sim.player_key(player), .View}
+}
+
+// to_view of a fixed thing's view (keyed by its index, as push_view keys it).
+to_view_of_entity :: proc(kind: $View, entity: sim.Entity) -> Event_Target(View) {
+	index, ok := sim.entity_index(entity)
+	if !ok do return {}
+	return {kind, u64(index), .View}
+}
+
+// to_view of a table item's view.
+to_view_of_handle :: proc(kind: $View, handle: sim.Handle($T)) -> Event_Target(View) {
+	return {kind, sim.handle_key(handle), .View}
+}
+
+// Where Glue.event_key sends an event (Event_Target.route).
 Event_Route :: enum u8 {
 	Subject, // the routing by its subject (the default)
 	View, // the scene view of the kind and key returned
@@ -330,9 +365,11 @@ Message :: struct {
 		Result,
 		Desync, // the relay found the players' checksums of `tick` differ; text: who and what
 		Mode, // a single-player session opened to friends (or failed to: text says why): UnifiedSession.mode
+		Local_Refused, // the relay refused local player `local`'s Join (text: why): local_player_refused
 	},
 	status: Status_Kind,
 	mode:   Mode,
+	local:  u8,
 	tick:   u32,
 	text:   [128]u8,
 	len:    u8,

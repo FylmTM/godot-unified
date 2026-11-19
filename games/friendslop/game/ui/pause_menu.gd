@@ -66,7 +66,7 @@ func _click(action: Callable) -> void:
 ## The whole team goes back to the hub (a travel command: the sim decides, every peer follows).
 func _back_to_hub() -> void:
 	var travel := CommandTravel.new()
-	travel.to = EnumLevelId.HUB
+	travel.to = EnumLevel.HUB
 	Unified.session.send_command(travel)
 	close()
 

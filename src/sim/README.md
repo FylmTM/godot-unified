@@ -267,7 +267,7 @@ beside its events, so a re-simulated tick draws again and replaces what it drew,
 draws. **Zones** (`sim.zone(t, Zone.Steer)`, scoped) time the rest of a scope; a zone's time is its self time, so a
 step's zones and "other" add up to the step. The zone a draw is made in is its draw group, the unit the dev UI
 toggles, so one enum names both; a game names its zone enum at each call because a bare `.Steer` has nothing to infer
-the enum from, and a seventh `sim.Game` parameter for a dev feature would cost every game more.
+the enum from, and one more `sim.Game` parameter for a dev feature would cost every game more.
 
 Both hang off a `Dev` the host attaches to a `Sim` (`dev_attach`), which owns the clock: the sim reads none itself.
 Without one every call is a nil check; a build without the dev UI (`DEV` false) leaves every call an empty proc. The

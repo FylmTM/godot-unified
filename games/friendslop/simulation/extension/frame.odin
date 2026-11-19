@@ -25,9 +25,9 @@ Frame :: godot.Frame(g.Game, View, MultiView)
 // An event about a player goes to that player's view. So grabbed, dropped and thrown stay with the holder's view, and
 // a switch a player touched with the player's, where the default routing would send them to the item's or the
 // switch's view (its `entity`: the marker view keyed by that marker's index). The rest: by their subject.
-event_key :: proc(_: g.Event, subject: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
-	if subject.player != {} do return .Player, sim.player_key(subject.player), .View
-	return
+event_key :: proc(_: g.Event, subject: godot.Subject) -> godot.Event_Target(View) {
+	if subject.player != {} do return godot.to_view(View.Player, subject.player)
+	return {}
 }
 
 // The player view's data: set as its properties when it changes.

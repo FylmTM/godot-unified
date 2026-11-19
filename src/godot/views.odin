@@ -418,7 +418,7 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 		}
 	}
 	scene_view.hooks = hooks
-	pose_view(scene_view, {to_view(item.pos), item.rot})
+	pose_view(scene_view, {to_view_units(item.pos), item.rot})
 	gd.Node_add_child(root, node, false, .INTERNAL_MODE_DISABLED)
 	// data after _ready: a script's property setters may use its @onready nodes
 	if item.data_type != nil {
@@ -470,7 +470,7 @@ pose_view :: proc(scene_view: ^Scene_View, pose: Pose) {
 }
 
 // 3D: position and quaternion. 2D: position = pos.xy, rotation = the angle about Z. Other roots: nothing. The pose
-// is in view units (to_view).
+// is in view units (to_view_units).
 set_pose :: proc(scene_view: ^Scene_View, pose: Pose) {
 	switch scene_view.mode {
 	case .Node2D:
@@ -694,7 +694,7 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 		decay := &decays[scene_view.kind]
 		if decay^ < 0 do decay^ = track_decay(dt, smoothing)
 		pose := track_sample_decayed(&scene_view.track, frame.tick, alpha, decay^, dt, smoothing) // sim units
-		pose.pos = to_view(pose.pos)
+		pose.pos = to_view_units(pose.pos)
 		// before every other node's _process (priority -1000): a view's script reads it. An unchanged pose (a crate at
 		// rest, a level marker) isn't set again: each set dirties the root's whole subtree. Unchanged within float noise: a
 		// glide started from the last shown pose (frames the main thread skipped) leaves a correction of a few ulps that
@@ -946,7 +946,7 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 			if multi.smooth && item.key != 0 {
 				view_pos, view_rot = multi_smooth(multi, &item, frame.tick, fresh, alpha, dt)
 			}
-			view_pos = to_view(view_pos) // the origin only: the mesh is the view's content, `scale` a multiplier
+			view_pos = to_view_units(view_pos) // the origin only: the mesh is the view's content, `scale` a multiplier
 			if multi.is_2d do view_pos.z = 0
 			for axis in 0 ..< 3 {
 				multi.low[axis] = min(multi.low[axis], view_pos[axis])

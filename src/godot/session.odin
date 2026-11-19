@@ -193,7 +193,7 @@ register_session_class :: proc() {
 		"level",
 		proc(session: ^Session_Node) -> i64 {return i64(session.level.shown.id)},
 		nil,
-		doc = "The level on screen: its index in the game's levels (its level enum's member; -1: none yet, or the game keeps no level). It follows the verified level, so a mispredicted change never shows.",
+		doc = "The level on screen: its index in the game's levels, an [EnumLevel] value (-1: none yet, or the game keeps no level). It follows the verified level, so a mispredicted change never shows.",
 	)
 	gd.bind_property(class, "level_scene", proc(session: ^Session_Node) -> gd.Node {
 			host := &session.level
@@ -462,7 +462,7 @@ register_session_class :: proc() {
 		class,
 		"level_changing",
 		{{"to", .INT, ""}},
-		doc = "The verified level is now [param to] and its scene is loading (put up a loading view): the views hold until [signal level_changed]; the sim keeps ticking.",
+		doc = "The verified level is now [param to] (an [EnumLevel] value) and its scene is loading (put up a loading view): the views hold until [signal level_changed]; the sim keeps ticking.",
 	)
 	gd.bind_signal(
 		class,
@@ -720,7 +720,7 @@ bind_open_to_friends :: proc(class: ^gd.Class) {
 			if session.mode != .Host_Online && session.mode != .Host_Direct do return false
 			set_join_code(session, "")
 			return api.open(.Single, 0)
-		}, doc = "Lets nobody new into a session opened to friends: the players in stay, and one who drops may come back; [member join_code] becomes \"\". Opening again ([method open_online], [method open_direct]) lets new players in once more.")
+		}, doc = "Lets nobody new into a hosted session, opened to friends or hosted from the start: the players in stay, and one who drops may come back; [member join_code] becomes \"\". Opening again the same way ([method open_online], [method open_direct]) lets new players in once more and shows the code again.")
 	gd.bind_signal(
 		class,
 		"mode_changed",
@@ -764,7 +764,7 @@ bind_local_players :: proc(class: ^gd.Class) {
 				for key in session.frame.local_players do if key != 0 do gd.array_push(&players, i64(key))
 			}
 			return array_variant(&players)
-		}, nil, doc = "The keys of this game's players in the session at the shown tick, in local order (the first player's first).")
+		}, nil, doc = "The keys of this game's players in the session at the shown tick, in local order (the first player's first), compacted: not indexed by local index ([method get_local_player_key] is).")
 	gd.bind_dynamic_method(class, "get_local_indices", proc(_: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
 			indices := player_array()
 			for active, local in input_sample.active do if active do gd.array_push(&indices, i64(local))
@@ -791,6 +791,12 @@ bind_local_players :: proc(class: ^gd.Class) {
 		class,
 		"local_players_changed",
 		doc = "A local player came into the session or left it ([member local_players]).",
+	)
+	gd.bind_signal(
+		class,
+		"local_player_refused",
+		{{"local", .INT, ""}, {"reason", .STRING, ""}},
+		doc = "The session refused local player [param local] ([method add_local_player]'s index; [param reason] says why: full, closed, ...): its index is free again, the other players play on.",
 	)
 }
 
@@ -1056,6 +1062,11 @@ drain_messages :: proc(session: ^Session_Node) {
 		case .Join_Code:
 			fmt.printfln("unified: join code %s", text)
 			set_join_code(session, text)
+		case .Local_Refused:
+			local := int(message.local)
+			fmt.printfln("unified: local player %d refused: %s", local, text)
+			if local > 0 && local < LOCAL_MAX do input_sample.active[local], input_sample.devices[local] = false, DEVICE_ANY
+			gd.emit_signal(session.obj, gd.sn("local_player_refused"), i64(local), text)
 		case .Desync:
 			fmt.printfln("unified: desync at tick %d: %s", message.tick, text)
 			dev_note(message.tick, fmt.tprintf("desync: %s", text))

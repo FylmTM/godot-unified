@@ -390,8 +390,8 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 }
 
 // The session check's sections (tests/godot_views/session_check.gd) by Godot process: about as long each (3 hosts again
-// on the port 2 hosted on).
-SESSION_CHECK_GROUPS :: []string{"1", "2,3,6", "4,5"}
+// on the port 2 hosted on; 7 records the session it replays).
+SESSION_CHECK_GROUPS :: []string{"1", "2,3,6", "4,5", "7"}
 
 // How long the debugger-error run may take: it ends in about a second; the prompt waiting for good would hit this.
 DEBUGGER_ERROR_TIMEOUT :: 15 * time.Second
