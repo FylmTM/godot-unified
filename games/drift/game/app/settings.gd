@@ -2,7 +2,7 @@ extends Node
 ## drift's player settings (the `Settings` autoload): typed properties, loaded from user://settings.cfg at boot and
 ## applied as they are set. Each `@export` var is a setting, its `@export_category` its section in the file; a change
 ## is saved a moment later (one write for a slider's drag). The settings panel shows a row for each one in LABELS,
-## built from its type and hint. Tool scripts run with `--no-settings`: defaults, nothing read or written, no window
+## built from its type and hint, or from the sim's enum class for one in SIM_ENUMS. Tool scripts run with `--no-settings`: defaults, nothing read or written, no window
 ## changes.
 
 ## A setting changed (its property's name).
@@ -20,6 +20,8 @@ const LABELS: Dictionary[StringName, String] = {
 	&"vsync": "V-Sync",
 	&"show_fps": "Show FPS",
 }
+## The settings that hold a sim enum's value, with its class: none here.
+const SIM_ENUMS: Dictionary[StringName, StringName] = {}
 
 @export_category("player")
 @export var player_name := "":

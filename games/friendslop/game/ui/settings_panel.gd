@@ -1,8 +1,8 @@
 class_name SettingsPanel
 extends PanelContainer
 ## The settings form, in the main menu and the in-game menu: a row for each setting in `Settings.LABELS`, its control
-## from the property's type and hint (a name field, a check button, an option list for an enum, a slider for a
-## range). Every change applies at once; the Settings autoload saves it.
+## from the property's type and hint (a name field, a check button, an option list for an enum or a sim enum's class
+## in `Settings.SIM_ENUMS`, a slider for a range). Every change applies at once; the Settings autoload saves it.
 
 signal closed
 
@@ -45,6 +45,9 @@ func _row(text: String, setting: StringName, property: Dictionary) -> void:
 			_grid.add_child(_name_field(setting))
 		TYPE_BOOL:
 			_grid.add_child(_check(setting))
+		TYPE_INT when Settings.SIM_ENUMS.has(setting):  # its class's names(), in value order
+			var names: Array = ClassDB.class_call_static(Settings.SIM_ENUMS[setting], &"names")
+			_grid.add_child(_options(setting, PackedStringArray(names)))
 		TYPE_INT when hint == PROPERTY_HINT_ENUM:
 			_grid.add_child(_options(setting, hint_string.split(",")))
 		TYPE_FLOAT when hint == PROPERTY_HINT_RANGE:
@@ -79,7 +82,7 @@ func _check(setting: StringName) -> CheckButton:
 	return check
 
 
-## An enum's members (its hint: "Windowed,Fullscreen", each optionally ":value").
+## An enum's members (a hint's "Windowed,Fullscreen", each optionally ":value"; a class's names()), by value.
 func _options(setting: StringName, members: PackedStringArray) -> OptionButton:
 	var options := OptionButton.new()
 	for member in members:

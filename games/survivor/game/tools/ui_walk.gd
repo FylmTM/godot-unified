@@ -117,6 +117,10 @@ func _walk_settings() -> void:
 	expect(panel != null and panel.name == "SettingsPanel", "Settings opens the settings panel")
 	if failed():
 		return
+	var roles: OptionButton = panel.control("Role")
+	var role_names: Array = ClassDB.class_call_static(&"EnumRole", &"names")
+	expect(roles != null and roles.item_count == role_names.size() and roles.get_item_text(0) == str(role_names[0]).capitalize(),
+		"the Role row lists the sim's roles (EnumRole.names())")
 	var fps: CheckButton = panel.control("Show FPS")
 	await click(fps)
 	expect(setting(&"show_fps") == true, "Show FPS turns the setting on")

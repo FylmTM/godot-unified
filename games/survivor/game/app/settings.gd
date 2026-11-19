@@ -2,17 +2,13 @@ extends Node
 ## survivor's player settings (the `Settings` autoload): typed properties, loaded from user://settings.cfg at boot and
 ## applied as they are set. Each `@export` var is a setting, its `@export_category` its section in the file; a change
 ## is saved a moment later (one write for a slider's drag). The settings panel shows a row for each one in LABELS,
-## built from its type and hint. Tool scripts run with `--no-settings`: defaults, nothing read or written, no window
+## built from its type and hint, or from the sim's enum class for one in SIM_ENUMS. Tool scripts run with `--no-settings`: defaults, nothing read or written, no window
 ## changes.
 
 ## A setting changed (its property's name).
 signal changed(setting: StringName)
 
 enum WindowMode { WINDOWED, FULLSCREEN }
-## The session's difficulty (the sim's Difficulty, the Setup's), in its order.
-enum Difficulty { NORMAL, HARD }
-## The role the player joins as (the sim's Role, the Profile's), in its order.
-enum Role { GUNNER, BRUISER, RUNNER }
 
 const PATH := "user://settings.cfg"
 ## The settings the panel shows, in this order, with their row labels.
@@ -27,6 +23,12 @@ const LABELS: Dictionary[StringName, String] = {
 	&"render_scale": "3D resolution",
 	&"show_fps": "Show FPS",
 }
+## The settings that hold a sim enum's value, with its class (the game library registers one per enum the Setup and
+## the Profile use): the panel's options are the class's names(), so the sim's order is the one home of them.
+const SIM_ENUMS: Dictionary[StringName, StringName] = {
+	&"role": &"EnumRole",
+	&"difficulty": &"EnumDifficulty",
+}
 
 @export_category("player")
 @export var player_name := "":
@@ -34,13 +36,13 @@ const LABELS: Dictionary[StringName, String] = {
 		player_name = value
 		_changed(&"player_name")
 
-## What the player joins as: Unified.profile.role at every start or join.
-@export var role := Role.GUNNER:
+## What the player joins as (an EnumRole value): Unified.profile.role at every start or join.
+@export var role := 0:
 	set(value):
 		role = value
 		_changed(&"role")
-## How hard a session this player hosts plays: the Setup's difficulty.
-@export var difficulty := Difficulty.NORMAL:
+## How hard a session this player hosts plays (an EnumDifficulty value): the Setup's difficulty.
+@export var difficulty := 0:
 	set(value):
 		difficulty = value
 		_changed(&"difficulty")
