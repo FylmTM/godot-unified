@@ -1,4 +1,4 @@
-// src/level/README.md, 2D levels: version 2 records px_per_m, other versions are refused, Vector2 props read
+// src/level/README.md, 2D levels: the file records px_per_m, other versions are refused, Vector2 props read
 // back, and the exporter's 2D fixture (tests/godot/levels/level_2d.tscn, exported by `uni test --suite godot-bindings`)
 // builds the bodies it was drawn with: metres, z = 0, rotations about +Z.
 package test_level
@@ -58,13 +58,13 @@ round_trip_2d :: proc(t: ^testing.T) {
 	testing.expect(t, string(again) == string(data))
 }
 
-// Readers accept only the current version (src/sim/README.md, Files): 1 (no px_per_m) and the next one are
+// Readers accept only the current version (src/sim/README.md, Files): older ones and the next one are
 // refused.
 @(test)
 other_versions_refused :: proc(t: ^testing.T) {
 	file := fixture()
 	defer delete(file)
-	for version in ([]u8{0, 1, 3}) {
+	for version in ([]u8{0, 2, 4}) {
 		bad := make([]u8, len(file), context.temp_allocator)
 		copy(bad, file)
 		bad[4] = version
@@ -103,10 +103,10 @@ exported_2d_fixture :: proc(t: ^testing.T) {
 	testing.expect(t, ground.pos == {0, 10, 0} && ground.rot == {0, 0, 0, 1})
 	testing.expect(
 		t,
-		abs(ground.friction - 0.8) < 1e-6 &&
-		ground.restitution == 0.25 &&
+		abs(ground.surface.friction - 0.8) < 1e-6 &&
+		ground.surface.restitution == 0.25 &&
 		ground.category == 4 &&
-		ground.material == 7,
+		ground.surface.material == 7,
 	)
 	testing.expect(
 		t,
@@ -143,7 +143,7 @@ exported_2d_fixture :: proc(t: ^testing.T) {
 
 	tiles := &loaded.bodies[3]
 	testing.expect_value(t, tiles.name, "Tiles")
-	testing.expect(t, tiles.pos == {0, 0.5, 0} && tiles.category == 2 && abs(tiles.friction - 0.3) < 1e-6)
+	testing.expect(t, tiles.pos == {0, 0.5, 0} && tiles.category == 2 && abs(tiles.surface.friction - 0.3) < 1e-6)
 	testing.expect_value(t, len(tiles.shapes), 4) // one convex polygon per cell
 	if len(tiles.shapes) == 4 {
 		// Cells sorted by (y, x): (4, 7) first, then (-1, 8): a square centred at (-16, 272) px in the layer.

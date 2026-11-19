@@ -105,7 +105,10 @@ block and the `Path` in its level data; `drive_kinematic` makes the body follow 
 
 A game's level is its World's first bodies: `create_with_level` (or `create_static`) in `world_create`, before
 `extra`, so they are the World's. A shape Box3D refuses is never a silent hole: `problem` names it, and the games
-assert on it.
+assert on it. Every shape carries its level surface (friction, restitution, rolling resistance, a conveyor's tangent
+velocity and the material id a ray or contact reports); a mesh's triangles may each name another. Meshes and height
+fields are built once, kept by the physics `World` and freed after the Box3D world, since their shapes point at
+them; a height field takes no local transform, so it is a static body of its own at its level body's pose.
 
 ## 2D
 

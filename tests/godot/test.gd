@@ -1,6 +1,6 @@
 # Binding tests for unified:gdext, and unified:level's exporter on levels/ (src/level/README.md): run headless by
 # `uni test --suite godot-bindings`. Prints one line per check and "GDEXT TESTS: <n> failed"; exits with the failure
-# count. After changing the exporter or levels/level_2d.tscn on purpose, `uni bake` rewrites levels/level_2d.level.
+# count. After changing the exporter or a fixture level on purpose, `uni bake` rewrites its .level.
 extends SceneTree
 
 var failed := 0
@@ -95,6 +95,8 @@ func _initialize() -> void:
 	check("one live instance", t.instances() == 1, t.instances())
 	t.queue_free()
 	check_level_export()
+	check_trimesh_winding()
+	await check_height_map_surface()
 	print("GDEXT TESTS: %d failed" % failed)
 	quit(failed)
 
@@ -208,7 +210,8 @@ func check_level_export() -> void:
 	var out: Array = []
 	var code := OS.execute(OS.get_executable_path(), ["--headless", "--path", ProjectSettings.globalize_path("res://"),
 			"-s", "res://addons/unified/level_export.gd", "--", "--check", "--scene=res://levels/level_2d.tscn",
-			"--scene=res://levels/bad_2d.tscn"], out, true)
+			"--scene=res://levels/bad_2d.tscn", "--scene=res://levels/shapes_3d.tscn",
+			"--scene=res://levels/bad_3d.tscn"], out, true)
 	var data: Variant = null
 	for line: String in "".join(out).split("\n"):
 		if line.begins_with("UNIFIED_RESULT "):
@@ -217,8 +220,48 @@ func check_level_export() -> void:
 	if not data is Dictionary:
 		return
 	var levels: Array = data["levels"]
-	check("2D level exports to the committed file", levels.size() == 1 and levels[0]["scene"] ==
-			"res://levels/level_2d.tscn" and not levels[0]["changed"], levels)
+	check("2D and 3D levels export to their committed files", levels.size() == 2 and levels[0]["scene"] ==
+			"res://levels/level_2d.tscn" and not levels[0]["changed"] and levels[1]["scene"] ==
+			"res://levels/shapes_3d.tscn" and not levels[1]["changed"], levels)
 	var errs: Array = data["errors"]
-	check("unsupported 2D shape fails with the node's name", errs.size() == 1 and errs[0].begins_with("Rail/Edge: ")
+	check("unsupported 2D shape fails with the node's name", errs.size() == 5 and errs[0].begins_with("Rail/Edge: ")
 			and "SegmentShape2D" in errs[0], errs)
+	if errs.size() != 5:
+		return
+	check("a convex shape past 44 points fails with the node's name", errs[1].begins_with("Rough/Dense: ")
+			and "45 points" in errs[1], errs[1])
+	check("a world boundary fails with the node's name", errs[2].begins_with("Rough/Edge: ")
+			and "WorldBoundaryShape3D" in errs[2], errs[2])
+	check("a two-sided concave polygon fails with the node's name", errs[3].begins_with("Rough/Both: ")
+			and "backface_collision" in errs[3], errs[3])
+	check("a rough material fails with the body's name", errs[4].begins_with("Rough: ") and "rough" in errs[4],
+			errs[4])
+
+
+## Godot's own trimesh of an upward plane is clockwise seen from above ((b - a) x (c - a) points down): the exporter
+## turns every triangle over on that convention (src/level/README.md).
+func check_trimesh_winding() -> void:
+	var plane := PlaneMesh.new()
+	var faces := plane.create_trimesh_shape().get_faces()
+	var normal := (faces[1] - faces[0]).cross(faces[2] - faces[0])
+	check("Godot's trimesh is clockwise from the front", normal.y < 0.0, normal)
+
+
+## Godot's physics on the fixture's height map (levels/shapes_3d.tscn, Hill): the surface heights tests/level asserts
+## for Box3D's height field from the exported file: at its centre, along its inner grid lines, and inside the cell
+## under the raised corner (which pins the row order and the cells' diagonal: both split a cell the same way).
+func check_height_map_surface() -> void:
+	var level := (load("res://levels/shapes_3d.tscn") as PackedScene).instantiate()
+	root.add_child(level)
+	await physics_frame
+	await physics_frame
+	var space := root.get_world_3d().direct_space_state
+	var heights: Array[float] = []
+	for at: Vector2 in [Vector2(-10, 0), Vector2(-9, 0), Vector2(-10, 1), Vector2(-9, -1)]:
+		var hit := space.intersect_ray(PhysicsRayQueryParameters3D.create(Vector3(at.x, 10, at.y),
+				Vector3(at.x, -10, at.y)))
+		heights.append(float(hit["position"].y) if hit else NAN)
+	check("Godot's height map: centred, 2 m cells, heights scaled, rows along x, Box3D's diagonal",
+			is_equal_approx(heights[0], 4.0) and is_equal_approx(heights[1], 2.0) and is_equal_approx(heights[2], 2.0)
+			and is_equal_approx(heights[3], 3.0), heights)
+	level.free()
