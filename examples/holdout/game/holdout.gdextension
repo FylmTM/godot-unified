@@ -1,0 +1,14 @@
+; The game's GDExtension: the sim run by unified's Godot host, built from simulation/extension into the hidden
+; artifacts folder (git-ignored) by `uni build` (and on demand by every command that runs the game).
+[configuration]
+
+entry_symbol = "holdout_init"
+compatibility_minimum = "4.7"
+reloadable = true
+
+[libraries]
+
+macos.debug = "res://.out/bin/libholdout.dylib"
+macos.release = "res://.out/bin/libholdout.dylib"
+windows.x86_64 = "res://.out/bin/holdout.dll"
+linux.x86_64 = "res://.out/bin/libholdout.so"
