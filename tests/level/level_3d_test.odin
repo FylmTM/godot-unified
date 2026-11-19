@@ -11,22 +11,27 @@ import "unified:physics"
 // tests/godot/levels/shapes_3d.tscn as exported.
 FIXTURE_3D :: #load("../godot/levels/shapes_3d.level")
 
-// The fixture's NavigationRegion3D (Yard, at (0, 0.5, -10)): its saved bake in level space, Godot's clockwise polygons
-// turned counter-clockwise seen from above.
+// The fixture's NavigationRegion3D (Yard: turned a half turn about Y and moved 2 m along x, under Mirror: x mirrored,
+// at (0, 0.5, -10)): its saved bake in level space, the duplicate of vertex 1 welded into it, the agent it was baked
+// for. The square is clockwise seen from above, as Godot bakes, and the mirror makes it counter-clockwise: kept as it
+// is. The other one is written counter-clockwise, which the mirror turns clockwise: reversed.
 @(test)
 fixture_3d_navigation :: proc(t: ^testing.T) {
 	loaded, ok := level.load(FIXTURE_3D)
 	defer level.destroy(&loaded)
 	testing.expect(t, ok)
 	if !ok do return
+	testing.expect_value(t, loaded.nav_agent, level.Nav_Agent{0.4, 1.8, 0.3})
 	testing.expect_value(t, len(loaded.nav_vertices), 6)
 	testing.expect_value(t, len(loaded.nav_polygons), 2)
 	if len(loaded.nav_vertices) != 6 || len(loaded.nav_polygons) != 2 do return
-	testing.expect_value(t, loaded.nav_vertices[0], [3]f32{0, 0.5, -10})
-	testing.expect_value(t, loaded.nav_vertices[5], [3]f32{8, 0.5, -6})
+	// (x, y, z) in the region is (x - 2, y + 0.5, -z - 10) in the level
+	testing.expect_value(t, loaded.nav_vertices[0], [3]f32{-2, 0.5, -10})
+	testing.expect_value(t, loaded.nav_vertices[2], [3]f32{2, 0.5, -14})
+	testing.expect_value(t, loaded.nav_vertices[5], [3]f32{6, 0.5, -14})
 	square, beside := loaded.nav_polygons[0], loaded.nav_polygons[1]
-	testing.expect(t, len(square) == 4 && square[0] == 3 && square[1] == 2 && square[2] == 1 && square[3] == 0)
-	testing.expect(t, len(beside) == 4 && beside[0] == 2 && beside[1] == 5 && beside[2] == 4 && beside[3] == 1)
+	testing.expect(t, len(square) == 4 && square[0] == 0 && square[1] == 1 && square[2] == 2 && square[3] == 3)
+	testing.expect(t, len(beside) == 4 && beside[0] == 1 && beside[1] == 4 && beside[2] == 5 && beside[3] == 2)
 }
 
 @(test)

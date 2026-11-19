@@ -213,7 +213,7 @@ func check_level_export() -> void:
 			"-s", "res://addons/unified/level_export.gd", "--", "--check", "--scene=res://levels/level_2d.tscn",
 			"--scene=res://levels/bad_2d.tscn", "--scene=res://levels/shapes_3d.tscn",
 			"--scene=res://levels/bad_3d.tscn", "--scene=res://levels/bad_nav.tscn",
-			"--scene=res://levels/bad_nav_empty.tscn"], out, true)
+			"--scene=res://levels/bad_nav_empty.tscn", "--scene=res://levels/bad_2d_nav.tscn"], out, true)
 	var data: Variant = null
 	for line: String in "".join(out).split("\n"):
 		if line.begins_with("UNIFIED_RESULT "):
@@ -225,27 +225,39 @@ func check_level_export() -> void:
 	check("2D and 3D levels export to their committed files", levels.size() == 2 and levels[0]["scene"] ==
 			"res://levels/level_2d.tscn" and not levels[0]["changed"] and levels[1]["scene"] ==
 			"res://levels/shapes_3d.tscn" and not levels[1]["changed"], levels)
+	# the scenes in path order: bad_2d, bad_2d_nav, bad_3d, bad_nav, bad_nav_empty
 	var errs: Array = data["errors"]
-	check("unsupported 2D shape fails with the node's name", errs.size() == 9 and errs[0].begins_with("Rail/Edge: ")
+	check("unsupported 2D shape fails with the node's name", errs.size() == 13 and errs[0].begins_with("Rail/Edge: ")
 			and "SegmentShape2D" in errs[0], errs)
-	if errs.size() != 9:
+	if errs.size() != 13:
 		return
-	check("a convex shape past 44 points fails with the node's name", errs[1].begins_with("Rough/Dense: ")
-			and "45 points" in errs[1], errs[1])
-	check("a world boundary fails with the node's name", errs[2].begins_with("Rough/Edge: ")
-			and "WorldBoundaryShape3D" in errs[2], errs[2])
-	check("a two-sided concave polygon fails with the node's name", errs[3].begins_with("Rough/Both: ")
-			and "backface_collision" in errs[3], errs[3])
-	check("a rough material fails with the body's name", errs[4].begins_with("Rough: ") and "rough" in errs[4],
-			errs[4])
-	check("a second navigation region fails with its name", errs[5].begins_with("Second: ")
-			and "a second NavigationRegion3D" in errs[5], errs[5])
-	check("a non-convex navigation polygon fails with its region and index", errs[6].begins_with(
-			"First: navigation polygon 0: ") and "not convex at its vertex 2" in errs[6], errs[6])
-	check("a degenerate navigation polygon fails with its region and index", errs[7].begins_with(
-			"First: navigation polygon 1: ") and "degenerate" in errs[7], errs[7])
-	check("a navigation region without a bake fails with its name", errs[8].begins_with("Empty: ")
-			and "without a saved bake" in errs[8], errs[8])
+	check("a navigation region in a 2D level fails with its name", errs[1].begins_with("Region: ")
+			and "in a 2D level" in errs[1], errs[1])
+	check("a convex shape past 44 points fails with the node's name", errs[2].begins_with("Rough/Dense: ")
+			and "45 points" in errs[2], errs[2])
+	check("a world boundary fails with the node's name", errs[3].begins_with("Rough/Edge: ")
+			and "WorldBoundaryShape3D" in errs[3], errs[3])
+	check("a two-sided concave polygon fails with the node's name", errs[4].begins_with("Rough/Both: ")
+			and "backface_collision" in errs[4], errs[4])
+	check("a rough material fails with the body's name", errs[5].begins_with("Rough: ") and "rough" in errs[5],
+			errs[5])
+	check("a second navigation region fails with its name", errs[6].begins_with("Second: ")
+			and "a second NavigationRegion3D" in errs[6], errs[6])
+	var polygon_errors: Array[PackedStringArray] = [
+		PackedStringArray(["0", "not convex at its vertex 2"]),
+		PackedStringArray(["1", "degenerate"]),
+		PackedStringArray(["2", "not a simple polygon"]),  # a star
+		PackedStringArray(["3", "a zero-length edge"]),
+		PackedStringArray(["6", "shared by more than two polygons"]),
+	]
+	for k in polygon_errors.size():
+		var e: String = errs[7 + k]
+		var index := polygon_errors[k][0]
+		var what := polygon_errors[k][1]
+		check("a bad navigation polygon fails with its region and index: " + what,
+				e.begins_with("First: navigation polygon %s: " % index) and what in e, e)
+	check("a navigation region without a bake fails with its name", errs[12].begins_with("Empty: ")
+			and "without a saved bake" in errs[12], errs[12])
 
 
 ## Godot's own trimesh of an upward plane is clockwise seen from above ((b - a) x (c - a) points down): the exporter

@@ -6,9 +6,9 @@ import "unified:level"
 import "unified:wire"
 
 // Encodes bodies, markers (their `index` fields are ignored; Ref props hold marker indices, Curve props their
-// samples) and a navigation mesh (Level.nav_vertices, nav_polygons: as given), in the current version. `px_per_m`: a 2D level's pixels per metre (Level.px_per_m), 0 for a 3D
-// level. A shape whose surface is zero or its body's is written as having none of its own; a mesh's extra surfaces
-// are its materials past the first.
+// samples) and a navigation mesh (Level.nav_vertices, nav_polygons, nav_agent: as given), in the current version.
+// `px_per_m`: a 2D level's pixels per metre (Level.px_per_m), 0 for a 3D level. A shape whose surface is zero or its
+// body's is written as having none of its own; a mesh's extra surfaces are its materials past the first.
 encode :: proc(
 	bodies: []level.Body,
 	markers: []level.Marker,
@@ -16,6 +16,7 @@ encode :: proc(
 	scene := "",
 	nav_vertices: [][3]f32 = nil,
 	nav_polygons: [][]u32 = nil,
+	nav_agent := level.Nav_Agent{},
 	allocator := context.allocator,
 ) -> []u8 {
 	string_table := make([dynamic]string, 0, 64, context.temp_allocator)
@@ -150,6 +151,9 @@ encode :: proc(
 		}
 		write_points(&writer, marker.path)
 	}
+	wire.w_f32(&writer, nav_agent.radius)
+	wire.w_f32(&writer, nav_agent.height)
+	wire.w_f32(&writer, nav_agent.max_climb)
 	wire.w_u32(&writer, u32(len(nav_vertices)))
 	for vertex in nav_vertices do write_vec3(&writer, vertex)
 	wire.w_u32(&writer, u32(len(nav_polygons)))

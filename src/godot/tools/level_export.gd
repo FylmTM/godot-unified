@@ -293,10 +293,12 @@ func _encode(bodies: Array[Node], markers: Array[Node], marker_index: Dictionary
 	return w.data_array
 
 
-## The navigation section: the level's NavigationRegion3D's saved bake (none: empty), its vertices in level space,
-## each polygon checked (3 to 255 distinct vertices, not degenerate, convex: unified:nav relies on it) and turned
-## counter-clockwise seen from above (Godot's are clockwise; a mirroring region turns them back).
+## The navigation section: the bake's agent (radius, height, max climb), then its vertices in level space, welded where
+## exactly equal so adjacent polygons share vertex indices, and its polygons, each checked (_nav_polygon) and turned
+## counter-clockwise seen from above (Godot bakes them clockwise; a mirroring region turns them back). An edge shared
+## by more than two polygons is refused: the file promises that an edge joins at most two. No region: all empty.
 func _nav(w: StreamPeerBuffer) -> void:
+	var agent := Vector3.ZERO
 	var vertices := PackedVector3Array()
 	var polygons: Array[PackedInt32Array] = []
 	if not _navs.is_empty():
@@ -307,14 +309,41 @@ func _nav(w: StreamPeerBuffer) -> void:
 		if mesh == null or mesh.get_polygon_count() == 0:
 			_error(_where(region), "a NavigationRegion3D without a saved bake (bake it in the editor, then save)")
 		else:
+			agent = Vector3(mesh.agent_radius, mesh.agent_height, mesh.agent_max_climb)
 			var xf := _xf(region)
+			var welded := {}  # position -> index in `vertices`
+			var remap := PackedInt32Array()
 			for v in mesh.get_vertices():
-				vertices.append(xf * v)
+				var p := xf * v
+				if not welded.has(p):
+					welded[p] = vertices.size()
+					vertices.append(p)
+				remap.append(welded[p])
+			var edges := {}  # Vector2i(lower, higher) index -> polygons using it
 			for i in mesh.get_polygon_count():
-				var polygon := _nav_polygon(mesh.get_polygon(i), vertices, "%s: navigation polygon %d" %
-						[_where(region), i])
-				if not polygon.is_empty():
-					polygons.append(polygon)
+				var where := "%s: navigation polygon %d" % [_where(region), i]
+				var source := mesh.get_polygon(i)
+				var polygon := PackedInt32Array()
+				for index in source:
+					if index < 0 or index >= remap.size():
+						_error(where, "a vertex index out of range")
+						polygon.clear()
+						break
+					polygon.append(remap[index])
+				if polygon.size() != source.size():
+					continue
+				polygon = _nav_polygon(polygon, vertices, where)
+				if polygon.is_empty():
+					continue
+				polygons.append(polygon)
+				for k in polygon.size():
+					var a := polygon[k]
+					var b := polygon[(k + 1) % polygon.size()]
+					var edge := Vector2i(mini(a, b), maxi(a, b))
+					edges[edge] = int(edges.get(edge, 0)) + 1
+					if edges[edge] == 3:
+						_error(where, "its edge %d-%d is shared by more than two polygons" % [edge.x, edge.y])
+	_v3(w, agent)
 	w.put_u32(vertices.size())
 	for v in vertices:
 		_v3(w, v)
@@ -325,19 +354,27 @@ func _nav(w: StreamPeerBuffer) -> void:
 			w.put_u32(index)
 
 
-## A navigation polygon counter-clockwise seen from above (empty, with an error at `where`, when it is degenerate or
-## not convex), checked in doubles on its XZ projection.
+## A navigation polygon counter-clockwise seen from above (empty, with an error at `where`, when it isn't a simple
+## convex polygon), checked in doubles on its XZ projection: 3 to 255 distinct vertices, no zero-length edge, an area,
+## no reflex vertex, and exterior angles summing to one turn (a star or a polygon doubling back turns more).
 func _nav_polygon(polygon: PackedInt32Array, vertices: PackedVector3Array, where: String) -> PackedInt32Array:
 	var n := polygon.size()
+	if n > 255:
+		_error(where, "%d vertices, more than the 255 a polygon may have" % n)
+		return PackedInt32Array()
 	var distinct := {}
 	for index in polygon:
-		if index < 0 or index >= vertices.size():
-			_error(where, "a vertex index out of range")
-			return PackedInt32Array()
 		distinct[index] = true
-	if n < 3 or n > 255 or distinct.size() != n:
+	if n < 3 or distinct.size() != n:
 		_error(where, "degenerate (%d vertices, %d distinct)" % [n, distinct.size()])
 		return PackedInt32Array()
+	for k in n:
+		var a := vertices[polygon[k]]
+		var b := vertices[polygon[(k + 1) % n]]
+		if a.x == b.x and a.z == b.z:
+			_error(where, "a zero-length edge seen from above (vertices %d and %d)" % [polygon[k],
+					polygon[(k + 1) % n]])
+			return PackedInt32Array()
 	# twice the signed area seen from above: the y of the cross products, positive counter-clockwise
 	var area := 0.0
 	for k in range(1, n - 1):
@@ -348,15 +385,23 @@ func _nav_polygon(polygon: PackedInt32Array, vertices: PackedVector3Array, where
 	var out := polygon.duplicate()
 	if area < 0.0:
 		out.reverse()
+	var turning := 0.0
 	for k in n:
 		var a := vertices[out[k]]
 		var b := vertices[out[(k + 1) % n]]
 		var c := vertices[out[(k + 2) % n]]
-		var turn := _cross_y(a, b, c)
-		var scale := Vector2(b.x - a.x, b.z - a.z).length() * Vector2(c.x - b.x, c.z - b.z).length()
-		if turn < -1e-6 * scale:
+		var ux := float(b.x) - float(a.x)
+		var uz := float(b.z) - float(a.z)
+		var vx := float(c.x) - float(b.x)
+		var vz := float(c.z) - float(b.z)
+		var turn := uz * vx - ux * vz  # the y of (b - a) x (c - b): positive turning left (counter-clockwise)
+		if turn < -1e-6 * sqrt(ux * ux + uz * uz) * sqrt(vx * vx + vz * vz):
 			_error(where, "not convex at its vertex %d" % out[(k + 1) % n])
 			return PackedInt32Array()
+		turning += atan2(turn, ux * vx + uz * vz)
+	if absf(turning - TAU) > 1e-6:
+		_error(where, "not a simple polygon (it turns %.3f times around)" % (turning / TAU))
+		return PackedInt32Array()
 	return out
 
 

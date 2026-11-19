@@ -44,10 +44,13 @@ marker's node by its index (`Unified.level_markers`).
 - **Navigation:** one `NavigationRegion3D` per 3D level, baked in the editor and saved with the scene. The exporter
   writes its `NavigationMesh` as it was saved and never bakes it: the bytes are what the author committed, the same
   on every platform, and a stale bake stays stale until the author bakes again (Godot's bake depends on the
-  geometry, so rebake after moving it). Vertices are written in level space and each polygon counter-clockwise seen
-  from above (Godot winds them clockwise). Export errors name the node: a second region, a region without a saved
-  bake, and a polygon that is degenerate or not convex (`Level.nav_polygons` promises convex ones). The mesh the
-  editor draws for the region is the one the sim gets.
+  geometry, so rebake after moving it). Vertices are written in level space, welded where exactly equal, so adjacent
+  polygons share vertex indices and a reader matches edges by index; each polygon is turned counter-clockwise seen
+  from above (Godot bakes them clockwise). The bake's agent (radius, height, max climb) is written too: one region
+  means one agent size per level, which the game sizes its walkers from rather than repeating it in code. Export
+  errors name the node: a second region, a region without a saved bake, a polygon that isn't simple and convex
+  (degenerate, a zero-length edge, a reflex vertex, a star), and an edge shared by more than two polygons. The mesh
+  the editor draws for the region is the one the sim gets.
 
 The exporter is unified's (`src/godot/tools/level_export.gd`, mirrored into every project as `addons/unified/`);
 scenes depend on no library script.
