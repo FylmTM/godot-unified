@@ -21,7 +21,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
-	if state != UnifiedSession.EVENT_CONFIRMED:
+	if state != UnifiedSession.EVENT_CONFIRMED:  # printed once final: an EMITTED event can still be cancelled
 		return
 
 	if event is EventPlayerJoined:
