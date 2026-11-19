@@ -531,8 +531,13 @@ tool_details :: proc() -> string {
 		"A run passes with an ok UNIFIED_RESULT line and exit 0, no ERROR line, no leak at exit and no GDScript\n" +
 		"warning. Headless runs have Godot's debugger on (-d, which prints the warnings): a script error stops at\n" +
 		"its prompt, which quits at once (the run's stdin holds `quit`), so the run ends within seconds with the\n" +
-		"error printed. A run still going after %d minutes is killed.",
+		"error printed. A run still going after %d minutes is killed.\n\n" +
+		"The result line on stdout ends with what the script added to its result (UnifiedTool.result) as JSON:\n" +
+		"`%s`. With --json, the whole UNIFIED_RESULT object\n" +
+		"(steps, errors and the script's own keys) is the result's `data`. To read a value out of Godot, a script\n" +
+		"puts it in `result`.",
 		TOOL_TIMEOUT / 60,
+		`survivor validate: ok in 0.8s: {"contract":"ok",...}`,
 	)
 }
 
@@ -587,11 +592,27 @@ cmd_tool :: proc(args: []string) -> Result {
 		place   = AGENT_WINDOW,
 		timeout = TOOL_TIMEOUT,
 	})
-	return {
-		ok      = result.ok,
-		summary = aprintf("%s %s: %s in %.1fs", selected.name, name, result.ok ? "ok" : "FAILED", result.seconds),
-		data    = box(result.result),
+	summary := aprintf("%s %s: %s in %.1fs", selected.name, name, result.ok ? "ok" : "FAILED", result.seconds)
+	if own := tool_own_result(result.result); own != "" {
+		summary = aprintf("%s: %s", summary, own)
 	}
+	return {ok = result.ok, summary = summary, data = box(result.result)}
+}
+
+// What the script added to its result (UnifiedTool.result: every key but the base's ok, ms, steps, failed and
+// errors) as one line of JSON, keys sorted; "" when it added nothing.
+@(private)
+tool_own_result :: proc(result: json.Value) -> string {
+	BASE :: []string{"ok", "ms", "steps", "failed", "errors"}
+	object, is_object := result.(json.Object)
+	if !is_object do return ""
+	own := make(json.Object, context.temp_allocator)
+	for key, value in object {
+		if !slice.contains(BASE, key) do own[key] = value
+	}
+	if len(own) == 0 do return ""
+	text, err := json.marshal(own, {sort_maps_by_key = true}, context.temp_allocator)
+	return err == nil ? string(text) : ""
 }
 
 // Deletes the project's compiled-shader caches, so the next run compiles like a player's first launch: the editor's
