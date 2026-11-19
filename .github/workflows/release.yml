@@ -1,15 +1,5 @@
-# A release of the library (the `release` skill, .claude/skills/release/): one version, one tag on main,
-# `v<major>.<minor>.<patch>` or `v<major>.<minor>.<patch>-rc.<n>`. The tag runs the full check, all or nothing:
-#   check    everything CI runs (ci.yml, called: fmt and vet, the four test platforms with macOS, the godot job)
-#   games    every game with an export_presets.cfg exported and smoke-tested on windows-x64 and macos-arm64, one job
-#            per platform building the games in turn (`uni release --tag`, with and without the dev UI; no EOS: CI
-#            has no SDK and no credentials). The zips are thrown away: no game builds are published, the exports
-#            only prove the pipeline works.
-#   publish  only when both pass: a GitHub release titled `unified v<version>` (a prerelease while the major version
-#            is 0, and for a release candidate) with generated notes (the PRs merged since the last tag) and GitHub's
-#            source archives. No binaries. Game repos pin the unified submodule to the tag.
-# Manual runs (workflow_dispatch) check the pipeline on any branch without publishing: windows-x64 only unless
-# `macos` (its runners are often out of capacity), the games stamped dev-<commit>.
+# A release of the library: the `release` skill (.claude/skills/release/SKILL.md) has the tag rule, the jobs and how
+# to cut one, and is their one home.
 # Every job but publish reads only and holds no secrets; publish writes the release. Actions, runner images and
 # downloads are pinned, and Odin comes through the uni shim (see ci.yml).
 name: release
@@ -50,7 +40,6 @@ jobs:
           win='{"os":"windows-2025","platform":"windows-x64","uni":"./uni.cmd"}'
           mac='{"os":"macos-15","platform":"macos-arm64","uni":"./uni"}'
           if [ "$GITHUB_REF_TYPE" = tag ]; then
-            # the rule `uni release --tag` checks too (tools/release.odin, release_version)
             n='(0|[1-9][0-9]*)'
             if ! [[ "$GITHUB_REF_NAME" =~ ^v$n\.$n\.$n(-rc\.$n)?$ ]]; then
               echo "::error::$GITHUB_REF_NAME is not a release tag: v<major>.<minor>.<patch>, optionally -rc.<n>"
@@ -109,12 +98,12 @@ jobs:
       # LAN). Playtest builds keep the dev UI (F3 notes); a public build drops it: both are checked.
       - name: uni release --no-eos (every game)
         run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then tag=(--tag "$GITHUB_REF_NAME"); else tag=(); fi
-          ${{ matrix.uni }} release --no-eos "${tag[@]}"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version=(--version "${GITHUB_REF_NAME#v}"); else version=(); fi
+          ${{ matrix.uni }} release --no-eos "${version[@]}"
       - name: uni release --no-eos --no-devui (every game)
         run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then tag=(--tag "$GITHUB_REF_NAME"); else tag=(); fi
-          ${{ matrix.uni }} release --no-eos --no-devui "${tag[@]}"
+          if [ "$GITHUB_REF_TYPE" = tag ]; then version=(--version "${GITHUB_REF_NAME#v}"); else version=(); fi
+          ${{ matrix.uni }} release --no-eos --no-devui "${version[@]}"
 
   publish:
     name: publish
