@@ -40,8 +40,7 @@ send_item_home :: proc(t: ^Tick, index: int) {
 		if holder != {} do drop(t, holder)
 	}
 	def := &sim.slice(&places(t).items)[index]
-	physics.body_teleport(t.world.phys, item.body, def.pos, def.rot)
-	item.warp += 1
+	physics.body_teleport(t.world.phys, item.body, def.pos, def.rot) // its view snaps
 	sim.timer_stop(&item.thrown)
 	item.thrown_by = {}
 	physics.stop_ignoring(t.world.phys, &item.thrower_ignore)

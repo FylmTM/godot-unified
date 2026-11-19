@@ -340,3 +340,25 @@ body_and_shape_names :: proc(t: ^testing.T) {
 	testing.expect_value(t, string(physics.body_name(world, named.body)), "crate")
 	testing.expect_value(t, string(physics.shape_name(world, shape)), "lid")
 }
+
+// Every teleport moves the body's warp epoch on (a view snaps across it), in 3D and 2D; a body made anew starts at 0,
+// and nothing else moves it.
+@(test)
+body_warp_moves_on_at_every_teleport :: proc(t: ^testing.T) {
+	world := api_world()
+	defer physics.destroy(world)
+	body := physics.create_body(world, physics.body_def(.Dynamic, {0, 0, 0}))
+	testing.expect_value(t, physics.body_warp(world, body), 0)
+	physics.body_set_linear_velocity(world, body, {1, 0, 0})
+	physics.step(world)
+	testing.expect_value(t, physics.body_warp(world, body), 0)
+	physics.body_teleport(world, body, {5, 0, 0})
+	testing.expect_value(t, physics.body_warp(world, body), 1)
+	physics.body_set_transform(world, body, {6, 0, 0}, {0, 0, 0, 1})
+	testing.expect_value(t, physics.body_warp(world, body), 2)
+	flat := physics.create_body(world, physics.body_def_2d(.Dynamic, {0, 0}))
+	physics.body_teleport_2d(world, flat, {1, 1})
+	physics.body_set_transform_2d(world, flat, {2, 2})
+	testing.expect_value(t, physics.body_warp(world, flat), 2)
+	testing.expect_value(t, physics.body_warp(world, {}), 0) // no body
+}

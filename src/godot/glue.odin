@@ -33,9 +33,10 @@ View_Item :: struct($View: typeid) {
 	player: sim.Player,
 	pos:    sim.Position, // sim units (the host applies Glue.view_scale); 2D: pos.xy (Godot 2D: x right, y down)
 	rot:    [4]f32, // unit quaternion (x, y, z, w); dmath.quat_yaw, quat_angle_2d (2D); zero = identity
-	// The subject's warp epoch, a counter the game keeps in its state and bumps where it teleports the subject: a
-	// value other than the one last shown snaps the view (no interpolation, no correction glide). Rollback-safe: a
-	// re-simulated teleport bumps it to the same value, an undone one puts the old value back (the view snaps back).
+	// The subject's warp epoch: a value other than the one last shown snaps the view (no interpolation, no correction
+	// glide). A body's is physics.body_warp (every physics teleport moves it on); a thing that is no one body keeps a
+	// counter in its state and bumps it where it teleports. Rollback-safe: a re-simulated teleport bumps it to the
+	// same value, an undone one puts the old value back (the view snaps back).
 	warp:   u8,
 }
 

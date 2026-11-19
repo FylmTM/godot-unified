@@ -36,8 +36,8 @@ each time; the views show the newest guess and are told when it changes.
 **Events and views** (`src/godot/README.md`)
 - `tick` emits events for what happened; `fill_frame` reads the state for what is. A view's effect goes on EMITTED,
   its undo on CANCELLED, anything final (a score, an unlock) on CONFIRMED (Events).
-- Whatever teleports keeps a `u8` warp epoch in the state, bumped at the teleport and pushed with its view
-  (`View_Item.warp`; Filling a frame).
+- Whatever teleports pushes a warp epoch with its view (`View_Item.warp`; Filling a frame): a body's is
+  `physics.body_warp` (every physics teleport moves it on); a thing that is no one body keeps a `u8` in its state.
 - A kind whose spawns must never show mispredicted is `Appear.Verified`; its smoothing and who poses it are its
   `Glue.view_policy` / `multi_policy` entry (Filling a frame).
 - What a view shows of the rules' next move (the item a grab would take, the next upgrade) calls the proc `tick`
@@ -98,7 +98,8 @@ each time; the views show the newest guess and are told when it changes.
   (a new event). Run it on CONFIRMED, or undo on CANCELLED (`src/godot/README.md`, Events).
 - **The HUD flickers, or shows a win that un-happens.** Session data is the newest prediction. Show what must be
   final from a CONFIRMED event (`src/godot/README.md`, Data and classes).
-- **A view glides across the map on a respawn.** No warp epoch bumped at the teleport (`View_Item.warp`).
+- **A view glides across the map on a respawn.** No warp epoch pushed with it (`View_Item.warp`: a body's
+  `physics.body_warp`), or a body moved by a velocity instead of a teleport.
 - **A spawn flashes and vanishes.** A mispredicted spawn, shown at once by default: `Appear.Verified` for that kind.
 - **A MultiMesh instance pops on a correction.** Its kind sets no smoothing in `Glue.multi_policy`.
 - **The crosshair shows one target and the grab takes another.** The view decides on its own: call the sim's proc in

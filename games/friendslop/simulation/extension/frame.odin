@@ -44,7 +44,7 @@ fill_frame :: proc(f: ^Frame) {
 			kind = .Player,
 			pos  = sim.Position(physics.body_position(f.world.phys, character.controller.body)),
 			rot  = dmath.quat_yaw(character.facing),
-			warp = character.controller.warp,
+			warp = physics.body_warp(f.world.phys, character.controller.body),
 		}, Player_View {
 			limp    = character.stun > 0 || character.held_by != {},
 			holding = character.held_kind != .None,
@@ -55,7 +55,7 @@ fill_frame :: proc(f: ^Frame) {
 	places := &f.world.places[f.state.level.id]
 	for def, i in sim.slice(&places.items) {
 		item := &f.state.items[i]
-		push_body(f, item.body, def.marker, item.warp, held_by_one(item, def.kind))
+		push_body(f, item.body, def.marker, physics.body_warp(f.world.phys, item.body), held_by_one(item, def.kind))
 	}
 	for def, i in sim.slice(&places.platforms) do push_body(f, f.state.platforms[i].body, def.marker)
 	for def in sim.slice(&places.triggers) {

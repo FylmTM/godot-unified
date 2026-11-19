@@ -22,11 +22,11 @@ Settings :: struct {
 }
 
 // What physics keeps about a body, by body index, beside Box3D's state and rolled back with it: its tag, whether it is
-// alive, and who owns it when no ref in the block does (the World, or the active level).
+// alive, who owns it when no ref in the block does (the World, or the active level), and its warp epoch.
 Body_Entry :: struct {
 	tag:        u64,
 	flags:      bit_set[Body_Flag;u8],
-	_pad:       u8,
+	warp:       u8, // bumped by every teleport of the body (body_warp)
 	generation: u16, // a level body's Box3D generation (level_change destroys it by it); 0 otherwise
 	_pad2:      [4]u8,
 }
@@ -56,6 +56,7 @@ World :: struct {
 	kept_bodies:    [sim.KEEP_SLOTS][dynamic]Body_Entry,
 	bodies:         [dynamic]Body_Entry, // by body index (rolled back: body_ring)
 	sealed:         bool, // `extra` was made: bodies created from now on are the block's
+	level_entered:  bool, // level_change ran (a world with levels steps only after one: step)
 	refs:           Ref_Layout, // the State's (extra)
 	layouts:        [dynamic]Type_Layout, // destroy_refs' cache (a few types: a list, no map in tick code)
 	owned:          [dynamic]bool, // check_refs' scratch
@@ -154,8 +155,13 @@ destroy :: proc(world: ^World) {
 	free(world)
 }
 
-// Advances the world one tick (Settings: 1 / tick_hz seconds in `substeps` solver substeps).
+// Advances the world one tick (Settings: 1 / tick_hz seconds in `substeps` solver substeps). A world with levels
+// (create_with_levels) steps only after its init entered one (asserted: else it runs with no static geometry).
 step :: proc(world: ^World) {
+	assert(
+		world.level_entered || len(world.levels) == 0,
+		"physics: the game has levels but its init entered none (physics.level_change(t, world, Level_Id.X))",
+	)
 	box3d.World_Step(world.id, world.dt, i32(world.substeps))
 }
 
@@ -278,7 +284,7 @@ extra :: proc(world: ^World, $State: typeid) -> sim.Extra {
 @(private)
 entries_valid :: proc(world: ^World, entries: []Body_Entry) -> bool {
 	for entry, index in entries {
-		if transmute(u8)entry.flags >> len(Body_Flag) != 0 || entry._pad != 0 || entry._pad2 != {} { 	// a bit of no flag
+		if transmute(u8)entry.flags >> len(Body_Flag) != 0 || entry._pad2 != {} { 	// a bit of no flag, padding
 			return false
 		}
 		if .Alive not_in entry.flags {

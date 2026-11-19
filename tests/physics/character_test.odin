@@ -381,9 +381,9 @@ character_limp_and_teleport :: proc(t: ^testing.T) {
 	run(&scene, 64, {1, 0}, 3) // input is ignored while limp
 	testing.expect(t, abs(physics.body_position(scene.world, scene.character.body).x) < 0.01)
 	physics.character_set_limp(scene.world, &scene.character, false)
-	warp := scene.character.warp
+	warp := physics.body_warp(scene.world, scene.character.body)
 	physics.character_teleport(scene.world, &scene.character, {5, 2, 5})
-	testing.expect_value(t, scene.character.warp, warp + 1) // a view snaps across it
+	testing.expect_value(t, physics.body_warp(scene.world, scene.character.body), warp + 1) // a view snaps across it
 	run(&scene, 96)
 	pos := physics.body_position(scene.world, scene.character.body)
 	testing.expectf(t, abs(pos.x - 5) < 0.01 && abs(pos.z - 5) < 0.01, "teleported to %v", pos)

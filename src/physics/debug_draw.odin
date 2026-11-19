@@ -53,8 +53,9 @@ DEBUG_DRAW_GROUPS :: [Debug_Draw_Flag]string {
 }
 
 // Draws the world into the tick's debug draws: of the flags offered, those whose group the host shows (none shown: a
-// few loads). Call it from tick code, typically after physics.step. Never changes the simulation.
-debug_draw :: proc(world: ^World, t: ^sim.Tick($G), flags: Debug_Draw_Flags) {
+// few loads). Call it from tick code, typically after physics.step: `physics.debug_draw(t, t.world.phys, flags)`
+// (the tick first, as level_change). Never changes the simulation.
+debug_draw :: proc(t: ^sim.Tick($G), world: ^World, flags: Debug_Draw_Flags) {
 	when !sim.DEV do return
 	sinks: [Debug_Draw_Flag]sim.Debug_Sink
 	shown: Debug_Draw_Flags
@@ -88,15 +89,15 @@ draw_world :: proc(world: ^World, sinks: ^[Debug_Draw_Flag]sim.Debug_Sink, shown
 
 // Shape colours, by body state (Box3D's own scheme).
 @(private)
-COLOR_STATIC :: 0x808080
+COLOR_STATIC :: sim.Debug_Color(0x808080)
 @(private)
-COLOR_KINEMATIC :: 0x4d4dc0
+COLOR_KINEMATIC :: sim.Debug_Color(0x4d4dc0)
 @(private)
-COLOR_AWAKE :: 0xe6b380
+COLOR_AWAKE :: sim.Debug_Color(0xe6b380)
 @(private)
-COLOR_ASLEEP :: 0x708090
+COLOR_ASLEEP :: sim.Debug_Color(0x708090)
 @(private)
-COLOR_SENSOR :: 0xf5deb3
+COLOR_SENSOR :: sim.Debug_Color(0xf5deb3)
 
 // Every shape of the world, as spheres, capsules and hull edges; a mesh, height field or compound as its bounds.
 @(private)
@@ -108,7 +109,7 @@ draw_shapes :: proc(world: ^World, sink: sim.Debug_Sink) {
 	for id in ids {
 		body := box3d.Shape_GetBody(id)
 		pose := box3d.Body_GetTransform(body)
-		color: u32 = COLOR_AWAKE
+		color := COLOR_AWAKE
 		switch {
 		case box3d.Shape_IsSensor(id):
 			color = COLOR_SENSOR
@@ -125,10 +126,10 @@ draw_shapes :: proc(world: ^World, sink: sim.Debug_Sink) {
 		#partial switch box3d.Shape_GetType(id) {
 		case .sphereShape:
 			sphere := box3d.Shape_GetSphere(id)
-			sim.sink_sphere(sink, at(pose, sphere.center), sphere.radius, color)
+			sim.debug_sphere(sink, at(pose, sphere.center), sphere.radius, color)
 		case .capsuleShape:
 			capsule := box3d.Shape_GetCapsule(id)
-			sim.sink_capsule(sink, at(pose, capsule.center1), at(pose, capsule.center2), capsule.radius, color)
+			sim.debug_capsule(sink, at(pose, capsule.center1), at(pose, capsule.center2), capsule.radius, color)
 		case .hullShape:
 			hull := box3d.Shape_GetHull(id)
 			points, edges := box3d.GetHullPoints(hull), box3d.GetHullEdges(hull)
@@ -136,12 +137,12 @@ draw_shapes :: proc(world: ^World, sink: sim.Debug_Sink) {
 				edge := edges[i]
 				if int(edge.twin) < i do continue // each edge once
 				a, b := points[edge.origin], points[edges[edge.twin].origin]
-				sim.sink_line(sink, at(pose, a), at(pose, b), color)
+				sim.debug_line(sink, at(pose, a), at(pose, b), color)
 			}
 		case:
 			bounds := box3d.Shape_GetAABB(id)
 			low, high := transmute([3]f32)bounds.lowerBound, transmute([3]f32)bounds.upperBound
-			sim.sink_box(sink, (low + high) / 2, (high - low) / 2, {0, 0, 0, 1}, color)
+			sim.debug_box(sink, (low + high) / 2, (high - low) / 2, {0, 0, 0, 1}, color)
 		}
 	}
 }
@@ -168,38 +169,38 @@ draw_box3d :: proc(world: ^World, flag: Debug_Draw_Flag, sink: sim.Debug_Sink) {
 	debug.DrawSegmentFcn = proc "c" (a, b: box3d.Pos, color: box3d.HexColor, user: rawptr) {
 		draw := (^Draw_Ctx)(user)
 		context = draw.ctx
-		sim.sink_line(draw.sink, transmute([3]f32)a, transmute([3]f32)b, u32(color))
+		sim.debug_line(draw.sink, transmute([3]f32)a, transmute([3]f32)b, sim.Debug_Color(color))
 	}
 	debug.DrawTransformFcn = proc "c" (pose: box3d.WorldTransform, user: rawptr) {
 		draw := (^Draw_Ctx)(user)
 		context = draw.ctx
 		origin := transmute([3]f32)pose.p
 		AXES :: [3]box3d.Vec3{{0.5, 0, 0}, {0, 0.5, 0}, {0, 0, 0.5}}
-		colors := [3]u32{0xff4040, 0x40e040, 0x4080ff}
+		colors := [3]sim.Debug_Color{.Red, .Green, .Blue}
 		for axis, i in AXES {
-			sim.sink_line(draw.sink, origin, transmute([3]f32)box3d.TransformPoint(pose, axis), colors[i])
+			sim.debug_line(draw.sink, origin, transmute([3]f32)box3d.TransformPoint(pose, axis), colors[i])
 		}
 	}
 	debug.DrawPointFcn = proc "c" (point: box3d.Pos, size: f32, color: box3d.HexColor, user: rawptr) {
 		draw := (^Draw_Ctx)(user)
 		context = draw.ctx
-		sim.sink_point(draw.sink, transmute([3]f32)point, size * 0.01, u32(color)) // Box3D's size is in pixels
+		sim.debug_point(draw.sink, transmute([3]f32)point, sim.Debug_Color(color), size * 0.01) // Box3D's size is in pixels
 	}
 	debug.DrawSphereFcn = proc "c" (centre: box3d.Pos, radius: f32, color: box3d.HexColor, _: f32, user: rawptr) {
 		draw := (^Draw_Ctx)(user)
 		context = draw.ctx
-		sim.sink_sphere(draw.sink, transmute([3]f32)centre, radius, u32(color))
+		sim.debug_sphere(draw.sink, transmute([3]f32)centre, radius, sim.Debug_Color(color))
 	}
 	debug.DrawCapsuleFcn = proc "c" (a, b: box3d.Pos, radius: f32, color: box3d.HexColor, _: f32, user: rawptr) {
 		draw := (^Draw_Ctx)(user)
 		context = draw.ctx
-		sim.sink_capsule(draw.sink, transmute([3]f32)a, transmute([3]f32)b, radius, u32(color))
+		sim.debug_capsule(draw.sink, transmute([3]f32)a, transmute([3]f32)b, radius, sim.Debug_Color(color))
 	}
 	debug.DrawBoundsFcn = proc "c" (bounds: box3d.AABB, color: box3d.HexColor, user: rawptr) {
 		draw := (^Draw_Ctx)(user)
 		context = draw.ctx
 		low, high := transmute([3]f32)bounds.lowerBound, transmute([3]f32)bounds.upperBound
-		sim.sink_box(draw.sink, (low + high) / 2, (high - low) / 2, {0, 0, 0, 1}, u32(color))
+		sim.debug_box(draw.sink, (low + high) / 2, (high - low) / 2, {0, 0, 0, 1}, sim.Debug_Color(color))
 	}
 	debug.DrawBoxFcn = proc "c" (
 		extents: box3d.Vec3,
@@ -210,12 +211,12 @@ draw_box3d :: proc(world: ^World, flag: Debug_Draw_Flag, sink: sim.Debug_Sink) {
 		draw := (^Draw_Ctx)(user)
 		context = draw.ctx
 		rot := [4]f32{pose.q.v.x, pose.q.v.y, pose.q.v.z, pose.q.s}
-		sim.sink_box(draw.sink, transmute([3]f32)pose.p, transmute([3]f32)extents, rot, u32(color))
+		sim.debug_box(draw.sink, transmute([3]f32)pose.p, transmute([3]f32)extents, rot, sim.Debug_Color(color))
 	}
 	debug.DrawStringFcn = proc "c" (point: box3d.Pos, text: cstring, color: box3d.HexColor, user: rawptr) {
 		draw := (^Draw_Ctx)(user)
 		context = draw.ctx
-		sim.sink_text(draw.sink, transmute([3]f32)point, string(text), u32(color))
+		sim.debug_text(draw.sink, transmute([3]f32)point, string(text), sim.Debug_Color(color))
 	}
 	switch flag {
 	case .Shapes:

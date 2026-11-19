@@ -88,6 +88,7 @@ level_change :: proc(t: ^sim.Tick($G), world: ^World, id: $Id) where intrinsics.
 		entry = {}
 	}
 	build_level(world, &world.levels[int(id)])
+	world.level_entered = true
 	sim.level_enter(t, id)
 }
 

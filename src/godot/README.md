@@ -88,8 +88,9 @@ The host remembers every keyed item's pose, so a view or instance seen at tick â
 never pass previous poses. After a rollback the remembered pose is the old prediction, so the host sends an estimate
 of the corrected one (`poses.odin`); a correction glides over the smoothing's `tau_s`, it never pops.
 
-The host never guesses a teleport the sim can name: a game keeps a **warp epoch** per thing in its state (a `u8` it
-bumps where it teleports it) and pushes it with the view (`View_Item.warp`). A change snaps the view: no
+The host never guesses a teleport the sim can name: each thing has a **warp epoch** that moves on where it
+teleports, pushed with the view (`View_Item.warp`): a body's is physics' (`physics.body_warp`, moved on by every
+physics teleport), a thing that is no one body keeps a `u8` in its state and bumps it. A change snaps the view: no
 interpolation and no correction crosses it. It is compared with the epoch the main thread last **showed**, not the
 last fill's, because the hand-off drops frames the main thread never took. It is rollback-safe by construction: a
 re-simulated teleport bumps the counter to the same value, an undone one puts the old value back and the view snaps
