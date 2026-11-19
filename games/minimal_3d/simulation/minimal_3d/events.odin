@@ -2,6 +2,7 @@ package minimal_3d
 
 import "unified:sim"
 
+// Every event the sim emits: the library's joins and leaves, and the game's own.
 Event :: union {
 	sim.Event_Player_Joined,
 	sim.Event_Player_Left,

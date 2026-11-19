@@ -19,8 +19,11 @@ update_players :: proc(t: ^Tick) {
 	}
 }
 
-// Each present ship, before the physics step: the cooldowns count down; it thrusts along the stick, turns toward the
-// aim, boosts and fires.
+// Each present ship, before the physics step: the cooldowns count down; it thrusts along the stick (an impulse of
+// stick * THRUST_ACCEL * mass * dt), turns toward the aim (the angular velocity TURN_GAIN * cross(heading, aim) capped
+// at TURN_MAX, or the full TURN_MAX when the aim is behind), boosts (an impulse adding BOOST_SPEED along the heading,
+// then BOOST_COOLDOWN_TICKS) and fires (every FIRE_EVERY_TICKS while held, a bullet from the nose at BULLET_SPEED
+// along the heading plus the ship's velocity).
 fly_ships :: proc(t: ^Tick) {
 	ships := sim.iterate_present(t)
 	for ship, player in sim.next(&ships) {

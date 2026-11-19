@@ -34,6 +34,7 @@ throw_ball :: proc(t: ^Tick, player: sim.Player, speed: u8) {
 	sim.emit(t, Event_Ball_Thrown{player = player, speed = capped})
 }
 
+// Balls fall at GRAVITY; a ball whose centre is BALL_RADIUS or less above the ground despawns.
 move_balls :: proc(t: ^Tick) {
 	balls := sim.iterate(&t.state.balls)
 	for ball, handle in sim.next(&balls) {

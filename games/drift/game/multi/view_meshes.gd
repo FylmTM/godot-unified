@@ -1,6 +1,6 @@
 class_name ViewMeshes
 ## The 2D meshes and MultiMeshes of drift's multi views, built in code. The host writes every instance's
-## TRANSFORM_2D (position, rotation, scale per axis), colour and custom data (UnifiedMultiView, src/godot/SPEC.md),
+## TRANSFORM_2D (position, rotation, scale per axis), colour and custom data (UnifiedMultiView, src/godot/README.md),
 ## so a mesh is drawn at unit scale, in pixels: rocks at radius 1 m (scaled by the rock's radius in metres), bullets
 ## and gems (scaled by the pulse or stretch fill_frame gives them).
 

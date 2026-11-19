@@ -49,7 +49,7 @@ Roll :: enum u8 {
 	Rock_Variant,
 }
 
-// The physics world with the level's static geometry (src/level/SPEC.md, 2D levels), then its markers: a `spawn` per
+// The physics world with the level's static geometry (src/level/README.md, 2D levels), then its markers: a `spawn` per
 // slot, the `station`, `gate`s (`pair`: the other gate) and `rock_spawn`s (`dir`: the drift direction). The bodies the
 // block owns (the station, ships, rocks) are made by init and the tick.
 world_create :: proc(seed: u64, content: []u8) -> ^World {
@@ -61,7 +61,7 @@ world_create :: proc(seed: u64, content: []u8) -> ^World {
 		CAT_STATIC,
 	)
 	assert(problem == "", problem) // a missing level, or a hole in its collision
-	assert(world.level.px_per_m > 0, "drift: the level is not a 2D level (src/level/SPEC.md)")
+	assert(world.level.px_per_m > 0, "drift: the level is not a 2D level (src/level/README.md)")
 
 	spawn_count := 0
 	gate_markers: [MAX_GATES]int // each gate's marker index

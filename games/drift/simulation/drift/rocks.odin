@@ -4,8 +4,10 @@ import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
-// A rock out of HP: a large or medium one splits into two of the next size, which move apart across its velocity; a
-// small one is destroyed, and one in GEM_DROP_EVERY drops a gem.
+// A rock out of HP: a large or medium one splits into two of the next size, ROCK_SPLIT_GAP of their radii either side
+// of it across its velocity, moving apart at ROCK_SPLIT_SPEED, each with ROCK_SPLIT_SPIN of its spin, the second the
+// other way and the next shape; a small one is destroyed, and one in GEM_DROP_EVERY drops a gem at GEM_THROW of its
+// velocity.
 break_rocks :: proc(t: ^Tick) {
 	// a split's halves that reuse a free slot ahead of the walk are visited this tick, the ones in fresh slots the next
 	rocks := sim.iterate(&t.state.rocks)
@@ -42,8 +44,9 @@ break_rocks :: proc(t: ^Tick) {
 	}
 }
 
-// During a match: a wave every WAVE_EVERY_TICKS, whose large rocks come one every ROCK_EVERY_TICKS from the
-// rock_spawn markers in turn, each with its direction turned a little, its spin and its shape from keyed rolls.
+// During a match: wave k (0, 1, ...) every WAVE_EVERY_TICKS brings WAVE_ROCKS + WAVE_ROCKS_MORE * k large rocks, one
+// every ROCK_EVERY_TICKS from the rock_spawn markers in turn, at ROCK_SPEED + ROCK_SPEED_PER_WAVE * k along the
+// marker's direction turned up to ROCK_SPREAD; the turn, the spin (up to ROCK_SPIN_MAX) and the shape are keyed rolls.
 spawn_waves :: proc(t: ^Tick) {
 	if t.state.phase != .Match do return
 	if t.number >= t.state.next_wave_tick {

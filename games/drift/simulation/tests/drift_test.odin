@@ -1,7 +1,8 @@
-// games/drift/SPEC.md: scenarios on the real arena (the committed export of game/levels/arena.tscn) while every
-// tick is sync-tested (restore 8 ticks back, re-simulate with the recorded inputs and commands, compare
-// checksums). So splits, warps, the station falling and the reset are all checked for determinism under
-// rollback. That every body stays exactly on the plane is the library's (tests/physics/plane2d_test.odin).
+// drift's rules (games/drift/README.md) as scenarios on the real arena (the committed export of
+// game/levels/arena.tscn) while every tick is sync-tested (restore 8 ticks back, re-simulate with the recorded inputs
+// and commands, compare checksums). So splits, warps, the station falling and the reset are all checked for
+// determinism under rollback. That every body stays exactly on the plane is the library's
+// (tests/physics/plane2d_test.odin).
 package test_drift
 
 import "core:testing"

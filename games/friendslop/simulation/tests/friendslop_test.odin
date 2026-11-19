@@ -1,6 +1,6 @@
-// games/friendslop/SPEC.md: scenarios on the real level (the committed export of game/levels/park.tscn), each
-// driven by a director that reads the World and records its inputs, while every tick is sync-tested
-// (restore 8 ticks back, re-simulate with the recorded inputs, compare checksums). So platforms, carries,
+// friendslop's rules (games/friendslop/README.md) as scenarios on the real level (the committed export of
+// game/levels/park.tscn), each driven by a director that reads the World and records its inputs, while every tick is
+// sync-tested (restore 8 ticks back, re-simulate with the recorded inputs, compare checksums). So platforms, carries,
 // two-person lifts, throws, hits, held friends and pads are all checked for determinism under rollback.
 package test_friendslop
 

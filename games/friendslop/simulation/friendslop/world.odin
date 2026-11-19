@@ -84,7 +84,7 @@ Checkpoint_Def :: struct {
 }
 
 // The world outside the block: the physics world, the level and what the sim reads from its markers
-// (games/friendslop/SPEC.md "Level"), and per-tick scratch.
+// (games/friendslop/README.md, Level), and per-tick scratch.
 World :: struct {
 	phys:             ^physics.World,
 	level:            level.Level,
@@ -108,7 +108,7 @@ World :: struct {
 	character_def:    physics.Character_Def, // the players' (world_create)
 }
 
-// Builds the world from the level (src/level/SPEC.md): static geometry, then the markers the sim uses, and the
+// Builds the world from the level (src/level/README.md): static geometry, then the markers the sim uses, and the
 // triggers' static bodies. A property's default lives in its marker's script (game/levels/markers/), which the export
 // writes whole: the sim reads the properties without defaults of its own and asserts what its rules need. The bodies
 // the block owns (items, platforms) are created by init.

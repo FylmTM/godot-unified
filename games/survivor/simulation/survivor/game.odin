@@ -1,4 +1,4 @@
-// survivor (games/survivor/SPEC.md): a horde survival game at scale. Up to four players hold out in an arena against
+// survivor (games/survivor/README.md): a horde survival game at scale. Up to four players hold out in an arena against
 // waves of enemies, with crates, barrels and a level-up pick.
 //
 // The files, by feature: game (this: the descriptors and the tick), tuning (every rule number), input, state,
@@ -54,7 +54,7 @@ GAME_STRESS := Game {
 	bench_prepare     = bench_prepare,
 }
 
-// One tick: the systems in the order the spec gives (games/survivor/SPEC.md, Systems).
+// One tick: the systems in their order (games/survivor/README.md, Systems).
 tick :: proc(t: ^Tick) {
 	update_players(t)
 	pick_upgrades(t)

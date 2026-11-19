@@ -1,6 +1,6 @@
-// drift (games/drift/SPEC.md): the 2D example game. One to four players fly ships around a turning station in an
+// drift (games/drift/README.md): the 2D example game. One to four players fly ships around a turning station in an
 // arena drawn in Godot's 2D editor, shoot the rocks that drift in at it (big ones split, small ones drop gems) and warp
-// through gates. Physics is Box3D locked to the plane (src/physics/SPEC.md, 2D).
+// through gates. Physics is Box3D locked to the plane (src/physics/README.md, 2D).
 //
 // The files, by feature: game (this: the descriptor and the tick), tuning (every rule number), input, state, events,
 // world (the physics world from the level, bodies, init), ships, bullets, station, rocks, gates, gems, phase, and the
@@ -35,7 +35,7 @@ GAME := Game {
 	scripted_commands = scripted_commands,
 }
 
-// One tick: the systems in the order the spec gives (games/drift/SPEC.md, Systems).
+// One tick: the systems in their order (games/drift/README.md, Systems).
 tick :: proc(t: ^Tick) {
 	update_players(t)
 	apply_commands(t)

@@ -14,6 +14,7 @@ place_new_players :: proc(t: ^Tick) {
 	}
 }
 
+// Each present player moves at up to MOVE_SPEED in its stick's direction.
 move_players :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for data, player in sim.next(&players) {

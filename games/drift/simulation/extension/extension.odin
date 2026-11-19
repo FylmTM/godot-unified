@@ -1,5 +1,5 @@
 // drift's GDExtension (game/drift.gdextension -> .out/bin/libdrift.*): the drift sim run by unified:godot,
-// plus the game's glue (the view contract, games/drift/SPEC.md "View contract"): 2D scene and MultiMesh views and
+// plus the game's glue (the view contract, games/drift/README.md, View contract): 2D scene and MultiMesh views and
 // their typed data (frame.odin), the HUD's session data (hud.odin, Unified.data.hud), the constants
 // (Unified.constants), and how the InputMap and the aim become an Input (input.odin). Built by `uni build drift`.
 package extension

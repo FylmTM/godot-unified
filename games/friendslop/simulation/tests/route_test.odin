@@ -1,4 +1,4 @@
-// games/friendslop/SPEC.md "The route": each beat's mechanism on the real level, sync-tested every tick. Setups place
+// games/friendslop/README.md, The route: each beat's mechanism on the real level, sync-tested every tick. Setups place
 // players and items directly (then re-save that tick, so the sync-test never rewinds past a setup).
 package test_friendslop
 

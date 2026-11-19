@@ -1,5 +1,5 @@
 // The survivor's GDExtension (game/survivor.gdextension -> .out/bin/libsurvivor.*): the survivor sim run by
-// unified:godot, plus the game's glue (games/survivor/SPEC.md "View contract"): 3D scene and MultiMesh views in
+// unified:godot, plus the game's glue (games/survivor/README.md, View contract): 3D scene and MultiMesh views in
 // metres (frame.odin), the player view's data, the HUD's session data (hud.odin), the constants (this file), and how
 // the InputMap becomes an Input (input.odin). Built by `uni build survivor`.
 package extension
