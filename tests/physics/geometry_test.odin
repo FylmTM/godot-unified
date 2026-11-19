@@ -332,3 +332,72 @@ geometry_shapes_cross_in_an_image :: proc(t: ^testing.T) {
 	}
 	steps(late, 10)
 }
+
+// A compound needs no child of every kind to cross an image (a level's cell is mostly hulls): each of the 15 mixes of
+// sphere, capsule, hull and mesh children, on a static body under a falling ball, loads into a late world with the
+// same deep hash, and both step on bit for bit.
+@(test)
+geometry_compound_child_mixes_cross_in_an_image :: proc(t: ^testing.T) {
+	Kind :: enum {
+		Sphere,
+		Capsule,
+		Hull,
+		Mesh,
+	}
+	for mix in 1 ..< 16 {
+		kinds := transmute(bit_set[Kind])u8(mix)
+		mesh := physics.create_box_mesh({0, 1, 0}, {0.5, 0.5, 0.5})
+		defer physics.destroy_mesh(mesh)
+		cube := physics.make_cube_hull(0.5)
+		material := physics.Surface_Material {
+			friction = 0.6,
+		}
+		spheres := [1]physics.Compound_Sphere_Def{{{{-2.5, 0, 0}, 0.5}, material}}
+		capsules := [1]physics.Compound_Capsule_Def{{{{2.5, -0.5, 0}, {2.5, 0.5, 0}, 0.5}, material}}
+		hulls := [2]physics.Compound_Hull_Def {
+			{&cube.base, {{0, 0, 0}, {0, 0, 0, 1}}, material},
+			{&cube.base, {{0, 0, 2}, {0, 0, 0, 1}}, material},
+		}
+		mesh_materials := [1]physics.Surface_Material{material}
+		meshes := [1]physics.Compound_Mesh_Def{{mesh, {{0, 0, -2}, {0, 0, 0, 1}}, {1, 1, 1}, &mesh_materials[0], 1}}
+		def: physics.Compound_Def
+		if .Sphere in kinds do def.spheres, def.sphere_count = &spheres[0], 1
+		if .Capsule in kinds do def.capsules, def.capsule_count = &capsules[0], 1
+		if .Hull in kinds do def.hulls, def.hull_count = &hulls[0], 2
+		if .Mesh in kinds do def.meshes, def.mesh_count = &meshes[0], 1
+		compound := physics.create_compound(def)
+		defer physics.destroy_compound(compound)
+
+		block: Geometry_Block
+		world, extra := geometry_world()
+		defer physics.destroy(world)
+		body_def := physics.default_body_def()
+		block.terrain[0] = physics.create_body(world, body_def, 100)
+		block.shapes[0] = physics.create_baked_compound_shape(
+			world,
+			block.terrain[0],
+			physics.default_shape_def(),
+			compound,
+		)
+		ball_def := physics.default_body_def()
+		ball_def.type = .Dynamic
+		ball_def.position = {0.2, 3, 0.1}
+		block.balls[0] = physics.create_body(world, ball_def, 200)
+		physics.create_sphere_shape(world, block.balls[0], physics.default_shape_def(), {{}, 0.3})
+		steps(world, 10)
+		extra.save(extra.data, 0)
+		image := extra.image(extra.data, 0, true)
+
+		late, late_extra := geometry_world()
+		defer physics.destroy(late)
+		loaded := late_extra.load(late_extra.data, image)
+		testing.expectf(t, loaded, "%v: the image is refused", kinds)
+		if !loaded do continue
+		testing.expectf(t, api_deep_hash(&late_extra) == api_deep_hash(&extra), "%v: the loaded world differs", kinds)
+		for _ in 0 ..< 30 {
+			steps(world, 1)
+			steps(late, 1)
+		}
+		testing.expectf(t, api_deep_hash(&late_extra) == api_deep_hash(&extra), "%v: the worlds part", kinds)
+	}
+}
