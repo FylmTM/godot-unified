@@ -73,6 +73,22 @@ create_filter_joint :: proc(
 	return {joint_ref_of(box3d.CreateFilterJoint(world.id, (^box3d.FilterJointDef)(&def)))}
 }
 
+// Stops two bodies touching each other (no contact, no events between them; each still collides with everything
+// else) until stop_ignoring: a thrower and what it threw, a carrier and what it carries. A filter joint, so it is
+// rollback state like any joint: keep the ref in the block. Destroying either body ends it (the ref goes stale:
+// stop_ignoring or destroy_refs zeroes it before the tick ends, as for any joint ref).
+ignore_contacts :: proc(world: ^World, body_a, body_b: Body_Link, loc := #caller_location) -> Filter_Joint_Ref {
+	return create_filter_joint(world, body_a, body_b, default_filter_joint_def(), loc)
+}
+
+// Ends an ignore_contacts: the two bodies collide again from the next step, even when they overlap at rest (it sets
+// the joint's bodies to collide before destroying it, so Box3D pairs them again; a bare destroy_joint leaves a resting
+// overlap alone until one moves). Zeroes the ref; a zero or stale ref is only zeroed.
+stop_ignoring :: proc(world: ^World, ignore: ^Filter_Joint_Ref) {
+	if joint_valid(world, ignore.joint) do box3d.Joint_SetCollideConnected(joint_id(world, ignore.joint), true)
+	destroy_joint(world, &ignore.joint)
+}
+
 // Creates a motor joint between two bodies.
 create_motor_joint :: proc(
 	world: ^World,
@@ -1286,7 +1302,8 @@ wheel_joint_steering_torque :: proc(world: ^World, joint: Wheel_Joint_Ref) -> f3
 	return box3d.WheelJoint_GetSteeringTorque(joint_id(world, joint))
 }
 
-// Destroys the joint (if it is still alive: destroying a body destroys its joints) and clears the ref.
+// Destroys the joint (if it is still alive: destroying a body destroys its joints) and clears the ref. A joint that
+// kept its bodies from colliding leaves them overlapping at rest uncollided until one moves (stop_ignoring re-pairs).
 destroy_joint :: proc(world: ^World, joint: ^Joint_Ref) {
 	if joint_valid(world, joint^) {
 		box3d.DestroyJoint(joint_id(world, joint^), true)

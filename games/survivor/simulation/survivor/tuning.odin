@@ -11,7 +11,7 @@ MAX_ENEMIES :: 1200
 MAX_PROJECTILES :: 512
 MAX_GEMS :: 1024
 MAX_ITEMS :: 64 // crates and barrels: the most item markers a level may hold
-PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
+PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically (the suite checks), more take CPU from Godot
 
 // ---- the arena (its walls and pillars are the level's: game/levels/arena.tscn)
 

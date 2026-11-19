@@ -143,3 +143,17 @@ world_bounds :: proc(world: ^World) -> AABB {
 world_awake_body_count :: proc(world: ^World) -> int {
 	return int(box3d.World_GetAwakeBodyCount(world.id))
 }
+
+// Sets how many workers Box3D splits a step across (1 to Box3D's MAX_WORKERS, 32; Settings.workers at creation). Results
+// are the same for any count, which a game that ships more than one proves by its reference run on both
+// (src/physics/README.md, Capacity); a test changes it on a game's world after world_create.
+world_set_worker_count :: proc(world: ^World, count: i32) {
+	assert(count >= 1 && count <= box3d.MAX_WORKERS, "physics: a worker count is 1 to box3d.MAX_WORKERS")
+	box3d.World_SetWorkerCount(world.id, count)
+	world.workers = count
+}
+
+// How many workers Box3D splits a step across.
+world_worker_count :: proc(world: ^World) -> i32 {
+	return box3d.World_GetWorkerCount(world.id)
+}
