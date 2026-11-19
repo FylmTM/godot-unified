@@ -65,6 +65,8 @@ Api :: struct {
 	events_dropped:  proc() -> int, // events that found their queue full, this session
 	// The session thread's frame hook since the last call (events tracked, fill_frame, the Frame published), reset.
 	take_fill_stats: proc() -> Fill_Stats,
+	// How late the session thread woke from its sleeps since the last call, reset (wake.odin).
+	take_wake_stats: proc() -> Wake_Summary,
 	state:           proc() -> (state: any, tick: u32), // the newest predicted state and its tick (while want_state)
 	// What the shown tick changed against the tick before (sim.state_changes; the Inspector's op log): its lines (at
 	// most `limit`, temp-allocated), how many there are, and the two ticks (0: nothing published yet).
@@ -205,6 +207,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	events:          Queue(Event_Message, 4096), // full: dropped and counted
 	dropped:         int, // atomic: events that found `events` full
 	fill:            Fill_Stats, // the frame hook's cost (atomic: the main thread takes it)
+	wakes:           Wake_Stats, // how late the loop's sleeps woke (atomic: the main thread takes it)
 	commands:        [LOCAL_MAX]Queue(sim.Raw_Command, netcode.COMMAND_QUEUE), // main thread -> hooks.commands, per local
 	tracker:         Event_Tracker(Tick_Event),
 	published:       u64,
@@ -563,6 +566,11 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 			total_ns = sync.atomic_exchange(&fill.total_ns, 0),
 			max_ns   = sync.atomic_exchange(&fill.max_ns, 0),
 		}
+	}
+	api.take_wake_stats = proc() -> Wake_Summary {
+		if g_driver == nil do return {}
+		driver := (^This_Driver)(g_driver)
+		return wake_take(&driver.wakes, i64(1_000_000 / max(driver.game.tick_hz, 1)))
 	}
 	api.replay_control = proc(control: Replay_Control) -> bool {
 		if g_driver == nil do return false
@@ -1348,7 +1356,7 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 			sync.atomic_add(&driver.step_seq, 1)
 			wake := replay_step(driver, now)
 			sync.atomic_add(&driver.step_seq, 1)
-			netcode.sleep_until(min(wake, now + 16_000))
+			wake_sleep(&driver.wakes, min(wake, now + 16_000))
 			continue
 		}
 		if sync.atomic_load(&driver.stop_req) && !driver.stopping {
@@ -1386,7 +1394,7 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 		goodbye: i64 = sync.atomic_load(&driver.hurry) ? HURRY_US : GOODBYE_US
 		if driver.stopping && now - driver.stop_at > goodbye do break
 		if driver.online do wake = min(wake, now + 4_000)
-		netcode.sleep_until(wake)
+		wake_sleep(&driver.wakes, wake)
 	}
 	if replay := driver.replay; replay != nil {
 		driver.result = fmt.aprintf(

@@ -89,6 +89,11 @@ func _initialize() -> void:
 		"event_us": snappedf(stats.delivery_us / maxf(stats.events, 1), 0.01),
 		"fill_us": snappedf(stats.fill_us / maxf(stats.fills, 1), 0.1),
 		"fill_max_us": snappedf(stats.fill_max_us, 0.1),
+		"wakes": stats.wakes,
+		"wake_p50_us": stats.wake_p50_us,
+		"wake_p99_us": stats.wake_p99_us,
+		"wake_max_us": stats.wake_max_us,
+		"wakes_over_tick": stats.wakes_over_tick,
 	}
 	print("VIEW BENCH ", JSON.stringify(out))
 	session.leave()

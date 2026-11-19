@@ -25,8 +25,9 @@ view_bench_details :: proc() -> string {
 		"moving MultiMesh instances (N = 1k, 4k, 16k; one Godot run each), 64 moving and 64 resting scene views and a\n" +
 		"few events a second. Prints per frame the MultiMesh build (every instance interpolated into its buffer) and\n" +
 		"upload (set_buffer), the scene views, the event delivery (and per event), and per published tick the session\n" +
-		"thread's half (its events tracked, fill_frame, the Frame published), into .out/view_bench.json. Headless,\n" +
-		"set_buffer reaches Godot's dummy renderer: --window measures the real one (frames paced by the display)." \
+		"thread's half (its events tracked, fill_frame, the Frame published) and how late its sleeps woke, into\n" +
+		".out/view_bench.json. Headless, set_buffer reaches Godot's dummy renderer: --window measures the real one\n" +
+		"(frames paced by the display)." \
 	)
 }
 
@@ -45,6 +46,11 @@ View_Bench_Line :: struct {
 	event_us:        f64, // per event delivered
 	fill_us:         f64, // the session thread, per published tick
 	fill_max_us:     f64,
+	wakes:           int, // the session thread's sleeps, how late they woke (godot.Wake_Summary)
+	wake_p50_us:     f64,
+	wake_p99_us:     f64,
+	wake_max_us:     f64,
+	wakes_over_tick: int,
 }
 
 cmd_view_bench :: proc(args: []string) -> cli.Result {
@@ -89,7 +95,7 @@ cmd_view_bench :: proc(args: []string) -> cli.Result {
 		}
 		append(&lines, line)
 		cli.log(
-			"%6d instances  %5.1f µs/frame: multimesh build %5.1f + upload %5.1f, %d scene views %5.1f, events %4.1f (%4.1f µs each); slowest frame %5.0f µs; %.0f fps; session thread %5.1f µs/tick (slowest %5.0f)",
+			"%6d instances  %5.1f µs/frame: multimesh build %5.1f + upload %5.1f, %d scene views %5.1f, events %4.1f (%4.1f µs each); slowest frame %5.0f µs; %.0f fps; session thread %5.1f µs/tick (slowest %5.0f), its sleeps woke late by p50 %.0f µs, p99 %.0f, max %.0f (%d over a tick)",
 			line.instances,
 			line.total_us,
 			line.multi_build_us,
@@ -102,6 +108,10 @@ cmd_view_bench :: proc(args: []string) -> cli.Result {
 			line.fps,
 			line.fill_us,
 			line.fill_max_us,
+			line.wake_p50_us,
+			line.wake_p99_us,
+			line.wake_max_us,
+			line.wakes_over_tick,
 		)
 	}
 	file := opts.window ? "view_bench_window.json" : "view_bench.json"

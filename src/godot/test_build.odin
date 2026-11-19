@@ -2,12 +2,13 @@
 // (install_problems) without compiling the whole host for the game: a large State copied by value makes that slow.
 // The host is generic over the game, and an import used only inside generic procs counts as unused until something
 // instantiates them, so this file does it once, for a game of one empty player: never called, it costs next to
-// nothing to compile and keeps the package whole under -vet.
+// nothing to compile and keeps the package whole under -vet. An executable that installs no game (`uni bench`'s wake
+// row: measure_wakes) needs the same.
 package godot
 
 @(require) import "unified:sim" // used only in a test build (and linked anyway: the host is built on it)
 
-when ODIN_TEST {
+when ODIN_TEST || ODIN_BUILD_MODE == .Executable {
 	@(private = "file")
 	Vet_Input :: struct {
 		x: u8,

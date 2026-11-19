@@ -278,10 +278,13 @@ that every `View` member has a scene and every indexed kind is a member.
 ## How it works
 
 - **Threads.** A session (single player is a host with no remote links) runs netcode's `host_step` / `client_step`
-  on its own thread (macOS: the real-time time-constraint class; while a session runs the process opts out of
-  background throttling: the platform files). The netcode hooks run there: `sample` takes the main thread's newest
-  Input; `frame` feeds the re-simulated and new ticks' events to the tracker, calls `fill_frame` and publishes the
-  Frame; `verified` confirms or cancels events. Godot is only called from the main thread.
+  on its own thread (macOS: the real-time time-constraint class; Windows: two above normal priority; Linux: as it
+  is; while a session runs the process opts out of background throttling: the platform files). The netcode hooks run
+  there: `sample` takes the main thread's newest Input; `frame` feeds the re-simulated and new ticks' events to the
+  tracker, calls `fill_frame` and publishes the Frame; `verified` confirms or cancels events. Godot is only called
+  from the main thread. The thread counts how late each of its sleeps wakes (`wake.odin`; `take_sync_stats`), and
+  `uni bench`'s wake row measures the same sleeps on the session thread's class with every core idle and busy: what a
+  platform's thread class is chosen from.
 - **The hand-off.** Lock-free where it is hot: a triple buffer of Frames (newest wins); an SPSC event queue (full:
   the event is dropped, never blocking the sim, counted and warned once); a small queue of its own for what must
   never be lost (statuses, the join code, desync reports, the result); a command queue; the input sample under a
