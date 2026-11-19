@@ -1,8 +1,8 @@
 # src: how the code works
 
 The `unified` collection, one package per directory. Each package's README (`src/<package>/README.md`) says how it
-works and `uni doc <package>` prints its API; this file is how the deterministic core works across packages. The games
-built on it are in `games/`. Toolchain: [`../README.md`](../README.md); commands: `uni help`.
+works and `uni doc <package>` prints its API; this file is how the packages fit together. The games built on it are in
+`games/`. Toolchain: [`../README.md`](../README.md); commands: `uni help`.
 
 ## Packages
 
@@ -18,52 +18,26 @@ built on it are in `games/`. Toolchain: [`../README.md`](../README.md); commands
 A package exists only where determinism rules differ, a consumer needs one piece without another, or third-party code
 lives; everything else merges. Imports point one way, always through the collection (`unified:<pkg>`), and never from
 a deterministic package to a real-time or host one: `tests/lint` holds the graph (an import allowlist per package,
-`src/lint/README.md`). A game's sim is linted like the core's tick packages.
-
-## State block and pointer-freedom
-
-A game's `State` is one struct of fixed arrays: globals, an `Rng`, fixed arrays of structs and `sim.Table(T, N)`s.
-A table keeps `items` and `slots` (free-list link, generation, alive) apart, so indices are stable (no swap-remove),
-freed items are zeroed, and `Handle(T)` = {index, generation} with generation 0 never live (the zero handle is
-null). Physics bodies are stored as `physics.Body_Ref {index1, generation}` without Box3D's world index, so the
-block is identical across the worlds of one process and across machines. Tooling (the inspector, desync diffs,
-dumps) reads the block by Odin RTTI, with no per-type or generated code.
-
-Enforcement is the RTTI walk in `sim.plain_violation`, run by `sim.create` and by `odin test`: only integers,
-floats, bools, enums, bit_sets, fixed/enumerated arrays and structs of those, **and no implicit padding anywhere**.
-That makes the block's memory its canonical little-endian serialization (`#assert(ODIN_ENDIAN == .Little)`): the
-checksum hashes the raw bytes, a snapshot is a struct copy, the portable snapshot writes the bytes as they are, and
-a player's input travels and is logged as its bytes (a command as its struct's bytes). Odin has no compile-time
-"is POD" trait, so this is a startup check.
-
-Determinism: scalar f32 `+ − × ÷` and `intrinsics.sqrt` only, no `matrix` types, no `core:math` in tick code
-(`src/dmath/README.md` has the rest). Host code (`godot`, `devui`) may use it: nothing there feeds the sim.
-Float→int casts only see clamped values.
+`src/lint/README.md`). A game's sim is linted like the core's tick packages. Tick code keeps to dmath's rules
+(`src/dmath/README.md`); host code (`godot`, `devui`) may use `core:math`: nothing there feeds the sim.
 
 ## Box3D
 
 Box3D is the unified-box3d shared library (Box3D ported to Odin; upstream's C API plus our snapshots and canonical
 images), pinned in `pins.cfg` and unpacked by `uni` into `.out/unified-box3d/`, whose Odin bindings are the
-`box3d:` collection. Only `unified:physics` imports them (`src/physics/README.md`, The boundary): Odin names,
-`[3]f32`/`[4]f32`, mirrored defs, one wrapper per Box3D proc. Shape data a game sets (filter categories, user material ids) lives
-in Box3D's shape structs, so it survives save/restore.
+`box3d:` collection. Only `unified:physics` imports them (`src/physics/README.md`, The boundary).
 
-## Snapshots and the checksum
+## How a tick flows
 
-- **The ring** (`sim.ring_size(tick_hz)`, about 250 ms of ticks): the block copy, the tick's events and the Extra's
-  save (a game has at most one) (physics: a Box3D snapshot per slot, a memcpy of the world's arena), saved after every step (including tick
-  0). Restore = copy back + the Extra's restore.
-- **Portable snapshot** (`sim.snapshot_encode` / `sim.from_snapshot`, late join): the block bytes and the Extra's image (physics: Box3D's
-  canonical image with its geometry, the same bytes on every platform), with what proves they fit (format in
-  `src/sim/README.md`). The receiver builds the same initial world, saves tick 0, then loads the image.
-- **Checksum:** XXH3-64 over the tick, the block bytes, then the Extra's hash (physics: Box3D's whole-world hash on
-  the ticks peers compare, the awake bodies' otherwise; `src/physics/README.md`).
-
-## Netcode
-
-The step API (`src/netcode/README.md`): no package-level threads; the host application calls `*_step(now_us)` from
-its own loop and sleeps to the wake time it returns. Time-dependent code takes `now` as a parameter, so tests run
-whole sessions on a virtual clock in milliseconds. `headless.session_run` steps a relay and its clients on one thread
-on the virtual clock (the end-to-end suites, the `session` mode); the `relay` and `client` modes run on the real
-clock in processes of their own, and the Godot host runs a session thread of its own (`src/godot/README.md`). Box3D world creation and destruction touch Box3D globals, so `physics.create/destroy`
-are serialised by a mutex.
+- **A step.** The host's loop calls `netcode`'s `*_step(now_us)` (`src/netcode/README.md`, Pieces); the client steps
+  the sim (`src/sim/README.md`, The tick), which steps the Extra (physics: `src/physics/README.md`, The plug-in) and
+  saves the tick to its ring (The harness); the Godot host shows the newest frame (`src/godot/README.md`, How it
+  works). Time is a parameter, so tests and `headless` run whole sessions on a virtual clock
+  (`src/headless/README.md`, Runs).
+- **The bytes.** The State is plain data without padding, so its memory is the checksum's input and a snapshot is a
+  copy (`src/sim/README.md`, The state block); physics adds Box3D's snapshot and canonical image
+  (`src/physics/README.md`, The plug-in).
+- **A rollback.** A finalized tick that differs from its prediction restores the ring and re-simulates
+  (`src/netcode/README.md`, Client).
+- **A late join.** The joiner gets a portable snapshot from a player and checks it against the others' checksums
+  (`src/netcode/README.md`, Late join and rejoin; the format: `src/sim/README.md`, The harness).

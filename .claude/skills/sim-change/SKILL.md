@@ -53,10 +53,9 @@ tuning, `src/physics`, `src/netcode` or the rollback path also runs the long var
 
 ## Format and protocol changes
 
-What changed decides what is bumped; each constant's comment says it too. `sim.compat_of` covers the layouts, the
-input, command and event types, the player count, tick rate, game name and version, the library version and the
-`[box3d]` pin: peers on different builds refuse each other at hello, and a replay or snapshot of another build is
-refused. Nothing in it is bumped by hand.
+What changed decides what is bumped; each constant's comment says it too. What `sim.compat_of` covers (its doc
+comment; `src/sim/README.md`, Build identity) is never bumped by hand: peers on different builds refuse each other at
+hello, and a replay or snapshot of another build is refused.
 
 | Constant | Guards | Bump when |
 |---|---|---|
@@ -79,7 +78,7 @@ A change to a sim, `src/physics`, `src/netcode` or the rollback path runs the be
 ./uni bench
 ```
 
-Target: a forward step, a restore, a re-sim at the prediction cap (14 ticks at 64 Hz) and a deep checksum within 6 ms
-at their p99; `uni bench` also reports each game's sessions (`session` under `bad`, and under `wan` with a late
+The target (a forward step, a restore, a re-sim at the prediction cap and a deep checksum, at their p99) is in
+`uni bench -h`; `uni bench` also reports each game's sessions (`session` under `bad`, and under `wan` with a late
 joiner: each client step's time, the join and its snapshot transfer), which a netcode change should not make worse. A re-sim that disagrees with the forward run fails the
 bench: that is a determinism bug, not a speed problem.

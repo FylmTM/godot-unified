@@ -69,7 +69,7 @@ each time; the views show the newest guess and are told when it changes.
 
 **Time and pause** (`src/sim/README.md`)
 - A time is seconds converted to ticks (`X_TICKS :: u32(X_S * TICK_HZ)`) or a `sim.Timer`; nothing counts down by
-  hand. A stamp is `t.time` (a `sim.Game_Time`), never `t.number`, which names the record only (Time; Game time).
+  hand. A stamp is `t.time` (a `sim.Game_Time`), never `t.number`, which names the record only (Game time).
 - A `sim.Clock` in the State makes game time pausable. The co-op pause is a command `tick` reads before it returns
   early on `t.paused`, before `physics.step` (this game's `pause.odin`); single player pauses from outside
   (`UnifiedSession.paused`) (Game time).
@@ -123,5 +123,5 @@ each time; the views show the newest guess and are told when it changes.
 - **The HUD's preview isn't what the player gets.** The peek names another tick or key than the roll: one proc for
   both (`sim.roll_below_at`).
 - **A time constant doesn't compile.** It isn't a whole number of ticks: change it, or start a `sim.Timer` with
-  seconds (`src/sim/README.md`, Time).
+  seconds (`src/sim/README.md`, Game time).
 - **Two builds desync instead of refusing each other.** A rule changed without a `Game.version` bump.

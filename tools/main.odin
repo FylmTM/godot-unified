@@ -1,17 +1,7 @@
 // This repo's CLI (src/cli/README.md): the public commands of unified:cli plus unified's private ones, which no game
 // needs (yet), and what this repo adds to the conventions (its test root, the toy game, the Godot test projects).
 // Run it through the shims, ./uni or uni.cmd; the binary rebuilds itself when a source changes. A command moves into
-// src/cli when a game needs it. The files:
-//
-//	main.odin           this registration
-//	suites.odin         the `net` suite (the toy's relay and 3 clients over real UDP) and the `godot-bindings` suite
-//	                    (tests/godot, tests/godot_views, a script error under the debugger)
-//	view_bench.odin     `view-bench`: the Godot host's view sync
-//	physics_bench.odin  `bench`'s physics row
-//	grid_bench.odin     `bench`'s grid row
-//	release.odin        `release`: playable builds (the `release` skill), and a library release's game check
-//	board.odin          `board list|set`: the work board (GitHub Project 2) through gh (needs the `project` scope)
-//	selftest.odin       `selftest`: a fresh clone bootstrapped by its shim, `init` end to end, the test watchdog
+// src/cli when a game needs it.
 package main
 
 import "core:slice"
