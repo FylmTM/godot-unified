@@ -82,7 +82,7 @@ WAVE_ROCKS_MORE :: 2 // ... and this many more in each wave after it
 ROCK_EVERY_TICKS :: u32(1.5 * TICK_HZ) // between a wave's rocks
 ROCK_SPEED :: 2 // m/s in the first wave
 ROCK_SPEED_PER_WAVE :: 0.2 // m/s more in each wave after it
-ROCK_SPREAD :: 0.25 // a rock's direction turns up to this either way from its spawn marker's (rad)
+ROCK_SPREAD_TURNS :: 0.04 // a rock's direction turns up to this either way from its spawn marker's (turns: 14.4°)
 ROCK_SPIN_MAX :: 1 // a new rock spins up to this either way (rad/s)
 
 // ---- gates

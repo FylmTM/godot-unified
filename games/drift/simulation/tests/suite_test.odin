@@ -23,10 +23,10 @@ REFERENCE :: scenarios.Reference {
 	players       = 4,
 	ticks         = 1800,
 	snapshot_tick = 900,
-	checkpoints   = {0x93d5cfef74527778, 0xb5b2bde6cc190637, 0xf168e8f5d470dee7, 0x6fbf802c4ceae546},
-	trace         = 0xb8e1af8a0ad9cb75,
-	snapshot      = 0x1f8515803d82907f,
-	log           = 0xb72c41cad5a0a7a9,
+	checkpoints   = {0x33c0d99c0ba4c796, 0x2c7eef17cdaa7223, 0x42baf8bc33c683c3, 0x7e905036a8a29635},
+	trace         = 0x6841048decabe678,
+	snapshot      = 0x30351fb2911225fd,
+	log           = 0xfbfb28d84d1cc449,
 }
 
 // By default the minimal set, each scenario proving something about this game (the toy's suite proves the

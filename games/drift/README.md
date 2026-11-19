@@ -69,7 +69,7 @@ The arena is a level drawn in Godot's 2D editor (`game/levels/arena.tscn`, baked
     +1 score, `GEM_REPAIR` station HP up to `STATION_HP`. A gem expires after `GEM_LIFE_TICKS`.
 11. `spawn_waves` (match only): a wave every `WAVE_EVERY_TICKS` (`wave`) brings `WAVE_ROCKS` large rocks,
     `WAVE_ROCKS_MORE` more each wave, one every `ROCK_EVERY_TICKS`, from the `rock_spawn` markers in turn, at
-    `ROCK_SPEED`, `ROCK_SPEED_PER_WAVE` faster each wave, along the marker's direction turned up to `ROCK_SPREAD`,
+    `ROCK_SPEED`, `ROCK_SPEED_PER_WAVE` faster each wave, along the marker's direction turned up to `ROCK_SPREAD_TURNS`,
     spinning up to `ROCK_SPIN_MAX`.
 12. `advance_phase`.
 

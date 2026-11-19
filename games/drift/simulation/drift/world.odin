@@ -21,13 +21,12 @@ HEXAGON := [6][2]f32{{1, 0}, {0.5, 0.8660254}, {-0.5, 0.8660254}, {-1, 0}, {-0.5
 
 // The world outside the block: the physics world and what the sim reads of the level's markers.
 World :: struct {
-	phys:          ^physics.World,
-	spawns:        [PLAYERS][2]f32, // by slot
-	station:       [2]f32,
-	gates:         [MAX_GATES]Gate_Def,
-	gate_count:    int,
-	spawners:      [MAX_SPAWNERS]Spawner_Def,
-	spawner_count: int,
+	phys:       ^physics.World,
+	spawns:     [PLAYERS][2]f32, // by slot
+	station:    [2]f32,
+	gates:      [MAX_GATES]Gate_Def,
+	gate_count: int,
+	spawners:   sim.List(Spawner_Def, MAX_SPAWNERS),
 }
 
 Gate_Def :: struct {
@@ -81,15 +80,14 @@ world_create :: proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^W
 			gate_markers[world.gate_count] = marker.index
 			world.gate_count += 1
 		case "rock_spawn":
-			assert(world.spawner_count < MAX_SPAWNERS, "drift: too many rock spawners")
 			dir := dmath.normalize(level.prop_vec2(&marker, "dir", {0, 1}))
 			if dir == {} do dir = {0, 1}
-			world.spawners[world.spawner_count] = {pos, dir}
-			world.spawner_count += 1
+			added := sim.append(&world.spawners, Spawner_Def{pos, dir})
+			assert(added, "drift: too many rock spawners")
 		}
 	}
 	assert(spawn_count == PLAYERS, "drift: the level needs a spawn marker per slot")
-	assert(world.spawner_count > 0, "drift: the level has no rock_spawn marker")
+	assert(world.spawners.count > 0, "drift: the level has no rock_spawn marker")
 	for &gate in world.gates[:world.gate_count] {
 		pair_marker := gate.pair
 		gate.pair = -1
