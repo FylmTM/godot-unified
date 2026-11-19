@@ -79,6 +79,7 @@ SIM_IMPORTS :: []string {
 
 GODOT_IMPORTS :: []string {
 	"unified:sim",
+	"unified:level", // a level's scene path (level.scene_of)
 	"unified:netcode",
 	"unified:dmath",
 	"unified:gdext",

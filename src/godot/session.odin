@@ -36,6 +36,7 @@ Session_Node :: struct {
 	has_pending: bool,
 	roster_seen: u32, // roster.changes when roster_changed was last emitted
 	mode:        Mode, // the session started last (UnifiedSession.mode; the dev UI: no netsim in single player)
+	level:       Level_Host, // the level on screen and its scene (level_host.odin)
 }
 
 @(private)
@@ -72,6 +73,7 @@ register_session_class :: proc() {
 		init = proc(instance: rawptr) {
 			session := (^Session_Node)(instance)
 			session.seed = 1 // local_name stays "": the roster shows "P" and the slot from 1
+			level_host_reset(&session.level)
 		},
 		fini = proc(instance: rawptr) {
 			session := (^Session_Node)(instance)
@@ -80,6 +82,7 @@ register_session_class :: proc() {
 				active = nil
 			}
 			clear_pending(session)
+			level_scene_free(&session.level)
 			delete(session.name)
 			delete(session.detail)
 			delete(session.join_code)
@@ -141,6 +144,10 @@ register_session_class :: proc() {
 			session.root_id = node.ptr != nil ? gdi.object_get_instance_id(node.ptr) : 0
 			session.root_set = true
 		}, .NODE_TYPE, "Node", doc = "Where scene views are made, as its children: set in the inspector or from a script; until it is set, the session's parent. Null, or a node outside the tree: no scene views.")
+	gd.bind_property(class, "level_root", level_root_of, proc(session: ^Session_Node, node: gd.Node) {
+			session.level.root = node
+			session.level.root_id = node.ptr != nil ? gdi.object_get_instance_id(node.ptr) : 0
+		}, .NODE_TYPE, "Node", doc = "Where the active level's scene is instanced (the scene its .level file was exported from): the session loads it on a thread and swaps it in when the verified level changes, freeing the old level's instance and every scene view with it. Null (the default): the game shows its level itself; [member level] and the level signals work all the same.")
 	gd.bind_property(
 		class,
 		"devui_visible",
@@ -161,6 +168,17 @@ register_session_class :: proc() {
 		proc(session: ^Session_Node) -> i64 {return i64(debug_draw_count())},
 		doc = "How many debug draws (shapes and texts) the shown tick has on screen.",
 	)
+	gd.bind_property(
+		class,
+		"level",
+		proc(session: ^Session_Node) -> i64 {return i64(session.level.shown.id)},
+		nil,
+		doc = "The level on screen: its index in the game's levels (its level enum's member; -1: none yet, or the game keeps no level). It follows the verified level, so a mispredicted change never shows.",
+	)
+	gd.bind_property(class, "level_scene", proc(session: ^Session_Node) -> gd.Node {
+			host := &session.level
+			return host.scene if host.scene.ptr != nil && alive(host.scene_id) else {}
+		}, nil, .NODE_TYPE, "Node", doc = "The shown level's instance under [member level_root] (null: none, or while the first level loads).")
 	// the running session, at the shown tick
 	gd.bind_property(
 		class,
@@ -297,6 +315,13 @@ register_session_class :: proc() {
 		take_sync_stats,
 		doc = "The view sync's cost since the last call, then counts anew. The main thread: frames, fresh (frames with a new tick), events (deliveries), and microseconds summed over the frames: scene_us, multi_build_us, multi_upload_us, delivery_us, total_us; total_max_us is the slowest frame's. The session thread: fills (published frames), fill_us summed (tracking the ticks' events, fill_frame, publishing), fill_max_us the slowest.",
 	)
+	gd.bind_method(
+		class,
+		"level_marker",
+		level_marker,
+		{"index"},
+		doc = "The shown level's marker node at [param index] (its index in the .level file: what a marker view's key names, [method Unified.level_markers]' order), or null.",
+	)
 	gd.bind_signal(
 		class,
 		"status_changed",
@@ -325,6 +350,18 @@ register_session_class :: proc() {
 		"sim_event",
 		{{"event", .OBJECT, "UnifiedEvent"}, {"state", .INT, "UnifiedSession.EventState"}},
 		doc = "Every sim event in every state: EVENT_EMITTED once, then EVENT_CONFIRMED or EVENT_CANCELLED once. Its subject's view gets it first ([code]_sim_event(event, state)[/code]). Dispatch by class: [code]if event is EventRockHit: var hit := event as EventRockHit[/code].",
+	)
+	gd.bind_signal(
+		class,
+		"level_changing",
+		{{"to", .INT, ""}},
+		doc = "The verified level is now [param to] and its scene is loading (put up a loading view): the views hold until [signal level_changed]; the sim keeps ticking.",
+	)
+	gd.bind_signal(
+		class,
+		"level_changed",
+		{{"level", .INT, ""}},
+		doc = "[param level] is on screen ([member level]): its scene is under [member level_root], the old level's views are gone, and the views sync again.",
 	)
 	gd.bind_signal(
 		class,
@@ -543,6 +580,7 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	request.token = client_token()
 	views_check_index()
 	data_reset()
+	level_host_reset(&session.level)
 	session.mode = request.mode
 	set_join_code(session, "")
 	dev_session_started()
@@ -645,7 +683,7 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 			session.synced_root = root_id
 			view_space_check(root)
 		}
-		views_sync(root, frame, fresh, alpha, f32(dt))
+		if !level_host_process(session, frame) do views_sync(root, frame, fresh, alpha, f32(dt))
 		debug_draw_sync(root, frame, fresh)
 		if fresh && !session.ended do data_sync(frame) // data went back to zero at the Result
 	}

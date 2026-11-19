@@ -129,6 +129,25 @@ MultiMeshInstance3D / 2D holding a **`UnifiedMultiView`** marker shows one Multi
 set before any other node's `_process` (the session runs at priority −1000), so a view's own `_process` sees the
 frame's pose. A `view_root` that leaves the tree holds no views, so a play scene needs no teardown.
 
+## Levels
+
+The active level is state (`src/sim/README.md`, Levels), so the host reads it rather than being told: `install`
+finds the State's `level` field (a `sim.Active_Level`) by type, and each Frame carries the level of its tick and of
+the newest verified tick. The level on screen (`UnifiedSession.level`) follows the **verified** one, so a
+mispredicted change never shows and a rollback across a change costs the view nothing:
+
+- **The scene.** With `level_root` set, the host loads the verified level's scene on a thread (the `res://` path its
+  `.level` file names, so no index or naming convention is needed), emitting `level_changing`; once it is loaded it
+  frees the old level's instance and every scene view, instances the new one under `level_root` and emits
+  `level_changed`. Without `level_root` the game shows its level itself (a single-level game's play scene instances
+  it), and `level` and the signals still follow the verified level.
+- **The views hold.** Views sync only from frames of the level on screen: while a change is predicted but not
+  verified, or the new scene still loads, the views keep their last pose and session data and events flow on. A
+  view keyed by a level's marker (`sim.Entity`) is never shown against another level's scene: a marker index names
+  a marker of the level active at its tick, and every scene view is dropped at the swap.
+- **The sim keeps ticking** through a load. A game that wants players to wait for everyone's scene keeps that as
+  state (a ready command and a timeout); the host has no barrier.
+
 ## Events
 
 `install` reads the game's event union by RTTI once: each kind's player (its first `sim.Player` field) and subject

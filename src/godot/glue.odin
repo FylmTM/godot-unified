@@ -106,34 +106,38 @@ Data_Out :: struct {
 
 // What crosses to the main thread every published tick (a triple buffer of three; each grows as pushes need).
 Frame_Data :: struct {
-	tick:         u32, // the newest predicted tick
-	verified:     u32,
-	tick_hz:      u32,
-	due_us:       i64, // when `tick` was due on the session clock (netcode.now_us); for alpha
-	local_player: u64, // the local player's key at `tick` (0: nobody yet)
-	published:    u64, // publish counter (0: nothing yet)
-	net:          netcode.Client_Stats, // the local client's (netcode.client_stats)
-	slots:        [sim.MAX_PLAYERS]u64, // who holds each slot at `tick` (keys; 0: nobody)
-	members:      []u64, // every player the state remembers at `tick` (keys, member order): members[:n_members]
-	n_members:    int,
-	views:        []View_Out,
-	multis:       []Multi_Out,
-	data:         []u8, // the views' and the session data's bytes, packed
-	datas:        [MAX_DATA_TYPES]Data_Out, // the session data pushed this frame: datas[:n_datas]
-	data_pushed:  u64, // the data kinds pushed this frame (one value per type per frame)
-	n_views:      int,
-	n_multis:     int,
-	n_data:       int,
-	n_datas:      int,
+	tick:           u32, // the newest predicted tick
+	verified:       u32,
+	// The active level at `tick` and at the newest verified tick (the State's sim.Active_Level; id -1: none): the
+	// main thread shows the verified one's scene and syncs views only from frames of the level on screen.
+	level:          Level_Stamp,
+	verified_level: Level_Stamp,
+	tick_hz:        u32,
+	due_us:         i64, // when `tick` was due on the session clock (netcode.now_us); for alpha
+	local_player:   u64, // the local player's key at `tick` (0: nobody yet)
+	published:      u64, // publish counter (0: nothing yet)
+	net:            netcode.Client_Stats, // the local client's (netcode.client_stats)
+	slots:          [sim.MAX_PLAYERS]u64, // who holds each slot at `tick` (keys; 0: nobody)
+	members:        []u64, // every player the state remembers at `tick` (keys, member order): members[:n_members]
+	n_members:      int,
+	views:          []View_Out,
+	multis:         []Multi_Out,
+	data:           []u8, // the views' and the session data's bytes, packed
+	datas:          [MAX_DATA_TYPES]Data_Out, // the session data pushed this frame: datas[:n_datas]
+	data_pushed:    u64, // the data kinds pushed this frame (one value per type per frame)
+	n_views:        int,
+	n_multis:       int,
+	n_data:         int,
+	n_datas:        int,
 	// Dev UI builds: the shown tick's debug draws while any draw group is shown (sim.debug_draws), and the zones'
 	// cumulative self times (sim.zone_totals: the zones by enum value, [sim.ZONES_MAX] "other"; zone_count 0: none).
-	draws:        []sim.Debug_Shape, // draws[:n_draws]
-	draw_text:    []u8, // their texts' bytes: draw_text[:n_draw_text]
-	n_draws:      int,
-	n_draw_text:  int,
-	zone_ns:      [sim.ZONES_MAX + 1]i64,
-	zone_count:   int,
-	alloc:        runtime.Allocator, // the views', multis' and data's (they grow on the session thread)
+	draws:          []sim.Debug_Shape, // draws[:n_draws]
+	draw_text:      []u8, // their texts' bytes: draw_text[:n_draw_text]
+	n_draws:        int,
+	n_draw_text:    int,
+	zone_ns:        [sim.ZONES_MAX + 1]i64,
+	zone_count:     int,
+	alloc:          runtime.Allocator, // the views', multis' and data's (they grow on the session thread)
 }
 
 // What a game provides, typed by its game (a sim.Game) and its view kinds (enums); install checks it. Its procs are
