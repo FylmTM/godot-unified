@@ -66,20 +66,14 @@ lobby_host_waits_for_a_joiner :: proc(t: ^testing.T) {
 	g_hub = netcode.hub_create(2)
 	defer netcode.hub_destroy(g_hub)
 	host := Mode_Task {
-		args = {mode = "loop-host", lobby = &LOOP_LOBBY},
+		args = {mode = "loop-host", lobby = &LOOP_LOBBY, argv = {"--ticks", "64", "--wait-s", "20"}},
 		host = true,
 		allocator = context.allocator,
 	}
-	host.args.opts["ticks"] = "64"
-	host.args.opts["wait-s"] = "20"
-	defer delete(host.args.opts)
 	joiner := Mode_Task {
-		args = {mode = "loop-client", lobby = &LOOP_LOBBY},
+		args = {mode = "loop-client", lobby = &LOOP_LOBBY, argv = {"--ticks", "64", "--code", "loop"}},
 		allocator = context.allocator,
 	}
-	joiner.args.opts["ticks"] = "64"
-	joiner.args.opts["code"] = "loop"
-	defer delete(joiner.args.opts)
 	host_thread := thread.create_and_start_with_poly_data(&host, run_mode)
 	joiner_thread := thread.create_and_start_with_poly_data(&joiner, run_mode)
 	thread.join(host_thread)

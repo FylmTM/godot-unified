@@ -28,7 +28,9 @@ it, and the binary's `help` lists every mode and its options. The modes:
   `uni bench` runs it;
 - `<lobby>-host`, `<lobby>-client` when the game opts into a lobby service: a scripted session over it, two processes
   (`src/eos/README.md`);
-- the game's own modes (`modes.Mode`), parsed and checked like the library's.
+- the game's own modes (`modes.Mode`): the one way a game's repo adds a mode. Each mode's options are a struct parsed
+  with `core:flags` in Unix style (`modes.parse`), the library's and a game's alike, so `help` shows what the struct
+  declares and an unknown option fails.
 
 Conventions every mode keeps:
 
