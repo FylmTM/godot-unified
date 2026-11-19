@@ -788,6 +788,13 @@ cmd_bake :: proc(args: []string) -> Result {
 	}
 	if opts.game == "" {
 		for target in state.config.bake {
+			if target.extension != "" {
+				ensure_project_extension(
+					join(state.project.root, target.dir),
+					join(state.project.root, target.extension),
+					target.library,
+				)
+			}
 			ok = bake_project(join(state.project.root, target.dir), target.scenes, opts.check).ok && ok
 		}
 	}

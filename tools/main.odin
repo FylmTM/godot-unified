@@ -23,7 +23,12 @@ main :: proc() {
 		},
 		bake              = {
 			{dir = "tests/godot", scenes = {"res://levels/level_2d.tscn", "res://levels/shapes_3d.tscn"}},
-			{dir = "tests/godot_views", scenes = {"res://levels/meadow.tscn", "res://levels/cave.tscn"}},
+			{
+				dir       = "tests/godot_views",
+				scenes    = {"res://levels/meadow.tscn", "res://levels/cave.tscn"},
+				extension = "tests/godot_views/ext",
+				library   = "views_test",
+			},
 		},
 	})
 	cli.add_suites(..private_suites())

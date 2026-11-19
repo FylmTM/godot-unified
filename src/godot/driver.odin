@@ -1271,7 +1271,10 @@ publish_frame :: proc(
 	fill_stats_add(&driver.fill, time.tick_since(started))
 	if sync.atomic_load(&want_state) {
 		pair := triple_back(&driver.states)
-		pair.tick, pair.state = info.tick, current^
+		pair.tick = info.tick
+		// A State is assigned on its own, never in a multiple assignment (`a, b = x, state^`): that copies it as one
+		// aggregate value, which -o:speed splits into a load and a store per field (most of a minute to compile).
+		pair.state = current^
 		// the tick before as the ring has it (live: after a rollback, the corrected one; none: no change shown)
 		before := sim.state_at(simulation, info.tick - 1)
 		pair.before = before != nil ? info.tick - 1 : info.tick
