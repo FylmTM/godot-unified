@@ -192,6 +192,13 @@ geometry_mass_and_bounds :: proc(t: ^testing.T) {
 	cube := physics.make_cube_hull(0.5)
 	hull_mass := physics.compute_hull_mass(&cube.base, 2)
 	testing.expect(t, near_f32(hull_mass.mass, 2, 1e-4) && near_f32(hull_mass.inertia.cx.x, 2.0 / 6, 1e-4))
+	// The densities that give each shape a mass: that mass back at that density.
+	sphere_density := physics.sphere_density(10, 1)
+	testing.expect(t, near_f32(physics.compute_sphere_mass(sphere, sphere_density).mass, 10, 1e-3))
+	capsule_density := physics.capsule_density(10, capsule)
+	testing.expect(t, near_f32(physics.compute_capsule_mass(capsule, capsule_density).mass, 10, 1e-3))
+	box_density := physics.box_density(10, {0.5, 0.5, 0.5})
+	testing.expect(t, near_f32(physics.compute_hull_mass(&cube.base, box_density).mass, 10, 1e-3))
 
 	at := physics.Transform{{0, 5, 0}, {0, 0, 0, 1}}
 	sphere_aabb := physics.compute_sphere_aabb(sphere, at)

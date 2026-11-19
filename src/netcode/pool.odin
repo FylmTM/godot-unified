@@ -17,6 +17,7 @@ Pooled :: struct {
 
 // Room for `slots` slots before the pool allocates again: a session's usual traffic (a few messages and datagrams
 // in flight) never grows it.
+@(private)
 pool_reserve :: proc(pool: ^Slot_Pool, slots: int) {
 	reserve(&pool.slots, slots)
 	reserve(&pool.free, slots)
@@ -41,11 +42,13 @@ pool_put :: proc(pool: ^Slot_Pool, bytes: []u8) -> Pooled {
 }
 
 // The bytes of a held slot: valid until the next pool_put (which may move the slots).
+@(private)
 pool_bytes :: #force_inline proc(pool: ^Slot_Pool, held: Pooled) -> []u8 {
 	return pool.slots[held.slot][:held.size]
 }
 
 // Gives a slot back.
+@(private)
 pool_release :: proc(pool: ^Slot_Pool, held: Pooled) {
 	append(&pool.free, held.slot)
 }

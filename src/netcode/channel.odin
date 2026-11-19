@@ -47,13 +47,20 @@ Event :: struct {
 // DISCONNECT_US). Without them a full session answers nobody else, and a freed seat waits for one to time out.
 MAX_PEERS :: sim.MAX_PLAYERS + PEERS_SPARE
 PEERS_SPARE :: 4
+@(private)
 POOL_RESERVE :: 32 // message slots a channel (and a netsim) has from the start (37 kB): what usual traffic holds
+@(private)
 SENT_RING :: 1024 // per active connection, allocated when it opens
+@(private)
 MAX_IDS_PER_PACKET :: 64
 REL_WINDOW :: 512 // reliable messages in flight past the oldest unacked one
+@(private)
 ACK_EXT_WORDS :: 8 // the older acks chunk's words at most: 256 seqs beyond a header's 33
+@(private)
 ACK_SPAN :: 33 + 32 * ACK_EXT_WORDS // seqs one datagram can ack: its ack and the 288 before it
+@(private)
 ACK_EXT_HOLD_US :: 250_000 // a receiver sends the older acks this long after seqs it can't ack otherwise arrived
+@(private)
 REL_IN_FLIGHT :: ACK_SPAN - 1 // datagrams with reliable messages past the newest seq the peer acked
 REL_RATE :: 1_000_000 // reliable bytes per second to one peer (8 Mbit/s): a 2 MB snapshot in 2 s per hop
 REL_BURST :: 32 * MAX_DATAGRAM // reliable bytes to one peer at once (37 kB: fits a default socket buffer)
@@ -61,11 +68,14 @@ DISCONNECT_US :: 10_000_000 // silence from a peer that has answered before
 // Silence from a peer that never answered. A transport may need seconds to set up the path first (EOS: login, lobby
 // search, the P2P connection and its retries), and the client's first hello goes out before that.
 FIRST_ANSWER_US :: 30_000_000
+@(private)
 KEEPALIVE_US :: 250_000
 DGRAM_TAG :: u8(0x80 | PROTOCOL_VERSION) // a datagram's first byte
 NOTICE_BYTES :: 5 // the version notice: the tag and a zero epoch
 HEADER_BYTES :: 25
+@(private)
 ACK_DELAY_UNIT_US :: 16 // the ack delay's unit (a u16: up to ~1 s; longer saturates and measures nothing)
+@(private)
 CHUNK_OVERHEAD :: 7 // kind u8, id u32, len u16
 MAX_MESSAGE :: MAX_DATAGRAM - HEADER_BYTES - CHUNK_OVERHEAD // the largest message channel_send takes
 
@@ -96,6 +106,7 @@ Ended_Epochs :: struct {
 	next:  int,
 }
 
+@(private)
 ENDED_EPOCHS :: 2 * MAX_PEERS // every connection ending at once, twice: a whole session leaving, and its stragglers
 
 // A channel's datagrams and bytes sent and received since it was made, and its reliable resends (Client_Stats.net).
@@ -238,6 +249,7 @@ channel_find :: proc(channel: ^Channel, link: int, link_peer: Peer) -> Peer {
 }
 
 // The account the peer's link vouches for (Link.account; ok = false: none).
+@(private)
 channel_account :: proc(channel: ^Channel, peer: Peer) -> (account: Account, ok: bool) {
 	if int(peer) < 0 || int(peer) >= MAX_PEERS || !channel.conns[peer].used {
 		return
@@ -411,6 +423,7 @@ channel_rtt :: proc(channel: ^Channel, peer: Peer) -> (us: f64, samples: int) {
 
 // How long `peer`'s connection has been silent at `now`: since a datagram of it was last read (max(i64): it is not
 // open).
+@(private)
 channel_silence_us :: proc(channel: ^Channel, peer: Peer, now: i64) -> i64 {
 	if int(peer) < 0 || int(peer) >= MAX_PEERS || !channel.conns[peer].active {
 		return max(i64)

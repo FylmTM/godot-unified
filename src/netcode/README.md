@@ -53,7 +53,7 @@ ticks are the sim's keep slots.
   `channel.odin`, ticks and inputs in `window.odin`.
 - **Widths.** A game's widest tick (every Input byte changed, a player joining with their Profile:
   `window_tick_max_bytes`) must leave
-  `TICKS_PER_MESSAGE_MIN` of them per Finalized message, and `relay_create` refuses a wider game (`game_violation`,
+  a few of them per Finalized message, and `relay_create` refuses a wider game (`game_violation`,
   which the Godot host reports with the sim's): fewer ticks per message leave no room to make up a lost one, and
   clients on a lossy network stall on most ticks. The bound is on players and Input bytes together: more players
   leave fewer bytes per Input. A game at the bound costs its host upstream: on a lossy path every unacked tick rides again each
@@ -65,19 +65,18 @@ Reliable and unreliable messages over any number of links (the relay serves its 
 peers at once), every (link, link peer) pair one channel peer, with the same minimal protocol on every link.
 
 - **Acks.** Every datagram acks the peer's newest seq and a 32-bit history. While a burst arrives the receiver adds
-  the older acks (up to `ACK_EXT_WORDS` words more, when they fit) for `ACK_EXT_HOLD_US` after seqs too old for the
-  header arrived, so outside a burst they cost nothing.
-- **Delivery.** A reliable message rides in datagrams until one carrying it is acked, is resent after 1.5 × the
-  smoothed round trip + 15 ms (clamped), and is delivered once, in order. Unreliable ones are delivered as they
+  older acks (a few words more, when they fit) for a while after seqs too old for the header arrived, so outside a
+  burst they cost nothing.
+- **Delivery.** A reliable message rides in datagrams until one carrying it is acked, is resent after a timeout drawn
+  from the smoothed round trip, and is delivered once, in order. Unreliable ones are delivered as they
   arrive, possibly duplicated or reordered.
-- **Bounds.** At most `REL_IN_FLIGHT` datagrams carrying reliable messages are in flight past the peer's newest ack,
-  so one ack covers a whole burst (a snapshot): the rest waits for it instead of being resent though it arrived.
-  Reliable bytes to a peer are paced by a token bucket (`REL_BURST` at once, refilled at `REL_RATE`): a fixed pace,
-  not congestion control, so a burst never floods a home uplink or a default socket buffer. A sender keeps at most
-  `REL_WINDOW` reliable messages past its oldest unacked one, and a receiver drops anything further ahead, so a peer
-  can't grow the out-of-order buffer at will.
-- **Timeouts.** A keepalive keeps idle peers connected. A peer is dropped after `DISCONNECT_US` of silence, or
-  `FIRST_ANSWER_US` for one that never answered (a transport like EOS sets up its path after the first hello).
+- **Bounds.** No more datagrams carrying reliable messages are in flight past the peer's newest ack than one datagram
+  can ack, so one ack covers a whole burst (a snapshot): the rest waits for it instead of being resent though it arrived.
+  Reliable bytes to a peer are paced by a token bucket: a fixed pace, not congestion control, so a burst never floods
+  a home uplink or a default socket buffer. A sender keeps a fixed window of reliable messages past its oldest unacked
+  one, and a receiver drops anything further ahead, so a peer can't grow the out-of-order buffer at will.
+- **Timeouts.** A keepalive keeps idle peers connected. A peer is dropped after a few seconds of silence, or a longer
+  wait for one that never answered (a transport like EOS sets up its path after the first hello).
 - **Epochs.** Each side's connection has an epoch (a fresh value each time it opens one, never one an earlier
   connection of the process had: a client made again must not read as the old one), sent in every datagram with the
   peer's last one seen. A datagram echoing an epoch other than ours was meant for an earlier connection: it is dropped
@@ -107,10 +106,10 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
   a late joiner's and needs no snapshot, since the connection's sim has the session (`Seated` answers, or a `Reject`
   naming that local player; one that arrives after its join tick is final still seats it, its first inputs
   replaced). A **Leave** names one local player, whose seat empties at once while the others play on; the client's
-  last one, or `ALL_LOCALS`, ends the connection, and one with no seat (its Join refused) changes nothing. Each seat sends its own Inputs (so each keeps the whole
+  last one, or a Leave of the whole connection, ends it, and one with no seat (its Join refused) changes nothing. Each seat sends its own Inputs (so each keeps the whole
   window of loss cover) and each Finalized carries every seat's input and command acks; the widths budget for a full
-  couch's (`FINALIZED_HEAD_MAX`).
-- **Open and closed.** A relay starts open; closed (`relay_set_open`), a Hello or Join of a person it does not know is
+  couch's.
+- **Open and closed.** A relay starts open; closed (`host_set_open`), a Hello or Join of a person it does not know is
   refused (`Closed`) while the players in stay and one who drops comes back: the gate that works for a UDP socket and
   a lobby alike, keeping every link. Single player is a host with no remote links (`host_solo`), so opening it to
   friends is `host_add_link` on the running host: its relay polls from then on, the first joiner is an ordinary late
@@ -120,7 +119,7 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
   each refusal. A Hello while the session ends gets End, not silence.
 - **One new player per tick.** A tick carries at most one join record and its Profile: the start players become
   present on ticks 1, 2, ... in slot order, and a late join takes the first tick at or after its join tick on which no
-  other seat joins (four players at 64 Hz are all in after 47 ms). So the widest tick has one join, a Profile of up to
+  other seat joins (four start players are all present by tick 4). So the widest tick has one join, a Profile of up to
   `sim.PROFILE_MAX` bytes is legal at any player count, and the join term never grows with the players. In-memory
   `Inputs` and the input log stay general: an offline run still seats everyone on tick 1.
 - **Setup and Profiles.** The relay sends the session's Setup in every Welcome (a start client builds tick 0 with
@@ -138,10 +137,10 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
   (`TOLERANCE_MS`), never past the clock while nobody is present. A tick can be final before it is due. A missing
   input repeats the player's last one (`replaced`). Present: connected slots from their join tick; a slot's join tick
   carries its join record (the member seated there).
-- **Broadcast**: newly finalized ticks, at most once per `BROADCAST_GAP` of a tick (under jitter each player's input
+- **Broadcast**: newly finalized ticks, at most about once per tick (under jitter each player's input
   arriving can finalize a tick), and a heartbeat when nothing was finalized for a tick (the clients time their clocks
   from it). Each Finalized carries the relay time, the input and command acks, and the client's unacked finalized
-  ticks, up to `CATCHUP_TICKS` of them, as many as fit one message (at most `WINDOW_MAX`). When they don't fit, each
+  ticks, up to a catch-up bound of them, as many as fit one message (at most `WINDOW_MAX`). When they don't fit, each
   broadcast carries on where the last one stopped and starts again at the oldest once one reached the newest: a
   message of ticks per broadcast, never one per round trip; while that cycle is behind ticks no broadcast carried
   yet, a second message carries them. A client whose unacked ticks have left the ring (`RELAY_RING`) is refused
@@ -246,8 +245,8 @@ line below (`tests/netcode/delay_test.odin` and `policy_test.odin` pin them at 3
 - Frames: V (newest verified), P (newest predicted), L (the clock). Predicted ticks use own inputs and commands and
   the others' last finalized inputs repeated, or the game's guess from them (`sim.Game.predict_input`; the relay
   still repeats a missing input whatever the game guesses). A finalized tick that differs from its prediction
-  (presence, input bytes, commands; `sim.inputs_same`) restores the tick before it and re-simulates to P. What is
-  saved for that: `PREDICTED_SAVE_EVERY`.
+  (presence, input bytes, commands; `sim.inputs_same`) restores the tick before it and re-simulates to P, from
+  the predicted saves kept for that (`client_step`'s rollback).
 
 ## Hooks
 
@@ -290,7 +289,7 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
   purpose (the joiner sends a checksum no honest restore gives). With nobody left to
   ask the joiner is refused: `Bad_Snapshot` after a failed check, `No_Snapshot` when nobody could send one. There is
   no replay from tick 0.
-- When no other player's checksum of S comes within twice `CHECK_WAIT_MS` (its only other player, the provider,
+- When no other player's checksum of S comes within twice the relay's checksum wait (its only other player, the provider,
   never reports S or leaves after sending it), there is nothing independent to compare with: the joiner plays
   unchecked, and the relay counts it (`Relay.unchecked_snapshots`). Refusing instead would turn away joiners who
   would have played fine; a snapshot that diverges is caught at the next checksum tick both report.
@@ -305,14 +304,14 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
 
 - Every client sends the checksum of every `CHECKSUM_EVERY`th verified tick (`sim.DEEP_CHECKSUM_EVERY`: they cover
   every extra's whole state); a joiner from its first checksum tick after S on.
-- The relay judges a checksum tick once every connection expected to report it has, or `CHECK_WAIT_MS` after it is
+- The relay judges a checksum tick once every connection expected to report it has, or a fixed wait after it is
   due: the majority value, one vote per connection, since a connection is one sim whatever its seats (a tie goes to
   the connection holding the lowest slot: with 2 players, the host). The slots of the connections that differ from it
   are a **desync**: counted, logged, and reported to every client (`Desync_Report`); the `desync` hook gets it, the dev UI
   shows it, `session_run`'s `ok` turns false. A late report that differs from a judged tick is reported too.
   Checksums of ticks the relay has not finalized are dropped.
 - **Typed reports** (`desync_detail` on the relay or host config; the Godot host turns it on where the dev UI is):
-  clients keep their last `DESYNC_IMAGES` checksum ticks (Welcome's `Keep_Images`) as copies (`sim.snapshot_keep`:
+  clients keep their last few checksum ticks (Welcome's `Keep_Images`) as copies (`sim.snapshot_keep`:
   the block and the extra's save, a memcpy), encoded into portable snapshots only when the relay asks, so it costs
   next to nothing unless a desync happens and stays on in every build. On the session's first desync the relay asks
   a majority player and a diverged one for theirs and diffs them (`sim.snapshot_diff`: table by table, field by

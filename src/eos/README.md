@@ -18,17 +18,17 @@ authenticated): the relay knows a returning player by it (`src/netcode/README.md
 
 ## How it works
 
-- **SDK loading.** The library is loaded at run time (`LIB_NAME`, from `default_lib_dirs` unless `lib_dirs` says
-  otherwise), so nothing links against it. A missing library or missing credentials (`config.odin`) make `init` fail
+- **SDK loading.** The library is loaded at run time (`LIB_NAME`, from `$UNIFIED_EOS_LIB_DIR`, the executable's directory,
+  then `$UNIFIED_EOS_SDK`, unless `lib_dirs` says otherwise), so nothing links against it. A missing library or missing credentials (`config.odin`) make `init` fail
   with a reason and online play is off; single player and direct UDP still work. The bindings are hand-written for
   the subset we use (`api.odin`) and checked against the SDK's headers by tests that need the SDK: they run on
   developer machines, not in CI, which has no SDK and no credentials.
 - **Login.** `EOS_Connect_Login` with a device-ID access token; no device ID yet: create one and log in again; the
   first login of that device creates the product user. The token lasts about an hour and is renewed by logging in
-  again; a failed refresh retries every `RELOGIN_RETRY_US` instead of failing the running session.
+  again; a failed refresh retries a while later instead of failing the running session.
 - **Lobby.** The host opens a public lobby in the game's bucket, the game's player count at most, host migration
   off, with public attributes `code` (`code_new`), `build` and `version`. A joiner searches by bucket and code (a new
-  lobby takes a moment to become searchable: up to `SEARCH_TRIES` searches `SEARCH_RETRY_US` apart), takes the lobby
+  lobby takes a moment to become searchable: a few searches a moment apart), takes the lobby
   owner as its host, checks the build and joins. Any client of the product can list a game's open lobbies with their
   codes: the code is a convenience for friends, not a secret. Members leaving become link `Disconnected` events; the
   host leaving fails the joiner. Async lobby results carry the session generation: a result for a session already
@@ -39,9 +39,9 @@ authenticated): the relay knows a returning player by it (`src/netcode/README.md
   host. A peer number stays its user's while the user is a lobby member; once the user left the lobby and the netcode
   forgot the peer, it goes to the next new user, so any number of people may pass through a lobby,
   `netcode.MAX_PEERS` - 1 at a time. The host accepts P2P only from its lobby's members: a request that comes before
-  the lobby says its user joined is held (`HELD_REQUESTS`) and accepted when it does, a stranger's never is, and a
+  the lobby says its user joined is held (a few at a time) and accepted when it does, a stranger's never is, and a
   member who left must join again. The lobby is the only way in. The joiner's first packet makes the connection
-  request; if the connection isn't up `CONNECT_WAIT_US` after joining, the joiner closes it, so its next packet asks
+  request; if the connection isn't up a few seconds after joining, the joiner closes it, so its next packet asks
   again and the host makes a fresh offer (EOS's signalling sometimes delivers an offer late); after `CONNECT_TRIES` it
   fails. A try that never connected is not a lost host to the netcode, which waits `netcode.FIRST_ANSWER_US` for the
   host's first answer. Relays are allowed by default (`relay_control`, or `$UNIFIED_EOS_RELAYS=force|none`).

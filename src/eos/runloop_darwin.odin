@@ -24,6 +24,7 @@ KEYCHAIN_SERVICE :: "com.epicgames.sdk.connect.access_token"
 
 // Runs one non-blocking pass of the main thread's run loop when called on the main thread (else nothing), so the
 // SDK's HTTP requests complete. The EOS tick calls it, and the game extensions every main-thread frame.
+@(private)
 pump_main_run_loop :: proc() {
 	if pthread_main_np() != 0 {
 		CF.RunLoopRunInMode(CF.kRunLoopDefaultMode, 0, true)
@@ -32,6 +33,7 @@ pump_main_run_loop :: proc() {
 
 // Keychain access that needs the user's approval fails at once instead of showing a dialog (which
 // would block the thread that ticks EOS until answered). Process-wide; for headless tools.
+@(private)
 disable_keychain_prompts :: proc() {
 	SecKeychainSetUserInteractionAllowed(false)
 }

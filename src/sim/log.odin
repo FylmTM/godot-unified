@@ -23,7 +23,9 @@ LOG_MAGIC :: "UNIL"
 LOG_VERSION :: 9
 LOG_HEADER :: 44 // the header's fixed part: the session's Setup follows it
 // The record kinds after the header.
+@(private)
 RECORD_TICK :: 0
+@(private)
 RECORD_CHECKPOINT :: 1
 @(private)
 LOG_TICKS_AT :: 33 // the header's tick count

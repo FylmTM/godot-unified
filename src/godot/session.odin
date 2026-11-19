@@ -1155,32 +1155,50 @@ parse_args :: proc() -> (args: Args, problems: []string) {
 	return
 }
 
-// The flags unified:godot reads, and whether each takes a value. Every other flag on the command line belongs to
-// the game or a tool script, which share it.
+// What a flag of unified:godot's sets in Args: a bool (no value), an int or i64 in [low, high], or a string (cloned;
+// empty is a problem when the flag names what it wants).
 @(private)
-FLAGS := [?]struct {
-	name:  string,
-	value: bool,
-	dev:   bool, // a dev flag: a build without the dev UI ignores it
-} {
-	{"--autostart", false, false},
-	{"--host-port", true, false},
-	{"--join", true, false},
-	{"--host-online", false, false},
-	{"--join-code", true, false},
-	{"--local-net", false, false},
-	{"--quit-at-end", false, false},
-	{"--scripted", false, true},
-	{"--ticks", true, false},
-	{"--seed", true, true},
-	{"--devui", false, true},
-	{"--lag", true, true},
-	{"--bench", true, true},
-	{"--draw", true, true},
-	{"--replay", true, true},
-	{"--no-watchdog", false, true},
-	{"--setup", true, false},
-	{"--profile", true, false},
+Flag_Kind :: enum u8 {
+	Switch,
+	Int,
+	I64,
+	Text,
+}
+
+// One flag unified:godot reads: whether it is a dev flag (a build without the dev UI ignores it) and the Args field it
+// sets.
+@(private)
+Flag :: struct {
+	name:      string,
+	dev:       bool,
+	kind:      Flag_Kind,
+	field:     uintptr, // offset_of(Args, ...)
+	low, high: i64, // .Int, .I64
+	wants:     string, // .Text: what an empty value is told it wants ("": any value)
+}
+
+// The flags unified:godot reads, one row each. Every other flag on the command line belongs to the game or a tool
+// script, which share it.
+@(private)
+FLAGS := [?]Flag {
+	{"--autostart", false, .Switch, offset_of(Args, autostart), 0, 0, ""},
+	{"--host-port", false, .Int, offset_of(Args, host_port), 1, 65535, ""},
+	{"--join", false, .Text, offset_of(Args, join), 0, 0, "host:port"},
+	{"--host-online", false, .Switch, offset_of(Args, online), 0, 0, ""},
+	{"--join-code", false, .Text, offset_of(Args, join_code), 0, 0, "a code"},
+	{"--local-net", false, .Switch, offset_of(Args, local_net), 0, 0, ""},
+	{"--quit-at-end", false, .Switch, offset_of(Args, quit), 0, 0, ""},
+	{"--scripted", true, .Switch, offset_of(Args, scripted), 0, 0, ""},
+	{"--ticks", false, .Int, offset_of(Args, ticks), 0, 1 << 31 - 1, ""},
+	{"--seed", true, .I64, offset_of(Args, seed), min(i64), max(i64), ""},
+	{"--devui", true, .Switch, offset_of(Args, devui), 0, 0, ""},
+	{"--lag", true, .Int, offset_of(Args, lag_ms), 0, 10_000, ""},
+	{"--bench", true, .Int, offset_of(Args, bench), 0, 1 << 31 - 1, ""},
+	{"--draw", true, .Text, offset_of(Args, draw), 0, 0, ""},
+	{"--replay", true, .Text, offset_of(Args, replay), 0, 0, ""},
+	{"--no-watchdog", true, .Switch, offset_of(Args, no_watchdog), 0, 0, ""},
+	{"--setup", false, .Text, offset_of(Args, setup), 0, 0, "key=value[,key=value]"},
+	{"--profile", false, .Text, offset_of(Args, profile), 0, 0, "key=value[,key=value]"},
 }
 
 // Reads unified:godot's flags from the user args (after `--`; strings are cloned or temp-allocated). `problems`:
@@ -1196,10 +1214,13 @@ parse_command_line :: proc(
 ) {
 	found_problems := make([dynamic]string, context.temp_allocator)
 	found_ignored := make([dynamic]string, context.temp_allocator)
-	number :: proc(problems: ^[dynamic]string, flag, text: string, low, high: i64) -> i64 {
+	number :: proc(problems: ^[dynamic]string, flag: Flag, text: string) -> i64 {
 		value, ok := strconv.parse_i64(text)
-		if !ok || value < low || value > high {
-			append(problems, fmt.tprintf("%s wants a whole number from %d to %d, got %q", flag, low, high, text))
+		if !ok || value < flag.low || value > flag.high {
+			append(
+				problems,
+				fmt.tprintf("%s wants a whole number from %d to %d, got %q", flag.name, flag.low, flag.high, text),
+			)
 		}
 		return value
 	}
@@ -1222,7 +1243,7 @@ parse_command_line :: proc(
 		}
 		flag := FLAGS[flag_index]
 		value := ""
-		if flag.value {
+		if flag.kind != .Switch {
 			if i + 1 < len(user_args) {
 				i += 1
 				value = user_args[i]
@@ -1232,54 +1253,25 @@ parse_command_line :: proc(
 			append(&found_ignored, flag.name)
 			continue
 		}
-		switch flag.name {
-		case "--autostart":
-			args.autostart = true
-		case "--scripted":
-			args.scripted = true
-		case "--quit-at-end":
-			args.quit = true
-		case "--devui":
-			args.devui = true
-		case "--host-online":
-			args.online = true
-		case "--local-net":
-			args.local_net = true
-		case "--ticks":
-			args.ticks = int(number(&found_problems, flag.name, value, 0, 1 << 31 - 1))
-		case "--seed":
-			args.seed = number(&found_problems, flag.name, value, min(i64), max(i64))
-		case "--bench":
-			args.bench = int(number(&found_problems, flag.name, value, 0, 1 << 31 - 1))
-		case "--no-watchdog":
-			args.no_watchdog = true
-		case "--replay":
-			args.replay = strings.clone(value)
-		case "--draw":
-			args.draw = value
-		case "--lag":
-			args.lag_ms = int(number(&found_problems, flag.name, value, 0, 10_000))
-		case "--host-port":
-			args.host_port = int(number(&found_problems, flag.name, value, 1, 65535))
-		case "--join":
-			if value == "" do append(&found_problems, "--join wants host:port")
-			args.join = strings.clone(value)
-		case "--join-code":
-			if value == "" do append(&found_problems, "--join-code wants a code")
-			args.join_code = strings.clone(value)
-		case "--setup":
-			if value == "" do append(&found_problems, "--setup wants key=value[,key=value]")
-			args.setup = strings.clone(value)
-		case "--profile":
-			if value == "" do append(&found_problems, "--profile wants key=value[,key=value]")
-			args.profile = strings.clone(value)
+		field := rawptr(uintptr(&args) + flag.field)
+		switch flag.kind {
+		case .Switch:
+			(^bool)(field)^ = true
+		case .Int:
+			(^int)(field)^ = int(number(&found_problems, flag, value))
+		case .I64:
+			(^i64)(field)^ = number(&found_problems, flag, value)
+		case .Text:
+			if value == "" && flag.wants != "" do append(&found_problems, fmt.tprintf("%s wants %s", flag.name, flag.wants))
+			(^string)(field)^ = strings.clone(value)
 		}
 	}
 	return args, found_problems[:], found_ignored[:]
 }
 
 // Whether `name` is one edit (insert, delete, replace, or swap of neighbours) from `flag`, or two for flags of seven
-// letters or more: a mistyped flag of ours, not some other flag. Flags under four letters match only exactly (the
+// letters or more: a mistyped flag of ours, not some other flag (our flags share the command line with the game's, so
+// an unknown flag can't simply be refused). Flags under four letters match only exactly (the
 // games' `--lan` is one edit from `--lag`).
 @(private)
 near_miss :: proc(name, flag: string) -> bool {

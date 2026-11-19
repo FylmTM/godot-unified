@@ -43,8 +43,11 @@ CHECK_RING :: 256
 #assert(CHECK_RING * CHECKSUM_EVERY >= FIN_RING - 64 + RELAY_RING)
 JOIN_LEAD_MS :: 500 // a joiner becomes present this long after the relay clock at its Hello
 START_LEAD_MS :: 500 // the clock starts (tick 0 is due) this long after Welcome, unless local_start
+@(private)
 BROADCAST_GAP :: 0.75 // ticks at least between two Finalized broadcasts that only carry new ticks (a heartbeat waits a tick)
+@(private)
 CHECK_WAIT_MS :: 1000 // a checksum tick is judged once every expected report is in, or this long after it is due
+@(private)
 IMAGE_WAIT_MS :: 3000 // how long a typed desync report waits for its two snapshots to make progress (asked, bytes)
 // The most a typed desync report waits for its snapshots in all (30 MB at REL_RATE): past it the queued reports go
 // out without the detail, so no client can hold the desync reports back by sending slowly.
@@ -53,6 +56,7 @@ SNAP_STALL_US :: 5_000_000 // a joiner's snapshot provider that sends nothing th
 // A seated connection heard from within this long (4 keepalives) is live: an earlier try's Hello of the same person
 // doesn't replace it (on_hello).
 SEATED_LIVE_US :: 4 * KEEPALIVE_US
+@(private)
 IMAGE_MAX :: 256 << 20 // the largest snapshot the relay takes for a desync report
 NO_REPORTS :: max(u32) // Conn.report_from of a connection that sends no checksums yet
 
@@ -64,6 +68,7 @@ Wait_Command :: struct {
 }
 
 // A set of connections, by channel peer (Relay_Conn.refused).
+@(private)
 Peers :: bit_set[0 ..< MAX_PEERS;u64]
 
 // The checksums the connections sent for one checksum tick: one vote per connection (one sim), whatever its seats.
@@ -197,6 +202,7 @@ Relay :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Ga
 
 // Opens or closes the session to new players (it starts open): closed, nobody new gets in, while the players in stay
 // and one who drops may come back. The one gate that works for a UDP socket and a lobby alike, keeping every link.
+@(private)
 relay_set_open :: proc(relay: ^Relay($G), open: bool) {
 	relay.open = open
 }
@@ -204,6 +210,7 @@ relay_set_open :: proc(relay: ^Relay($G), open: bool) {
 // Gives member `member` (a relay's member id) the platform account its link vouches for once it is known (a host
 // that opened its single-player session to a lobby): it is recognized by it from now on, and every client gets its
 // roster entry again.
+@(private)
 relay_set_account :: proc(relay: ^Relay($G), member: u16, account: Account, now: i64) {
 	index := int(member) - 1
 	if index < 0 || index >= len(relay.members) || account.id == "" do return

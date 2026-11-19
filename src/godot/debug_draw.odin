@@ -8,8 +8,10 @@ package godot
 
 import "base:runtime"
 import "core:math"
+import "core:math/linalg"
 import "core:strings"
 import "core:sync"
+import "unified:dmath"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:sim"
@@ -132,7 +134,7 @@ when DEVUI {
 			}
 		case .Capsule:
 			axis := shape.b - shape.a
-			length := math.sqrt(axis.x * axis.x + axis.y * axis.y + axis.z * axis.z)
+			length := dmath.length(axis)
 			if length < 1e-6 {
 				shape := shape
 				shape.kind = .Sphere
@@ -141,9 +143,9 @@ when DEVUI {
 			}
 			dir := axis / length
 			side := abs(dir.y) < 0.9 ? Y : X
-			u := normalize3(cross3(dir, side))
-			v := cross3(dir, u)
-			if flat do u, v = normalize3({-dir.y, dir.x, 0}), {}
+			u := dmath.normalize3(linalg.cross(dir, side))
+			v := linalg.cross(dir, u)
+			if flat do u, v = dmath.normalize3({-dir.y, dir.x, 0}), {}
 			for end in ([2][3]f32{shape.a, shape.b}) {
 				circle(lines, end, u, flat ? dir : v, shape.size)
 				if !flat do circle(lines, end, u, dir, shape.size)
@@ -155,7 +157,7 @@ when DEVUI {
 		case .Box:
 			rot := shape.rot == {} ? IDENTITY : shape.rot
 			corner :: proc(centre, half: [3]f32, rot: [4]f32, signs: [3]f32) -> [3]f32 {
-				return centre + rotate(rot, half * signs)
+				return centre + dmath.quat_rotate(rot, half * signs)
 			}
 			if flat {
 				signs := [4][3]f32{{-1, -1, 0}, {1, -1, 0}, {1, 1, 0}, {-1, 1, 0}}
@@ -179,22 +181,6 @@ when DEVUI {
 			}
 		case .Text:
 		}
-	}
-
-	cross3 :: proc(a, b: [3]f32) -> [3]f32 {
-		return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}
-	}
-
-	normalize3 :: proc(vec: [3]f32) -> [3]f32 {
-		size := length(vec)
-		return size > 1e-9 ? vec / size : {}
-	}
-
-	// A vector turned by a unit quaternion.
-	rotate :: proc(q: [4]f32, vec: [3]f32) -> [3]f32 {
-		u := [3]f32{q.x, q.y, q.z}
-		t := 2 * cross3(u, vec)
-		return vec + q.w * t + cross3(u, t)
 	}
 
 	color_of :: proc(rgb: u32) -> gd.Color {
@@ -366,6 +352,8 @@ when DEVUI {
 } else {
 	_ :: runtime
 	_ :: math
+	_ :: linalg
+	_ :: dmath
 	_ :: strings
 	_ :: sync
 	_ :: gdi

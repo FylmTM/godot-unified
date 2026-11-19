@@ -36,6 +36,7 @@ Debug_Draw_Flags :: bit_set[Debug_Draw_Flag;u16]
 DEBUG_DRAW_PURE :: ~Debug_Draw_Flags{.Joint_Extras}
 
 // The draw group of each flag (sim.debug_sink).
+@(private)
 DEBUG_DRAW_GROUPS :: [Debug_Draw_Flag]string {
 	.Shapes           = "physics_shapes",
 	.Joints           = "physics_joints",

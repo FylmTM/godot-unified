@@ -16,11 +16,8 @@ import "unified:wire"
 // What a client of game G asks the relay for and who it says it is (client_create): written as a literal at the call
 // (`client_create(&GAME, {slot = -1, profile = {character = .Tank}}, link, hooks)`).
 Client_Config :: struct($G: typeid) {
-	slot:          int, // the slot to ask for; -1: any free one
-	profile:       usim.part(G, usim.GAME_PROFILE), // what the player chose before joining: on their join tick, everywhere
-	join_tick:     u32, // the earliest tick to become present (0: as soon as possible)
+	using local:   Local_Config(G), // local player 0's: its slot, join tick, name and Profile
 	compat:        u64, // build/game id the relay checks (0: sim.compat_of(game))
-	player_name:   string, // the player's display name (sent to the relay, shared with everyone)
 	// On a link that vouches for no account (LAN, direct UDP): what the relay recognizes this person by when they
 	// come back (the same member, in any free slot). All zero: none (a new member every time).
 	token:         Token,
@@ -109,12 +106,12 @@ Local_State :: enum u8 {
 	Seated, // holds a slot from its first tick on
 }
 
-// What a local player asks for (client_add_player; local player 0's is the Client_Config's).
+// What a local player asks for (client_add_player; local player 0's is Client_Config.local).
 Local_Config :: struct($G: typeid) {
 	slot:        int, // the slot to ask for; -1: any free one
 	join_tick:   u32, // the earliest tick to become present (0: as soon as possible)
-	player_name: string, // its display name
-	profile:     usim.part(G, usim.GAME_PROFILE), // what it chose before joining
+	player_name: string, // its display name (sent to the relay, shared with everyone)
+	profile:     usim.part(G, usim.GAME_PROFILE), // what it chose before joining: on its join tick, everywhere
 }
 
 // A local player as client_local reports it.
@@ -127,6 +124,7 @@ Local_Info :: struct {
 
 // One of the client's local players (Client.locals): what it asked for, the seat it holds, its own inputs and its
 // commands until a verified tick carries them. Each is its own member, joining, leaving and coming back on its own.
+@(private)
 Local_Seat :: struct($G: typeid) {
 	state:      Local_State,
 	asked:      bool, // its Hello or Join went out
@@ -170,6 +168,7 @@ CHECKSUMS_KEPT :: 64 // an endless session's client keeps its last this many che
 // Predicted ticks are saved every 2nd tick (and a checksum tick a snapshot is wanted of): a rollback restores the
 // nearest saved tick at or before its target, at most one tick back, which the ring still holds at the prediction cap
 // (P - V <= ring - 2). Checksum ticks are multiples of it, so always saved.
+@(private)
 PREDICTED_SAVE_EVERY :: 2
 #assert(CHECKSUM_EVERY % PREDICTED_SAVE_EVERY == 0)
 
@@ -322,7 +321,7 @@ client_create :: proc(game: ^$G, cfg: Client_Config(G), link: Link, hooks: Hooks
 	}
 	client.delay = client.tm.min_delay
 	client.slot = -1
-	client_add_player(client, 0, {cfg.slot, cfg.join_tick, cfg.player_name, cfg.profile})
+	client_add_player(client, 0, cfg.local)
 	return client
 }
 
@@ -425,6 +424,7 @@ client_finished :: proc(client: ^Client($G)) -> bool {
 }
 
 // The latest predicted state (nil before the sim exists).
+@(private)
 client_state :: proc(client: ^Client($G)) -> ^usim.part(G, usim.GAME_STATE) {
 	return &client.sim.state if client.sim != nil else nil
 }
@@ -1461,6 +1461,7 @@ schedule :: proc(client: ^Client($G), now: i64) -> (advanced: bool) {
 }
 
 // The local clock stays below this (2.1 years at 64 Hz): a relay time past it is no relay's, and the clock never wraps.
+@(private)
 CLOCK_MAX :: max(u32) / 2
 
 // A tick count from the clock's f64, clamped to [0, CLOCK_MAX] (a converted out-of-range float is the platform's own).
@@ -1620,6 +1621,7 @@ Client_Result :: struct {
 }
 
 // A zone's mean self time per stepped tick (Client_Result.zones).
+@(private)
 Zone_Mean :: struct {
 	name: string,
 	us:   f64,

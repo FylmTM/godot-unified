@@ -36,27 +36,6 @@ variant_name :: proc(type: ^runtime.Type_Info, prefix: string) -> string {
 	return strings.to_lower(strings.trim_prefix(name, prefix), context.temp_allocator)
 }
 
-// The names of a union's variants, by kind (allocated with `allocator`, names included).
-@(private)
-variant_names :: proc(type: typeid, prefix: string, allocator := context.allocator) -> []string {
-	variants := union_variants(type)
-	names := make([]string, len(variants), allocator)
-	for variant, i in variants {
-		names[i] = strings.clone(variant_name(variant, prefix), allocator)
-	}
-	return names
-}
-
-// The game's command names, by kind ("drop_coin"): what GDScript's send_command uses.
-command_names :: proc(commands: typeid, allocator := context.allocator) -> []string {
-	return variant_names(commands, COMMAND_PREFIX, allocator)
-}
-
-// The game's event names, by kind ("coin_picked").
-event_names :: proc(events: typeid, allocator := context.allocator) -> []string {
-	return variant_names(events, EVENT_PREFIX, allocator)
-}
-
 // Why a union can't be a command or event union ("" when it can, or when `type` is nil): a union
 // (not #no_nil, not #shared_nil), at most 255 variants, each plain data (plain_violation; events: padding allowed,
 // padded_violation) of min_size..max_size bytes (a command may be empty: `Cmd_Start :: struct {}`), names unique.

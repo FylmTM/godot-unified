@@ -154,6 +154,7 @@ window_write_input :: proc(writer: ^wire.Writer, input, base: ^$Input) {
 }
 
 // The most bytes window_write_input writes for one input: every byte changed.
+@(private)
 window_input_max_bytes :: proc($Input: typeid) -> int {
 	return mask_bytes(size_of(Input)) + size_of(Input)
 }

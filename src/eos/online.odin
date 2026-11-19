@@ -40,14 +40,20 @@ Stage :: enum u8 {
 	Failed, // see detail; `close` returns to Idle
 }
 
+@(private)
 MAX_REMOTES :: netcode.MAX_PEERS // a host's peers 1.. (a joiner's peer 0 is its host)
+@(private)
 TICK_EVERY_US :: 500 // the link ticks EOS at most this often when it finds no packet
+@(private)
 SOCKET_PREFIX :: "unified-"
+@(private)
 SEARCH_TRIES :: 5 // a just-created lobby can take a second or two to show up in searches
+@(private)
 SEARCH_RETRY_US :: 1_200_000
 // A joiner whose P2P connection to the host isn't up this long after joining (or after its last
 // try) closes it and asks again; after CONNECT_TRIES it fails. EOS's signalling sometimes delivers
 // the host's offer to the joiner only after ~30 s (#142): a fresh request gets a fresh offer.
+@(private)
 CONNECT_WAIT_US :: 5_000_000
 CONNECT_TRIES :: 4
 
@@ -87,6 +93,7 @@ User :: struct {
 	id_str: [PRODUCTUSERID_MAX_LENGTH + 1]u8,
 }
 
+@(private)
 HELD_REQUESTS :: 8 // connection requests from users not (yet) seen in the lobby; the oldest is dropped
 
 // How init starts EOS. A game passes these through Lobby_Config (eos.lobby); tests call init with a fake SDK.
@@ -176,6 +183,7 @@ session: Online
 // The directories searched for the SDK library when none are given: $UNIFIED_EOS_LIB_DIR, the
 // executable's directory (and ../Frameworks on macOS, where an exported .app keeps it), then the SDK
 // $UNIFIED_EOS_SDK names (its SDK/Bin: tests and headless tools on a developer's machine).
+@(private)
 default_lib_dirs :: proc(allocator := context.temp_allocator) -> []string {
 	dirs := make([dynamic]string, allocator)
 	if dir := os.get_env("UNIFIED_EOS_LIB_DIR", allocator); dir != "" {
@@ -409,9 +417,11 @@ link_account :: proc(data: rawptr, peer: netcode.Peer) -> (account: netcode.Acco
 	return {platform = PLATFORM, id = cstr(id[:])}, true
 }
 
+@(private)
 PLATFORM :: "eos" // the platform name of EOS accounts (netcode.Account)
 
 // The local user's account (logged in: its product user id; ok = false before): the host's own player's.
+@(private)
 local_account :: proc() -> (account: netcode.Account, ok: bool) {
 	online := &session
 	sync.guard(&online.mu)
@@ -490,10 +500,12 @@ leave :: proc() {
 	}
 }
 
+@(private)
 LEAVE_FLUSH_MS :: 500
 
 // Deletes this machine's device ID (the next login makes a new anonymous user). For test tools,
 // so runs leave nothing behind; blocks up to ~5 s while EOS completes it.
+@(private)
 forget_device :: proc() {
 	online := &session
 	sync.guard(&online.mu)
@@ -642,6 +654,7 @@ connect_again :: proc(online: ^Online) {
 	)
 }
 
+@(private)
 RELOGIN_RETRY_US :: 15_000_000
 
 @(private)
@@ -885,8 +898,11 @@ start_lobby :: proc(online: ^Online) {
 	set_detail(online, "looking for game %s", string(online.code[:]))
 }
 
+@(private)
 ATTR_CODE :: "code"
+@(private)
 ATTR_BUILD :: "build" // build_id: a joiner joins only the same build
+@(private)
 ATTR_VERSION :: "version" // the host's readable version, for the message when the builds differ
 
 // What an async lobby request carries to its callback: the session generation it belongs to (a

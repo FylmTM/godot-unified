@@ -45,6 +45,7 @@ Rule :: struct {
 // What a Realtime package may not name: fused or complex arithmetic. (core:math, banned there too, pulls in
 // transcendentals and FMA-friendly code; only the integer helpers of core:math/bits are allowed. `matrix` types
 // multiply with fused operations.)
+@(private)
 FLOAT_TRAPS :: []string {
 	"fused_mul_add",
 	"quaternion64",
@@ -59,6 +60,7 @@ FLOAT_TRAPS :: []string {
 // cycle counters or random generators (clocks and files are out of reach: a tick imports neither), no
 // state outside the block (`@(static)` and `@(thread_local)` variables: not rolled back, not hashed) and no code that
 // differs per platform or build (ODIN_OS, ODIN_ARCH, ODIN_DEBUG: peers would run different sims).
+@(private)
 SIM_IDENTS :: []string {
 	"fused_mul_add",
 	"quaternion64",
@@ -88,12 +90,14 @@ SIM_IDENTS :: []string {
 // either zero when -0 meets +0, and x64 and arm64, debug and release builds, even two inlined calls of one build pick
 // differently. dmath has compare-and-select ones of the same names (dmath.min, dmath.max, dmath.clamp), for integers
 // too: the lint can't see types. One argument, a type's bound (`max(u16)`), is a constant and allowed.
+@(private)
 BUILTIN_CALLS :: []string{"min", "max", "clamp"}
 
 // The fields a tick may not read (`x.name`): they differ between peers computing the same tick. `replaced`
 // (sim.Inputs): the relay substituted a late input; a peer that predicted it right steps the tick without it, a
 // peer catching up or replaying the log with it. `dev` (sim.Tick, sim.Zone_Scope): the debug draws and zone clock
 // one machine's host attached.
+@(private)
 SIM_FIELDS :: []string{"replaced", "dev"}
 
 // What library code inside a tick may import: the deterministic packages and the integer bit helpers. Not Box3D's
@@ -525,6 +529,7 @@ report_globals :: proc(
 
 // Whether `rule` forbids importing `path`: not among its imports (Odin's own are allowed but in a Tick package), under one of its bans, or under core:math in a Realtime package (but core:math/bits). scan reports
 // each import it bans.
+@(private)
 banned_import :: proc(rule: Rule, path: string) -> bool {
 	bans := bans_of(rule.kind)
 	// Compared as written: a relative path (`../x`) is the importer's own neighbour, never a unified package, so a
@@ -558,6 +563,7 @@ under :: proc(path, banned: string) -> bool {
 }
 
 // Every .odin file under `dir`, subdirectories (sub-packages) included.
+@(private)
 odin_files :: proc(dir: string, out: ^[dynamic]string) -> bool {
 	infos, err := os.read_all_directory_by_path(dir, context.temp_allocator)
 	if err != nil {

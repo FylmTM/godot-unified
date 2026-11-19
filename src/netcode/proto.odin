@@ -21,16 +21,21 @@ NO_MEMBER :: u16(0)
 TOLERANCE_MS :: 100 // relay hard tolerance: a tick is finalized at the latest this long after it is due
 MAX_DELAY_MS :: 100 // input delay ceiling
 DELAY_MARGIN_US :: 8_000 // how early an input should reach the relay (want_delay, stamp_ahead)
+@(private)
 INPUTS_MAX :: 32 // own inputs resent per client packet
 COMMAND_QUEUE :: 64 // own commands a client holds until they are verified (more: the send fails)
 WINDOW_MAX :: 32 // finalized ticks resent per relay packet (fewer when they don't fit)
 CHECKSUM_EVERY :: sim.DEEP_CHECKSUM_EVERY // the ticks whose checksums cover every extra's whole state
+@(private)
 CATCHUP_TICKS :: 384 // unacked finalized ticks a relay streams ahead of a client (< FIN_RING - 64)
 SNAP_CHUNK :: MAX_MESSAGE - 6 // a Snap_Chunk's bytes: what fits next to its type, target and offset
 RELAY_TARGET :: u8(0xFE) // a Snap_Request's or Snap_Begin's target: the relay itself (a desync report's snapshot)
+@(private)
 DESYNC_IMAGES :: 8 // checksum-tick snapshots a client keeps for desync reports (Welcome's Keep_Images)
+@(private)
 POLL_US :: 1000 // how often a step wants to run between deadlines, to receive packets
 ANY_SLOT :: u8(0xFF) // Hello: any free slot
+@(private)
 ALL_LOCALS :: u8(0xFF) // Reject and Leave: the whole connection (else one local player)
 NO_SLOT :: sim.NO_SLOT // a roster entry of a member not seated
 
@@ -191,6 +196,7 @@ LOCAL_MAX :: 4 // the most seats (local players) one connection holds
 
 // One seat a Hello asks for: which of the client's local players, the slot (ANY_SLOT: any free one), the earliest
 // tick to become present (0: as soon as possible), the player's name and the Profile's bytes.
+@(private)
 Seat_Ask :: struct {
 	local:     u8,
 	slot:      u8,
@@ -211,6 +217,7 @@ Hello :: struct {
 }
 
 // One seat a Welcome grants: the local player, its slot, its member id and the first tick it is present.
+@(private)
 Seat_Grant :: struct {
 	local:      u8,
 	slot:       u8,
@@ -230,7 +237,7 @@ Welcome :: struct {
 	seats:       [LOCAL_MAX]Seat_Grant,
 }
 
-// Writes a Hello message (its type byte first) into an empty writer.
+// Writes a Hello message (its type byte first) into an empty writer. Public for tests (a crafted Hello).
 write_hello :: proc(writer: ^wire.Writer, hello: ^Hello) {
 	wire.w_u8(writer, u8(Msg.Hello))
 	wire.w_u64(writer, hello.compat)
@@ -250,6 +257,7 @@ write_hello :: proc(writer: ^wire.Writer, hello: ^Hello) {
 
 // Reads a Hello after its type byte; false when it is malformed (cut short, no seat or more than LOCAL_MAX, a name or
 // profile too long).
+@(private)
 read_hello :: proc(reader: ^wire.Reader) -> (hello: Hello, ok: bool) {
 	hello.compat = wire.r_u64(reader)
 	copy(hello.token[:], wire.r_bytes(reader, TOKEN_SIZE))
@@ -270,7 +278,7 @@ read_hello :: proc(reader: ^wire.Reader) -> (hello: Hello, ok: bool) {
 	return hello, reader.ok
 }
 
-// Writes a Welcome message (its type byte first) into an empty writer.
+// Writes a Welcome message (its type byte first) into an empty writer. Public for tests (a crafted Welcome).
 write_welcome :: proc(writer: ^wire.Writer, welcome: ^Welcome) {
 	wire.w_u8(writer, u8(Msg.Welcome))
 	wire.w_u64(writer, welcome.seed)
@@ -291,6 +299,7 @@ write_welcome :: proc(writer: ^wire.Writer, welcome: ^Welcome) {
 
 // Reads a Welcome after its type byte; false when it is malformed (cut short, no seat or more than LOCAL_MAX, a Setup
 // over sim.SETUP_MAX bytes).
+@(private)
 read_welcome :: proc(reader: ^wire.Reader) -> (welcome: Welcome, ok: bool) {
 	welcome.seed = wire.r_u64(reader)
 	welcome.tick_hz = int(wire.r_u16(reader))
@@ -421,17 +430,23 @@ r_i64 :: proc(reader: ^wire.Reader) -> i64 {
 	return i64(wire.r_u64(reader))
 }
 
+@(private)
 FINALIZED_HEAD :: 15 // type u8, relay time i64, first u32, count u8, seat count u8 (asserted in finalized_message)
+@(private)
 FINALIZED_SEAT :: 9 // a seat's acks in a Finalized: local u8, input ack u32, command ack u32
+@(private)
 FINALIZED_HEAD_MAX :: FINALIZED_HEAD + LOCAL_MAX * FINALIZED_SEAT // what the widths budget for: a full couch
 INPUTS_HEAD :: 11 // type u8, local u8, finalized ack u32, first u32, count u8 (asserted in inputs_message)
+@(private)
 COMMANDS_HEAD :: 5 // first seq u32, count u8
+@(private)
 COMMAND_SEND_HEAD :: 6 // wanted tick u32, kind u8, size u8
 
 // The fewest ticks at their widest (window_tick_max_bytes: every Input byte changed, a player joining) a Finalized
 // message must hold. The relay streams a client one message of ticks per broadcast and a second for ticks no
 // broadcast carried yet; fewer ticks per message leave too little room to make up a lost one, and clients on a lossy
 // network stall on most ticks.
+@(private)
 TICKS_PER_MESSAGE_MIN :: 4
 
 // Why the netcode can't play a game ("" when it can; temp-allocated): fewer than TICKS_PER_MESSAGE_MIN of its widest
