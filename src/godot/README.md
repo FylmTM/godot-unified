@@ -277,6 +277,10 @@ that every `View` member has a scene and every indexed kind is a member.
 - **Leave, then host or join.** `leave` asks the session to end; it says goodbye on its thread, up to 3 s (a host
   waiting for peers that don't answer). A start during the goodbye waits and starts as soon as the old session is
   gone (the goodbye cut to 1 s); a `leave` before that cancels it.
+- **Quitting** (`quit.odin`). Godot reports a sound's playback still held by the AudioServer at exit as a leak, so the
+  session's quits (`UnifiedSession.quit`, and the one at the end of a `--quit-at-end` run) stop every audio player in
+  the tree and quit once their playbacks are freed (at most a second); meanwhile the session's frame does nothing
+  else. An app stops its own sound sources first (the games' `Sfx.close`), or a sound started meanwhile is stopped too.
 - **Editor.** Classes register at SCENE level and nothing runs in the editor; the class reference loads at EDITOR
   level. `deinitialize` stops the session thread, calls the lobby's optional `shutdown`, then `gd.shutdown`
   unregisters every class.

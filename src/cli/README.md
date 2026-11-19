@@ -118,7 +118,9 @@ fixed places: its tool scripts are `game/tools/<name>.gd` (`tool_script`), and a
 
 A tool script prints one `UNIFIED_RESULT {json}` line (`ok`, `errors`, its own data). The godot suite's steps, `tool`,
 `coop` and `bake` run tool scripts strictly (`Tool_Run`, `judge_tool`): a failing exit, a missing or `ok: false`
-result, an `ERROR` line, a leak at exit or a GDScript warning fails the run. `run` and `editor` only report. A
+result, or what `godot_problems` names (an `ERROR` line, a leak at exit, a GDScript warning, a warning from a
+`res://game/` script) fails the run; the editor and session steps judge their output by `godot_problems` too. `run`
+and `editor` only report. A
 headless run has Godot's debugger on and a `quit` line on its stdin, so a script error ends it at once (`Run`).
 
 ## Test suites

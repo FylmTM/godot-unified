@@ -151,26 +151,17 @@ func leave_to_menu(error := "") -> void:
 		get_tree().change_scene_to_file(MENU_SCENE)
 
 
-## Quits the app (menus, the window's close button, tools). The session ends and every playing sound stops first
-## (Sfx plays nothing more: the session's events keep arriving until the quit), and the quit waits (at most 1 s)
-## until the AudioServer has freed their playbacks: one it still holds at exit is reported as leaked.
+## Quits the app (menus, the window's close button, tools): Sfx plays nothing more, and UnifiedSession.quit ends the
+## session, stops every sound and quits once the AudioServer has freed their playbacks.
 func quit_app(exit_code := 0) -> void:
 	if _quitting:
 		return
 	_quitting = true
-	if session != null and status != UnifiedSession.STATUS_IDLE:
-		session.leave()
 	Sfx.close()
-	var playbacks: Array[WeakRef] = []
-	for type: String in ["AudioStreamPlayer", "AudioStreamPlayer2D", "AudioStreamPlayer3D"]:
-		for player: Node in get_tree().root.find_children("*", type, true, false):
-			if player.call(&"has_stream_playback"):
-				playbacks.append(weakref(player.call(&"get_stream_playback")))
-			player.call(&"stop")
-	var deadline := Time.get_ticks_msec() + 1000
-	while Time.get_ticks_msec() < deadline and playbacks.any(func(w: WeakRef) -> bool: return w.get_ref() != null):
-		await get_tree().process_frame
-	get_tree().quit(exit_code)
+	if session != null:
+		session.quit(exit_code)
+	else:
+		get_tree().quit(exit_code)
 
 
 func is_online() -> bool:
