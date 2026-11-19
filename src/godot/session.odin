@@ -89,6 +89,9 @@ register_session_class :: proc() {
 			}
 			clear_pending(session)
 			level_scene_free(&session.level)
+			level_load_drop(&session.level)
+			level_host_collect(&session.level, wait = true)
+			delete(session.level.dropped)
 			delete(session.name)
 			delete(session.detail)
 			delete(session.join_code)
@@ -942,6 +945,7 @@ emit_status :: proc(session: ^Session_Node, status: Status_Kind, detail: string)
 @(private)
 session_process :: proc(session: ^Session_Node, dt: f64) {
 	if is_editor() || active != session do return
+	level_host_collect(&session.level, wait = false)
 	dev_begin()
 	input_sample_begin(dev_wants_keyboard())
 	if api.installed {

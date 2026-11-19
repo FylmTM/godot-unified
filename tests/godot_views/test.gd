@@ -255,6 +255,7 @@ func _initialize() -> void:
 	check("input_wanted: every frame before the sample", wanted[0] >= 15, wanted[0])
 	await check_levels(session, level_root, level_signals)
 	await check_commands(session, toy)
+	await check_dropped_load(session)
 	await finish(session)
 	check("session data back to zero when the session ends", toy.bumps == 0 and toy.x == 0.0, [toy.bumps, toy.x])
 	await check_unnamed()
@@ -304,6 +305,23 @@ func check_levels(session: UnifiedSession, level_root: Node2D, level_signals: Ar
 		level_signals)
 	var gem := session.level_marker(1)
 	check("level_marker: the new level's", gem != null and gem.name == "Gem", gem)
+
+
+# A level change whose scene is still loading when the level_root goes (a play scene that left): the level changes
+# without a scene, and the load nobody shows is taken anyway: a load left to Godot is an ObjectDB instance leaked at
+# exit, which fails the suite.
+func check_dropped_load(session: UnifiedSession) -> void:
+	var drop_root := func(_to: int) -> void: (func() -> void: session.level_root = null).call_deferred()
+	session.level_changing.connect(drop_root, CONNECT_ONE_SHOT)  # after this step, which requested the load
+	var travel := CommandTravel.new()
+	travel.to = EnumArea.MEADOW
+	check("send_command Travel back", session.send_command(travel))
+	for i in 100:
+		if session.level == EnumArea.MEADOW:
+			break
+		await create_timer(0.02).timeout
+	check("without a level_root the level changes all the same", session.level == EnumArea.MEADOW \
+		and session.level_scene == null, [session.level, session.level_scene])
 
 
 # The constants (Unified.constants: Data_Constants in ext/ext.odin) and an enum class, before any session.
