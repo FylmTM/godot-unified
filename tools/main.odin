@@ -19,10 +19,18 @@ main :: proc() {
 		bench             = {
 			{name = "physics", run = physics_bench},
 			{name = "grid", run = grid_bench},
+			{name = "nav", run = nav_bench},
 			{name = "wake", run = wake_bench},
 		},
 		bake              = {
-			{dir = "tests/godot", scenes = {"res://levels/level_2d.tscn", "res://levels/shapes_3d.tscn"}},
+			{
+				dir    = "tests/godot",
+				scenes = {
+					"res://levels/level_2d.tscn",
+					"res://levels/shapes_3d.tscn",
+					"res://levels/nav_yard.tscn",
+				},
+			},
 			{
 				dir       = "tests/godot_views",
 				scenes    = {"res://levels/meadow.tscn", "res://levels/cave.tscn"},

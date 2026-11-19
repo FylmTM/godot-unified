@@ -368,6 +368,7 @@ that every `View` member has a scene and every indexed kind is a member.
 game's menus: a game drives its own UI from its own tool scripts (`game/tools/`), which extend these.
 
 - `level_export.gd`: `uni bake`'s level exporter.
+- `nav_bake.gd`: `uni bake --nav`'s navigation baker (the editor's Bake NavigationMesh, without the editor).
 - `tool.gd` (`UnifiedTool`): the base of every script `uni tool` runs, with its helpers `log_capture.gd` and
   `frame_log.gd`.
 - `validate.gd` (`UnifiedValidate`): the godot suite's `validate` step; a game adds `_check_contract()` in

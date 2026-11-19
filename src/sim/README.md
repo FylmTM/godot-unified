@@ -60,9 +60,11 @@ like any other; only the input bytes are gone, from the wire, the log and the St
 ### World
 
 `World` is everything outside the block: the Box3D world, level geometry, scratch (`sim.No_World` for none). **It
-holds only what `world_create` builds and what the Extra rolls back**: anything else in it that affects `tick`
-diverges after a rollback, unhashed. The sync-tests (`scenarios.rollback_every_tick`, `headless.Run`) fail on the
-tick such state shows.
+holds only what `world_create` builds, what the Extra rolls back, and memos of pure functions of those**: anything
+else in it that affects `tick` diverges after a rollback, unhashed. A memo (`nav.Fields`: a distance field is a
+function of the mesh and its goal alone) answers the same whether it hits or misses, so what it holds after a
+rollback, a late join or a replay never changes a result; it keeps no input, no tick and nothing from the block. The
+sync-tests (`scenarios.rollback_every_tick`, `headless.Run`) fail on the tick state that breaks the rule shows.
 
 ### Setup and Profile
 

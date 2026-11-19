@@ -106,6 +106,7 @@ TICK_IMPORTS :: []string {
 	"unified:sim",
 	"unified:physics",
 	"unified:level",
+	"unified:nav",
 	"unified:dmath",
 	"unified:wire",
 	"base:intrinsics",
@@ -115,7 +116,7 @@ TICK_IMPORTS :: []string {
 // What a game's code inside a tick may import without listing it: TICK_IMPORTS but the encoding (unified:wire) and the
 // low-level helpers (base:intrinsics, whose SIMD, atomics and syscalls the identifier bans don't name; core:math/bits).
 // A game that needs one lists it in extra_imports.
-GAME_TICK_IMPORTS :: []string{"unified:sim", "unified:physics", "unified:level", "unified:dmath"}
+GAME_TICK_IMPORTS :: []string{"unified:sim", "unified:physics", "unified:level", "unified:nav", "unified:dmath"}
 
 // The rule for a game's simulation package (the code inside its tick): a Tick package importing only
 // GAME_TICK_IMPORTS plus `extra_imports` (the game's own deterministic packages as its code imports them, e.g.

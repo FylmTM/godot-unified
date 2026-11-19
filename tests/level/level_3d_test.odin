@@ -25,8 +25,9 @@ fixture_3d_navigation :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(loaded.nav_vertices), 6)
 	testing.expect_value(t, len(loaded.nav_polygons), 2)
 	if len(loaded.nav_vertices) != 6 || len(loaded.nav_polygons) != 2 do return
-	// (x, y, z) in the region is (x - 2, y + 0.5, -z - 10) in the level
-	testing.expect_value(t, loaded.nav_vertices[0], [3]f32{-2, 0.5, -10})
+	// (x, y, z) in the region is (x - 2, y + 0.5, -z - 10) in the level; a vertex over a floor within reach (the
+	// Ground's edge at z = -10) is lowered onto it, the others have none under them and stay
+	testing.expect_value(t, loaded.nav_vertices[0], [3]f32{-2, 0, -10})
 	testing.expect_value(t, loaded.nav_vertices[2], [3]f32{2, 0.5, -14})
 	testing.expect_value(t, loaded.nav_vertices[5], [3]f32{6, 0.5, -14})
 	square, beside := loaded.nav_polygons[0], loaded.nav_polygons[1]

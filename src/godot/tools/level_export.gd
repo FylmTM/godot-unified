@@ -17,8 +17,9 @@ extends SceneTree
 ## TileMapLayers (one body each, the tiles' physics layer 0 polygons).
 ## Markers: nodes whose script has `const UNIFIED_KIND` (or a `unified_kind` property, or metadata): kind, name,
 ## global transform, every exported script property, the points of a Path3D / Path2D child.
-## Navigation (a 3D level): one NavigationRegion3D's saved bake, its vertices in level space and its polygons turned
-## counter-clockwise seen from above. Never baked here: the bytes are what the author baked in the editor and saved.
+## Navigation (a 3D level): one NavigationRegion3D's saved bake, its vertices in level space, welded and lowered onto
+## the static floor under them, and its polygons turned counter-clockwise seen from above. Never baked here: the bytes
+## are what the author baked (in the editor, or `uni bake --nav`) and saved.
 ## Prints one `UNIFIED_RESULT {ok, check, levels: [{scene, level, bytes, changed}], errors}` line; each error names its
 ## node. A plain SceneTree script, not a UnifiedTool: it also runs in projects without unified's extension (the 2D
 ## fixture in tests/godot).
@@ -69,6 +70,9 @@ var _root: Node
 var _scene_path := ""
 var _ppm := 0.0  # a 2D level's pixels per metre; 0: a 3D level
 var _navs: Array[Node] = []  # the level's NavigationRegion3Ds, in scene-tree order (one is allowed)
+## The level's static shapes in level space, for the floor under a navigation vertex (_floor_under): each a
+## Dictionary of its kind and what that kind needs (points and triangles, or a centre and radius), with its bounds.
+var _floors: Array[Dictionary] = []
 var _depth := 0.0  # a 2D level's extrusion depth, metres
 
 
@@ -142,6 +146,7 @@ func export_scene(path: String) -> PackedByteArray:
 	_scene_path = path
 	_ppm = 0.0
 	_navs = []
+	_floors = []
 	if scene is Node2D:
 		# pixels per metre: the game's Glue.view_scale (Unified.view_scale); a level baked without a game (a fixture)
 		# says it in its root's metadata. Both, and they differ: a finding (the views would draw it at another scale).
@@ -343,6 +348,15 @@ func _nav(w: StreamPeerBuffer) -> void:
 					edges[edge] = int(edges.get(edge, 0)) + 1
 					if edges[edge] == 3:
 						_error(where, "its edge %d-%d is shared by more than two polygons" % [edge.x, edge.y])
+			# Godot's bake floats the mesh up to a couple of cells above the floor (its voxels' rounding, the detail
+			# mesh's extra cell): each vertex goes down onto the static floor under it, so the sim's floor is the one
+			# it collides with (triangles stay planar: every vertex of a flat or sloped floor lands on it)
+			var reach := 2.0 * mesh.cell_height + mesh.agent_max_climb + 0.01
+			for i in vertices.size():
+				var v := vertices[i]
+				var floor_y := _floor_under(v.x, v.z, v.y + 0.001, v.y - reach)
+				if floor_y > -INF:
+					vertices[i] = Vector3(v.x, floor_y, v.z)
 	_v3(w, agent)
 	w.put_u32(vertices.size())
 	for v in vertices:
@@ -405,6 +419,117 @@ func _nav_polygon(polygon: PackedInt32Array, vertices: PackedVector3Array, where
 	return out
 
 
+## Adds a body's shapes (`recs`, in the body's frame `frame`) to _floors, in level space.
+func _add_floors(frame: Transform3D, recs: Array[ShapeRec]) -> void:
+	for r in recs:
+		var xf := frame * Transform3D(Basis(r.rot), r.pos)
+		var f := {"kind": r.kind, "points": PackedVector3Array(), "triangles": PackedInt32Array()}
+		var points: PackedVector3Array = f["points"]
+		var triangles: PackedInt32Array = f["triangles"]
+		match r.kind:
+			Shape.BOX:
+				for i in 8:
+					points.append(xf * Vector3(r.half.x * (1.0 if i & 1 != 0 else -1.0),
+							r.half.y * (1.0 if i & 2 != 0 else -1.0), r.half.z * (1.0 if i & 4 != 0 else -1.0)))
+			Shape.HULL:
+				for q in r.points:
+					points.append(xf * q)
+			Shape.MESH:
+				for q in r.points:
+					points.append(xf * q)
+				triangles.append_array(r.triangles)
+			Shape.HEIGHT_FIELD:
+				# the grid from its corner, split along each cell's (x + 1, z) - (x, z + 1) diagonal, as Godot and Box3D
+				for z in r.count_z:
+					for x in r.count_x:
+						points.append(xf * Vector3(x * r.scale.x, r.heights[z * r.count_x + x] * r.scale.y,
+								z * r.scale.z))
+				for z in r.count_z - 1:
+					for x in r.count_x - 1:
+						var i := z * r.count_x + x
+						triangles.append_array(PackedInt32Array([i, i + 1, i + r.count_x, i + 1, i + r.count_x + 1,
+								i + r.count_x]))
+			Shape.SPHERE, Shape.CAPSULE:
+				f["radius"] = r.radius
+				points.append(xf * Vector3(0, r.half_height, 0))
+				points.append(xf * Vector3(0, -r.half_height, 0))
+		f["points"] = points  # packed arrays are values: the filled ones go back in
+		f["triangles"] = triangles
+		var lo := points[0]
+		var hi := points[0]
+		for q in points:
+			lo = lo.min(q)
+			hi = hi.max(q)
+		var pad := Vector3.ONE * float(f.get("radius", 0.0))
+		f["lo"] = lo - pad
+		f["hi"] = hi + pad
+		_floors.append(f)
+
+
+## The height of the highest floor under (x, z) between `bottom` and `top` (-INF: none): the top surface of a box,
+## hull, sphere or capsule, or the highest triangle of a mesh or height field there, in doubles.
+func _floor_under(x: float, z: float, top: float, bottom: float) -> float:
+	var best := -INF
+	for f in _floors:
+		var lo: Vector3 = f["lo"]
+		var hi: Vector3 = f["hi"]
+		if x < lo.x or x > hi.x or z < lo.z or z > hi.z or hi.y < bottom or lo.y > top:
+			continue
+		var points: PackedVector3Array = f["points"]
+		var h := -INF
+		match f["kind"]:
+			Shape.BOX, Shape.HULL:
+				h = _hull_top(points, x, z)
+			Shape.MESH, Shape.HEIGHT_FIELD:
+				var triangles: PackedInt32Array = f["triangles"]
+				for t in range(0, triangles.size(), 3):
+					var at := _triangle_height(points[triangles[t]], points[triangles[t + 1]], points[triangles[t + 2]],
+							x, z)
+					if at <= top and at > h:
+						h = at
+			Shape.SPHERE, Shape.CAPSULE:
+				# the top of the swept sphere: the best of the segment's points (32 steps along it)
+				var radius: float = f["radius"]
+				var a := points[0]
+				var b := points[1]
+				for k in 33:
+					var along := k / 32.0  # in doubles, not Vector3.lerp: every platform computes the same
+					var cx := a.x + (float(b.x) - a.x) * along
+					var cy := a.y + (float(b.y) - a.y) * along
+					var cz := a.z + (float(b.z) - a.z) * along
+					var d2 := (x - cx) * (x - cx) + (z - cz) * (z - cz)
+					if d2 <= radius * radius:
+						h = maxf(h, cy + sqrt(radius * radius - d2))
+		if h <= top and h >= bottom and h > best:
+			best = h
+	return best
+
+
+## The top surface of the convex hull of `points` at (x, z) (-INF: outside it): the highest of the triangles of three of
+## its points over (x, z), which is where a linear program over the hull's points peaks.
+func _hull_top(points: PackedVector3Array, x: float, z: float) -> float:
+	var top := -INF
+	for i in points.size():
+		for j in range(i + 1, points.size()):
+			for k in range(j + 1, points.size()):
+				top = maxf(top, _triangle_height(points[i], points[j], points[k], x, z))
+	return top
+
+
+## The height of triangle a, b, c over (x, z) (-INF: not over it, or the triangle is edge-on seen from above), by
+## barycentric weights in doubles.
+func _triangle_height(a: Vector3, b: Vector3, c: Vector3, x: float, z: float) -> float:
+	var d := (b.z - c.z) * (a.x - c.x) + (c.x - b.x) * (a.z - c.z)
+	if absf(d) < 1e-12:
+		return -INF
+	var wa := ((b.z - c.z) * (x - c.x) + (c.x - b.x) * (z - c.z)) / d
+	var wb := ((c.z - a.z) * (x - c.x) + (a.x - c.x) * (z - c.z)) / d
+	var wc := 1.0 - wa - wb
+	if wa < -1e-9 or wb < -1e-9 or wc < -1e-9:
+		return -INF
+	return wa * a.y + wb * b.y + wc * c.y
+
+
 ## The y of (b - a) x (c - a), in doubles: positive when a, b, c turn counter-clockwise seen from above.
 func _cross_y(a: Vector3, b: Vector3, c: Vector3) -> float:
 	var ux := float(b.x) - float(a.x)
@@ -434,6 +559,7 @@ func _body(w: StreamPeerBuffer, b: Node, strings: Array[String]) -> void:
 				if _has_surface_meta(c):
 					for k in range(before, recs.size()):
 						recs[k].surface_node = c
+		_add_floors(frame, recs)
 	else:
 		# a StaticBody2D or TileMapLayer: the node's position and rotation about Z
 		var g := _xf2(b)

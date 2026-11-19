@@ -28,6 +28,8 @@ RULES := []Rule {
 	// Levels: parsed when a World is created; plain data, through unified:wire; a Curve property as a dmath.Curve; the
 	// Level keeps its allocator (base:runtime).
 	{pkg = "level", kind = .Tick, imports = {"unified:dmath", "unified:wire", "base:runtime", "base:intrinsics"}},
+	// Navigation: built from plain slices (a level's, or a generated level's), so it needs no level or sim types.
+	{pkg = "nav", kind = .Tick, imports = {"unified:dmath"}},
 	// The harness: also walks RTTI, hashes and formats errors.
 	// It fills and logs Inputs.replaced, owns the Dev and reads the dev UI build switch (sim.DEV).
 	{
