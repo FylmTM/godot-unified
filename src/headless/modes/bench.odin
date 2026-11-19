@@ -110,7 +110,7 @@ bench_zones :: proc(
 	result.zones = make([]Zone_Stat, len(totals.names), context.temp_allocator)
 	for name, i in totals.names {
 		index := i < len(totals.names) - 1 ? i : sim.ZONES_MAX
-		result.zones[i] = {name, stat_of(samples[index][:])}
+		result.zones[i] = {fmt.tprint(name), stat_of(samples[index][:])} // the names die with the sim
 	}
 }
 

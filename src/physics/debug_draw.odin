@@ -37,19 +37,19 @@ DEBUG_DRAW_PURE :: ~Debug_Draw_Flags{.Joint_Extras}
 
 // The draw group of each flag (sim.debug_sink).
 DEBUG_DRAW_GROUPS :: [Debug_Draw_Flag]string {
-	.Shapes           = "physics shapes",
-	.Joints           = "physics joints",
-	.Joint_Extras     = "physics joint extras",
-	.Bounds           = "physics bounds",
-	.Mass             = "physics mass",
-	.Sleep            = "physics sleep",
-	.Body_Names       = "physics body names",
-	.Contacts         = "physics contacts",
-	.Graph_Colors     = "physics graph colors",
-	.Contact_Features = "physics contact features",
-	.Contact_Normals  = "physics contact normals",
-	.Contact_Forces   = "physics contact forces",
-	.Islands          = "physics islands",
+	.Shapes           = "physics_shapes",
+	.Joints           = "physics_joints",
+	.Joint_Extras     = "physics_joint_extras",
+	.Bounds           = "physics_bounds",
+	.Mass             = "physics_mass",
+	.Sleep            = "physics_sleep",
+	.Body_Names       = "physics_body_names",
+	.Contacts         = "physics_contacts",
+	.Graph_Colors     = "physics_graph_colors",
+	.Contact_Features = "physics_contact_features",
+	.Contact_Normals  = "physics_contact_normals",
+	.Contact_Forces   = "physics_contact_forces",
+	.Islands          = "physics_islands",
 }
 
 // Draws the world into the tick's debug draws: of the flags offered, those whose group the host shows (none shown: a

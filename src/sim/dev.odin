@@ -248,7 +248,7 @@ Debug_Sink :: struct {
 	group: u8,
 }
 
-// The library draw group named `name` (registered on first use, at most DEBUG_GROUPS - DEBUG_GROUP_OTHER - 1 of
+// The library draw group named `name` (lowercase, no spaces: "physics_shapes"; registered on first use, at most DEBUG_GROUPS - DEBUG_GROUP_OTHER - 1 of
 // them), and whether it is kept this tick: draw into it with the sink_* procs only when `shown`.
 debug_sink :: proc(t: ^Tick($G), name: string) -> (sink: Debug_Sink, shown: bool) {
 	when !DEV do return

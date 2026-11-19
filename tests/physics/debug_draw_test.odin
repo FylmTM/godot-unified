@@ -168,7 +168,7 @@ debug_draw_shapes :: proc(t: ^testing.T) {
 	corner := false
 	for shape in draws.shapes {
 		counts[shape.kind] += 1
-		testing.expect_value(t, dev.groups[shape.group], "physics shapes")
+		testing.expect_value(t, dev.groups[shape.group], "physics_shapes")
 		corner ||= shape.kind == .Line && (near(shape.a, {7, 1, 1}) || near(shape.b, {7, 1, 1}))
 	}
 	testing.expect_value(t, counts[.Sphere], 1)
