@@ -75,13 +75,13 @@ its reference run and its replay regressions; the game's suite says which) on sh
 
 A reference run is a run every platform must reproduce, pinned in the game's tests as one constant
 (`REFERENCE :: scenarios.Reference{...}`, checked by `scenarios.reference_reproduces`): the checksums at four
-checkpoints, the hash of every tick's checksum, and the hashes of the input log's and the snapshot's bytes, so this
-platform both computes and encodes what every other does. CI runs it on every platform, which makes it the
-cross-platform determinism check.
+checkpoints, the hash of every tick's checksum, the hashes of the input log's and the snapshot's bytes, and the
+build's identity (`sim.compat_of`), so this platform both computes and encodes what every other does. CI runs it on
+every platform, which makes it the cross-platform determinism check.
 
-A mismatch prints the literal to paste: paste it only after a change that alters the simulation or the log or
-snapshot format, saying why (the `unified-sim-change` skill). The log and snapshot carry the build's compat, so a version or
-pin bump moves their hashes while the checkpoints and the trace stay.
+A mismatch prints the new literal, and `uni test --bless` re-pins it (Re-pinning) after a change that alters the
+simulation or the log or snapshot format (the `unified-sim-change` skill). The log and snapshot carry the build's
+compat, so a version or pin bump moves their hashes and the compat while the checkpoints and the trace stay.
 
 ## Replay regressions
 
@@ -101,8 +101,27 @@ on real play's inputs, which no scripted player sends.
 
 **The results decide, never the build's identity.** A recording replays whatever compat or levels it was recorded and
 blessed with, so a refactor or a pin bump that computes nothing differently passes, and a rules change or a re-baked
-level fails at its first tick. After a meant change, `uni test <game> --bless` writes a new expectation for each
-recording that diverges or has none (a warning names each and where it diverged), committed with the change (the
-`unified-sim-change` skill). A new regression is a copied folder, then a bless. A recording whose Input, commands, Setup or
-Profile changed layout (or whose snapshot no longer loads) can't be blessed: record a new one. `uni init` leaves
-minimal_3d's recordings out of a new game: a game records its own.
+level fails at its first tick. After a meant change, `uni test --bless` writes a new expectation for each recording
+that diverges or has none (Re-pinning; a warning names each and where it diverged), committed with the change (the
+`unified-sim-change` skill). A new regression is a copied folder, then a bless. A recording whose Input, commands,
+Setup or Profile changed layout (or whose snapshot no longer loads) can't be blessed: record a new one. `uni init`
+leaves minimal_3d's recordings out of a new game: a game records its own.
+
+## Re-pinning
+
+Everything a run pins, a game's reference run and replay regressions and the library's golden traces
+(`tests/physics`), moves only on purpose, and one command re-pins all of it after a meant change: `uni test --bless`
+(`uni test <game> --bless` for one game). It builds the tests with `scenarios.BLESS`, and each check that would fail
+re-pins instead, in the test binary: a replay regression writes its `expected.unie`; a reference run or a golden trace
+rewrites its literal in its test's source (`scenarios.bless_pin`). The rewrite finds the literal by the value the test
+was compiled with and changes only the numbers and strings that differ, in place, so the file stays as odinfmt left
+it, and a warning names each value with its old and new text: the diff is the review. A second bless changes nothing.
+
+**A bless never re-pins results that moved on the build that pinned them.** A build's identity (`sim.compat_of`,
+`src/sim/README.md`, Build identity) must change whenever what it computes does, or two builds that disagree would
+play together and desync. So a reference run or a replay regression whose results moved while the compat it was
+pinned with stayed, and a golden trace that moved on the library it was pinned on (`GOLDEN_LIBRARY` in
+`tests/physics`: `sim.LIBRARY_VERSION` and the unified-box3d pin), fail even under `--bless`, saying which version to
+bump. Moved hashes on a moved identity (a version or pin bump, a re-baked level) re-pin. A second meant change on the
+same branch bumps again: versions are cheap. A reference not pinned yet (a new game's) is left for the game to pin.
+

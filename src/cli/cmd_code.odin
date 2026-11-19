@@ -378,7 +378,7 @@ fmt_hook :: proc() -> ! {
 // --- the odin test suite ----------------------------------------------------------------------------------------
 
 // Whether the tests under `root` build unified:headless/scenarios, which declares UNIFIED_LONG_TESTS and
-// UNIFIED_BLESS (odin rejects a -define nothing declares).
+// UNIFIED_BLESS (odin rejects a -define nothing declares; without it nothing is pinned to re-pin).
 @(private)
 uses_scenarios :: proc(root: string) -> bool {
 	return sources_import(root, `"unified:headless/scenarios"`)

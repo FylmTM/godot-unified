@@ -3,6 +3,7 @@
 // game (ships, rocks that split, walls, ray-cast bullets) rolls back and resumes from a portable image.
 package test_physics
 
+import "core:fmt"
 import "core:slice"
 import "core:testing"
 
@@ -753,8 +754,7 @@ the_live_image_is_the_slots :: proc(t: ^testing.T) {
 }
 
 // The field's golden trace: plane-locked bodies, polygon hulls, splits and rays pinned on every
-// platform. A change to src/physics, Box3D or the build flags that alters any of these fails here;
-// if it is intended, update the values in the same commit.
+// platform. A change to src/physics, Box3D or the build flags that alters any of these fails here (golden_check).
 GOLDEN_FIELD :: [4]u64{0x8a1a1fdacc858cdd, 0x1938b942ddc166bb, 0x03565416246aa800, 0xf9017cdbc385b02e}
 
 // On 1 and on 4 workers: the same values.
@@ -775,14 +775,8 @@ field_golden :: proc(t: ^testing.T, game: ^Field_Game) {
 		if tick % 128 == 0 do got[tick / 128 - 1] = sim.checksum(session)
 	}
 	testing.expectf(t, session.state.splits > 10, "only %d splits", session.state.splits)
-	testing.expectf(
-		t,
-		got == GOLDEN_FIELD,
-		"2D golden trace changed (on %d workers): %x (pinned %x). If the change to src/physics, Box3D or the build flags is intended, update GOLDEN_FIELD in tests/physics/plane2d_test.odin in the same commit",
-		session.world.phys.workers,
-		got,
-		GOLDEN_FIELD,
-	)
+	pinned := GOLDEN_FIELD
+	golden_check(t, fmt.tprintf("GOLDEN_FIELD (%d workers)", session.world.phys.workers), got[:], pinned[:])
 }
 
 // A physics world's kept ticks (sim.snapshot_keep: a copy of the slot's Box3D snapshot and body table) encode, long

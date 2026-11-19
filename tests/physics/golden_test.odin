@@ -1,11 +1,112 @@
 // The character's golden trace: our own physics code (the character, kinematic paths, the Extra's hash)
-// pinned on every platform, like Box3D's results are in box3d_test.odin (BOX3D_GOLDEN).
+// pinned on every platform, like Box3D's results are in box3d_test.odin (BOX3D_GOLDEN); and what every golden trace
+// here is checked with (golden_check), on the library they were pinned on (GOLDEN_LIBRARY).
 package test_physics
 
+import "core:fmt"
+import "core:strings"
 import "core:testing"
 
+import "unified:headless/scenarios"
 import "unified:physics"
 import "unified:sim"
+
+// The library the golden traces were pinned on: sim.LIBRARY_VERSION and the unified-box3d pin. A golden that moves
+// on this library moved without a bump, which golden_check refuses (the library-sim-change skill).
+GOLDEN_LIBRARY :: sim.Library {
+	version = 10,
+	box3d   = "3362633-r5",
+}
+
+// The library this build is.
+@(private = "file")
+library_now :: proc() -> sim.Library {
+	return {version = sim.LIBRARY_VERSION, box3d = sim.box3d_pin()}
+}
+
+@(private = "file")
+library_literal :: proc(library: sim.Library) -> string {
+	return fmt.tprintf(
+		"GOLDEN_LIBRARY :: sim.Library {{\n\tversion = %d,\n\tbox3d   = %q,\n}}",
+		library.version,
+		library.box3d,
+	)
+}
+
+// A golden trace as its literal reads, `{0x..., ...}`: printed to paste, re-pinned as is.
+@(private = "file")
+golden_literal :: proc(hashes: []u64) -> string {
+	text := strings.builder_make(context.temp_allocator)
+	strings.write_byte(&text, '{')
+	for hash, k in hashes {
+		fmt.sbprintf(&text, "%s0x%016x", k > 0 ? ", " : "", hash)
+	}
+	strings.write_byte(&text, '}')
+	return strings.to_string(text)
+}
+
+// The goldens are pinned on this build's library: after a bump (sim.LIBRARY_VERSION, the unified-box3d pin),
+// `uni test --bless` re-pins GOLDEN_LIBRARY with the goldens that moved.
+@(test)
+goldens_are_pinned_on_this_library :: proc(t: ^testing.T) {
+	now := library_now()
+	if now.version == GOLDEN_LIBRARY.version && now.box3d == GOLDEN_LIBRARY.box3d do return
+	if scenarios.BLESS {
+		scenarios.bless_pin(t, "GOLDEN_LIBRARY", library_literal(GOLDEN_LIBRARY), library_literal(now))
+		return
+	}
+	testing.expectf(
+		t,
+		false,
+		"the golden traces were pinned on another library; after a meant bump: ./uni test --bless (the " +
+		"library-sim-change skill). This build:\n%s",
+		library_literal(now),
+	)
+}
+
+// A golden trace's check: `got` is `pinned`. A trace that moved fails, printing its new literal; under --bless
+// (scenarios.BLESS) it is re-pinned instead (scenarios.bless_pin), unless this build is still GOLDEN_LIBRARY: a
+// change that moves a golden bumps sim.LIBRARY_VERSION (or the unified-box3d pin), so that is refused. `what` names
+// the trace in the messages.
+golden_check :: proc(t: ^testing.T, what: string, got, pinned: []u64, loc := #caller_location) {
+	if slice_equal(got, pinned) do return
+	now := library_now()
+	same_library := now.version == GOLDEN_LIBRARY.version && now.box3d == GOLDEN_LIBRARY.box3d
+	switch {
+	case same_library:
+		testing.expectf(
+			t,
+			false,
+			"%s: the golden trace moved on the library it was pinned on (GOLDEN_LIBRARY). A meant change to " +
+			"src/physics, src/sim, src/dmath, Box3D or the build flags bumps sim.LIBRARY_VERSION, and then " +
+			"./uni test --bless re-pins it (the library-sim-change skill); else find the cause. The run now: %s",
+			what,
+			golden_literal(got),
+			loc = loc,
+		)
+	case scenarios.BLESS:
+		scenarios.bless_pin(t, what, golden_literal(pinned), golden_literal(got), loc)
+	case:
+		testing.expectf(
+			t,
+			false,
+			"%s: the golden trace moved. If the change was meant: ./uni test --bless (the library-sim-change " +
+			"skill). The run now: %s",
+			what,
+			golden_literal(got),
+			loc = loc,
+		)
+	}
+}
+
+@(private = "file")
+slice_equal :: proc(a, b: []u64) -> bool {
+	if len(a) != len(b) do return false
+	for value, k in a {
+		if value != b[k] do return false
+	}
+	return true
+}
 
 // The scene's block: what a game would keep. Its bytes and the Extra's hash make each value of the trace.
 Golden :: struct {
@@ -19,9 +120,7 @@ Golden :: struct {
 GOLDEN_TICKS :: 512 // 8 s: the platform's whole ping-pong cycle
 GOLDEN_EVERY :: 128
 
-// A change to src/physics, Box3D or the build flags that alters any of these fails here. If the
-// change is intended, update the values in the same commit (with BOX3D_GOLDEN and the
-// games' reference runs when they change too).
+// A change to src/physics, Box3D or the build flags that alters any of these fails here (golden_check).
 GOLDEN_CHARACTERS :: [GOLDEN_TICKS / GOLDEN_EVERY]u64 {
 	0x32f947e417397067,
 	0x2d9dc705fab02713,
@@ -86,14 +185,8 @@ character_golden :: proc(t: ^testing.T, workers: i32) {
 	pushed := physics.body_position(world, state.target.body).x - target_x0
 	testing.expectf(t, pushed > 0.1, "the target was pushed only %v m", pushed)
 	testing.expect(t, physics.character_grounded(&state.target), "the target did not get up again")
-	testing.expectf(
-		t,
-		got == GOLDEN_CHARACTERS,
-		"character golden trace on %d workers changed: %x (pinned %x). If the change to src/physics, Box3D or the build flags is intended, update GOLDEN_CHARACTERS in tests/physics/golden_test.odin in the same commit",
-		workers,
-		got,
-		GOLDEN_CHARACTERS,
-	)
+	pinned := GOLDEN_CHARACTERS
+	golden_check(t, fmt.tprintf("GOLDEN_CHARACTERS (%d workers)", workers), got[:], pinned[:])
 }
 
 // Bodies on a level mesh and a height field (the terrain fixture: crates on its conveyor deck, balls down its hill),
@@ -114,11 +207,6 @@ terrain_golden_trace :: proc(t: ^testing.T) {
 		sim.step(simulation, &inputs)
 		if tick % 32 == 0 do got[tick / 32 - 1] = sim.checksum(simulation)
 	}
-	testing.expectf(
-		t,
-		got == GOLDEN_TERRAIN,
-		"terrain golden trace changed: %x (pinned %x). If the change to src/physics, src/level, Box3D or the build flags is intended, update GOLDEN_TERRAIN in tests/physics/golden_test.odin in the same commit",
-		got,
-		GOLDEN_TERRAIN,
-	)
+	pinned := GOLDEN_TERRAIN
+	golden_check(t, "GOLDEN_TERRAIN", got[:], pinned[:])
 }

@@ -75,7 +75,9 @@ expectation_destroy :: proc(expectation: ^Expectation) {
 // tick 0) and compares every tick with the folder's expected.unie. The results decide: a recording replays whatever
 // build or levels it was recorded or blessed with, so a change that computes nothing differently passes, and one that
 // does (a rule, a re-baked level) diverges until blessed. `bless`: a recording that diverges or has no expectation
-// gets a new one, written from this replay (`blessed`), and one that reproduces is left alone. `synctest`: the replay
+// gets a new one, written from this replay (`blessed`), and one that reproduces is left alone; one that diverges on
+// the build that blessed it (the same sim.compat_of: its results moved without a version bump) is never blessed, and
+// its report says so. `synctest`: the replay
 // is a sync-tested run too (Run, rolled back `window` ticks every tick; a recording that continues a snapshot is
 // replayed plainly).
 regression_run :: proc(
@@ -210,7 +212,9 @@ regression_run :: proc(
 		result.diverged_tick, result.report = expectation_compare(&want, &got, State, Event)
 		if result.diverged_tick != 0 do result.status = .Diverges
 	}
-	if bless && result.status != .Reproduces {
+	// results that moved on the build that blessed them moved without a version bump: never blessed
+	moved_unbumped := result.status == .Diverges && want.compat == got.compat
+	if bless && result.status != .Reproduces && !moved_unbumped {
 		result.blessed = write_file(path, expectation_encode(&got))
 	}
 	return
@@ -260,6 +264,12 @@ expectation_compare :: proc(want, got: ^Expectation, $State, $Event: typeid) -> 
 	if diverged == 0 do return
 	if want.compat != got.compat {
 		fmt.sbprintf(&text, "; blessed by another build (compat %016x, this build %016x)", want.compat, got.compat)
+	} else {
+		fmt.sbprint(
+			&text,
+			"; on the build that blessed it (sim.compat_of did not move): a meant change bumps Game.version or " +
+			"sim.LIBRARY_VERSION before it is blessed",
+		)
 	}
 	if want.content != got.content do fmt.sbprint(&text, "; blessed with other levels")
 	return diverged, strings.to_string(text)

@@ -1,6 +1,6 @@
 // Replay regressions on the toy (headless.regression_run): a recording blesses, reproduces, and a rule change names the
-// first tick that differs and the field; an events-only change names the event; another recording, a broken one and
-// one that continues a snapshot.
+// first tick that differs and the field; an events-only change names the event (and, on the build that blessed it, is
+// never blessed); another recording, a broken one and one that continues a snapshot.
 package test_headless
 
 import "core:os"
@@ -97,6 +97,21 @@ an_events_change_names_the_event :: proc(t: ^testing.T) {
 	testing.expect_value(t, result.diverged_tick, 100)
 	testing.expectf(t, strings.contains(result.report, "its events"), "the report names the events: %s", result.report)
 	testing.expectf(t, !strings.contains(result.report, "blessed vs now"), "the block agrees: %s", result.report)
+	// the same build (its version not bumped): never blessed, and the report says why
+	testing.expectf(
+		t,
+		strings.contains(result.report, "on the build that blessed it"),
+		"the report names the build: %s",
+		result.report,
+	)
+	refused := headless.regression_run(&changed, folder, bless = true)
+	testing.expect(t, refused.status == .Diverges && !refused.blessed, "a divergence on the blessing build stays")
+	changed.version = "changed"
+	testing.expect(
+		t,
+		headless.regression_run(&changed, folder, bless = true).blessed,
+		"with a version bump it blesses",
+	)
 }
 
 @(test)

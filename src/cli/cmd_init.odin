@@ -174,7 +174,7 @@ TEMPLATE_SKIP_DIRS :: []string{"simulation/tests/replays/"}
 TEMPLATE_REFERENCE :: "simulation/tests/reference_test.odin"
 
 // The Reference fields a copy of TEMPLATE_REFERENCE leaves out: minimal_3d's results.
-TEMPLATE_REFERENCE_RESULTS :: []string{"checkpoints", "trace", "snapshot", "log"}
+TEMPLATE_REFERENCE_RESULTS :: []string{"checkpoints", "trace", "snapshot", "log", "compat"}
 
 // Writes the game: unified's minimal_3d (at `unified`, a checkout) with `name` for minimal_3d in paths and text
 // (`repo`: and template/repo/, a game repo's own files, at its root), formats its Odin files (the name changes line

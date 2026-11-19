@@ -97,8 +97,8 @@ each time; the views show the newest guess and are told when it changes.
 - A session worth keeping (a feature played through, a bug's F3 note once it is fixed) goes into
   `simulation/tests/replays/<name>/`: copy its replay folder (`<user data>/recordings/<time>/`, or the note's), then
   `uni test <game> --bless`. `uni test` replays it from then on and names the first tick and the fields that differ.
-- A rules or tuning change that moves a regression on purpose: `uni test <game> --bless` and commit the new
-  `expected.unie` files with the change, saying why. One that moves it by surprise is a bug: look at that tick in the
+- A rules or tuning change that moves a regression on purpose: bump `Game.version`, `uni test <game> --bless` (the
+  reference run too) and commit what it re-pinned with the change, saying why. One that moves it by surprise is a bug: look at that tick in the
   game's replay of the folder (`UnifiedSession.replay`).
 
 **Physics recipes** (`src/physics/README.md`)

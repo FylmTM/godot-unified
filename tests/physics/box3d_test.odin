@@ -286,8 +286,7 @@ box3d_scene_destroy :: proc(scene: ^Box3d_Scene) {
 }
 
 // The library's cross-platform pin: the scene hashed every 60 ticks. The values must match on every platform; a
-// Box3D upgrade that changes them fails here first, then the games' reference runs. An intended change updates them in
-// the same commit (the library-sim-change skill).
+// Box3D upgrade that changes them fails here first, then the games' reference runs (golden_check).
 BOX3D_GOLDEN :: [4]u64{0x3125e350623f9163, 0x3f3637eb749e2a37, 0xf0d63788ca5d305b, 0xa2fd5716d15ff9f4}
 
 @(test)
@@ -300,7 +299,8 @@ box3d_golden_trace :: proc(t: ^testing.T) {
 		box3d_steps(scene.world, 60)
 		hash = box3d_bodies_hash(scene.bodies[:])
 	}
-	testing.expectf(t, got == BOX3D_GOLDEN, "golden trace changed: %x (pinned %x)", got, BOX3D_GOLDEN)
+	pinned := BOX3D_GOLDEN
+	golden_check(t, "BOX3D_GOLDEN", got[:], pinned[:])
 }
 
 // The awake bodies' hash (physics' hash between deep ticks) sees which bodies are awake and every awake body's
