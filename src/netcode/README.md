@@ -78,9 +78,10 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
   can't grow the out-of-order buffer at will.
 - **Timeouts.** A keepalive keeps idle peers connected. A peer is dropped after `DISCONNECT_US` of silence, or
   `FIRST_ANSWER_US` for one that never answered (a transport like EOS sets up its path after the first hello).
-- **Epochs.** Each side's connection has an epoch (a fresh value each time it opens one), sent in every datagram
-  with the peer's last one seen. A datagram echoing an epoch other than ours was meant for an earlier connection: it
-  is dropped unread while a newer connection runs, and otherwise answered by a new connection, whose epoch ends the
+- **Epochs.** Each side's connection has an epoch (a fresh value each time it opens one, never one an earlier
+  connection of the process had: a client made again must not read as the old one), sent in every datagram with the
+  peer's last one seen. A datagram echoing an epoch other than ours was meant for an earlier connection: it is dropped
+  unread while a newer connection runs, and otherwise answered by a new connection, whose epoch ends the
   sender's stale side at once, so no side sits half-open. A new epoch from an active peer means it started over (a
   restarted program on the same address, or on a link that numbers a person, not a socket: EOS): the old connection
   ends with `Disconnected` and the datagram opens the new one. The old connection's messages read in the same poll
