@@ -364,6 +364,10 @@ func check_setup_json() -> void:
 	check("from_json reads it back, a key this build lacks skipped", back != null and back.life_bonus == 4)
 	var older := UnifiedSetup.from_json('{}')
 	check("a field the text lacks keeps the game's default", older != null and older.life_bonus == 0)
+	var problem := UnifiedSetup.json_problem('{"life_bonus":300}')
+	check("json_problem says why a save does not read", problem.contains("life_bonus") and problem.contains("300"),
+		problem)
+	check("json_problem of a save that reads is empty", UnifiedSetup.json_problem('{"life_bonus":4}') == "")
 	check("from_json of what doesn't read is null, with an error",
 		UnifiedSetup.from_json('{"life_bonus":300}') == null)
 

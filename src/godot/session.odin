@@ -485,7 +485,7 @@ register_session_class :: proc() {
 		class,
 		"save_changed",
 		{{"setup", .OBJECT, SETUP_CLASS}},
-		doc = "The game's save changed: [param setup] is the Setup that continues this session in a new one (Game.save, from a verified tick, so never a mispredicted one; src/sim/README.md, Saves). Every player gets it, so any of them can host the continuation: keep it ([method UnifiedSetup.to_json]) and pass it to a start method later.",
+		doc = "The game's save changed: [param setup] is the newest Setup that continues this session in a new one (Game.save, from a verified tick, so never a mispredicted one; src/sim/README.md, Saves), handed over with the frame shown (two saves verified between two frames come as the second). Every player gets it, so any of them can host the continuation: keep it ([method UnifiedSetup.to_json]) and pass it to a start method later.",
 	)
 	gd.bind_signal(
 		class,

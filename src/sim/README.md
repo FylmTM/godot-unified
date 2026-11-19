@@ -78,15 +78,23 @@ bytes everywhere, so its State is what it would be without them.
 
 **A save is the Setup that continues the session**, never a snapshot (a snapshot stops loading after every `compat`
 change). `Game.save` turns a tick's state into it: it gets the session's Setup and writes the progress in (a record,
-a run's heroes and floor), or says the tick has nothing new. It is called on **verified ticks only**, every one in
-order (`save_changed`: the netcode client on each, an offline run on every tick), so a state a rollback replaces is
-never saved, and the host is told each save that differs from the last (the Godot host's `save_changed`). Every
-client saves, not only the host: any of them can host the continuation.
+a run's heroes and floor), or says the tick has nothing new. `step` asks it after every tick it computes and keeps
+the answer beside the ring, and a save is **taken from verified ticks only**, every one in order (`save_changed`: the
+netcode client on each, an offline run on every tick), so a state a rollback replaces is never saved, and a save
+point one tick long is never missed. Every client saves, not only the host: any of them can host the continuation.
+The Godot host hands the newest save over with the frame it shows (`UnifiedSession.save_changed`), so two saves
+verified between two frames come as the second.
+
+"Verified" means the tick's inputs are final, not that the peers' checksums agreed: a client whose state diverged
+saves its diverged state before the desync is reported.
 
 **A save outlives the build** as JSON (`setup_to_json`, `setup_from_json`): fields by name, a List by its items, an
 enum by its member's name. A new build reads it over its own default Setup (`Game.setup`), so a field the save lacks
 keeps its default and a key it no longer has is skipped; what it can't hold (a value out of range, a member it lost)
-is refused, never guessed. The game owns the file and where it lives; the library never touches files.
+is refused, never guessed, with the reason (`setup_from_json`'s problem, `UnifiedSetup.json_problem`), so the game
+can tell the player, keep the old file or migrate it. A game that changes what an old save can't hold (an enum's
+members, a list's capacity) keeps a version in its save and migrates older ones. The game owns the file and where it
+lives; the library never touches files.
 
 What a save does not hold, a resumed session must be able to rebuild: a stream in the block restarted at the save
 point from names that include it (Random numbers) comes back by itself; one carried across it does not.

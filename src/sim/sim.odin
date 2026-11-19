@@ -248,10 +248,11 @@ Game :: struct(
 	// gives every client and offline run the same players.
 	scripted_profile:      proc(seed: u64, slot: int) -> Profile,
 	// Optional, never called by `tick`: the Setup that continues this session in a new one (src/sim/README.md, Saves),
-	// from the state of a verified tick. `setup` holds the session's Setup: write the progress into it and return true,
-	// or false when this tick has nothing to save (between save points). Every client calls it on every verified tick
-	// (save_changed), so a mispredicted state is never saved, and the host sees each save that differs from the last.
-	// Cheap and allocation-free; it reads the state and writes nothing else.
+	// from a tick's state. `setup` holds the session's Setup: write the progress into it and return true, or false when
+	// this tick has nothing to save (between save points). `step` calls it after every tick it computes, predicted
+	// ones too, and keeps the answer; a client takes only verified ticks' (save_changed), so a mispredicted state is
+	// never saved. Cheap and allocation-free (it runs on every re-simulated tick); it reads the state and writes
+	// nothing else.
 	save:                  proc(state: ^State, setup: ^Setup) -> bool,
 	// Optional, never called by the sim: fill the initial state with `count` entities and hold that population (the
 	// headless `bench`, Godot's `-- --bench N`). Single player only: it changes the initial state, which every peer
@@ -351,6 +352,17 @@ Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	hash_buf:     [dynamic]u8,
 	kept:         []Kept_Tick(part(G, GAME_STATE)), // KEEP_SLOTS, allocated by the first snapshot_keep
 	dev:          ^Dev, // draws and zones (dev_attach; nil: none)
+	// Game.save's answer for each stepped tick, by ring slot (nil without a Game.save): save_changed reads a verified
+	// tick's, whether or not the ring kept its state.
+	saves:        []Saved_Tick(part(G, GAME_SETUP)),
+}
+
+// Game.save's answer for a stepped tick: whether it gave a save, and the Setup.
+@(private)
+Saved_Tick :: struct($Setup: typeid) {
+	tick:  u32,
+	given: bool,
+	setup: Setup,
 }
 
 // XXH3-64 (seed 0), one-shot.
@@ -522,8 +534,8 @@ choice_violation :: proc(type: ^runtime.Type_Info, max_size: int, zero_enums := 
 @(private)
 choice_reads :: proc(data: rawptr, type: ^runtime.Type_Info) -> string {
 	changed, rejected := wire_fix(data, type, .Command, apply = false)
-	if rejected do return "holds an enum outside its declared values or a float that is not finite"
-	if changed do return "holds a bool that is neither 0 nor 1 or a bit_set bit of no element"
+	if rejected do return "holds an enum outside its declared values, a float that is not finite or a List or Queue past its capacity"
+	if changed do return "holds a bool that is neither 0 nor 1, a bit_set bit of no element or a Bits index past its size"
 	return ""
 }
 
@@ -626,6 +638,7 @@ create_with_setup :: proc(
 		slot.events.list = make([dynamic]Raw_Event, 0, 8)
 	}
 	simulation.hash_buf = make([dynamic]u8)
+	if game.save != nil do simulation.saves = make([]Saved_Tick(part(G, GAME_SETUP)), len(simulation.ring))
 	simulation.world =
 		game.world_create(seed, game.levels, setup) if game.world_create != nil else new(part(G, GAME_WORLD))
 	if game.extra != nil {
@@ -655,6 +668,7 @@ destroy :: proc(simulation: ^Sim($G)) {
 		delete(slot.draws.text)
 	}
 	delete(simulation.ring)
+	delete(simulation.saves)
 	dev_destroy(simulation.dev)
 	delete(simulation.hash_buf)
 	wire_check_destroy(&simulation.input_check)
@@ -704,6 +718,11 @@ step :: proc(simulation: ^Sim($G), inputs: ^Inputs(G), save := true) {
 	dev_step_end(simulation.dev, started)
 	players_remember(&simulation.state.players, read)
 	simulation.tick = number
+	if simulation.saves != nil {
+		saved := &simulation.saves[ring_slot(simulation, number)]
+		saved.tick, saved.setup = number, simulation.setup
+		saved.given = simulation.game.save(&simulation.state, &saved.setup)
+	}
 	if save do save_tick(simulation)
 }
 

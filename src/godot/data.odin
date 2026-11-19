@@ -439,7 +439,7 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 	return data_class
 }
 
-// UnifiedSetup's to_json and from_json (src/sim/README.md, Saves): a save file a later build reads back.
+// UnifiedSetup's to_json, from_json and json_problem (src/sim/README.md, Saves): a save file a later build reads back.
 @(private)
 bind_setup_json :: proc(class: ^gd.Class) {
 	gd.bind_dynamic_method(class, "to_json", proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
@@ -450,17 +450,30 @@ bind_setup_json :: proc(class: ^gd.Class) {
 		}, nil, nil, gd.Dynamic_Arg{"", .STRING, ""}, doc = "This Setup as JSON (sim.setup_to_json): its fields by name, a list by its items, an enum by its member's name. What a game keeps as its save file; [method from_json] reads it back, also on a later build.")
 	gd.bind_dynamic_method(class, "from_json", proc(_: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
 			text, _ := gd.from_variant(string, args[0])
-			if D.setup == nil do return gd.variant_nil()
-			bytes := make([]u8, len(api.setup_default), context.temp_allocator)
-			copy(bytes, api.setup_default)
-			problem := sim.value_from_json(D.setup.layout.type, raw_data(bytes), text)
-			if problem == "" do problem = api.setup_problem(bytes)
+			bytes, problem := setup_of_json(text)
 			if problem != "" {
 				gd.print_error(fmt.tprintf("unified: %s.from_json: %s", SETUP_CLASS, problem))
 				return gd.variant_nil()
 			}
 			return nested_variant(D.setup, bytes, .View)
-		}, nil, {{"text", .STRING, ""}}, gd.Dynamic_Arg{"", .OBJECT, SETUP_CLASS}, static = true, doc = "The Setup a save's JSON gives this build (sim.setup_from_json): the game's default with the text's values over it, so a field the save lacks keeps its default and a key this build lacks is skipped. Null, with an error, when it does not read.")
+		}, nil, {{"text", .STRING, ""}}, gd.Dynamic_Arg{"", .OBJECT, SETUP_CLASS}, static = true, doc = "The Setup a save's JSON gives this build (sim.setup_from_json): the game's default with the text's values over it, so a field the save lacks keeps its default and a key this build lacks is skipped. Null, with an error, when it does not read: ask [method json_problem] first to tell the player, keep the old file or migrate it.")
+	gd.bind_dynamic_method(class, "json_problem", proc(_: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
+			text, _ := gd.from_variant(string, args[0])
+			_, problem := setup_of_json(text)
+			return gd.to_variant(problem)
+		}, nil, {{"text", .STRING, ""}}, gd.Dynamic_Arg{"", .STRING, ""}, static = true, doc = "Why [method from_json] refuses this text (empty: it reads): what does not read and where (a value out of range, a member this build lacks, text that is not strict JSON), or what would not read as sent. Reading is strict, never a guess: a game whose save changed shape keeps a version in it and migrates older ones.")
+}
+
+// A save's JSON as this build's Setup bytes (temp-allocated): the game's default with the text over it, and why not
+// ("" when it reads; sim.setup_from_json).
+@(private)
+setup_of_json :: proc(text: string) -> (bytes: []u8, problem: string) {
+	if D.setup == nil do return nil, "the game has no Setup class"
+	bytes = make([]u8, len(api.setup_default), context.temp_allocator)
+	copy(bytes, api.setup_default)
+	problem = sim.value_from_json(D.setup.layout.type, raw_data(bytes), text)
+	if problem == "" do problem = api.setup_problem(bytes)
+	return
 }
 
 // A data object's field: session data and constants hold the sim's bytes (positions in sim units), input values and

@@ -5,17 +5,16 @@ package sim
 import "base:runtime"
 import "core:strings"
 
-// Game.save on tick `tick` (the state the sim stands on, or the ring's), against `saved`, the last Setup it gave (the
-// session's before the first): true when it gave one whose bytes differ, now in `saved`. Call it on verified ticks
-// only, every one in order (the netcode client does; an offline run on every tick), so a mispredicted state is never
-// saved. False without a Game.save, or when the tick is gone from the ring.
+// What Game.save gave for tick `tick` (step calls it on every tick it computes, predicted or not, and keeps the answer
+// by ring slot), against `saved`, the last save taken (the session's Setup before the first): true when it gave one
+// whose bytes differ, now in `saved`. Call it on verified ticks only, every one in order (the netcode client does; an
+// offline run on every tick), so a mispredicted state is never saved. False without a Game.save, or when the ring
+// has moved past the tick.
 save_changed :: proc(simulation: ^Sim($G), tick: u32, saved: ^$Setup) -> bool where Setup == part(G, GAME_SETUP) {
-	if simulation.game.save == nil do return false
-	state := &simulation.state if simulation.tick == tick else state_at(simulation, tick)
-	if state == nil do return false
-	setup := simulation.setup
-	if !simulation.game.save(state, &setup) || string(bytes_of(&setup)) == string(bytes_of(saved)) do return false
-	saved^ = setup
+	if simulation.saves == nil do return false
+	entry := &simulation.saves[ring_slot(simulation, tick)]
+	if entry.tick != tick || !entry.given || string(bytes_of(&entry.setup)) == string(bytes_of(saved)) do return false
+	saved^ = entry.setup
 	return true
 }
 
