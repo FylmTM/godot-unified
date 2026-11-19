@@ -370,8 +370,8 @@ fmt_hook :: proc() -> ! {
 
 // --- the odin test suite ----------------------------------------------------------------------------------------
 
-// Whether the tests under `root` build unified:headless/scenarios, which declares UNIFIED_LONG_TESTS (odin rejects a
-// -define nothing declares).
+// Whether the tests under `root` build unified:headless/scenarios, which declares UNIFIED_LONG_TESTS and
+// UNIFIED_BLESS (odin rejects a -define nothing declares).
 @(private)
 uses_scenarios :: proc(root: string) -> bool {
 	return sources_import(root, `"unified:headless/scenarios"`)
@@ -405,9 +405,12 @@ test_builds :: proc(opts: Test_Options) -> []Build {
 	if opts.long && uses_scenarios(root) {
 		append(&flags, "-define:UNIFIED_LONG_TESTS=true")
 	}
+	if opts.bless && uses_scenarios(root) {
+		append(&flags, "-define:UNIFIED_BLESS=true")
+	}
 	append(&builds, Build {
 		pkg   = root,
-		out   = join(state.project.out, "test", aprintf("%s_tests%s", name, EXE)),
+		out   = join(state.project.out, "test", aprintf("%s_tests%s%s", name, opts.bless ? "_bless" : "", EXE)),
 		flags = flags[:],
 		own   = true,
 	})

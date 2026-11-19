@@ -111,9 +111,10 @@ Suite :: struct {
 
 // What `test` passes each suite it runs: the options of that run (a nested `test`, as `verify` runs it, has its own).
 Test_Options :: struct {
-	only: []string, // tests (odin) or steps (godot)
-	long: bool, // `--long`: the suites' long variants (README.md, Test suites)
-	game: string, // the game `test` names ("": every game): the odin suite compiles that game's tests only
+	only:  []string, // tests (odin) or steps (godot)
+	long:  bool, // `--long`: the suites' long variants (README.md, Test suites)
+	bless: bool, // `--bless`: the odin suite writes the expectation of each replay regression that diverges or has none
+	game:  string, // the game `test` names ("": every game): the odin suite compiles that game's tests only
 }
 
 // What a command reports: one line on stdout, or with --json one object (command, ok, summary, seconds, cold and

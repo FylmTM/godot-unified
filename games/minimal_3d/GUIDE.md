@@ -90,6 +90,14 @@ each time; the views show the newest guess and are told when it changes.
 - The lint and the scenarios in `simulation/tests/` catch what they can; pin a reference run once the rules settle
   (`suite_test.odin`'s header), which every platform must reproduce (`src/headless/README.md`, Reference runs).
 
+**Replay regressions** (`src/headless/README.md`, Replay regressions)
+- A session worth keeping (a feature played through, a bug's F3 note once it is fixed) goes into
+  `simulation/tests/replays/<name>/`: copy its replay folder (`<user data>/recordings/<time>/`, or the note's), then
+  `uni test <game> --bless`. `uni test` replays it from then on and names the first tick and the fields that differ.
+- A rules or tuning change that moves a regression on purpose: `uni test <game> --bless` and commit the new
+  `expected.unie` files with the change, saying why. One that moves it by surprise is a bug: look at that tick in the
+  game's replay of the folder (`UnifiedSession.replay`).
+
 **Physics recipes** (`src/physics/README.md`)
 - A jump pad sets a velocity, not an impulse, so every mass flies alike (friendslop's `pads.odin`).
 - A safe respawn spot is banked only when a ring of downward rays (`physics.world_cast_ray_closest`) all hit static
@@ -129,3 +137,7 @@ each time; the views show the newest guess and are told when it changes.
 - **A time constant doesn't compile.** It isn't a whole number of ticks: change it, or start a `sim.Timer` with
   seconds (`src/sim/README.md`, Game time).
 - **Two builds desync instead of refusing each other.** A rule changed without a `Game.version` bump.
+- **A replay regression diverges after a change that shouldn't move the sim.** It did: the report's fields say where.
+  Bless only after a change meant to compute differently (`src/headless/README.md`, Replay regressions).
+- **A replay regression says its recording does not decode.** The Input, a command, the Setup or the Profile changed
+  layout: record the session again and bless it.

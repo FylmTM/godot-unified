@@ -18,6 +18,8 @@ paths:
 - `core:hash/xxhash`'s streaming XXH3 (`XXH3_64_update/digest`) returns wrong digests for some input lengths (e.g.
   100,097 bytes), and is still deterministic, so it's easy to miss. Hash one-shot with `XXH3_64_default`
   (upstream fix: odin-lang/Odin#8257).
+- A range's end is evaluated before every iteration: `for _ in 0 ..< wire.r_u16(&reader)` reads a u16 each time
+  round. Read a count into a local first.
 - `foreign import` takes no absolute path and no `#config` path; relative paths work (the `box3d:` bindings).
 - Windows sleeps round to ~15.6 ms without `timeBeginPeriod(1)` (headless startup calls it), and UDP `recvfrom`
   reports WSAECONNRESET after an ICMP port-unreachable: skip it, it isn't "no data".

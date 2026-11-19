@@ -42,7 +42,11 @@ RULES := []Rule {
 	{pkg = "wire", kind = .Realtime},
 	{pkg = "netcode", kind = .Realtime, imports = {"unified:sim", "unified:wire"}},
 	{pkg = "eos", kind = .Realtime, imports = {"unified:netcode", "system:"}},
-	{pkg = "headless", kind = .Realtime, imports = {"unified:headless", "unified:sim", "unified:netcode"}},
+	{
+		pkg     = "headless",
+		kind    = .Realtime,
+		imports = {"unified:headless", "unified:sim", "unified:netcode", "unified:wire"},
+	},
 	{pkg = "lint", kind = .Realtime},
 	// Host side (Godot bindings and views, dev UI, the CLI): never feeds back into the sim. gdext's generated API imports
 	// its gdi sub-package relatively; the CLI imports Odin's own only, so editing the rest of the library never

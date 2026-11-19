@@ -3,6 +3,10 @@
 * text=auto eol=lf
 # Read byte for byte: exported levels (src/level/README.md).
 *.level binary
+# Read byte for byte: replay regressions' recordings and expectations (src/headless/README.md, Replay regressions).
+*.unil binary
+*.unis binary
+*.unie binary
 # Godot's API dump (src/gdext/api/README.md): generated, kept out of diffs and language stats.
 src/gdext/api/*.json linguist-generated=true -diff
 # The one exception (src/cli/README.md, Line endings): cmd.exe misreads labels and goto in a batch file with LF line

@@ -185,6 +185,7 @@ Test_Opts :: struct {
 	suite: string `hint:"s,..." usage:"suites, comma-separated, or all (default: odin); listed below"`,
 	only:  string `hint:"name,..." usage:"tests (odin) or steps (godot), comma-separated"`,
 	long:  bool `usage:"the long variants: every standard scenario at full length (odin), 960 ticks (net), a 256-tick session (godot)"`,
+	bless: bool `usage:"odin: bless each replay regression (a game's simulation/tests/replays/) that diverges or has no expectation, after a meant sim change"`,
 }
 
 @(private)
@@ -199,9 +200,10 @@ cmd_test :: proc(args: []string) -> Result {
 		names = suite_names()
 	}
 	test_opts := Test_Options {
-		only = split_list(opts.only),
-		long = opts.long,
-		game = opts.game,
+		only  = split_list(opts.only),
+		long  = opts.long,
+		bless = opts.bless,
+		game  = opts.game,
 	}
 	// The run's budget and CI allowance: its suites' (each by suite_budget and suite_ci_budget, --long included).
 	budget, ci_budget: f64
@@ -253,6 +255,9 @@ cmd_test :: proc(args: []string) -> Result {
 			}
 			if opts.long {
 				append(&cmd, "--long")
+			}
+			if opts.bless {
+				append(&cmd, "--bless")
 			}
 			if state.verbose do log("uni: test --suite %s: beside the others", suite.name)
 			children[i] = start({
