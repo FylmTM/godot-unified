@@ -1223,6 +1223,11 @@ publish_frame :: proc(
 	out.verified_level = driver.verified_level
 	out.tick_hz = u32(driver.game.tick_hz)
 	copy(out.setup[:], sim.bytes_of(&simulation.setup))
+	if client != nil {
+		save, saves := netcode.client_save(client)
+		copy(out.save[:], sim.bytes_of(&save))
+		out.saves = saves
+	}
 	out.due_us = due_us
 	out.tick_us, out.epoch = 0, driver.epoch
 	if replay := driver.replay; replay != nil do replay_view(replay, out)

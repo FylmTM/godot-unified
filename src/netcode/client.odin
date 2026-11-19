@@ -316,6 +316,16 @@ Client :: struct($G: typeid) {
 	// the relay's roster: every member of the session, by member id - 1 (departed ones stay)
 	roster:         [dynamic]Roster_Entry,
 	roster_changes: u32, // bumped on every roster entry received
+	// saves (usim.save_changed on every verified tick): the newest Setup Game.save gave, and how many times it changed
+	saved:          usim.part(G, usim.GAME_SETUP),
+	saves:          u32,
+	save_started:   bool, // saved holds the session's Setup or a save
+}
+
+// The newest Setup Game.save gave on a verified tick (src/sim/README.md, Saves) and how many times it changed this
+// session (0: never, and `setup` is the session's own). A host polls it after client_step: a new count is a new save.
+client_save :: proc(client: ^Client($G)) -> (setup: usim.part(G, usim.GAME_SETUP), changes: u32) {
+	return client.saved, client.saves
 }
 
 // The roster entry of member `id` (the relay's id, sim.Player.id; nil: not known yet).
@@ -1162,6 +1172,13 @@ step_predicted :: proc(client: ^Client($G), tick: u32, kind: Step_Kind) {
 
 @(private)
 on_tick_verified :: proc(client: ^Client($G), tick: u32) {
+	if client.game.save != nil {
+		if !client.save_started {
+			client.saved = client.sim.setup
+			client.save_started = true
+		}
+		if usim.save_changed(client.sim, tick, &client.saved) do client.saves += 1
+	}
 	if client.hooks.verified != nil {
 		client.hooks.verified(
 			client.hooks.user,
@@ -1882,6 +1899,8 @@ Client_Result :: struct {
 	join_tick:   u32, // the first tick the player is present
 	final_tick:  u32, // the last verified tick (= the session's ticks on success)
 	checksums:   [][2]u64, // Client.checksums: an endless session's last CHECKSUMS_KEPT
+	saves:       u32, // how many times Game.save's Setup changed (client_save)
+	save_hash:   u64, // the newest save's bytes hashed (usim.hash_bytes; 0: no save)
 	// Did not fail and was told of no desync; a fixed-length session's client also verified every tick of it.
 	ok:          bool,
 	using stats: Client_Stats,
@@ -1922,6 +1941,8 @@ client_result :: proc(client: ^Client($G), allocator := context.allocator) -> Cl
 		join_tick  = client.first_tick,
 		final_tick = client.verified,
 		checksums  = checksums,
+		saves      = client.saves,
+		save_hash  = client.saves > 0 ? usim.hash_bytes(usim.bytes_of(&client.saved)) : 0,
 		ok         = client.status !=
 			.Failed && client.stats.desyncs == 0 && (client.ticks == 0 || client.verified == client.ticks),
 		stats      = client_stats(client),

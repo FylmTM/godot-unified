@@ -262,8 +262,9 @@ line below (`tests/netcode/delay_test.odin` and `policy_test.odin` pin them).
 ## Hooks
 
 Every hook is called from `client_step`, on the caller's thread. In one step: `status`, `seat`, `desync` and
-`restored` as the relay's messages arrive; then `verified` for each newly verified tick, in order, and `verified_state` at most once,
-while the sim stands on the newest of them; then `sample` and `commands` for each tick the clock generates, once per
+`restored` as the relay's messages arrive; then `verified` for each newly verified tick, in order (the client takes
+the game's save of each first: `client_save`), and `verified_state` at most once, while the sim stands on the newest
+of them; then `sample` and `commands` for each tick the clock generates, once per
 seated local player (`local` says which); then `frame` once, when the step computed ticks.
 
 ## Commands

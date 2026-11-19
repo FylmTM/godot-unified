@@ -247,6 +247,12 @@ Game :: struct(
 	// Profile; the headless `--player-profile` assigns fields over it). A script that answers from (seed, slot) alone
 	// gives every client and offline run the same players.
 	scripted_profile:      proc(seed: u64, slot: int) -> Profile,
+	// Optional, never called by `tick`: the Setup that continues this session in a new one (src/sim/README.md, Saves),
+	// from the state of a verified tick. `setup` holds the session's Setup: write the progress into it and return true,
+	// or false when this tick has nothing to save (between save points). Every client calls it on every verified tick
+	// (save_changed), so a mispredicted state is never saved, and the host sees each save that differs from the last.
+	// Cheap and allocation-free; it reads the state and writes nothing else.
+	save:                  proc(state: ^State, setup: ^Setup) -> bool,
 	// Optional, never called by the sim: fill the initial state with `count` entities and hold that population (the
 	// headless `bench`, Godot's `-- --bench N`). Single player only: it changes the initial state, which every peer
 	// would have to share.

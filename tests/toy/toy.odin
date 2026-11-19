@@ -166,6 +166,14 @@ GAME := Game {
 	scripted_input = scripted_input,
 	scripted_commands = scripted_commands,
 	scripted_profile = scripted_profile,
+	save = save,
+}
+
+// The toy's save (Game.save): the next session's things live longer the more this one spawned, a step every 64
+// spawns, so a session's save changes now and then.
+save :: proc(state: ^State, setup: ^Setup) -> bool {
+	setup.life_bonus = u8(state.spawned / 64 % 8)
+	return true
 }
 
 // What the toy's keyed rolls are for (sim.roll_below).

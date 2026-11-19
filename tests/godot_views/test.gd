@@ -91,6 +91,7 @@ func _initialize() -> void:
 	session.sim_event.connect(func(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 		events.append([event, state]))
 	check_constants()
+	check_setup_json()
 	var toy: DataToy = Unified.data.toy
 	var toy_changes := [0]
 	toy.changed.connect(func() -> void: toy_changes[0] += 1)
@@ -351,6 +352,20 @@ func check_constants() -> void:
 	check("Unified.tick_hz", Unified.tick_hz == 64, Unified.tick_hz)
 	check("an enum class: members as constants, name()", EnumShape.DOT == 0 and EnumShape.STAR == 2 \
 		and EnumShape.name(EnumShape.STAR) == "star", [EnumShape.DOT, EnumShape.STAR, EnumShape.name(2)])
+
+
+# A Setup as JSON and back (UnifiedSetup.to_json, from_json): a save file a later build reads.
+func check_setup_json() -> void:
+	var setup := UnifiedSetup.new()
+	setup.life_bonus = 4
+	var text := setup.to_json()
+	check("to_json names the fields", text == '{"life_bonus":4}', text)
+	var back := UnifiedSetup.from_json('{"life_bonus":4,"added_later":[1,{}]}')
+	check("from_json reads it back, a key this build lacks skipped", back != null and back.life_bonus == 4)
+	var older := UnifiedSetup.from_json('{}')
+	check("a field the text lacks keeps the game's default", older != null and older.life_bonus == 0)
+	check("from_json of what doesn't read is null, with an error",
+		UnifiedSetup.from_json('{"life_bonus":300}') == null)
 
 
 # The session's players, by key: the local one in slot 0, present and remembered, named from the roster; no platform
