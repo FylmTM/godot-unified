@@ -65,7 +65,7 @@ Api :: struct {
 	events_dropped:  proc() -> int, // events that found their queue full, this session
 	// The session thread's frame hook since the last call (events tracked, fill_frame, the Frame published), reset.
 	take_fill_stats: proc() -> Fill_Stats,
-	state:           proc() -> any, // the newest predicted state, for the inspector (while want_state)
+	state:           proc() -> (state: any, tick: u32), // the newest predicted state and its tick (while want_state)
 	// What the shown tick changed against the tick before (sim.state_changes; the Inspector's op log): its lines (at
 	// most `limit`, temp-allocated), how many there are, and the two ticks (0: nothing published yet).
 	changes:         proc(limit: int) -> (lines: []string, total: int, tick, before: u32),
@@ -124,6 +124,16 @@ want_state: bool
 pause_want: bool
 @(private)
 pause_on: bool
+
+// The control socket's `step` (atomics): the ticks the main thread asked a paused single-player session to step, in all
+// (it adds to it), the ticks the session thread has taken of them (netcode.host_advance), and the predicted tick it
+// reached.
+@(private)
+step_req: u32
+@(private)
+step_taken: u32
+@(private)
+step_tick: u32
 
 // The debug draw groups the main thread shows (dev UI builds; atomic): applied to the session's sim before each step
 // (sim.dev_enable), so the following ticks keep those groups' draws.
@@ -591,11 +601,12 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		if g_driver == nil do return ""
 		return (^This_Driver)(g_driver).result
 	}
-	api.state = proc() -> any {
-		if g_driver == nil do return nil
+	api.state = proc() -> (any, u32) {
+		if g_driver == nil do return nil, 0
 		driver := (^This_Driver)(g_driver)
 		pair, _ := triple_front(&driver.states)
-		return pair.state
+		if pair.tick == 0 do return nil, 0
+		return pair.state, pair.tick
 	}
 	api.changes = proc(limit: int) -> (lines: []string, total: int, tick, before: u32) {
 		if g_driver == nil do return
@@ -1306,6 +1317,7 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 	session_power_begin()
 	sync.atomic_store(&pause_on, false) // a session starts unpaused, whatever the last one asked
 	sync.atomic_store(&pause_want, false)
+	sync.atomic_store(&step_taken, sync.atomic_load(&step_req)) // a step asked of an earlier session is over
 	if !driver_open(driver) {
 		driver_close(driver)
 		session_power_end() // before finished: the next session's thread may begin its own right after
@@ -1355,6 +1367,12 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 		}
 		sync.atomic_add(&driver.step_seq, 1) // odd: in a step (the watchdog)
 		if driver.host != nil {
+			if asked := sync.atomic_load(&step_req); asked != sync.atomic_load(&step_taken) {
+				// the control socket's step: exact ticks of a paused session (none when it is not paused)
+				netcode.host_advance(driver.host, asked - sync.atomic_load(&step_taken))
+				sync.atomic_store(&step_tick, driver.host.client.predicted)
+				sync.atomic_store(&step_taken, asked)
+			}
 			wake = netcode.host_step(driver.host, now)
 		} else {
 			wake = netcode.client_step(driver.client, now)

@@ -1,5 +1,5 @@
-// A plain struct from text, by RTTI: `key=value[,key=value...]`, what the headless `--setup` and the Godot session's
-// `--setup` and `--profile` flags say. Never inside `tick`.
+// A plain struct from text, by RTTI: `key=value[,key=value...]`, what the headless `--setup`, the Godot session's
+// `--setup` and `--profile` flags and the control socket's commands say. Never inside `tick`.
 package sim
 
 import "base:runtime"
@@ -9,9 +9,9 @@ import "core:strings"
 
 // A plain struct (a Setup, a Profile) of type T made from `start` and the assignments in `text`, comma-separated
 // `key=value`: integers, f32, bools (true, false, 1, 0), enums by member name (any case) or value, bit_sets as
-// member names joined by `|` (`{}`: none); `a.b` names a nested struct's field, `a[2]` an array's element (an
-// enumerated array's also by member name). `problem` says what does not parse ("" when all of it does;
-// temp-allocated); the value is `start` then. Whether the result reads as sent is the caller's to ask
+// member names joined by `|` (`{}`: none), a sim.Player by its key (player_key); `a.b` names a nested struct's field,
+// `a[2]` an array's element (an enumerated array's also by member name). `problem` says what does not parse (""
+// when all of it does; temp-allocated); the value is `start` then. Whether the result reads as sent is the caller's to ask
 // (setup_violation): an enum given by an undeclared value does not.
 //
 //   setup, problem := sim.struct_from_text(game.setup, "difficulty=hard,start_wave=3")
@@ -23,8 +23,9 @@ struct_from_text :: proc(start: $T, text: string) -> (value: T, problem: string)
 	return
 }
 
-// struct_from_text's body, for the type at run time (a non-generic home for its imports: -vet).
-@(private)
+// struct_from_text for a type known at run time: the assignments in `text` written into the value of `type` at
+// `data` (a command the control socket builds from text). The problem says what does not parse ("" when all of it
+// does; temp-allocated); the fields before it are written then.
 assign_text :: proc(data: rawptr, type: ^runtime.Type_Info, text: string) -> string {
 	rest := text
 	for assignment in strings.split_iterator(&rest, ",") {
@@ -114,6 +115,13 @@ text_path :: proc(
 // Writes `text` into the leaf at `target` as its type reads it.
 @(private)
 text_value :: proc(target: rawptr, type: ^runtime.Type_Info, text: string) -> string {
+	if type.id == Player { 	// by its key (player_key), as GDScript and the control socket name a player
+		key, ok := strconv.parse_u64(text)
+		player := player_of_key(key)
+		if !ok || (key != 0 && player == {}) do return fmt.tprintf("%q is not a player's key", text)
+		(^Player)(target)^ = player
+		return ""
+	}
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Integer:
 		return text_integer(target, type, text)

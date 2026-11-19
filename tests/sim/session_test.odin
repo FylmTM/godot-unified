@@ -319,22 +319,26 @@ a_struct_from_text :: proc(t: ^testing.T) {
 		kinds:  [3]Pick_Kind,
 		shapes: toy.Shapes,
 		inner:  Inner,
+		owner:  sim.Player,
 	}
 	setup, problem := sim.struct_from_text(PICK.setup, "mode=WILD, waves=9,loud=true,scale=0.5")
 	testing.expect_value(t, problem, "")
 	testing.expect_value(t, setup, Pick_Setup{mode = .Wild, waves = 9, loud = true, scale = 0.5})
 	nested: Nested
-	nested, problem = sim.struct_from_text(Nested{}, "kinds[2]=tank,shapes=dot|star,inner.level=-3")
+	nested, problem = sim.struct_from_text(Nested{}, "kinds[2]=tank,shapes=dot|star,inner.level=-3,owner=65538")
 	testing.expect_value(t, problem, "")
 	testing.expect_value(t, nested.kinds[2], Pick_Kind.Tank)
 	testing.expect_value(t, nested.shapes, toy.Shapes{.Dot, .Star})
 	testing.expect_value(t, nested.inner.level, -3)
+	testing.expect_value(t, nested.owner, sim.player_of_key(65538)) // a player by its key
 	for text in ([]string{"speed=3", "waves=300", "mode=fast", "waves", "loud=maybe"}) {
 		_, problem = sim.struct_from_text(Pick_Setup{}, text)
 		testing.expectf(t, problem != "", "%q parsed", text)
 	}
 	_, problem = sim.struct_from_text(Nested{}, "kinds[3]=tank")
 	testing.expect(t, problem != "", "an element past the array")
+	_, problem = sim.struct_from_text(Nested{}, "owner=5")
+	testing.expect(t, problem != "", "no player has the key 5")
 	unread: Pick_Setup
 	unread, problem = sim.struct_from_text(Pick_Setup{}, "mode=7") // an undeclared value parses ...
 	testing.expect_value(t, problem, "")

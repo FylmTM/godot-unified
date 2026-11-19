@@ -59,6 +59,9 @@ StyleBoxFlat
 StyleBoxEmpty
 Performance
 SystemFont
+# the control socket (control.odin)
+Expression
+JSON
 
 # Builtins that get method wrappers (all builtins get layouts; opaque ones also constructors/destructors).
 [builtins]

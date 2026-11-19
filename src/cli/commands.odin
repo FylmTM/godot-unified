@@ -91,6 +91,14 @@ public_commands :: proc() -> []Command {
 			run       = cmd_tool,
 		},
 		{
+			name      = "drive",
+			summary   = "drive a running game through its control socket: start it, press actions, step, query state, screenshots, menus (an agent plays it)",
+			no_budget = "the game decides",
+			options   = option_types(Drive_Opts),
+			details   = drive_details,
+			run       = cmd_drive,
+		},
+		{
 			name      = "coop",
 			summary   = "host and joiner processes in a real lobby (EOS, or --lan); EOS: one test at a time (docs/EOS.md)",
 			no_budget = "networked",

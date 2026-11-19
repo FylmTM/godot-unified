@@ -35,7 +35,9 @@ ticks are the sim's keep slots.
   links. The host leaving ends the session: the host is the relay. A single-player host can pause: it runs its relay
   and client on session time, its clock less the time spent paused, so from their side no time passed and the session
   resumes byte for byte as if never paused; a remote link refuses the pause and ends one (online a pause is the game's
-  state, `src/sim/README.md`, Game time).
+  state, `src/sim/README.md`, Game time). A paused host steps by exact ticks (`host_advance`, what an agent's `uni drive
+  step` asks): its session time moves on in steps shorter than a tick until the client scheduled that many, so the
+  log is the one an unpaused run with the same inputs records.
 
 ## The wire
 
