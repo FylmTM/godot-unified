@@ -34,7 +34,7 @@ fill_frame :: proc(f: ^Frame) {
 			kind   = MultiView(enemy.kind),
 			pos    = sim.position_floor(enemy.pos),
 			rot    = dmath.quat_yaw(dmath.normalize(enemy.vel, 0)),
-			custom = {hit_flash(f.tick, enemy.hit_tick), age_s(f.tick, enemy.spawn_tick), 0, 0},
+			custom = {hit_flash(f.time, enemy.hit_tick), age_s(f.time, enemy.spawn_tick), 0, 0},
 		})
 	}
 	projectiles := sim.iterate(&f.state.projectiles)
@@ -52,7 +52,7 @@ fill_frame :: proc(f: ^Frame) {
 			key    = sim.handle_key(handle),
 			kind   = .Gem,
 			pos    = sim.position_floor(gem.pos),
-			custom = {0, age_s(f.tick, gem.spawn_tick), 0, 0},
+			custom = {0, age_s(f.time, gem.spawn_tick), 0, 0},
 		})
 	}
 	godot.push_data(f, hud_of(f))
@@ -61,11 +61,11 @@ fill_frame :: proc(f: ^Frame) {
 HIT_FLASH_S :: 0.15
 
 // MultiMesh custom data (the game's shaders): r = hit flash 1 -> 0 over HIT_FLASH_S, g = age in seconds.
-hit_flash :: proc(tick, hit_tick: u32) -> f32 {
-	if hit_tick == 0 || tick < hit_tick do return 0
-	return max(0, 1 - sim.seconds(tick - hit_tick, g.TICK_HZ) / HIT_FLASH_S)
+hit_flash :: proc(time, hit: sim.Game_Time) -> f32 {
+	if hit == 0 || time < hit do return 0
+	return max(0, 1 - sim.seconds(time - hit, g.TICK_HZ) / HIT_FLASH_S)
 }
 
-age_s :: proc(tick, spawn_tick: u32) -> f32 {
-	return tick > spawn_tick ? sim.seconds(tick - spawn_tick, g.TICK_HZ) : 0
+age_s :: proc(time, spawned: sim.Game_Time) -> f32 {
+	return time > spawned ? sim.seconds(time - spawned, g.TICK_HZ) : 0
 }

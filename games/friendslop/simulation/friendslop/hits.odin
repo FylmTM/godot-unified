@@ -55,7 +55,7 @@ ring_bell :: proc(t: ^Tick, index: int, hit: ^physics.Contact_Event) {
 	trigger := &t.state.triggers[index]
 	if def.kind != .Bell || hit.speed < BELL_SPEED || sim.timer_running(t, trigger.cooldown) do return
 	trigger.active = true
-	sim.timer_start_ticks(t, &trigger.cooldown, u32(BELL_COOLDOWN_TICKS))
+	sim.timer_start_ticks(t, &trigger.cooldown, BELL_COOLDOWN_TICKS)
 	sim.emit(
 		t,
 		Event_Bell_Rung{entity = sim.entity(def.marker), position = sim.Position(hit.point), speed = hit.speed},

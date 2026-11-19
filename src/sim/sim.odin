@@ -129,7 +129,7 @@ Tick :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	player_changes: Player_Changes, // who arrived or left this tick (the State's Players already shows it)
 	commands:       ^Commands(part(G, GAME_CMD)), // the tick's commands, decoded (command.odin)
 	dev:            ^Dev, // the Sim's development attachment (dev.odin; nil: none): the harness's, never tick code's
-	time:           u32, // game time (time.odin): the State's Clock after this tick's advance, or `number` without one
+	time:           Game_Time, // the State's Clock after this tick's advance, or `number` without one: what stamps hold
 	paused:         bool, // the Clock stood still this tick (the co-op pause: the game runs no system); false without one
 	tick_hz:        int, // the game's rate (Game.tick_hz)
 }
@@ -178,7 +178,7 @@ check_extra :: proc(simulation: ^Sim($G)) -> string {
 }
 
 // The whole ticks nearest to `seconds` at `tick_hz` (clamped to 0..max(i32)): a time from data (a level file). A time
-// constant converts as a constant instead, `X_TICKS :: u16(X_S * TICK_HZ)`, which the compiler checks is exact.
+// constant converts as a constant instead, `X_TICKS :: u32(X_S * TICK_HZ)`, which the compiler checks is exact.
 ticks :: proc(seconds: f32, tick_hz: int) -> u32 {
 	scaled := seconds * f32(tick_hz) + 0.5
 	if !(scaled > 0) do return 0 // also NaN

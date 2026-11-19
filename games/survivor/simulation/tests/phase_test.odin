@@ -60,7 +60,7 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expect(t, started > 0)
-	testing.expect_value(t, state.match_tick, started)
+	testing.expect_value(t, state.match_tick, sim.Game_Time(started))
 	pos := sim.slot_data(simulation, 0).pos
 	testing.expect(t, pos.x * pos.x + pos.z * pos.z > g.START_RADIUS * g.START_RADIUS)
 	found := false
@@ -75,7 +75,7 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, state.enemies.count > 0)
 	testing.expect_value(t, state.wave, 0) // the HUD shows wave + 1
-	testing.expect(t, simulation.tick > state.match_tick)
+	testing.expect(t, sim.game_time(state, simulation.tick) > state.match_tick)
 
 	// Everyone present dies in the same tick: over; nobody respawns; after the hold, a fresh lobby.
 	kill_tick = simulation.tick + 1
@@ -88,7 +88,7 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, state.phase, g.Phase.Over)
 	step(&run)
-	testing.expect_value(t, simulation.tick, over + g.OVER_HOLD_TICKS)
+	testing.expect_value(t, simulation.tick, over + u32(g.OVER_HOLD_TICKS))
 	testing.expect_value(t, state.phase, g.Phase.Lobby)
 	testing.expect_value(t, state.enemies.count, 0)
 	testing.expect(
@@ -153,11 +153,11 @@ when scenarios.LONG {
 				inputs := headless.scripted(&game, simulation, simulation.tick + 1, 1, &commands)
 				sim.step(simulation, &inputs)
 				if first_level < 0 && sim.slot_data(simulation, 0).level > 1 {
-					first_level = sim.seconds(simulation.tick - state.match_tick, g.TICK_HZ)
+					first_level = sim.seconds(sim.game_time(state, simulation.tick) - state.match_tick, g.TICK_HZ)
 				}
 			}
 			survived_sum += sim.seconds(
-				(state.phase == .Over ? state.over_tick : simulation.tick) - state.match_tick,
+				(state.phase == .Over ? state.over_tick : sim.game_time(state, simulation.tick)) - state.match_tick,
 				g.TICK_HZ,
 			)
 			wave_sum += f32(state.wave)

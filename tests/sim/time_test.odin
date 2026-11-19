@@ -20,7 +20,7 @@ timer_edges :: proc(t: ^testing.T) {
 	timer: sim.Timer
 	sim.timer_start(&tick, &timer, 0.0625) // 4 ticks
 	testing.expect_value(t, timer, sim.Timer{10, 14})
-	for time in u32(10) ..< 14 do testing.expect(t, sim.timer_running(time, timer) && !sim.timer_done(time, timer))
+	for time in sim.Game_Time(10) ..< 14 do testing.expect(t, sim.timer_running(time, timer) && !sim.timer_done(time, timer))
 	testing.expect(t, sim.timer_done(14, timer) && !sim.timer_running(14, timer))
 	testing.expect_value(t, sim.timer_fraction(10, timer), 0)
 	testing.expect_value(t, sim.timer_fraction(12, timer), 0.5)
@@ -28,7 +28,7 @@ timer_edges :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.timer_remaining_s(12, timer, 64), 2.0 / 64)
 	testing.expect_value(t, sim.timer_remaining_s(20, timer, 64), 0)
 	fired := 0
-	for time in u32(10) ..< 30 {
+	for time in sim.Game_Time(10) ..< 30 {
 		tick.time = time
 		fired += int(sim.timer_fired(&tick, timer))
 		testing.expect(t, !sim.timer_fired(&tick, timer) || time == 14)
@@ -103,7 +103,7 @@ clocked_inputs :: proc(tick: u32) -> sim.Inputs(Clocked_Game) {
 clock_holds_through_a_pause :: proc(t: ^testing.T) {
 	simulation := sim.create(&CLOCKED, 9)
 	defer sim.destroy(simulation)
-	times: [101]u32
+	times: [101]sim.Game_Time
 	for tick in u32(1) ..= 100 {
 		inputs := clocked_inputs(tick)
 		sim.step(simulation, &inputs)
@@ -130,7 +130,7 @@ clock_holds_through_a_pause :: proc(t: ^testing.T) {
 	// a button pressed during the pause is pressed on that paused tick, and held through the resume it is not again
 	for tick in 1 ..< 64 do testing.expectf(t, simulation.state.pressed[tick] == (tick == 25), "pressed at tick %d", tick)
 	// a game without a Clock runs on the tick number
-	testing.expect_value(t, sim.game_time(&Swarm_State{}, 77), u32(77))
+	testing.expect_value(t, sim.game_time(&Swarm_State{}, 77), sim.Game_Time(77))
 }
 
 // A timer survives a rollback: after every tick, a restore 8 ticks back and a re-simulation (across the timer's starts,

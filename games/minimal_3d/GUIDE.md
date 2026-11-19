@@ -68,8 +68,8 @@ each time; the views show the newest guess and are told when it changes.
 - Procedural content comes from the seed (keyed rolls in `init`) and the Setup, never from the network.
 
 **Time and pause** (`src/sim/README.md`)
-- A time is seconds converted to ticks (`X_TICKS :: u16(X_S * TICK_HZ)`) or a `sim.Timer`; nothing counts down by
-  hand (Time; Game time).
+- A time is seconds converted to ticks (`X_TICKS :: u32(X_S * TICK_HZ)`) or a `sim.Timer`; nothing counts down by
+  hand. A stamp is `t.time` (a `sim.Game_Time`), never `t.number`, which names the record only (Time; Game time).
 - A `sim.Clock` in the State makes game time pausable. The co-op pause is a command `tick` reads before it returns
   early on `t.paused`, before `physics.step` (this game's `pause.odin`); single player pauses from outside
   (`UnifiedSession.paused`) (Game time).

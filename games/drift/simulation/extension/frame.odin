@@ -95,8 +95,8 @@ fill_frame :: proc(f: ^Frame) {
 	for rock, handle in sim.next(&rocks) {
 		radius := g.ROCK_STATS[rock.size].radius // the mesh is a radius-1 m rock
 		flash: f32 = 0
-		if rock.hit_tick > 0 && f.tick >= rock.hit_tick {
-			flash = max(0, 1 - sim.seconds(f.tick - rock.hit_tick, g.TICK_HZ) / HIT_FLASH_S)
+		if rock.hit_tick > 0 && f.time >= rock.hit_tick {
+			flash = max(0, 1 - sim.seconds(f.time - rock.hit_tick, g.TICK_HZ) / HIT_FLASH_S)
 		}
 		godot.push_multi_view(f, {
 			key    = sim.handle_key(handle),
@@ -125,7 +125,7 @@ fill_frame :: proc(f: ^Frame) {
 	life := sim.seconds(g.GEM_LIFE_TICKS, g.TICK_HZ)
 	gems := sim.iterate(&f.state.gems)
 	for gem, handle in sim.next(&gems) {
-		age := sim.seconds(f.tick - gem.spawn_tick, g.TICK_HZ)
+		age := sim.seconds(f.time - gem.spawn_tick, g.TICK_HZ)
 		pulse := math.sin(age * GEM_PULSE_RATE) * GEM_PULSE
 		fade := clamp((life - age) / GEM_FADE_S, 0, 1)
 		godot.push_multi_view(f, {
@@ -138,5 +138,5 @@ fill_frame :: proc(f: ^Frame) {
 			custom = {age, 0, 0, 0},
 		})
 	}
-	godot.push_data(f, hud_of(f.state, f.tick))
+	godot.push_data(f, hud_of(f.state, f.time))
 }

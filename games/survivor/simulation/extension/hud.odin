@@ -43,12 +43,12 @@ hud_of :: proc(f: ^Frame) -> (hud: Data_Hud) {
 	switch f.state.phase {
 	case .Lobby:
 	case .Match:
-		hud.time_s = sim.seconds(f.tick - f.state.match_tick, g.TICK_HZ)
+		hud.time_s = sim.seconds(f.time - f.state.match_tick, g.TICK_HZ)
 		hud.wave = f.state.wave + 1
 	case .Over:
 		hud.time_s = sim.seconds(f.state.over_tick - f.state.match_tick, g.TICK_HZ)
 		hud.wave = f.state.wave + 1
-		hud.reset_in_s = sim.seconds(f.state.over_tick + g.OVER_HOLD_TICKS - f.tick, g.TICK_HZ)
+		hud.reset_in_s = sim.seconds(f.state.over_tick + g.OVER_HOLD_TICKS - f.time, g.TICK_HZ)
 	}
 	hud.best_wave = f.state.best_wave
 	hud.enemies_alive = f.state.enemies.count

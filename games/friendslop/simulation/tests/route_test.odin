@@ -248,7 +248,7 @@ route_resets_when_nobody_is_present :: proc(t: ^testing.T) {
 	defer headless.run_end(&run)
 	put_player(&run, 0, marker_named(&run, "Check3").pos)
 	run.simulation.state.phase = .Run
-	run.simulation.state.run_tick = run.simulation.tick
+	run.simulation.state.run_tick = sim.game_time(&run.simulation.state, run.simulation.tick)
 	run.simulation.state.checkpoint = 3
 	headless.run_pin(&run)
 	idle(&run, 4)

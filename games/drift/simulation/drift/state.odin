@@ -12,10 +12,10 @@ State :: struct {
 	phase:          Phase,
 	_pad:           u8,
 	waves:          u16, // waves started this match
-	match_tick:     u32, // the tick the current match started
-	over_tick:      u32, // the tick it ended
-	next_wave_tick: u32,
-	next_rock_tick: u32,
+	match_tick:     sim.Game_Time, // the tick the current match started
+	over_tick:      sim.Game_Time, // the tick it ended
+	next_wave_tick: sim.Game_Time,
+	next_rock_tick: sim.Game_Time,
 	rocks_left:     u32, // of the current wave
 	spawner:        u32, // the next rock_spawn marker, in turn
 	score:          u32, // gems picked this match
@@ -59,7 +59,7 @@ Rock_Size :: enum u8 {
 // A rock's body is tagged with its handle's key, so a bullet's ray names it.
 Rock :: struct {
 	body:     physics.Body_Ref,
-	hit_tick: u32, // the last bullet hit (the view's flash)
+	hit_tick: sim.Game_Time, // the last bullet hit (the view's flash)
 	size:     Rock_Size,
 	variant:  u8, // its shape, 0 ..< ROCK_VARIANTS
 	hp:       u8,
@@ -78,7 +78,7 @@ Bullet :: struct {
 Gem :: struct {
 	pos:        [2]f32,
 	vel:        [2]f32,
-	spawn_tick: u32,
+	spawn_tick: sim.Game_Time,
 }
 
 // A gate's state (its place and pair are the level's: World.gates).

@@ -29,7 +29,7 @@ Data_Hud :: struct {
 	reset_in_s:  f32, // over: until back to the lobby
 }
 
-hud_of :: proc(state: ^g.State, tick: u32) -> (hud: Data_Hud) {
+hud_of :: proc(state: ^g.State, time: sim.Game_Time) -> (hud: Data_Hud) {
 	hud.phase = state.phase
 	hud.wave = state.waves
 	hud.station_hp = state.station_hp
@@ -38,12 +38,12 @@ hud_of :: proc(state: ^g.State, tick: u32) -> (hud: Data_Hud) {
 	switch state.phase {
 	case .Lobby:
 	case .Match:
-		hud.time_s = sim.seconds(tick - state.match_tick, g.TICK_HZ)
-		hud.next_wave_s = state.next_wave_tick > tick ? sim.seconds(state.next_wave_tick - tick, g.TICK_HZ) : 0
+		hud.time_s = sim.seconds(time - state.match_tick, g.TICK_HZ)
+		hud.next_wave_s = state.next_wave_tick > time ? sim.seconds(state.next_wave_tick - time, g.TICK_HZ) : 0
 	case .Over:
 		hud.time_s = sim.seconds(state.over_tick - state.match_tick, g.TICK_HZ)
 		end := state.over_tick + g.OVER_HOLD_TICKS
-		hud.reset_in_s = end > tick ? sim.seconds(end - tick, g.TICK_HZ) : 0
+		hud.reset_in_s = end > time ? sim.seconds(end - time, g.TICK_HZ) : 0
 	}
 	for slot in 0 ..< g.PLAYERS {
 		ship := sim.slot_data(&state.players, slot)

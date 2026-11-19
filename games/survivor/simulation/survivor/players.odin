@@ -27,8 +27,8 @@ update_players :: proc(t: ^Tick) {
 			sim.emit(t, Event_Player_Respawned{position = sim.Position(character.pos), player = player})
 		}
 		if .Dash in sim.buttons(t, player).pressed && sim.timer_done(t, character.dash_cooldown) {
-			sim.timer_start_ticks(t, &character.dash, u32(DASH_TICKS))
-			sim.timer_start_ticks(t, &character.dash_cooldown, u32(DASH_COOLDOWN_TICKS))
+			sim.timer_start_ticks(t, &character.dash, DASH_TICKS)
+			sim.timer_start_ticks(t, &character.dash_cooldown, DASH_COOLDOWN_TICKS)
 		}
 		input := sim.input(t, player)
 		move := dmath.stick(input.move_x, input.move_z) * character.speed
@@ -98,7 +98,7 @@ damage_player :: proc(t: ^Tick, player: sim.Player, amount: i32) {
 player_dies :: proc(t: ^Tick, character: ^Character, player: sim.Player) {
 	sim.emit(t, Event_Player_Died{position = sim.Position(character.pos), player = player})
 	character.alive = false
-	sim.timer_start_ticks(t, &character.respawn, u32(PLAYER_RESPAWN_TICKS))
+	sim.timer_start_ticks(t, &character.respawn, PLAYER_RESPAWN_TICKS)
 	sim.timer_stop(&character.dash)
 	physics.destroy_body(t.world.phys, &character.body)
 }

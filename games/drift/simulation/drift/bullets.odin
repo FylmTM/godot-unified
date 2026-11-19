@@ -32,7 +32,7 @@ hit_rock :: proc(t: ^Tick, bullet: ^Bullet, handle: sim.Handle(Rock), point: [3]
 	rock := sim.get(&t.state.rocks, handle)
 	if rock == nil || rock.hp == 0 do return
 	rock.hp -= 1
-	rock.hit_tick = t.number
+	rock.hit_tick = t.time
 	physics.body_apply_linear_impulse_to_center_2d(t.world.phys, rock.body, dmath.normalize(bullet.vel) * BULLET_PUSH)
 	sim.emit(t, Event_Rock_Hit{rock = handle, position = sim.Position(point), player = bullet.owner, size = rock.size})
 }

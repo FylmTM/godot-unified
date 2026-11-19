@@ -1,5 +1,7 @@
 package drift
 
+import "unified:sim"
+
 // Every rule's number. Metres and seconds; angular velocities in radians (Box3D's), angles in turns (dmath's). Times
 // are written in seconds and converted to ticks at compile time: a value that is not a whole number of ticks does not
 // compile.
@@ -25,11 +27,11 @@ THRUST_ACCEL :: 14 // m/s² at full stick
 TURN_GAIN :: 8 // the turn rate (rad/s) per unit of sine between the heading and the aim
 TURN_MAX :: 6 // rad/s; the rate when the aim is behind
 BOOST_SPEED :: 8 // m/s added along the heading
-BOOST_COOLDOWN_TICKS :: u16(1.5 * TICK_HZ)
+BOOST_COOLDOWN_TICKS :: u32(1.5 * TICK_HZ)
 
 // ---- bullets
 
-FIRE_EVERY_TICKS :: u16(0.125 * TICK_HZ) // while fire is held
+FIRE_EVERY_TICKS :: u32(0.125 * TICK_HZ) // while fire is held
 BULLET_SPEED :: 18 // m/s along the heading, plus the ship's velocity
 BULLET_LIFE_TICKS :: u16(0.875 * TICK_HZ)
 BULLET_PUSH :: 0.6 // the impulse along the bullet on the rock it hits (N·s)
@@ -77,10 +79,10 @@ ROCK_SHAPES := [ROCK_VARIANTS][8]f32 {
 
 // ---- waves
 
-WAVE_EVERY_TICKS :: u32(20 * TICK_HZ)
+WAVE_EVERY_TICKS :: sim.Game_Time(20 * TICK_HZ)
 WAVE_ROCKS :: 3 // large rocks in the first wave
 WAVE_ROCKS_MORE :: 2 // ... and this many more in each wave after it
-ROCK_EVERY_TICKS :: u32(1.5 * TICK_HZ) // between a wave's rocks
+ROCK_EVERY_TICKS :: sim.Game_Time(1.5 * TICK_HZ) // between a wave's rocks
 ROCK_SPEED :: 2 // m/s in the first wave
 ROCK_SPEED_PER_WAVE :: 0.2 // m/s more in each wave after it
 ROCK_SPREAD_TURNS :: 0.04 // a rock's direction turns up to this either way from its spawn marker's (turns: 14.4°)
@@ -89,7 +91,7 @@ ROCK_SPIN_MAX :: 1 // a new rock spins up to this either way (rad/s)
 // ---- gates
 
 GATE_RADIUS :: 0.8 // a ship whose centre comes this close warps (m)
-GATE_CHARGE_TICKS :: u16(2 * TICK_HZ) // both gates of a warp, and the ship, before the next
+GATE_CHARGE_TICKS :: u32(2 * TICK_HZ) // both gates of a warp, and the ship, before the next
 
 // ---- gems
 
@@ -97,9 +99,9 @@ GEM_DROP_EVERY :: 2 // one small rock in this many drops a gem
 GEM_THROW :: 0.3 // a gem leaves at this times the rock's velocity
 GEM_DRAG :: 0.98 // its velocity times this each tick
 GEM_PICK_RADIUS :: 1 // m
-GEM_LIFE_TICKS :: u32(10 * TICK_HZ)
+GEM_LIFE_TICKS :: sim.Game_Time(10 * TICK_HZ)
 GEM_REPAIR :: 2 // station HP per gem, up to STATION_HP
 
 // ---- phases
 
-OVER_HOLD_TICKS :: u32(5 * TICK_HZ) // the match-over screen, before the world resets
+OVER_HOLD_TICKS :: sim.Game_Time(5 * TICK_HZ) // the match-over screen, before the world resets

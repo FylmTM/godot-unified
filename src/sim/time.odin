@@ -5,11 +5,16 @@ package sim
 import "base:runtime"
 import "core:fmt"
 
+// Game time: the ticks the game ran, which stand still while it is paused (a State's Clock), or the tick number in a
+// State without one. Its own type, so a stamp says which clock it holds (`spawned: sim.Game_Time`, from `t.time`) and
+// `stamp = t.number` does not compile: a stamp on the tick number would run through a pause.
+Game_Time :: distinct u32
+
 // Game time and the co-op pause, in the block. A State holds at most one, as a field of its own (found by its type,
 // whatever its name): the harness advances `time` by one before every tick unless `paused`, and gives the tick
 // `t.time` and `t.paused`. A State without one runs on the tick number (`t.time == t.number`, never paused).
 Clock :: struct {
-	time:   u32, // the ticks the game ran: game time
+	time:   Game_Time, // the ticks the game ran
 	paused: bool, // set_paused's: the clock stands still from the next tick
 	_pad:   [3]u8,
 }
@@ -43,15 +48,15 @@ set_paused :: proc(tick: ^Tick($G), paused: bool) {
 
 // The game time of a State at a tick: its Clock's, or the tick number for a State without one. What a view reads
 // timers with (`sim.game_time(f.state, f.tick)`, as godot.Frame.time).
-game_time :: proc(state: ^$State, tick: u32) -> u32 {
+game_time :: proc(state: ^$State, tick: u32) -> Game_Time {
 	if clock := clock_of(state); clock != nil do return clock.time
-	return tick
+	return Game_Time(tick)
 }
 
 // The harness's step of the clock, before `tick`: advances it unless paused and fills the tick's time and pause.
 @(private)
 clock_step :: proc(tick: ^Tick($G)) {
-	tick.time = tick.number
+	tick.time = Game_Time(tick.number)
 	clock := clock_of(tick.state)
 	if clock == nil do return
 	tick.paused = clock.paused
@@ -101,18 +106,20 @@ holds_clock :: proc(type: ^runtime.Type_Info) -> bool {
 // cooldown that never ran is ready). Every read has a form taking the tick and one taking a game time (views:
 // godot.Frame.time; tests).
 Timer :: struct {
-	start, target: u32, // game time
+	start, target: Game_Time,
 }
 
 // Starts (or restarts) a timer that ends `seconds` from now, rounded to the nearest tick (sim.ticks): it is running
-// until then and done from then.
+// until then and done from then. A length that rounds to 0 ticks ends on its start tick: done at once, and fired on
+// that tick only for code that reads it after the start (a constant of whole ticks says what it means).
 timer_start :: proc(tick: ^Tick($G), timer: ^Timer, seconds: f32) {
-	timer^ = {tick.time, tick.time + ticks(seconds, tick.tick_hz)}
+	timer^ = {tick.time, tick.time + Game_Time(ticks(seconds, tick.tick_hz))}
 }
 
-// Starts a timer that ends `count` ticks from now: for a time kept in ticks (data, an upgradable interval).
+// Starts a timer that ends `count` ticks from now: for a time kept in ticks (a constant `X_TICKS :: u32(X_S *
+// TICK_HZ)`, data, an upgradable interval).
 timer_start_ticks :: proc(tick: ^Tick($G), timer: ^Timer, count: u32) {
-	timer^ = {tick.time, tick.time + count}
+	timer^ = {tick.time, tick.time + Game_Time(count)}
 }
 
 // Stops a timer: back to the zero value (done, not running, never fires).
@@ -156,7 +163,7 @@ timer_running_tick :: proc(tick: ^Tick($G), timer: Timer) -> bool {
 }
 
 // timer_running at game time `time`.
-timer_running_at :: proc(time: u32, timer: Timer) -> bool {
+timer_running_at :: proc(time: Game_Time, timer: Timer) -> bool {
 	return time < timer.target
 }
 
@@ -166,7 +173,7 @@ timer_done_tick :: proc(tick: ^Tick($G), timer: Timer) -> bool {
 }
 
 // timer_done at game time `time`.
-timer_done_at :: proc(time: u32, timer: Timer) -> bool {
+timer_done_at :: proc(time: Game_Time, timer: Timer) -> bool {
 	return time >= timer.target
 }
 
@@ -176,7 +183,7 @@ timer_fraction_tick :: proc(tick: ^Tick($G), timer: Timer) -> f32 {
 }
 
 // timer_fraction at game time `time`.
-timer_fraction_at :: proc(time: u32, timer: Timer) -> f32 {
+timer_fraction_at :: proc(time: Game_Time, timer: Timer) -> f32 {
 	if time >= timer.target || timer.target <= timer.start do return 1
 	if time <= timer.start do return 0
 	return f32(time - timer.start) / f32(timer.target - timer.start)
@@ -188,6 +195,6 @@ timer_remaining_s_tick :: proc(tick: ^Tick($G), timer: Timer) -> f32 {
 }
 
 // timer_remaining_s at game time `time`, for a game at `tick_hz`.
-timer_remaining_s_at :: proc(time: u32, timer: Timer, tick_hz: int) -> f32 {
+timer_remaining_s_at :: proc(time: Game_Time, timer: Timer, tick_hz: int) -> f32 {
 	return 0 if time >= timer.target else seconds(timer.target - time, tick_hz)
 }

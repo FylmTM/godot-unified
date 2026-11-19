@@ -112,7 +112,7 @@ a_co_op_pause_holds_in_a_session :: proc(t: ^testing.T) {
 	testing.expectf(t, result.ok && result.desyncs == 0, "%d desyncs", result.desyncs)
 	replay := sim.create(&g.GAME, 42)
 	defer sim.destroy(replay)
-	held, last := 0, u32(0)
+	held, last := 0, sim.Game_Time(0)
 	for k in 0 ..< len(result.log.ticks) {
 		inputs := sim.log_inputs(&result.log, k)
 		sim.step(replay, &inputs)
@@ -120,5 +120,5 @@ a_co_op_pause_holds_in_a_session :: proc(t: ^testing.T) {
 		last = replay.state.clock.time
 	}
 	testing.expect_value(t, held, g.SCRIPT_PAUSE_TICKS)
-	testing.expect_value(t, replay.state.clock.time, replay.tick - g.SCRIPT_PAUSE_TICKS)
+	testing.expect_value(t, replay.state.clock.time, sim.Game_Time(replay.tick - g.SCRIPT_PAUSE_TICKS))
 }
