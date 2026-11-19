@@ -82,28 +82,13 @@ Seat :: struct {
 }
 
 // The script state of an offline run: who holds each slot (slot i is member i + 1 from tick 1, then `seats` change
-// it) and the Profile each slot's join brings (run_seat's, else Game.scripted_profile's, else zero). A tick takes what
-// each slot's script sends for it: at most sim.COMMANDS_PER_SLOT commands (a session's relay would hold the rest for
-// the next ticks; an offline run asserts a script never sends more).
+// it). A tick takes what each slot's script sends for it: at most sim.COMMANDS_PER_SLOT commands (a session's relay
+// would hold the rest for the next ticks; an offline run asserts a script never sends more).
 Scripted_Commands :: struct($G: typeid) {
-	out:      sim.Command_Out(sim.part(G, sim.GAME_CMD)),
-	seats:    []Seat, // borrowed
-	holder:   [sim.MAX_PLAYERS]int, // the member in each slot (0: nobody)
-	seated:   bool, // holder is set
-	profiled: sim.Slots, // slots whose Profile run_seat gave
-	profile:  [sim.MAX_PLAYERS]sim.part(G, sim.GAME_PROFILE),
-}
-
-// The Profile the join of whoever is seated in `slot` brings: run_seat's, else the game's scripted one, else zero.
-@(private)
-scripted_profile :: proc(
-	game: ^$G,
-	seed: u64,
-	slot: int,
-	commands: ^Scripted_Commands(G),
-) -> sim.part(G, sim.GAME_PROFILE) {
-	if slot in commands.profiled do return commands.profile[slot]
-	return game.scripted_profile(seed, slot) if game.scripted_profile != nil else {}
+	out:    sim.Command_Out(sim.part(G, sim.GAME_CMD)),
+	seats:  []Seat, // borrowed
+	holder: [sim.MAX_PLAYERS]int, // the member in each slot (0: nobody)
+	seated: bool, // holder is set
 }
 
 // Frees the output list of an offline run's scripted commands.
@@ -137,7 +122,7 @@ scripted :: proc(
 		if member == 0 {
 			continue
 		}
-		sim.seat(&inputs, simulation, slot, member, scripted_profile(game, simulation.seed, slot, commands))
+		sim.seat(&inputs, simulation, slot, member)
 		// No scripted player: one who sends zero Inputs (as the Godot driver plays it).
 		if game.scripted_input != nil {
 			inputs.input[slot] = game.scripted_input(simulation.seed, slot, tick, &simulation.state)
@@ -183,7 +168,6 @@ run_sim :: proc(
 	defer scripted_commands_destroy(&commands)
 	if input_log != nil {
 		input_log.seed = seed
-		input_log.setup = simulation.setup
 		input_log.content = simulation.content_hash
 		input_log.compat = sim.compat_of(game)
 	}
@@ -294,7 +278,6 @@ Synctest_Result :: struct {
 //   for _ in 1 ..= 600 do headless.run_scripted(&run, 2)
 //
 //   headless.run_seat(&run, 2, 7)        // member 7 holds slot 2 from the next step on (0: nobody)
-//   headless.run_seat(&run, 2, 7, Profile{character = .Runner}) // ... joining with that Profile
 //   inputs := headless.run_inputs(&run)  // the seated members present, join records where needed (sim.seat)
 //   inputs.input[0] = input
 //   sim.add_command(&inputs, 0, command) // a Cmd_X value, or the game's Cmd union
@@ -314,13 +297,12 @@ Run :: struct($G: typeid) {
 	floats:       [dynamic]u32, // the State's float offsets (sim.find_nan)
 }
 
-// A run of `game` from tick 0, sync-tested `window` ticks back (1 ..= max_window(game)), on `content` (nil: the
-// game's, Game.content). `seated`: slots 0 ..< seated are seated (run_seat: slot i is member i + 1) and play one step
+// A run of `game` from tick 0, on its levels, sync-tested `window` ticks back (1 ..= max_window(game)). `seated`: slots 0 ..< seated are seated (run_seat: slot i is member i + 1) and play one step
 // with zero inputs, so their players are present at tick 1; 0: nobody is seated yet, no step.
-run_begin :: proc(game: ^$G, seed: u64, content: []u8 = nil, window: u32 = 8, seated := 0) -> (run: Run(G)) {
+run_begin :: proc(game: ^$G, seed: u64, window: u32 = 8, seated := 0) -> (run: Run(G)) {
 	assert(window >= 1 && int(window) <= max_window(game))
 	assert(seated >= 0 && seated <= sim.part(G, sim.GAME_PLAYERS), "seated: 0 to the game's player count")
-	run.simulation = sim.create(game, seed, content)
+	run.simulation = sim.create(game, seed)
 	run.window = window
 	append(&run.recorded, sim.Inputs(G){})
 	append(&run.forward, sim.checksum(run.simulation))
@@ -391,48 +373,18 @@ run_step :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
 }
 
 // `member` (the relay's id; 0: nobody) holds `slot` from the next step on: run_inputs makes it present, with its join
-// record when someone else holds it, bringing `profile` when given (else Game.scripted_profile's, else zero);
-// run_scripted plays it.
-run_seat :: proc {
-	run_seat_plain,
-	run_seat_with_profile,
-}
-
-// run_seat with the game's scripted Profile (or zero).
-run_seat_plain :: proc(run: ^Run($G), slot: int, member: int) {
+// record when someone else holds it; run_scripted plays it.
+run_seat :: proc(run: ^Run($G), slot: int, member: int) {
 	assert(slot >= 0 && slot < sim.part(G, sim.GAME_PLAYERS) && member >= 0 && member <= 0xFFFF)
 	run.commands.holder[slot] = member
 	run.commands.seated = true
-	run.commands.profiled -= {slot}
-}
-
-// run_seat with this Profile.
-run_seat_with_profile :: proc(
-	run: ^Run($G),
-	slot: int,
-	member: int,
-	profile: $P,
-) where P ==
-	sim.part(G, sim.GAME_PROFILE) {
-	run_seat_plain(run, slot, member)
-	run.commands.profiled += {slot}
-	run.commands.profile[slot] = profile
 }
 
 // The next step's inputs for a test to fill (input, commands): every seated member present (run_seat), with a join
 // record where the sim has someone else in that slot (sim.seat).
 run_inputs :: proc(run: ^Run($G)) -> (inputs: sim.Inputs(G)) {
-	simulation := run.simulation
 	for slot in 0 ..< sim.part(G, sim.GAME_PLAYERS) {
-		member := run.commands.holder[slot]
-		if member == 0 do continue
-		sim.seat(
-			&inputs,
-			simulation,
-			slot,
-			member,
-			scripted_profile(simulation.game, simulation.seed, slot, &run.commands),
-		)
+		if member := run.commands.holder[slot]; member != 0 do sim.seat(&inputs, run.simulation, slot, member)
 	}
 	return
 }
@@ -471,9 +423,8 @@ run_synctest :: proc(game: ^$G, ticks, window: u32, seed: u64, players: int, sea
 	return run.result
 }
 
-// `replay`: re-simulates an input log with the Setup it recorded, recording every tick's checksum into `trace`
-// (optional). Fails when the log was recorded with other content (another level) or by another build (its compat; 0:
-// unknown, any).
+// `replay`: re-simulates an input log, recording every tick's checksum into `trace` (optional). Fails
+// when the log was recorded with other levels or by another build (its compat; 0: unknown, any).
 run_replay :: proc(
 	game: ^$G,
 	input_log: ^sim.Input_Log(G),
@@ -483,11 +434,11 @@ run_replay :: proc(
 	result: Run_Result,
 	ok: bool,
 ) {
-	if input_log.content != sim.content_hash(game.content) {
+	if input_log.content != sim.content_hash(game.levels) {
 		fmt.eprintfln(
-			"replay: the log was recorded with another level (content %016x, this run has %016x; see --level)",
+			"replay: the log was recorded with other levels (content %016x, this run has %016x; see --level)",
 			input_log.content,
-			sim.content_hash(game.content),
+			sim.content_hash(game.levels),
 		)
 		return
 	}
@@ -509,7 +460,7 @@ run_replay :: proc(
 			return
 		}
 	} else {
-		simulation = sim.create(game, input_log.seed, input_log.setup)
+		simulation = sim.create(game, input_log.seed)
 	}
 	defer sim.destroy(simulation)
 	for k in 0 ..< len(input_log.ticks) {

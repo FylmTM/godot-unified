@@ -83,11 +83,10 @@ Checkpoint_Def :: struct {
 	volume: Volume,
 }
 
-// The world outside the block: the physics world, the level and what the sim reads from its markers
+// The world outside the block: the physics world (the level with it), what the sim reads from the level's markers
 // (games/friendslop/README.md, Level), and per-tick scratch.
 World :: struct {
 	phys:             ^physics.World,
-	level:            level.Level,
 	items:            [MAX_ITEMS]Item_Def,
 	item_count:       int,
 	platforms:        [MAX_PLATFORMS]Platform_Def,
@@ -112,7 +111,7 @@ World :: struct {
 // triggers' static bodies. A property's default lives in its marker's script (game/levels/markers/), which the export
 // writes whole: the sim reads the properties without defaults of its own and asserts what its rules need. The bodies
 // the block owns (items, platforms) are created by init.
-world_create :: proc(seed: u64, content: []u8, _: sim.No_Setup) -> ^World {
+world_create :: proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^World {
 	world := new(World)
 	world.character_def = physics.CHARACTER_DEFAULT
 	world.character_def.radius = PLAYER_RADIUS
@@ -123,16 +122,17 @@ world_create :: proc(seed: u64, content: []u8, _: sim.No_Setup) -> ^World {
 	world.character_def.max_speed = WALK_SPEED
 	world.character_def.pogo_rest = POGO_REST
 	problem: string
-	world.phys, world.level, problem = physics.create_with_level(
+	world.phys, problem = physics.create_with_levels(
 		{tick_hz = TICK_HZ, hit_event_threshold = HIT_EVENT_SPEED, workers = PHYSICS_WORKERS},
-		content,
+		levels,
 		CAT_STATIC,
 	)
 	assert(problem == "", problem) // no level, or a hole in its collision
+	park := physics.level_data(world.phys, Level_Id.Park)
 	// Triggers first: platforms refer to them by marker index.
-	trigger_of := make([]int, len(world.level.markers), context.temp_allocator)
+	trigger_of := make([]int, len(park.markers), context.temp_allocator)
 	for &trigger in trigger_of do trigger = -1
-	for &marker in world.level.markers {
+	for &marker in park.markers {
 		def := Trigger_Def {
 			marker = marker.index,
 		}
@@ -163,7 +163,7 @@ world_create :: proc(seed: u64, content: []u8, _: sim.No_Setup) -> ^World {
 		world.trigger_count += 1
 	}
 	spawned: [PLAYERS]bool
-	for &marker in world.level.markers {
+	for &marker in park.markers {
 		switch marker.kind {
 		case "spawn":
 			slot := level.prop_int(&marker, "slot")
@@ -289,16 +289,18 @@ create_trigger_body :: proc(world: ^World, index: int) {
 	)
 }
 
-// Frees what world_create made: the physics world, the loaded level, the scratch lists and the World itself.
+// Frees what world_create made: the physics world (the level with it), the scratch lists and the World itself.
 world_destroy :: proc(world: ^World) {
-	physics.destroy_with_level(world.phys, &world.level)
+	physics.destroy(world.phys)
 	delete(world.overlaps)
 	delete(world.contacts)
 	free(world)
 }
 
-// The tick-0 state: the hub, every item and platform with its body; players join when present.
+// The tick-0 state: the park's static geometry, the hub, every item and platform with its body; players join when
+// present.
 init :: proc(t: ^Tick) {
+	physics.level_change(t, t.world.phys, Level_Id.Park)
 	t.state.phase = .Hub
 	t.state.checkpoint = -1
 	for i in 0 ..< t.world.item_count {

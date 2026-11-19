@@ -1,10 +1,9 @@
 // Input log (the replay file): "UNIL", version u16, seed u64, content hash u64 (the level, 0: none), compat u64
-// (compat_of of the build that recorded it, 0: unknown), players u8, input size u16, tick count u32 (0 with ticks
-// after it: a recording that never ended, read to its last whole tick), profile size u8, setup size u16, then the
-// session's Setup (setup size bytes), then per tick (write_tick, also the netcode's finalized tick): present u32,
-// replaced u32, players × the input's bytes (plain data, so its memory is its little-endian serialization), command
-// count u8, then per command: slot u8, kind u8, size u8, the struct's bytes; then the join record count u8, then per
-// record (in slot order): slot u8, member u16, the Profile its join brings (profile size bytes).
+// (compat_of of the build that recorded it, 0: unknown), players u8, input size u16, tick count u32 (0 with ticks after it: a recording that never ended, read to its
+// last whole tick), then per tick (write_tick, also the netcode's finalized tick):
+// present u32, replaced u32, players × the input's bytes (plain data, so its memory is its little-endian
+// serialization), command count u8, then per command: slot u8, kind u8, size u8, the struct's bytes; then the join
+// record count u8, then per record (in slot order): slot u8, member u16.
 package sim
 
 @(require) import "base:intrinsics" // only in a where clause
@@ -15,12 +14,12 @@ import "unified:wire"
 @(private)
 LOG_MAGIC :: "UNIL"
 // Bump on any change to what the bytes hold.
-LOG_VERSION :: 8
-LOG_HEADER :: 40 // the header's fixed part: the session's Setup follows it
+LOG_VERSION :: 7
+LOG_HEADER :: 37
 @(private)
 LOG_TICKS_AT :: 33 // the header's tick count
 COMMAND_HEAD :: 3 // slot, kind, size: a command's bytes on the wire and in the log, before its data
-JOIN_BYTES :: 3 // slot u8, member u16: a join record's bytes on the wire and in the log, before its Profile
+JOIN_BYTES :: 3 // slot u8, member u16: a join record's bytes on the wire and in the log
 
 // A tick of the log, compact: its commands live in Input_Log.commands.
 @(private)
@@ -29,16 +28,14 @@ Log_Tick :: struct($G: typeid) {
 	replaced:      Slots,
 	input:         [part(G, GAME_PLAYERS)]part(G, GAME_INPUT),
 	joins:         [part(G, GAME_PLAYERS)]u16, // join records
-	profiles:      [part(G, GAME_PLAYERS)]part(G, GAME_PROFILE), // the Profile beside each join record
 	first_command: u32, // index into Input_Log.commands
 	command_count: u32,
 }
 
 // A recorded session's inputs in memory, tick by tick (log_append, log_inputs; log_encode and log_decode go to and
-// from the file's bytes). With the seed, the Setup and the content it is the whole session.
+// from the file's bytes). With the seed and the levels it is the whole session.
 Input_Log :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	seed:     u64,
-	setup:    part(G, GAME_SETUP), // the session's (sim.create(game, seed, setup) replays it)
 	content:  u64, // content_hash of the session's content (0: none)
 	compat:   u64, // compat_of of the build that recorded it (0: unknown, e.g. a relay that accepts any build)
 	ticks:    [dynamic]Log_Tick(G), // ticks[k] holds tick k + 1
@@ -60,7 +57,6 @@ log_append :: proc(input_log: ^Input_Log($G), inputs: ^Inputs(G)) {
 		replaced      = inputs.replaced,
 		input         = inputs.input,
 		joins         = inputs.joins,
-		profiles      = inputs.profiles,
 		first_command = u32(len(input_log.commands)),
 		command_count = u32(inputs.command_count),
 	})
@@ -80,18 +76,16 @@ log_inputs :: proc(input_log: ^Input_Log($G), k: int) -> (inputs: Inputs(G)) {
 	inputs.replaced = log_tick.replaced
 	inputs.input = log_tick.input
 	inputs.joins = log_tick.joins
-	inputs.profiles = log_tick.profiles
 	commands := log_commands(input_log, k)
 	inputs.command_count = len(commands)
 	copy(inputs.commands[:], commands)
 	return
 }
 
-// The bytes of a tick's record (write_tick) with these commands and `joins` join records (each with a Profile of
-// `profile_size` bytes), for sizing.
+// The bytes of a tick's record (write_tick) with these commands and `joins` join records, for sizing datagrams.
 @(private)
-tick_bytes :: proc($Input: typeid, $PLAYERS: int, commands: []Raw_Command, joins := 0, profile_size := 0) -> int {
-	size := 10 + PLAYERS * size_of(Input) + joins * (JOIN_BYTES + profile_size)
+tick_bytes :: proc($Input: typeid, $PLAYERS: int, commands: []Raw_Command, joins := 0) -> int {
+	size := 10 + PLAYERS * size_of(Input) + joins * JOIN_BYTES
 	for &command in commands {
 		size += COMMAND_HEAD + int(command.size)
 	}
@@ -105,20 +99,19 @@ join_count :: proc(member: []u16) -> (count: int) {
 }
 
 // Writes a tick's record: present, replaced, the inputs, the commands, then the join records (`member`, by slot:
-// the non-zero ones) with their Profiles (`profiles`: every slot's, write_joins).
+// the non-zero ones).
 write_tick :: proc(
 	writer: ^wire.Writer,
 	present, replaced: Slots,
 	input: []u8,
 	commands: []Raw_Command,
 	member: []u16,
-	profiles: []u8 = nil,
 ) {
 	wire.w_u32(writer, transmute(u32)present)
 	wire.w_u32(writer, transmute(u32)replaced)
 	wire.w_bytes(writer, input)
 	write_commands(writer, commands)
-	write_joins(writer, member, profiles)
+	write_joins(writer, member)
 }
 
 // Writes a tick's commands as write_tick does: the count, then per command slot, kind, size and its bytes.
@@ -132,31 +125,26 @@ write_commands :: proc(writer: ^wire.Writer, commands: []Raw_Command) {
 	}
 }
 
-// Writes a tick's join records as write_tick does: the count, then per record (in slot order) slot u8, member u16 and
-// its Profile's bytes. `profiles` holds every slot's Profile (len(member) of them, the Inputs' `profiles` as bytes;
-// nil: a game without one).
-write_joins :: proc(writer: ^wire.Writer, member: []u16, profiles: []u8 = nil) {
-	profile_size := len(profiles) / len(member) if len(member) > 0 else 0
+// Writes a tick's join records as write_tick does: the count, then per record (in slot order) slot u8, member u16.
+write_joins :: proc(writer: ^wire.Writer, member: []u16) {
 	wire.w_u8(writer, u8(join_count(member)))
 	for id, slot in member {
 		if id != 0 {
 			wire.w_u8(writer, u8(slot))
 			wire.w_u16(writer, id)
-			wire.w_bytes(writer, profiles[slot * profile_size:][:profile_size])
 		}
 	}
 }
 
-// Reads a tick's record into `input`, `commands`, `member` and `profiles` (one per slot); false when it is malformed:
-// cut short, a slot past the session's (len(member)) present or replaced, or its commands (read_commands) or join
-// records (read_joins) malformed.
+// Reads a tick's record into `input`, `commands` and `member` (one per slot); false when it is malformed: cut short,
+// a slot past the session's (len(member)) present or replaced, or its commands (read_commands) or join records
+// (read_joins) malformed.
 @(private)
 read_tick :: proc(
 	reader: ^wire.Reader,
 	input: []u8,
 	commands: ^[TICK_COMMANDS]Raw_Command,
 	member: []u16,
-	profiles: []u8,
 ) -> (
 	present, replaced: Slots,
 	count: int,
@@ -170,7 +158,7 @@ read_tick :: proc(
 	}
 	copy(input, wire.r_bytes(reader, len(input)))
 	count, ok = read_commands(reader, len(member), commands)
-	ok = ok && read_joins(reader, present, member, profiles)
+	ok = ok && read_joins(reader, present, member)
 	return present, replaced, count, ok && reader.ok
 }
 
@@ -208,13 +196,10 @@ read_commands :: proc(
 	return count, true
 }
 
-// Reads a tick's join records written by write_joins into `member` and `profiles` (by slot, zeroed first: the same
-// sizes write_joins took); false when they are malformed: cut short, a slot out of range, out of order or not present,
-// member 0, or a member in two records. A Profile's bytes are not checked here: the sim reads them (player_profile).
-read_joins :: proc(reader: ^wire.Reader, present: Slots, member: []u16, profiles: []u8 = nil) -> bool {
-	profile_size := len(profiles) / len(member) if len(member) > 0 else 0
+// Reads a tick's join records written by write_joins into `member` (by slot, zeroed first); false when they are
+// malformed: cut short, a slot out of range, out of order or not present, member 0, or a member in two records.
+read_joins :: proc(reader: ^wire.Reader, present: Slots, member: []u16) -> bool {
 	for &id in member do id = 0
-	for &b in profiles do b = 0
 	joins := int(wire.r_u8(reader))
 	last := -1
 	for _ in 0 ..< joins {
@@ -227,7 +212,6 @@ read_joins :: proc(reader: ^wire.Reader, present: Slots, member: []u16, profiles
 			if other == id do return false // one person in two slots: the relay never writes it (players_update can't take it)
 		}
 		member[slot] = id
-		copy(profiles[slot * profile_size:][:profile_size], wire.r_bytes(reader, profile_size))
 		last = slot
 	}
 	return reader.ok
@@ -236,7 +220,6 @@ read_joins :: proc(reader: ^wire.Reader, present: Slots, member: []u16, profiles
 // Writes a tick's inputs as write_tick does.
 inputs_write :: proc(writer: ^wire.Writer, inputs: ^Inputs($G)) {
 	Input :: part(G, GAME_INPUT)
-	Profile :: part(G, GAME_PROFILE)
 	PLAYERS :: part(G, GAME_PLAYERS)
 	write_tick(
 		writer,
@@ -245,19 +228,16 @@ inputs_write :: proc(writer: ^wire.Writer, inputs: ^Inputs($G)) {
 		([^]u8)(&inputs.input)[:size_of([PLAYERS]Input)],
 		inputs.commands[:inputs.command_count],
 		inputs.joins[:],
-		([^]u8)(&inputs.profiles)[:size_of([PLAYERS]Profile)],
 	)
 }
 
 // Reads a tick's inputs written by inputs_write (or log_write_tick).
 inputs_read :: proc(reader: ^wire.Reader, inputs: ^Inputs($G)) -> bool {
 	Input :: part(G, GAME_INPUT)
-	Profile :: part(G, GAME_PROFILE)
 	PLAYERS :: part(G, GAME_PLAYERS)
 	inputs^ = {}
 	input := ([^]u8)(&inputs.input)[:size_of([PLAYERS]Input)]
-	profiles := ([^]u8)(&inputs.profiles)[:size_of([PLAYERS]Profile)]
-	present, replaced, count, ok := read_tick(reader, input, &inputs.commands, inputs.joins[:], profiles)
+	present, replaced, count, ok := read_tick(reader, input, &inputs.commands, inputs.joins[:])
 	inputs.present, inputs.replaced, inputs.command_count = present, replaced, count
 	return ok
 }
@@ -266,36 +246,28 @@ inputs_read :: proc(reader: ^wire.Reader, inputs: ^Inputs($G)) -> bool {
 @(private)
 log_write_tick :: proc(writer: ^wire.Writer, input_log: ^Input_Log($G), k: int) {
 	Input :: part(G, GAME_INPUT)
-	Profile :: part(G, GAME_PROFILE)
 	PLAYERS :: part(G, GAME_PLAYERS)
 	log_tick := &input_log.ticks[k]
 	input := ([^]u8)(&log_tick.input)[:size_of([PLAYERS]Input)]
-	profiles := ([^]u8)(&log_tick.profiles)[:size_of([PLAYERS]Profile)]
-	commands := log_commands(input_log, k)
-	write_tick(writer, log_tick.present, log_tick.replaced, input, commands, log_tick.joins[:], profiles)
+	write_tick(writer, log_tick.present, log_tick.replaced, input, log_commands(input_log, k), log_tick.joins[:])
 }
 
 // The log's bytes: the header, then the ticks.
 log_encode :: proc(input_log: ^Input_Log($G), allocator := context.allocator) -> []u8 {
 	Input :: part(G, GAME_INPUT)
-	Setup :: part(G, GAME_SETUP)
-	Profile :: part(G, GAME_PROFILE)
 	PLAYERS :: part(G, GAME_PLAYERS)
 	size_hint :=
 		LOG_HEADER +
-		size_of(Setup) +
 		len(input_log.ticks) * tick_bytes(Input, PLAYERS, nil) +
 		len(input_log.commands) * (COMMAND_HEAD + 8)
 	writer := wire.writer_make(size_hint, allocator)
 	header := Log_Header {
-		seed         = input_log.seed,
-		content      = input_log.content,
-		compat       = input_log.compat,
-		players      = PLAYERS,
-		input_size   = size_of(Input),
-		profile_size = size_of(Profile),
-		setup        = bytes_of(&input_log.setup),
-		ticks        = len(input_log.ticks),
+		seed       = input_log.seed,
+		content    = input_log.content,
+		compat     = input_log.compat,
+		players    = PLAYERS,
+		input_size = size_of(Input),
+		ticks      = len(input_log.ticks),
 	}
 	write_log_header(&writer, header)
 	for k in 0 ..< len(input_log.ticks) {
@@ -304,25 +276,17 @@ log_encode :: proc(input_log: ^Input_Log($G), allocator := context.allocator) ->
 	return writer.buf[:]
 }
 
-// Parses log_encode's bytes into an Input_Log of game G; false when the header does not match G's Input, Profile,
-// Setup and PLAYERS, its Setup does not read as sent (setup_violation) or the bytes are malformed. A recording that
-// never ended (tick count 0) is read to its last whole tick (a cut one after it is left out).
+// Parses log_encode's bytes into an Input_Log of game G; false when the header does not match G's Input and
+// PLAYERS or the bytes are malformed. A recording that never ended (tick count 0) is read to its last whole tick (a
+// cut one after it is left out).
 log_decode :: proc(data: []u8, $G: typeid) -> (input_log: Input_Log(G), ok: bool) {
 	Input :: part(G, GAME_INPUT)
-	Setup :: part(G, GAME_SETUP)
-	Profile :: part(G, GAME_PROFILE)
 	PLAYERS :: part(G, GAME_PLAYERS)
 	header, body := decode_log(data) or_return
 	if header.players != PLAYERS ||
 	   header.input_size != size_of(Input) ||
-	   header.profile_size != size_of(Profile) ||
-	   len(header.setup) != size_of(Setup) ||
 	   len(body) < header.ticks * tick_bytes(Input, PLAYERS, nil) {
 		return
-	}
-	copy(bytes_of(&input_log.setup), header.setup)
-	if choice_reads(&input_log.setup, type_info_of(Setup)) != "" {
-		return {}, false
 	}
 	input_log.seed = header.seed
 	input_log.content = header.content
@@ -384,8 +348,7 @@ Log_Stream :: struct {
 }
 
 // Starts a recording into `sink` with the header's tick count 0, so a recording cut short still reads to its
-// end. A sink without `write` means no recording: the stream's other procs then do nothing. The header's sizes must be
-// those of the game whose Inputs log_stream_tick gets (log_header fills them).
+// end. A sink without `write` means no recording: the stream's other procs then do nothing.
 log_stream_begin :: proc(stream: ^Log_Stream, sink: Log_Sink, header: Log_Header) {
 	if sink.write == nil {
 		stream^ = {} // no recording
@@ -394,7 +357,7 @@ log_stream_begin :: proc(stream: ^Log_Stream, sink: Log_Sink, header: Log_Header
 	stream^ = {
 		sink   = sink,
 		ok     = true,
-		writer = wire.writer_make(LOG_HEADER + len(header.setup)),
+		writer = wire.writer_make(LOG_HEADER),
 	}
 	unended := header
 	unended.ticks = 0
@@ -437,44 +400,15 @@ log_stream_end :: proc(stream: ^Log_Stream) -> bool {
 
 // What an input log's header says (log_stream_begin writes one; its `ticks` is ignored there).
 Log_Header :: struct {
-	seed:         u64,
-	content:      u64,
-	compat:       u64, // compat_of of the recording build (0: unknown)
-	players:      int,
-	input_size:   int,
-	profile_size: int,
-	setup:        []u8, // the session's Setup's bytes (decode_log: a view into the log's bytes)
-	ticks:        int,
+	seed:       u64,
+	content:    u64,
+	compat:     u64, // compat_of of the recording build (0: unknown)
+	players:    int,
+	input_size: int,
+	ticks:      int,
 }
 
-// The header of a recording of game G (log_stream_begin): its sizes, with this session's seed, Setup (`setup`: its
-// bytes are borrowed until log_stream_begin returns), content hash and compat.
-log_header :: proc(
-	game: ^$G,
-	seed: u64,
-	setup: ^$S,
-	content: u64,
-	compat: u64,
-) -> Log_Header where intrinsics.type_is_specialization_of(G, Game) &&
-	S == part(G, GAME_SETUP) {
-	return {
-		seed         = seed,
-		content      = content,
-		compat       = compat,
-		players      = part(G, GAME_PLAYERS),
-		input_size   = size_of(part(G, GAME_INPUT)),
-		profile_size = size_of(part(G, GAME_PROFILE)),
-		setup        = bytes_of(setup),
-	}
-}
-
-// A plain value's bytes, in place (a Setup's, a Profile's).
-bytes_of :: proc(value: ^$T) -> []u8 {
-	return ([^]u8)(value)[:size_of(T)]
-}
-
-// Writes the log header (LOG_HEADER bytes and the Setup's, the tick count at LOG_TICKS_AT), for log_encode and log
-// streams.
+// Writes the log header (LOG_HEADER bytes, the tick count at LOG_TICKS_AT), for log_encode and log streams.
 @(private)
 write_log_header :: proc(writer: ^wire.Writer, header: Log_Header) {
 	wire.w_bytes(writer, transmute([]u8)string(LOG_MAGIC))
@@ -485,9 +419,6 @@ write_log_header :: proc(writer: ^wire.Writer, header: Log_Header) {
 	wire.w_u8(writer, u8(header.players))
 	wire.w_u16(writer, u16(header.input_size))
 	wire.w_u32(writer, u32(header.ticks))
-	wire.w_u8(writer, u8(header.profile_size))
-	wire.w_u16(writer, u16(len(header.setup)))
-	wire.w_bytes(writer, header.setup)
 }
 
 // The header and the tick bytes (a view into data).
@@ -502,8 +433,6 @@ decode_log :: proc(data: []u8) -> (header: Log_Header, body: []u8, ok: bool) {
 	header.players = int(wire.r_u8(&reader))
 	header.input_size = int(wire.r_u16(&reader))
 	header.ticks = int(wire.r_u32(&reader))
-	header.profile_size = int(wire.r_u8(&reader))
-	header.setup = wire.r_bytes(&reader, int(wire.r_u16(&reader)))
 	if !reader.ok || string(magic) != LOG_MAGIC || version != LOG_VERSION {
 		return
 	}

@@ -57,8 +57,8 @@ spawning as a default and swapping a tick later is a visible change and a mispre
 - **Setup**: what differs between two sessions of one build (a mode, a difficulty, saved progress). It is fixed when
   the session starts and lives **beside the seed**, outside the block: `Sim.setup`, never rolled back or hashed (a
   session has one). `world_create` gets it, and every tick (`init` too) gets a copy in `t.setup`, so a write there
-  reaches nothing and read-only needs no rule. `Game.setup` is the Setup of a session started without one, the way
-  `Game.content` is the default level, so a variant of the game is a copy of the descriptor with another Setup.
+  reaches nothing and read-only needs no rule. `Game.setup` is the Setup of a session started without one, so a
+  variant of the game is a copy of the descriptor with another Setup.
   Progress a game saves is its own small file, which the host turns into the next session's Setup; a snapshot is
   never a save, since it stops loading after every `compat` change.
 - **Profile**: what a player chose before joining (a character, a colour). It rides beside the player's join record
@@ -71,12 +71,23 @@ Both are plain structs without padding, checked like commands (`game_violation`)
 `PROFILE_MAX` bytes. A game without them names `sim.No_Setup` and `sim.No_Profile`, as it names `sim.No_World`: zero
 bytes everywhere, so its State is what it would be without them.
 
-### Content
+### Levels
 
-`Game.content` (the level the game ships with, `src/level/README.md`) is the default wherever content is taken
-(`game_content`): `create`, `compat_of` and `from_snapshot` given none use it, so the Godot host, the netcode, the
-headless runs and the suites all play it. Other bytes override it: a test's own level, the headless `--level FILE`. A
-re-baked level rebuilds the extension (`uni` counts the `.level` file as an input).
+A game ships several levels, `Game.levels`: each a name and a level file's bytes (`src/level/README.md`), embedded
+once, in the order of the game's level enum, so tick code says `Level_Id.Route` and tools say "route". Every host,
+run and suite plays them, and `world_create` gets them to parse and build once. **The active level is state**: a
+`sim.Active_Level(Level_Id)` named `level` in the State, changed only by `level_enter` (`physics.level_change` for a
+physics game) at a tick, by a rule or a command. So a level change is a sim decision like any other: a rollback
+across it, a late join after it and a replay of it need nothing of their own, and the sim keeps ticking through it.
+`compat_of` hashes every level (`content_hash`), so every peer has every level and nothing is loaded or checked at a
+change. `game_violation` holds the list to the enum (`levels_violation`): a list in another order never runs.
+
+What carries over a change is what the game keeps in the block (players, a score); what belongs to a level (its
+things, built from its markers) the game rebuilds in its change, in a fixed order. A level's marker indices count
+from 0 in each file, so an `Entity` naming a marker names one of the level active at its tick. Which level a
+session starts in is the game's choice in `init` (its Setup's, when it has one). Other levels are a copy of the
+game with other `levels` (the headless `--level NAME=FILE`); a re-baked level rebuilds the extension (`uni` counts
+the `.level` files as inputs).
 
 ### Time
 
@@ -87,7 +98,7 @@ compile. A time from data converts with `ticks`, a view's with `seconds`; inside
 ### Build identity
 
 `compat_of` is the build's identity: the layouts of the types, the unions, the tick rate, the game's name and
-version, the content's hash and the library's part (`LIBRARY_VERSION`, the unified-box3d pin). The netcode's hello,
+version, its levels' hash and the library's part (`LIBRARY_VERSION`, the unified-box3d pin). The netcode's hello,
 input logs and snapshots carry it, so builds that would compute differently refuse each other instead of desyncing. A
 change a layout doesn't show bumps a version by hand: `Game.version` for the game's rules, `LIBRARY_VERSION` for the
 library's (the `sim-change` skill).
@@ -293,13 +304,9 @@ Its optional `check` is how the sync-tests catch it disagreeing with the block a
 Readers accept only the current version of each format (`LOG_VERSION`, `SNAP_VERSION`): bump it on any change to
 what the bytes hold. The byte layouts are in the headers of `log.odin` and `snapshot.odin`.
 
-- **The input log** (`Input_Log`, `log_encode`; recorded as it grows through a `Log_Stream`): seed, the session's
-  Setup, content hash and the recording build's compat, then each tick's record, a join with the Profile it brought.
-  Content + log is the whole session.
-- **The portable snapshot** (`snapshot_encode`, `from_snapshot`): the session's Setup, the block and the Extra's image
-  with the build's identity, so it restores on another OS or CPU (late join, `resume`) or says why not
-  (`Snap_Error`). A late joiner needs nothing else: its World is built from the Setup everyone built theirs from, and
-  every remembered member's Profile is in the block.
-- **Text**: `struct_from_text` reads a Setup or a Profile from `key=value` (the headless and Godot `--setup`).
+- **The input log** (`Input_Log`, `log_encode`; recorded as it grows through a `Log_Stream`): seed, levels' hash and
+  the recording build's compat, then each tick's record. Seed + levels + log is the whole session.
+- **The portable snapshot** (`snapshot_encode`, `from_snapshot`): the block and the Extra's image with the build's
+  identity, so it restores on another OS or CPU (late join, `resume`) or says why not (`Snap_Error`).
 - **Desync reports**: `snapshot_diff` (two snapshots of one build, down to the leaf field), `events_diff` (two lists
   of one tick's events) and `find_nan` (no NaN may reach the block, `src/dmath/README.md`).

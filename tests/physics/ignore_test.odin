@@ -98,7 +98,7 @@ IGNORE := Ignore_Game {
 	name = "ignore",
 	version = "1",
 	tick_hz = HZ,
-	world_create = proc(seed: u64, _: []u8, _: sim.No_Setup) -> ^Ignore_World {
+	world_create = proc(seed: u64, _: []sim.Level_File, _: sim.No_Setup) -> ^Ignore_World {
 		ignore_world := new(Ignore_World)
 		ignore_world.phys = physics.create({tick_hz = HZ})
 		ground(ignore_world.phys)
@@ -165,8 +165,8 @@ ignore_synctest :: proc(t: ^testing.T) {
 		},
 	)
 	on_4 := IGNORE
-	on_4.world_create = proc(seed: u64, content: []u8, setup: sim.No_Setup) -> ^Ignore_World {
-		ignore_world := IGNORE.world_create(seed, content, setup)
+	on_4.world_create = proc(seed: u64, levels: []sim.Level_File, setup: sim.No_Setup) -> ^Ignore_World {
+		ignore_world := IGNORE.world_create(seed, levels, setup)
 		physics.world_set_worker_count(ignore_world.phys, 4)
 		return ignore_world
 	}

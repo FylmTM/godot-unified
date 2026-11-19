@@ -20,7 +20,6 @@ MAX_PILLARS :: 16
 // The world outside the block: the physics world, what the sim reads of the level, and per-tick scratch.
 World :: struct {
 	phys:         ^physics.World,
-	level:        level.Level,
 	// The level's pillars on the ground plane (x, z), which enemies are pushed out of, and how far the walls' inner
 	// faces are from the centre, which enemies stay inside.
 	pillars:      [MAX_PILLARS]Box2,
@@ -65,17 +64,18 @@ Roll :: enum u8 {
 
 // The physics world with the level's static geometry (src/level/README.md); the pillars and walls the enemies keep to;
 // the start spots and the items from the level's markers.
-world_create :: proc(seed: u64, content: []u8, _: sim.No_Setup) -> ^World {
+world_create :: proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^World {
 	world := new(World)
 	problem: string
-	world.phys, world.level, problem = physics.create_with_level(
+	world.phys, problem = physics.create_with_levels(
 		{tick_hz = TICK_HZ, workers = PHYSICS_WORKERS},
-		content,
+		levels,
 		CAT_STATIC,
 	)
 	assert(problem == "", problem)
+	arena := physics.level_data(world.phys, Level_Id.Arena)
 	world.arena_inner = ARENA_HALF
-	for &body in world.level.bodies {
+	for &body in arena.bodies {
 		if body.category != CAT_PILLAR && body.category != CAT_WALL do continue
 		assert(len(body.shapes) == 1 && body.shapes[0].kind == .Box, "survivor: a pillar or wall is one box")
 		box := Box2{body.pos.xz + body.shapes[0].pos.xz, body.shapes[0].half.xz}
@@ -90,7 +90,7 @@ world_create :: proc(seed: u64, content: []u8, _: sim.No_Setup) -> ^World {
 		}
 	}
 	spawn_count := 0
-	for &marker in world.level.markers {
+	for &marker in arena.markers {
 		switch marker.kind {
 		case "spawn":
 			assert(spawn_count < PLAYERS, "survivor: more spawn markers than slots")
@@ -109,15 +109,16 @@ world_create :: proc(seed: u64, content: []u8, _: sim.No_Setup) -> ^World {
 	return world
 }
 
-// Frees what world_create made: the physics world, the level and the World itself.
+// Frees what world_create made: the physics world (the level with it) and the World itself.
 world_destroy :: proc(world: ^World) {
-	physics.destroy_with_level(world.phys, &world.level)
+	physics.destroy(world.phys)
 	free(world)
 }
 
-// The tick-0 state: the lobby, the `play` tuning, the level's items with their bodies; players join when they are
+// The tick-0 state: the arena's static geometry, the lobby, the `play` tuning, the level's items with their bodies; players join when they are
 // first present (update_players).
 init :: proc(t: ^Tick) {
+	physics.level_change(t, t.world.phys, Level_Id.Arena)
 	t.state.phase = .Lobby
 	t.state.tuning = TUNINGS[.Play]
 	for i in 0 ..< t.world.item_count {

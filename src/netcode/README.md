@@ -1,7 +1,7 @@
 # `unified:netcode`: input relay, prediction, rollback
 
 Nobody sends game state: every client runs the whole deterministic sim, and the relay only orders inputs. The
-relay's input log is the session: seed, content and log replay to the same checksums anywhere.
+relay's input log is the session: seed, levels and log replay to the same checksums anywhere.
 
 Generic over the game: `Relay(G)`, `Client(G)`, `Host(G)`, `G` a `sim.Game`. It steps, saves, snapshots and
 checksums through `unified:sim` and writes its bytes with `unified:wire`. A game touches it through a `Lobby` (online

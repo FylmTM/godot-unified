@@ -26,7 +26,10 @@ main :: proc() {
 		fmt        = {"src", "tests"},
 		uses_box3d = true,
 		bench      = {{name = "physics", run = physics_bench}, {name = "grid", run = grid_bench}},
-		bake       = {{dir = "tests/godot", scenes = {"res://levels/level_2d.tscn", "res://levels/shapes_3d.tscn"}}},
+		bake       = {
+			{dir = "tests/godot", scenes = {"res://levels/level_2d.tscn", "res://levels/shapes_3d.tscn"}},
+			{dir = "tests/godot_views", scenes = {"res://levels/meadow.tscn", "res://levels/cave.tscn"}},
+		},
 	})
 	cli.add_suites(..private_suites())
 	cli.run(cli.public_commands(), private_commands())

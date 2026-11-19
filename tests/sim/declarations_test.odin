@@ -292,13 +292,14 @@ declarations_are_checked :: proc(t: ^testing.T) {
 }
 
 // compat_of of a toy with these unions, Input and State (the toy's name, version and tick rate).
-compat_with :: proc($State, $Input, $Event, $Cmd: typeid, content: []u8 = nil) -> u64 {
-	game := sim.Game(State, Input, toy.World, Event, Cmd, toy.Setup, sim.No_Profile, toy.PLAYERS) {
+compat_with :: proc($State, $Input, $Event, $Cmd: typeid) -> u64 {
+	game := sim.Game(State, Input, toy.World, Event, Cmd, sim.No_Setup, sim.No_Profile, toy.PLAYERS) {
 		name    = toy.GAME.name,
 		version = toy.GAME.version,
 		tick_hz = toy.GAME.tick_hz,
+		levels  = toy.GAME.levels,
 	}
-	return sim.compat_of(&game, content)
+	return sim.compat_of(&game)
 }
 
 Renamed :: struct {
@@ -322,7 +323,7 @@ Other_State :: struct {
 }
 
 // compat_of tells builds apart by what they compute with: the name, version and tick rate, the unions (the same
-// structs as other kinds, or the same layout under another name), the Input and State layouts, the content, the
+// structs as other kinds, or the same layout under another name), the Input and State layouts, the levels, the
 // library's version and Box3D pin; the same types give the same value.
 @(test)
 compat_tells_builds_apart :: proc(t: ^testing.T) {
@@ -344,7 +345,10 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 		what:  string,
 		value: u64,
 	}
-	level := []u8{1, 2, 3}
+	other_levels := toy.GAME
+	other_levels.levels = {toy.GAME.levels[0], {"cave", {1, 2, 4}}}
+	no_levels := toy.GAME
+	no_levels.levels = nil
 	differ := []Case {
 		{"another version", with("version", "a version the toy never has")},
 		{"another name", with("name", "toy-variant")},
@@ -380,10 +384,10 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 				}),
 		},
 		{"another Input of the same size", compat_with(Other_State, Other_Input, toy.Event, toy.Cmd)},
-		{"content", sim.compat_of(&toy.GAME, level)},
-		{"other content", sim.compat_of(&toy.GAME, []u8{1, 2, 4})},
-		{"another library version", sim.compat_of(&toy.GAME, nil, {version = sim.LIBRARY_VERSION + 1})},
-		{"another Box3D pin", sim.compat_of(&toy.GAME, nil, {box3d = "another-r1"})},
+		{"a level's other bytes", sim.compat_of(&other_levels)},
+		{"no levels", sim.compat_of(&no_levels)},
+		{"another library version", sim.compat_of(&toy.GAME, {version = sim.LIBRARY_VERSION + 1})},
+		{"another Box3D pin", sim.compat_of(&toy.GAME, {box3d = "another-r1"})},
 	}
 	for test_case, i in differ {
 		testing.expectf(t, test_case.value != compat, "%s: the toy's compat", test_case.what)
@@ -401,6 +405,7 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 				toy.Cmd_Bump,
 				toy.Cmd_Mark,
 				toy.Cmd_Clear_Bumps,
+				toy.Cmd_Travel,
 			}), compat)
 	testing.expect_value(t, sim.compat_of(&toy.GAME), compat) // stable
 	testing.expect_value(t, sim.content_hash(nil), 0)

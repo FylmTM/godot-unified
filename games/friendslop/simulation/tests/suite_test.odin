@@ -25,10 +25,10 @@ REFERENCE :: scenarios.Reference {
 	players       = 4,
 	ticks         = 1800,
 	snapshot_tick = 900,
-	checkpoints   = {0x0a6203f3ce8a69c1, 0x7de7c3b7c7b93386, 0x5a4ffc05adfc5f84, 0xdfcd26c8884da2dc},
-	trace         = 0xefdcb17b95c6b290,
-	snapshot      = 0x5e4880fce006eef6,
-	log           = 0xf4a0d6ea7e9b057c,
+	checkpoints   = {0x8cb284c3de43cba9, 0xc483d3d5aa6b15f6, 0x643f9872ffc04ad9, 0xd1b157ef8e84bd73},
+	trace         = 0x4a5e887c7cd5c16f,
+	snapshot      = 0x8d4e582c4b5e02a1,
+	log           = 0x82be451948f8809a,
 }
 
 // By default the minimal set, each scenario proving something about this game (the toy's suite proves the
@@ -70,8 +70,8 @@ when scenarios.LONG || g.PHYSICS_WORKERS > 1 {
 	@(test)
 	the_reference_run_matches_on_other_workers :: proc(t: ^testing.T) {
 		game := g.GAME
-		game.world_create = proc(seed: u64, content: []u8, setup: sim.No_Setup) -> ^g.World {
-			world := g.world_create(seed, content, setup)
+		game.world_create = proc(seed: u64, levels: []sim.Level_File, setup: sim.No_Setup) -> ^g.World {
+			world := g.world_create(seed, levels, setup)
 			physics.world_set_worker_count(world.phys, OTHER_WORKERS)
 			return world
 		}

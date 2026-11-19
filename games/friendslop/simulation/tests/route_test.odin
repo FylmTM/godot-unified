@@ -12,7 +12,7 @@ import "unified:sim"
 import g "../friendslop"
 
 marker_named :: proc(run: ^Run, name: string) -> ^level.Marker {
-	return level.find_named(&run.simulation.world.level, name)
+	return level.find_named(physics.level_data(run.simulation.world.phys, g.Level_Id.Park), name)
 }
 
 // The index in a World list (items, platforms, triggers) of what the level marker called `name` placed, or -1.

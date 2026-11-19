@@ -12,14 +12,13 @@ package netcode
 import "unified:sim"
 import "unified:wire"
 
-// A relay's session (relay_create): its seed, length, start players, content and build id, and the optional recording
+// A relay's session (relay_create): its seed, length, start players and build id, and the optional recording
 // and typed desync reports.
 Relay_Config :: struct {
 	seed:          u64,
 	ticks:         u32, // session length; 0: endless
 	start_players: int, // slots 0..start_players-1 must connect before the clock starts (>= 1)
-	content:       []u8, // the level (nil: the game's own, sim.Game.content): its hash is recorded in the input log, and part of compat
-	compat:        u64, // build/game id a Hello must carry (0: sim.compat_of(game, content))
+	compat:        u64, // build/game id a Hello must carry (0: sim.compat_of(game))
 	// Every start player is in-process (a host's own client): tick 1 is due a tick after Welcome. Otherwise
 	// the clock starts START_LEAD_MS after Welcome, so a far start player's first inputs arrive in time.
 	local_start:   bool,
@@ -187,8 +186,7 @@ relay_create :: proc(game: ^$G, cfg: Relay_Config) -> ^Relay(G) {
 	assert(cfg.start_players >= 1 && cfg.start_players <= PLAYERS)
 	relay := new(Relay(G))
 	relay.cfg = cfg
-	relay.cfg.content = nil // borrowed only here
-	relay.compat = cfg.compat != 0 ? cfg.compat : sim.compat_of(game, cfg.content)
+	relay.compat = cfg.compat != 0 ? cfg.compat : sim.compat_of(game)
 	if cfg.desync_detail {
 		relay.desync_diff = proc(a, b: []u8) -> string {return sim.snapshot_diff(State, a, b)}
 	}
@@ -203,9 +201,13 @@ relay_create :: proc(game: ^$G, cfg: Relay_Config) -> ^Relay(G) {
 	for &slot in relay.slot_of {
 		slot = -1
 	}
-	setup := game.setup // the session's: what every client creates its sim with
-	content := sim.content_hash(sim.game_content(game, cfg.content))
-	header := sim.log_header(game, cfg.seed, &setup, content, relay.compat)
+	header := sim.Log_Header {
+		seed       = cfg.seed,
+		content    = sim.content_hash(game.levels),
+		compat     = relay.compat,
+		players    = PLAYERS,
+		input_size = size_of(Input),
+	}
 	sim.log_stream_begin(&relay.recording, cfg.recording, header)
 	return relay
 }

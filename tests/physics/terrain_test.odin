@@ -5,19 +5,22 @@ package test_physics
 
 import "core:testing"
 
-import "unified:level"
 import "unified:physics"
 import "unified:sim"
 
+Terrain_Level :: enum u8 {
+	Shapes,
+}
+
 Terrain :: struct {
+	level:   sim.Active_Level(Terrain_Level),
 	crates:  [2]physics.Body_Ref,
 	balls:   [3]physics.Body_Ref,
 	players: sim.Players(u32, sim.No_Profile, Field_Input, 2),
 }
 
 Terrain_World :: struct {
-	phys:  ^physics.World,
-	level: level.Level,
+	phys: ^physics.World,
 }
 
 Terrain_Game :: sim.Game(
@@ -36,20 +39,21 @@ TERRAIN := Terrain_Game {
 	name = "terrain",
 	version = "1",
 	tick_hz = HZ,
-	content = #load("../godot/levels/shapes_3d.level"),
-	world_create = proc(seed: u64, content: []u8, _: sim.No_Setup) -> ^Terrain_World {
+	levels = {{"shapes", #load("../godot/levels/shapes_3d.level")}},
+	world_create = proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^Terrain_World {
 		terrain := new(Terrain_World)
 		problem: string
-		terrain.phys, terrain.level, problem = physics.create_with_level({tick_hz = HZ}, content)
+		terrain.phys, problem = physics.create_with_levels({tick_hz = HZ}, levels)
 		assert(problem == "", problem)
 		return terrain
 	},
 	world_destroy = proc(terrain: ^Terrain_World) {
-		physics.destroy_with_level(terrain.phys, &terrain.level)
+		physics.destroy(terrain.phys)
 		free(terrain)
 	},
 	extra = proc(terrain: ^Terrain_World) -> sim.Extra {return physics.extra(terrain.phys, Terrain)},
 	init = proc(t: ^Terrain_Tick) {
+		physics.level_change(t, t.world.phys, Terrain_Level.Shapes)
 		def := physics.shape_def(CAT_BOX)
 		def.density = 1
 		for &crate, i in t.state.crates {

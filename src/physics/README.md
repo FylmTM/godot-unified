@@ -66,8 +66,9 @@ The block names what it owns, and links to what it doesn't:
   `resolve` gives a ref to use **now**, never to keep; `link` goes back.
 - Joints have a typed ref per Box3D joint type, so a setter of another type does not compile; each is a `Joint_Ref`,
   which the generic `joint_*` procs take.
-- **No body is an orphan.** Bodies made before `extra` (the anchor, level geometry, platforms made in
-  `world_create`) are the World's; every later one must be owned by a `Body_Ref` in the block. `check_refs`, the
+- **No body is an orphan.** Bodies made before `extra` (the anchor, a game's own made in `world_create`) are the
+  World's, the active level's static bodies are the level's (Levels); every other one must be owned by a `Body_Ref`
+  in the block. `check_refs`, the
   Extra's check after every restore in sync-tests, fails on an orphan or a ref to something dead. Freeing an entity's
   physics is `destroy_refs` on its value, or `despawn` for a table item.
 
@@ -109,14 +110,32 @@ header says how it works.
 A moving platform's pose is a pure function of its phase tick (`path_sample`), so a game keeps only that tick in its
 block and the `Path` in its level data; `drive_kinematic` makes the body follow it without drift.
 
-## Static level geometry
+## Levels
 
-A game's level is its World's first bodies: `create_with_level` (or `create_static`) in `world_create`, before
-`extra`, so they are the World's. A shape Box3D refuses is never a silent hole: `problem` names it, and the games
-assert on it. Every shape carries its level surface (friction, restitution, rolling resistance, a conveyor's tangent
-velocity and the material id a ray or contact reports); a mesh's triangles may each name another. Meshes and height
-fields are built once, kept by the physics `World` and freed after the Box3D world, since their shapes point at
-them; a height field takes no local transform, so it is a static body of its own at its level body's pose.
+A game's levels are physics: `create_with_levels` parses every level and builds its geometry (hulls, meshes, height
+fields) once, in `world_create`, and finds a shape Box3D refuses in any level there, named with its level, body and
+shape, so a bad level never waits for a change mid-session. The active level is state: `level_change` (in init and
+tick) destroys the static bodies of the level now built and creates the new one's from what was built, then sets the
+block's `sim.Active_Level`. A level change is a sim decision like any other, so a rollback across it, a late join
+after it and a replay of it need nothing of their own:
+
+- **Box3D's snapshot holds static bodies**, so a restore before a change brings the old level's bodies back at their
+  indices, and the re-simulation builds the new ones again at the same indices (bodies are destroyed in index order
+  and made in file order; Box3D reuses freed indices last in, first out).
+- **The level's bodies are owned by the body table**, flagged as the level's and rolled back, imaged and hashed with
+  it, not by refs in the block: a game sizes nothing for its largest level. `check_refs` knows three owners: the
+  World (made before `extra`: the anchor, a game's own bodies made in `world_create`), the active level, and the
+  block's refs; any other live body is an orphan.
+- **What hangs on a level goes with it.** Box3D destroys a body's joints with it (a character's mover joint to the
+  platform it rides), so a game destroys or detaches what holds on to the old level first; a forgotten joint ref is
+  stale, and `check_refs` names it after the next restore.
+- **The world holds the active level only**: snapshots, images and checksums cover its bodies, and the hull database
+  stops growing once each level has been visited (Box3D shares hulls by content).
+
+Every shape carries its level surface (friction, restitution, rolling resistance, a conveyor's tangent velocity and
+the material id a ray or contact reports); a mesh's triangles may each name another. Meshes and height fields are
+kept by the physics `World` and freed after the Box3D world, since their shapes point at them; a height field takes no
+local transform, so it is a static body of its own at its level body's pose.
 
 ## 2D
 

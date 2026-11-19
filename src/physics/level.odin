@@ -1,83 +1,99 @@
-// Static geometry from a level file (src/physics/README.md, Static level geometry; src/level/README.md): one static
-// body per level body, in file order.
+// A game's levels as physics (src/physics/README.md, Levels; src/level/README.md): every level parsed and its geometry
+// built once, when the World is created; the active level's static bodies made by level_change, inside a tick.
 package physics
 
+import "base:intrinsics"
 import "core:fmt"
 
 import box3d "box3d:bindings"
 import "unified:dmath"
 import "unified:level"
+import "unified:sim"
 
-// A game World's level and physics in one call (world_create): the level loaded from `content` (sim.Game.content),
-// a physics world made with `settings`, then the level's static bodies (create_static) as its first bodies. `problem`:
-// the content is no level (`phys` nil then), or create_static's; "" when all is built. destroy_with_level frees both.
+// One of the World's levels (create_with_levels): its parsed file and its geometry, immutable while the world lives.
+@(private)
+Baked_Level :: struct {
+	name:          string,
+	data:          level.Level,
+	// The geometry of each shape, by its index in data.shapes (nil for the kinds that need none: spheres, capsules).
+	hulls:         []^Hull_Data, // boxes and hulls, in their body's frame
+	meshes:        []^Mesh_Data,
+	height_fields: []^Height_Field_Data,
+}
+
+// A physics world for a game with levels (world_create): `settings`' world, then every level of `levels`
+// (sim.Game.levels) parsed and its geometry built (hulls, meshes, height fields), so a level change creates bodies
+// and builds nothing. No static body is made: the game's init enters a level (level_change). Shapes without a
+// category in the file get `default_category`. `problem` names a file that is no level, or the first shape Box3D
+// refuses in any level (a hull under 4 points or past its 128 edges, a mesh of degenerate triangles), with its level,
+// body and shape: a bad level shows at startup, never at a change mid-session. `world` is nil with a problem. destroy
+// frees the levels with the world.
 //
-//   world.phys, world.level, problem = physics.create_with_level({tick_hz = TICK_HZ}, content, CAT_STATIC)
+//   world.phys, problem = physics.create_with_levels({tick_hz = TICK_HZ}, levels, CAT_STATIC)
 //   assert(problem == "", problem)
-create_with_level :: proc(
+create_with_levels :: proc(
 	settings: Settings,
-	content: []u8,
+	levels: []sim.Level_File,
 	default_category: u64 = 1,
 ) -> (
-	phys: ^World,
-	level_data: level.Level,
+	world: ^World,
 	problem: string,
 ) {
-	ok: bool
-	level_data, ok = level.load(content)
-	if !ok do return nil, {}, "the level file is missing or not a level (src/level/README.md)"
-	phys = create(settings)
-	problem = create_static(phys, &level_data, default_category)
-	return
-}
-
-// Frees what create_with_level made: the physics world and the loaded level (not the content).
-destroy_with_level :: proc(phys: ^World, level_data: ^level.Level) {
-	if phys != nil do destroy(phys)
-	level.destroy(level_data)
-}
-
-// Creates every static body of the level, in file order (the World's, when made before `extra`: call it first in
-// world_create): one body per level body, plus one per height field (Box3D's take no local transform), right after
-// its level body. Meshes and height fields are built here and kept by the World until destroy. Shapes without a
-// category in the file get `default_category`. `problem` names the first level shape Box3D refused (a hull it can't
-// build: under 4 points, or past its edge limit; a mesh of degenerate triangles), "" when every shape was built: a
-// refused shape is skipped, a hole in the level's collision the game must not run with (the games assert on it).
-create_static :: proc(world: ^World, level_data: ^level.Level, default_category: u64 = 1) -> (problem: string) {
-	for &level_body, body_index in level_data.bodies {
-		body_def := transmute(Body_Def)box3d.DefaultBodyDef()
-		body_def.position = level_body.pos
-		body_def.rotation = level_body.rot
-		id := box3d.CreateBody(world.id, (^box3d.BodyDef)(&body_def))
-		body_created(world, id, 0)
-		shape_def := transmute(Shape_Def)box3d.DefaultShapeDef()
-		shape_def.filter.category = level_body.category if level_body.category != 0 else default_category
-		for &shape, shape_index in level_body.shapes {
-			built: bool
-			if shape.kind == .Height_Field {
-				built = level_height_field(world, Transform{level_body.pos, level_body.rot}, shape_def, &shape)
-			} else {
-				built = level_shape(world, id, &shape_def, &shape)
-			}
-			if !built && problem == "" {
-				problem = fmt.tprintf(
-					"level body %d %q, shape %d (%v%s): Box3D refused it",
-					body_index,
-					level_body.name,
-					shape_index,
-					shape.kind,
-					fmt.tprintf(" of %d points", len(shape.points)) if shape.kind == .Hull else "",
-				)
-			}
+	world = create(settings)
+	world.level_category = default_category
+	for file in levels {
+		baked := Baked_Level {
+			name = file.name,
+		}
+		ok: bool
+		baked.data, ok = level.load(file.bytes)
+		if !ok {
+			destroy(world)
+			return nil, fmt.tprintf("level %q: not a level file of this version (src/level/README.md)", file.name)
+		}
+		append(&world.levels, baked)
+		if problem = bake_level(&world.levels[len(world.levels) - 1]); problem != "" {
+			destroy(world)
+			return nil, problem
 		}
 	}
-	return problem
+	return world, ""
+}
+
+// A level the World holds, parsed: its markers and bodies (`physics.level_data(world, Level_Id.Hub)`). Immutable, and
+// as long-lived as the world.
+level_data :: proc(
+	world: ^World,
+	id: $Id,
+) -> ^level.Level where intrinsics.type_is_enum(Id) ||
+	intrinsics.type_is_integer(Id) {
+	return &world.levels[int(id)].data
+}
+
+// Makes `id` the active level, inside init or tick: destroys the static bodies of the level now built (in body index
+// order) and creates `id`'s from what create_with_levels built (in file order, each height field's body after its
+// level body's), then sim.level_enter. Box3D's snapshot holds static bodies like any other, so a rollback across the
+// change, a late join after it and a replay of it are exact. Entering the active level rebuilds it.
+//
+// Destroy what hangs on the old level first: a joint to a level body goes with it (a character's mover joint to the
+// platform it rides: destroy the character, as a leave does), and a Body_Link to one goes stale. check_refs names a
+// joint ref left behind.
+level_change :: proc(t: ^sim.Tick($G), world: ^World, id: $Id) where intrinsics.type_is_enum(Id) {
+	assert(world.sealed, "physics: level_change runs in init or tick (after extra)")
+	assert(int(id) >= 0 && int(id) < len(world.levels), "physics: no such level (create_with_levels' levels)")
+	for &entry, index in world.bodies {
+		if .Level not_in entry.flags || .Alive not_in entry.flags do continue
+		box3d.DestroyBody(body_id(world, Body_Ref{index1 = i32(index + 1), generation = entry.generation}))
+		entry = {}
+	}
+	build_level(world, &world.levels[int(id)])
+	sim.level_enter(t, id)
 }
 
 // Adds one level shape to a body (any type: games use it for their own level bodies too) with the level shape's
 // surface (the def's materials are replaced); false when Box3D refused it (a hull under 4 points or past its 128
-// edges, a mesh of degenerate triangles) and nothing was added. A mesh is built here and kept by the World until
-// destroy. A height field needs a static body of its own at its pose: create_static makes one.
+// edges, a mesh of degenerate triangles) and nothing was added. A mesh it builds is the World's, freed with it. A
+// height field needs a static body of its own: levels (level_change) make one.
 create_level_shape :: proc(
 	world: ^World,
 	ref: Body_Ref,
@@ -86,9 +102,121 @@ create_level_shape :: proc(
 	loc := #caller_location,
 ) -> bool {
 	check_shape_def(def, loc)
-	assert(shape.kind != .Height_Field, "physics: a level height field needs its own static body (create_static)", loc)
+	assert(shape.kind != .Height_Field, "physics: a level height field needs its own static body", loc)
 	def := def
-	return level_shape(world, body_id(world, ref), &def, shape)
+	hull: ^Hull_Data
+	mesh: ^Mesh_Data
+	#partial switch shape.kind {
+	case .Box, .Hull:
+		hull = level_hull(shape)
+		if hull == nil do return false
+	case .Mesh:
+		mesh = level_mesh(shape)
+		if mesh == nil do return false
+		append(&world.meshes, mesh)
+	}
+	built := level_shape(body_id(world, ref), &def, shape, hull, mesh)
+	if hull != nil do destroy_hull(hull)
+	return built
+}
+
+// Builds every shape's geometry of a level once; the first refused shape is the problem, by level, body and shape.
+@(private)
+bake_level :: proc(baked: ^Baked_Level) -> (problem: string) {
+	count := len(baked.data.shapes)
+	baked.hulls = make([]^Hull_Data, count)
+	baked.meshes = make([]^Mesh_Data, count)
+	baked.height_fields = make([]^Height_Field_Data, count)
+	index := 0
+	for &level_body, body_index in baked.data.bodies {
+		for &shape, shape_index in level_body.shapes {
+			built := true
+			switch shape.kind {
+			case .Box, .Hull:
+				baked.hulls[index] = level_hull(&shape)
+				built = baked.hulls[index] != nil
+			case .Mesh:
+				baked.meshes[index] = level_mesh(&shape)
+				built = baked.meshes[index] != nil
+			case .Height_Field:
+				baked.height_fields[index] = level_height_field(&shape)
+				built = baked.height_fields[index] != nil
+			case .Sphere, .Capsule:
+			}
+			if !built && problem == "" {
+				problem = fmt.tprintf(
+					"level %q, body %d %q, shape %d (%v%s): Box3D refused it",
+					baked.name,
+					body_index,
+					level_body.name,
+					shape_index,
+					shape.kind,
+					fmt.tprintf(" of %d points", len(shape.points)) if shape.kind == .Hull else "",
+				)
+			}
+			index += 1
+		}
+	}
+	return problem
+}
+
+// Frees a level's geometry and parsed file (after the Box3D world: its shapes point at the meshes and height fields).
+@(private)
+unbake_level :: proc(baked: ^Baked_Level) {
+	for hull in baked.hulls do if hull != nil do destroy_hull(hull)
+	for mesh in baked.meshes do if mesh != nil do destroy_mesh(mesh)
+	for height_field in baked.height_fields do if height_field != nil do destroy_height_field(height_field)
+	delete(baked.hulls)
+	delete(baked.meshes)
+	delete(baked.height_fields)
+	level.destroy(&baked.data)
+}
+
+// Creates a level's static bodies from its baked geometry, flagged as the level's in the body table.
+@(private)
+build_level :: proc(world: ^World, baked: ^Baked_Level) {
+	index := 0
+	for &level_body in baked.data.bodies {
+		body := level_body_create(world, level_body.pos, level_body.rot)
+		shape_def := transmute(Shape_Def)box3d.DefaultShapeDef()
+		shape_def.filter.category = level_body.category if level_body.category != 0 else world.level_category
+		for &shape in level_body.shapes {
+			if shape.kind == .Height_Field {
+				pose := transmute(Transform)box3d.MulTransforms(
+					transmute(box3d.Transform)Transform{level_body.pos, level_body.rot},
+					transmute(box3d.Transform)Transform{shape.pos, shape.rot},
+				)
+				field_body := level_body_create(world, pose.p, pose.q)
+				field_def := shape_def
+				field_def.base_material = surface_material(shape.surface)
+				id := box3d.CreateHeightFieldShape(
+					field_body,
+					(^box3d.ShapeDef)(&field_def),
+					baked.height_fields[index],
+				)
+				assert(id.index1 != 0, "physics: Box3D refused a level height field it built")
+			} else {
+				built := level_shape(body, &shape_def, &shape, baked.hulls[index], baked.meshes[index])
+				assert(built, "physics: Box3D refused a level shape it built")
+			}
+			index += 1
+		}
+	}
+}
+
+// A static body of the active level, recorded in the body table as the level's (with its generation, so
+// level_change can destroy it).
+@(private)
+level_body_create :: proc(world: ^World, pos: [3]f32, rot: [4]f32) -> box3d.BodyId {
+	body_def := transmute(Body_Def)box3d.DefaultBodyDef()
+	body_def.position = pos
+	body_def.rotation = rot
+	id := box3d.CreateBody(world.id, (^box3d.BodyDef)(&body_def))
+	body_created(world, id, 0)
+	entry := &world.bodies[id.index1 - 1]
+	entry.flags = {.Alive, .Level}
+	entry.generation = id.generation
+	return id
 }
 
 // A level surface as Box3D's surface material.
@@ -103,28 +231,23 @@ surface_material :: proc(surface: level.Surface) -> Surface_Material {
 	}
 }
 
+// One shape on a body from its built geometry (`hull` for a box or hull, `mesh` for a mesh); false when Box3D refused
+// it.
 @(private)
-level_shape :: proc(world: ^World, body: box3d.BodyId, shape_def: ^Shape_Def, shape: ^level.Shape) -> bool {
+level_shape :: proc(
+	body: box3d.BodyId,
+	shape_def: ^Shape_Def,
+	shape: ^level.Shape,
+	hull: ^Hull_Data,
+	mesh: ^Mesh_Data,
+) -> bool {
 	shape_def.base_material = surface_material(shape.surface)
 	shape_def.materials = nil
 	shape_def.material_count = 0
-	identity := shape.rot == {0, 0, 0, 1}
 	id: box3d.ShapeId
 	switch shape.kind {
-	case .Box:
-		hull := box3d.MakeBoxHull(shape.half.x, shape.half.y, shape.half.z)
-		if identity && shape.pos == {} {
-			id = box3d.CreateHullShape(body, (^box3d.ShapeDef)(shape_def), &hull.base)
-		} else {
-			transformed := box3d.CloneAndTransformHull(
-				&hull.base,
-				transmute(box3d.Transform)Transform{shape.pos, shape.rot},
-				transmute(box3d.Vec3)[3]f32{1, 1, 1},
-			)
-			if transformed == nil do return false
-			id = box3d.CreateHullShape(body, (^box3d.ShapeDef)(shape_def), transformed)
-			box3d.DestroyHull(transformed)
-		}
+	case .Box, .Hull:
+		id = box3d.CreateHullShape(body, (^box3d.ShapeDef)(shape_def), hull)
 	case .Sphere:
 		sphere := Sphere{shape.pos, shape.radius}
 		id = box3d.CreateSphereShape(body, (^box3d.ShapeDef)(shape_def), (^box3d.Sphere)(&sphere))
@@ -132,16 +255,7 @@ level_shape :: proc(world: ^World, body: box3d.BodyId, shape_def: ^Shape_Def, sh
 		axis := dmath.quat_rotate(shape.rot, {0, shape.half_height, 0})
 		capsule := Capsule{shape.pos - axis, shape.pos + axis, shape.radius}
 		id = box3d.CreateCapsuleShape(body, (^box3d.ShapeDef)(shape_def), (^box3d.Capsule)(&capsule))
-	case .Hull:
-		if len(shape.points) < 4 do return false
-		hull := box3d.CreateHull(([^]box3d.Vec3)(raw_data(shape.points)), i32(len(shape.points)), 64)
-		if hull == nil do return false
-		id = box3d.CreateHullShape(body, (^box3d.ShapeDef)(shape_def), hull)
-		box3d.DestroyHull(hull)
 	case .Mesh:
-		mesh := level_mesh(shape)
-		if mesh == nil do return false
-		append(&world.level_meshes, mesh)
 		materials := make([]Surface_Material, len(shape.materials), context.temp_allocator)
 		for surface, i in shape.materials do materials[i] = surface_material(surface)
 		shape_def.materials = raw_data(materials)
@@ -155,8 +269,25 @@ level_shape :: proc(world: ^World, body: box3d.BodyId, shape_def: ^Shape_Def, sh
 	return id.index1 != 0
 }
 
+// A box's or hull's geometry in its body's frame (a box moved by its pose); nil when Box3D can't build it. Free with
+// destroy_hull.
+@(private)
+level_hull :: proc(shape: ^level.Shape) -> ^Hull_Data {
+	if shape.kind == .Box {
+		box := box3d.MakeBoxHull(shape.half.x, shape.half.y, shape.half.z)
+		if shape.rot == {0, 0, 0, 1} && shape.pos == {} do return box3d.CloneHull(&box.base)
+		return box3d.CloneAndTransformHull(
+			&box.base,
+			transmute(box3d.Transform)Transform{shape.pos, shape.rot},
+			transmute(box3d.Vec3)[3]f32{1, 1, 1},
+		)
+	}
+	if len(shape.points) < 4 do return nil
+	return box3d.CreateHull(([^]box3d.Vec3)(raw_data(shape.points)), i32(len(shape.points)), 64)
+}
+
 // A level mesh's BVH, its vertices moved into the body's frame when the shape has a pose of its own (the exporter
-// writes them body-local); nil when Box3D can't build it (no triangle that isn't degenerate).
+// writes them body-local); nil when Box3D can't build it (no triangle that isn't degenerate). Free with destroy_mesh.
 @(private)
 level_mesh :: proc(shape: ^level.Shape) -> ^Mesh_Data {
 	vertices := shape.points
@@ -175,16 +306,16 @@ level_mesh :: proc(shape: ^level.Shape) -> ^Mesh_Data {
 	return create_mesh(def)
 }
 
-// A level height field on a static body of its own at the level body's pose times the shape's (the grid's corner),
-// built here and kept by the World until destroy; false when Box3D refused it.
+// A level height field, quantized between its own lowest and highest heights; nil when Box3D can't build it. Free
+// with destroy_height_field.
 @(private)
-level_height_field :: proc(world: ^World, body: Transform, shape_def: Shape_Def, shape: ^level.Shape) -> bool {
+level_height_field :: proc(shape: ^level.Shape) -> ^Height_Field_Data {
 	lowest, highest := shape.heights[0], shape.heights[0]
 	for height in shape.heights {
 		lowest = dmath.min(lowest, height)
 		highest = dmath.max(highest, height)
 	}
-	height_field := create_height_field({
+	return create_height_field({
 		heights               = raw_data(shape.heights),
 		scale                 = shape.scale,
 		count_x               = i32(shape.count_x),
@@ -192,18 +323,4 @@ level_height_field :: proc(world: ^World, body: Transform, shape_def: Shape_Def,
 		global_minimum_height = lowest,
 		global_maximum_height = highest,
 	})
-	if height_field == nil do return false
-	append(&world.level_height_fields, height_field)
-	pose := transmute(Transform)box3d.MulTransforms(
-		transmute(box3d.Transform)body,
-		transmute(box3d.Transform)Transform{shape.pos, shape.rot},
-	)
-	body_def := transmute(Body_Def)box3d.DefaultBodyDef()
-	body_def.position = pose.p
-	body_def.rotation = pose.q
-	id := box3d.CreateBody(world.id, (^box3d.BodyDef)(&body_def))
-	body_created(world, id, 0)
-	shape_def := shape_def
-	shape_def.base_material = surface_material(shape.surface)
-	return box3d.CreateHeightFieldShape(id, (^box3d.ShapeDef)(&shape_def), height_field).index1 != 0
 }

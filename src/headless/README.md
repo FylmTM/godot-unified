@@ -42,8 +42,8 @@ Conventions every mode keeps:
 
 ## Runs
 
-Every run takes the game (`^G`, a `sim.Game`) and plays it on `game.content` (`--level` swaps in a copy on another
-level). In an offline run slot i is member i + 1 from tick 1, joining with its join record (`src/sim/README.md`,
+Every run takes the game (`^G`, a `sim.Game`) and plays it on `game.levels` (`--level NAME=FILE` swaps in a copy with
+that level replaced). In an offline run slot i is member i + 1 from tick 1, joining with its join record (`src/sim/README.md`,
 Players), and `Seat`s change who holds a slot. Offline there is no relay to hold commands back, so a script that
 sends more than a tick takes fails the run (`Scripted_Commands`).
 

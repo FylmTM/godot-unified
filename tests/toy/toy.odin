@@ -1,5 +1,7 @@
 // A tiny deterministic game for the library's own tests: players move dots, a table of things they own is
-// spawned and despawned (each thing's life a keyed roll), events are emitted, commands are counted. No physics
+// spawned and despawned (each thing's life a keyed roll), events are emitted, commands are counted, and a command
+// takes the team to the other of its two levels (dots are faster in the cave), so every session crosses level
+// changes. No physics
 // (tests/physics covers the Extra), so it is fast enough to run sessions on a virtual clock inside
 // `odin test`.
 package toy
@@ -65,10 +67,22 @@ Mark_Area :: struct {
 // A command without fields (zero bytes): the sender's bump counters start over.
 Cmd_Clear_Bumps :: struct {}
 
+// The toy's levels, in GAME.levels' order.
+Area :: enum u8 {
+	Meadow,
+	Cave,
+}
+
+// Takes the team to a level (nothing when it is the active one).
+Cmd_Travel :: struct {
+	to: Area,
+}
+
 Cmd :: union {
 	Cmd_Bump,
 	Cmd_Mark,
 	Cmd_Clear_Bumps,
+	Cmd_Travel,
 }
 
 // A player's data (sim.Players): zeroed when someone new joins, kept while they are away.
@@ -82,14 +96,9 @@ Player_Data :: struct {
 	last_mark: Cmd_Mark,
 }
 
-// The session's Setup: things live `life_bonus` ticks longer (0, the toy's default, changes nothing).
-Setup :: struct {
-	life_bonus: u8,
-	_pad:       [3]u8,
-}
-
 State :: struct {
 	spawned: u32,
+	level:   sim.Active_Level(Area),
 	_pad:    u32,
 	players: sim.Players(Player_Data, sim.No_Profile, Input, PLAYERS),
 	things:  sim.Table(Thing, 32),
@@ -119,17 +128,22 @@ Event :: union {
 	Event_Expired,
 }
 
-Game :: sim.Game(State, Input, World, Event, Cmd, Setup, sim.No_Profile, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Cmd, sim.No_Setup, sim.No_Profile, PLAYERS)
 Sim :: sim.Sim(Game)
 Inputs :: sim.Inputs(Game)
 Tick :: sim.Tick(Game)
 
 GAME := Game {
-	name              = "toy",
-	version           = "2", // 2: a thing's life is a keyed roll
-	tick_hz           = HZ,
-	tick              = tick,
-	scripted_input    = scripted_input,
+	name = "toy",
+	version = "3", // 3: two levels, travel
+	tick_hz = HZ,
+	levels = {
+		{"meadow", #load("../godot_views/levels/meadow.level")},
+		{"cave", #load("../godot_views/levels/cave.level")},
+	},
+	init = proc(t: ^Tick) {sim.level_enter(t, Area.Meadow)},
+	tick = tick,
+	scripted_input = scripted_input,
 	scripted_commands = scripted_commands,
 }
 
@@ -153,19 +167,20 @@ tick :: proc(t: ^Tick) {
 				data.last_mark = command
 			case Cmd_Clear_Bumps:
 				data.bumps, data.bump_sum, data.bump_fold = 0, 0, 0
+			case Cmd_Travel:
+				if command.to != t.state.level.id do sim.level_enter(t, command.to)
 			case:
 				panic("sim.commands yielded a nil entry") // it never does: an undecodable command is left out
 			}
 		}
 		input := sim.input(t, player)
-		data.pos.x += f32(input.dx) / 64
-		data.pos.y += f32(input.dy) / 64
+		speed := f32(1) / 32 if t.state.level.id == .Cave else f32(1) / 64
+		data.pos.x += f32(input.dx) * speed
+		data.pos.y += f32(input.dy) * speed
 		if .Spawn in sim.buttons(t, player).pressed && t.state.things.count < 32 { 	// held: one thing
 			thing, handle, _ := sim.spawn(&t.state.things)
 			thing.pos = data.pos
-			thing.life = i32(
-				4 + sim.roll_below(t, 60, Roll.Thing_Life, sim.handle_key(handle)) + u32(t.setup.life_bonus),
-			)
+			thing.life = i32(4 + sim.roll_below(t, 60, Roll.Thing_Life, sim.handle_key(handle)))
 			thing.owner = player
 			t.state.spawned += 1
 			sim.emit(t, Event_Spawned {
@@ -213,8 +228,8 @@ bump_fold :: proc(fold: u32, amount: i32) -> u32 {
 }
 
 // Scripted commands of `slot` for a tick, a function of (seed, slot, tick) only: a bump about every 16th tick, a burst
-// of 3 bumps every 200th tick (tick % 200 == 50), a mark every 64th: never more than a tick takes (offline runs play
-// it).
+// of 3 bumps every 200th tick (tick % 200 == 50), a mark every 64th, and from slot 0 a travel to the cave every 300th
+// tick (tick % 300 == 120) and back 90 ticks later: never more than a tick takes (offline runs play it).
 scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
 	commands_of(seed, slot, tick, out, 3)
 }
@@ -239,6 +254,8 @@ commands_of :: proc(seed: u64, slot: int, tick: u32, out: ^sim.Command_Out(Cmd),
 			sim.send_command(out, Cmd_Bump{i32(slot * 100 + k)})
 		}
 	}
+	if slot == 0 && tick % 300 == 120 do sim.send_command(out, Cmd_Travel{.Cave})
+	if slot == 0 && tick % 300 == 210 do sim.send_command(out, Cmd_Travel{.Meadow})
 	if tick % 64 == 7 { 	// never a burst tick (50 + 200k is even mod 64, 7 is odd)
 		sim.send_command(out, Cmd_Mark {
 			at    = {f32(slot), f32(tick % 7)},

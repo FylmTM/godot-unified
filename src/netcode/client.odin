@@ -17,8 +17,7 @@ import "unified:wire"
 Client_Config :: struct {
 	slot:          int, // the slot to ask for; -1: any free one
 	join_tick:     u32, // the earliest tick to become present (0: as soon as possible)
-	compat:        u64, // build/game id the relay checks (0: sim.compat_of(game, content))
-	content:       []u8, // the level (src/level/README.md; nil: the game's own, sim.Game.content); borrowed for the client's lifetime
+	compat:        u64, // build/game id the relay checks (0: sim.compat_of(game))
 	player_name:   string, // the player's display name (sent to the relay, shared with everyone)
 	// On a link that vouches for no account (LAN, direct UDP): what the relay recognizes this person by when they
 	// come back (the same member, in any free slot). All zero: none (a new member every time).
@@ -260,7 +259,7 @@ client_create :: proc(game: ^$G, cfg: Client_Config, link: Link, hooks: Hooks(G)
 	client.game = game
 	client.cfg = cfg
 	if client.cfg.compat == 0 {
-		client.cfg.compat = usim.compat_of(game, client.cfg.content)
+		client.cfg.compat = usim.compat_of(game)
 	}
 	client.poll_us = POLL_US
 	client.hooks = hooks
@@ -403,7 +402,7 @@ on_welcome :: proc(client: ^Client($G), reader: ^wire.Reader) {
 	// No growing on the session thread.
 	reserve(&client.checksums, ticks != 0 ? int(ticks / CHECKSUM_EVERY) + 1 : CHECKSUMS_KEPT)
 	if first == 1 {
-		client.sim = usim.create(client.game, seed, client.cfg.content)
+		client.sim = usim.create(client.game, seed)
 		if client.cfg.dev do usim.dev_attach(client.sim, zone_clock)
 		if !client.leaving {
 			set_status(client, .Connected, "") // a client that left before its Welcome stays leaving ("left")
@@ -654,7 +653,7 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 @(private)
 load_snapshot :: proc(client: ^Client($G), now: i64) {
 	client.received_work = true
-	sim, err := usim.from_snapshot(client.game, client.snap_buf[:], client.cfg.content)
+	sim, err := usim.from_snapshot(client.game, client.snap_buf[:])
 	client.snap_total = 0
 	if err != .None || sim.tick != client.snap_tick {
 		if sim != nil {

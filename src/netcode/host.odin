@@ -9,8 +9,7 @@ import "unified:sim"
 Host_Config :: struct {
 	seed:          u64,
 	ticks:         u32, // 0: endless
-	compat:        u64, // build/game id the relay checks (0: sim.compat_of(game, content))
-	content:       []u8, // the level (src/level/README.md; nil: the game's own, sim.Game.content); borrowed for the host's lifetime
+	compat:        u64, // build/game id the relay checks (0: sim.compat_of(game))
 	player_name:   string, // the host player's display name
 	// Optional: the host player's own platform account (the Godot host asks its lobby, Lobby.account), borrowed for the
 	// host's lifetime.
@@ -38,14 +37,13 @@ SOLO_POLL_US :: 50_000
 host_create :: proc(game: ^$G, cfg: Host_Config, hooks: Hooks(G)) -> ^Host(G) {
 	host := new(Host(G))
 	host.hub = hub_create(2)
-	compat := cfg.compat if cfg.compat != 0 else sim.compat_of(game, cfg.content)
+	compat := cfg.compat if cfg.compat != 0 else sim.compat_of(game)
 	host.relay = relay_create(
 	game,
 	{
 		seed          = cfg.seed,
 		ticks         = cfg.ticks,
 		start_players = 1,
-		content       = cfg.content,
 		compat        = compat,
 		local_start   = true, // the only start player is the host's own client
 		recording     = cfg.recording,
@@ -57,7 +55,6 @@ host_create :: proc(game: ^$G, cfg: Host_Config, hooks: Hooks(G)) -> ^Host(G) {
 	client_config := Client_Config {
 		slot        = 0,
 		compat      = compat,
-		content     = cfg.content,
 		player_name = cfg.player_name,
 		dev         = cfg.dev,
 	}

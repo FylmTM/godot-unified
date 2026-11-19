@@ -192,7 +192,7 @@ when scenarios.LONG {
 // 30 m, which keep the enemies (they are no physics bodies).
 @(test)
 the_world_reads_the_arena_from_the_level :: proc(t: ^testing.T) {
-	world := g.world_create(1, g.GAME.content, {})
+	world := g.world_create(1, g.GAME.levels, {})
 	defer g.world_destroy(world)
 	testing.expect_value(t, world.pillar_count, 8)
 	testing.expect_value(t, world.arena_inner, 30)

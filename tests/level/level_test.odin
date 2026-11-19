@@ -1,5 +1,5 @@
 // src/level/README.md: the UNLV file round-trips every record and property type, bad files are refused,
-// and physics.create_static builds the bodies, meshes and height fields included.
+// and physics builds a level's bodies (create_with_levels, level_change), meshes and height fields included.
 package test_level
 
 import "core:math"
@@ -276,16 +276,12 @@ bad_files :: proc(t: ^testing.T) {
 }
 
 @(test)
-create_static_bodies :: proc(t: ^testing.T) {
+level_bodies :: proc(t: ^testing.T) {
 	data := fixture()
 	defer delete(data)
-	loaded, ok := level.load(data)
-	defer level.destroy(&loaded)
-	testing.expect(t, ok)
-	world := physics.create({tick_hz = 64})
-	defer physics.destroy(world)
-	problem := physics.create_static(world, &loaded)
-	testing.expect_value(t, problem, "")
+	session := show(data)
+	defer show_end(session)
+	world := session.world.phys
 	// A ray down at the origin hits the floor's top; the rotated box (pos (0,1,5) local (0,1,0)) is hit
 	// at y = 1.5; the sphere at (3,1,5) on top at y = 1.5; the capsule lies along x at (-3,1,5): top 1.25.
 	expect_top :: proc(t: ^testing.T, world: ^physics.World, x, z, want: f32) {
@@ -313,25 +309,30 @@ create_static_bodies :: proc(t: ^testing.T) {
 	expect_top(t, world, -11, 5, 2)
 }
 
-// create_with_level: the level loaded and its static bodies in a new world, in one call; no level: a problem, no world.
+// create_with_levels: every level parsed and built, no body made until a level is entered; no level: a problem, no
+// world.
 @(test)
-create_with_level_loads_and_builds :: proc(t: ^testing.T) {
+create_with_levels_parses_and_builds :: proc(t: ^testing.T) {
 	data := fixture()
 	defer delete(data)
-	phys, loaded, problem := physics.create_with_level({tick_hz = 64}, data, 1)
-	defer physics.destroy_with_level(phys, &loaded)
+	phys, problem := physics.create_with_levels({tick_hz = 64}, {{"a", data}, {"b", data}})
+	defer physics.destroy(phys)
 	testing.expect_value(t, problem, "")
-	testing.expect(t, phys != nil && len(loaded.bodies) > 0)
-	hit, ok := physics.world_cast_ray_closest(phys, {0, 10, 0}, {0, -20, 0})
-	testing.expect(t, ok && abs(hit.point.y) < 1e-3, "the floor is built")
-	none, empty, refused := physics.create_with_level({tick_hz = 64}, data[:8], 1)
-	defer physics.destroy_with_level(none, &empty)
-	testing.expect(t, none == nil && refused != "", "a cut file is no level")
+	testing.expect(t, phys != nil && len(physics.level_data(phys, 1).bodies) == 2)
+	_, ok := physics.world_cast_ray_closest(phys, {0, 10, 0}, {0, -20, 0})
+	testing.expect(t, !ok, "no level is entered yet")
+	none, refused := physics.create_with_levels({tick_hz = 64}, {{"a", data}, {"cut", data[:8]}})
+	testing.expect(
+		t,
+		none == nil && refused == `level "cut": not a level file of this version (src/level/README.md)`,
+		refused,
+	)
 }
 
-// A shape Box3D refuses is never a silent hole: create_level_shape says so, and create_static names the first one (#149).
+// A shape Box3D refuses is never a silent hole: create_level_shape says so, and create_with_levels names the first one
+// with its level, body and shape.
 @(test)
-create_static_names_a_refused_shape :: proc(t: ^testing.T) {
+create_with_levels_names_a_refused_shape :: proc(t: ^testing.T) {
 	world := physics.create({tick_hz = 64})
 	defer physics.destroy(world)
 	// 3 points: no hull. A cube's 7 x 7 x 7 surface lattice pushed onto a sphere: past Box3D's 128 hull edges at
@@ -349,15 +350,17 @@ create_static_names_a_refused_shape :: proc(t: ^testing.T) {
 		{kind = .Hull, rot = {0, 0, 0, 1}, points = sphere[:]},
 	}
 	bodies := []level.Body{{name = "rocks", rot = {0, 0, 0, 1}, shapes = shapes}}
-	loaded := level.Level {
-		bodies = bodies,
-	}
 	body_def := physics.default_body_def()
 	body := physics.create_body(world, body_def)
 	shape_def := physics.default_shape_def()
 	testing.expect(t, physics.create_level_shape(world, body, shape_def, &shapes[0]))
 	testing.expect(t, !physics.create_level_shape(world, body, shape_def, &shapes[1]))
 	testing.expect(t, !physics.create_level_shape(world, body, shape_def, &shapes[2]))
-	problem := physics.create_static(world, &loaded)
-	testing.expect_value(t, problem, `level body 0 "rocks", shape 1 (Hull of 3 points): Box3D refused it`)
+	good := fixture()
+	defer delete(good)
+	rocks := encode(bodies, nil)
+	defer delete(rocks)
+	none, problem := physics.create_with_levels({tick_hz = 64}, {{"yard", good}, {"quarry", rocks}})
+	testing.expect(t, none == nil)
+	testing.expect_value(t, problem, `level "quarry", body 0 "rocks", shape 1 (Hull of 3 points): Box3D refused it`)
 }

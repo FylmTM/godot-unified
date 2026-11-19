@@ -180,17 +180,12 @@ exported_2d_fixture :: proc(t: ^testing.T) {
 	testing.expectf(t, near(goal.scale, {1, -1, 1}) && near_q(goal.rot, qz(math.PI)), "%v %v", goal.scale, goal.rot)
 }
 
-// physics.create_static on the fixture: ordinary static bodies at z = 0, each where the scene drew it.
+// The fixture built as a level: ordinary static bodies at z = 0, each where the scene drew it.
 @(test)
-create_static_2d :: proc(t: ^testing.T) {
-	loaded, ok := level.load(FIXTURE_2D)
-	defer level.destroy(&loaded)
-	testing.expect(t, ok)
-	if !ok do return
-	world := physics.create({tick_hz = 64})
-	defer physics.destroy(world)
-	problem := physics.create_static(world, &loaded)
-	testing.expect_value(t, problem, "")
+level_bodies_2d :: proc(t: ^testing.T) {
+	session := show(FIXTURE_2D)
+	defer show_end(session)
+	world := session.world.phys
 	// A ray into the plane (+z) at (x, y): the front face it hits (z = -depth/2 for boxes and hulls).
 	front :: proc(world: ^physics.World, x, y: f32) -> (z: f32, hit: physics.Hit, ok: bool) {
 		hit, ok = physics.world_cast_ray_closest(world, {x, y, -5}, {0, 0, 10})
