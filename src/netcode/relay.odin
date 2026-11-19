@@ -1532,7 +1532,8 @@ finalize :: proc(relay: ^Relay($G)) {
 
 // Puts the waiting commands that are due into `tick`: each present slot's in seq order, those sent for
 // it or earlier, at most COMMANDS_PER_SLOT each and TICK_COMMANDS in all, within the bytes a tick may
-// carry (round-robin over the slots, so one can't crowd the others out). The rest wait for the next tick.
+// carry (round-robin over the slots, so one can't crowd the others out). The rest wait for the next tick. The seats of
+// a connection whose state is not checked yet wait (commands_held).
 @(private)
 take_commands :: proc(relay: ^Relay($G), tick: u32, tick_inputs: ^sim.Inputs(G)) {
 	Input :: sim.part(G, sim.GAME_INPUT)
@@ -1544,7 +1545,11 @@ take_commands :: proc(relay: ^Relay($G), tick: u32, tick_inputs: ^sim.Inputs(G))
 	for k in 0 ..< sim.COMMANDS_PER_SLOT {
 		for &seat, slot in relay.seats {
 			waiting := &seat.cmd_wait
-			if taken[slot] != k || k >= len(waiting) || !active(&seat, tick) || waiting[k].want > tick {
+			if taken[slot] != k ||
+			   k >= len(waiting) ||
+			   !active(&seat, tick) ||
+			   commands_held(relay, &seat) ||
+			   waiting[k].want > tick {
 				continue
 			}
 			size := sim.COMMAND_HEAD + int(waiting[k].cmd.size)
@@ -1566,6 +1571,17 @@ take_commands :: proc(relay: ^Relay($G), tick: u32, tick_inputs: ^sim.Inputs(G))
 		}
 		remove_range(&seat.cmd_wait, 0, taken[slot])
 	}
+}
+
+// Whether a seat's commands wait: its connection has no checked state (a joiner whose snapshot is on its way or waits
+// for its check, a client being resynced), so it holds no tick a command could safely land in. A joiner samples
+// commands from its join tick on, before its snapshot of the first checksum tick at or after it arrives: placed then,
+// one could land in a tick the snapshot already holds, which it never verifies, and it would predict the command again
+// for good (verified ticks drop own commands by count), every later one a place off.
+@(private)
+commands_held :: #force_inline proc(relay: ^Relay($G), seat: ^Seat($Input, $Profile)) -> bool {
+	conn := &relay.conns[seat.conn]
+	return conn.provider >= 0 || conn.checking || !conn.base_known
 }
 
 @(private)
