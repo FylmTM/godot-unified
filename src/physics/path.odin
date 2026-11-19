@@ -19,6 +19,7 @@ Path_Mode :: enum u8 {
 Path_Ease :: enum u8 {
 	Linear,
 	Smooth, // dmath.smoothstep on every leg: 3t² − 2t³
+	Curve, // Path.curve on every leg: progress through the leg (0..1) to how far along it (dmath.curve_sample)
 }
 
 // Level data (outside the block). Point i waits wait_s[i] when reached, then travels to the next
@@ -30,6 +31,7 @@ Path :: struct {
 	count:   u8,
 	mode:    Path_Mode,
 	ease:    Path_Ease,
+	curve:   dmath.Curve, // ease .Curve's (a level marker's Curve: level.prop_curve)
 }
 
 
@@ -107,7 +109,13 @@ path_sample :: proc(path: ^Path, phase_tick: u32, tick_hz: int) -> [3]f32 {
 		tick -= leg.wait
 		if tick < leg.travel {
 			progress := f32(tick) / f32(leg.travel)
-			if path.ease == .Smooth do progress = dmath.smoothstep(0, 1, progress)
+			switch path.ease {
+			case .Linear:
+			case .Smooth:
+				progress = dmath.smoothstep(0, 1, progress)
+			case .Curve:
+				progress = dmath.curve_sample(path.curve, progress)
+			}
 			a := path.points[leg.from]
 			b := path.points[leg.to]
 			return {a.x + (b.x - a.x) * progress, a.y + (b.y - a.y) * progress, a.z + (b.z - a.z) * progress}

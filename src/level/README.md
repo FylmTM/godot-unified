@@ -32,7 +32,8 @@ Godot host finds a marker's node by its index (`Unified.level_markers`).
 - **Markers:** any node whose script has `const UNIFIED_KIND := "platform"` (a script for several kinds: a
   `unified_kind` property; a node without a script: metadata `unified_kind`), in the game's own vocabulary. The
   exporter writes the kind, the node's name and transform, every exported script property (bool, int, float, Vector3,
-  String, a NodePath to another marker, a Curve as its samples), and the points of a `Path3D` child. Every exported property is written,
+  String, a NodePath to another marker, a Curve as its samples, which the sim reads as a `dmath.Curve`), and the
+  points of a `Path3D` child. Every exported property is written,
   defaults included, so the marker script is a property's one home: the sim reads it without a default of its own
   (a `prop_*` default only covers a marker whose script lacks the property) and asserts what its rule needs. Markers
   are in scene-tree order (depth-first, parents first); at run time `Unified.level_markers(level_root)` returns the

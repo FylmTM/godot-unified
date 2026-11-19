@@ -26,6 +26,7 @@ package level
 import "base:intrinsics"
 import "base:runtime"
 
+import "unified:dmath"
 import "unified:wire"
 
 MAGIC :: "UNLV"
@@ -581,4 +582,15 @@ lower_equal :: proc(name, lowercase: string) -> bool {
 // A NodePath property pointing at another marker: its index, or -1.
 prop_ref :: proc(marker: ^Marker, key: string) -> int {
 	return int(prop_value(marker, key, Marker_Ref(-1)))
+}
+
+#assert(CURVE_SAMPLES == dmath.CURVE_SAMPLES)
+
+// A Curve property as a dmath.Curve (its samples over the curve's domain, mapped to x in 0..1: curve_sample), looked
+// up in the marker's level; ok is false when the marker has no such property (an unset Curve is not exported) or it
+// is of another type.
+prop_curve :: proc(level: ^Level, marker: ^Marker, key: string) -> (curve: dmath.Curve, ok: bool) {
+	ref := prop_value(marker, key, Curve_Ref(-1))
+	if ref < 0 || int(ref) >= len(level.curves) do return
+	return {samples = level.curves[ref]}, true
 }

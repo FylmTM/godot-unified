@@ -6,6 +6,7 @@ package test_physics
 import "core:slice"
 import "core:testing"
 
+import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
@@ -411,6 +412,13 @@ paths_sample_exactly :: proc(t: ^testing.T) {
 	loop.mode = .Loop
 	loop.seconds[2] = 2
 	testing.expect_value(t, physics.path_duration_ticks(&loop, HZ), u32((0.25 + 1.5 + 0.25 + 1 + 0.5 + 2) * HZ))
+	// a designer curve: an ease-in that is a quarter of the way at the leg's middle (samples k² / 31²)
+	eased := path
+	eased.ease = .Curve
+	for &sample, k in eased.curve.samples do sample = f32(k * k) / 961
+	quarter := physics.path_sample(&eased, 16 + 48, HZ)
+	testing.expectf(t, abs(quarter.x - 6 * dmath.curve_sample(eased.curve, 0.5)) < 1e-6, "a curve's leg: %v", quarter)
+	testing.expect(t, physics.path_sample(&eased, 16 + 96, HZ) == path.points[1]) // still arrives
 }
 
 @(test)
