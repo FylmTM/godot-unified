@@ -1,7 +1,6 @@
 // holdout's end-to-end suite: the standard scenarios of unified:headless/scenarios (src/headless/README.md),
 // its replay regressions (the recorded sessions in replays/), unified's determinism lint and the extension's install
-// check. The reference run is in reference_test.odin, the game's own scenarios in the other files of this package
-// (throw_test.odin).
+// check. The reference run is in reference_test.odin, the game's own rules in holdout_test.odin.
 package test_holdout
 
 import "core:testing"

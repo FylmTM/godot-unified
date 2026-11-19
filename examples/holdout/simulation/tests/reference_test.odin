@@ -1,5 +1,5 @@
-// holdout's reference run (src/headless/README.md, Reference runs). A new game starts from it unpinned (`uni init`
-// leaves the results out): its run warns with the literal to paste until it is pinned, once the game's rules settle.
+// holdout's reference run (src/headless/README.md, Reference runs): four scripted players through the lobby and into
+// the first wave; every platform must reproduce it bit for bit. After a meant rules change, `uni test holdout --bless`.
 package test_holdout
 
 import "core:testing"
@@ -12,6 +12,11 @@ REFERENCE :: scenarios.Reference {
 	players       = 4,
 	ticks         = 1200,
 	snapshot_tick = 600,
+	checkpoints   = {0xbea4ff90554be84b, 0xfc1ed8835d0057a9, 0x7db16348c42bb59c, 0xaeafb90e8c6e31a9},
+	trace         = 0x93d6db0b713bb104,
+	snapshot      = 0x2ae937d284721424,
+	log           = 0xc19df47342a0116a,
+	compat        = 0x89bbe8b5ff8716f9,
 }
 
 @(test)
