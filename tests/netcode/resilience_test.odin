@@ -4,7 +4,6 @@ package test_netcode
 
 import "core:testing"
 
-import "../toy"
 import "unified:netcode"
 
 // A link wrapper that can black out either direction (an outage on one side of the path).
@@ -54,19 +53,10 @@ gated_join :: proc(
 	^Client,
 	^Gate,
 ) {
-	inner := netcode.netsim_wrap(
-		netcode.loopback_link(session.hub, netcode.Peer(endpoint)),
-		profile,
-		u32(endpoint) * 7919 + u32(len(session.clients)) + seed * 104_729,
-		&session.clock,
-	)
+	salted := u32(endpoint) * 7919 + u32(len(session.clients)) + seed * 104_729
+	inner, _ := net_link(session, raw = profile, seed = salted, endpoint = endpoint)
 	link, gate := gate_wrap(inner)
-	client := netcode.client_create(&toy.GAME, {
-			slot        = -1,
-			player_name = "Grace",
-		}, link, hooks_for(watch))
-	append(&session.clients, client)
-	return client, gate
+	return net_join(session, name = "Grace", link = link, hooks = hooks_for(watch), endpoint = endpoint), gate
 }
 
 // A client vanishes without saying goodbye (crash, killed process) and a new one comes back on the

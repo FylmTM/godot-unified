@@ -13,6 +13,7 @@ Client :: netcode.Client(toy.Game)
 Host :: netcode.Host(toy.Game)
 Relay :: netcode.Relay(toy.Game)
 Hooks :: netcode.Hooks(toy.Game)
+Client_Config :: netcode.Client_Config(toy.Game)
 
 SEED :: 5
 HOST_COLOR :: 7 // the host player's Profile (net_make)
@@ -110,7 +111,8 @@ net_log :: proc(session: ^Net) -> ^sim.Input_Log(toy.Game) {
 }
 
 // A host with `remotes` remote clients under `wan`; `record`: the relay records the session (net_log); `game`: the
-// host's game (default the toy; the remotes play the toy).
+// host's game (default the toy; the remotes play the toy); `hooks`: its own client's (default its watch's);
+// `linked`: its relay listens on the hub (else single player until the test adds the link).
 net_make :: proc(
 	session: ^Net,
 	ticks: u32,
@@ -118,6 +120,8 @@ net_make :: proc(
 	record := true,
 	setup := toy.Setup{},
 	game: ^toy.Game = nil,
+	hooks: Maybe(Hooks) = nil,
+	linked := true,
 ) {
 	session.clock.now = 1_000_000
 	session.hub = netcode.hub_create(8)
@@ -129,9 +133,9 @@ net_make :: proc(
 			profile = {color = HOST_COLOR},
 			recording = record ? sim.log_sink_memory(&session.recording) : {},
 			desync_detail = true,
-		}, net_hooks(session, &session.watch[0]))
+		}, hooks.? or_else net_hooks(session, &session.watch[0]))
 	session.relay = session.host.relay
-	netcode.host_add_link(session.host, netcode.loopback_link(session.hub, 0))
+	if linked do netcode.host_add_link(session.host, netcode.loopback_link(session.hub, 0))
 	for _ in 0 ..< remotes {
 		net_join(session)
 	}
@@ -181,20 +185,65 @@ refused_slot :: proc(relay: ^netcode.Relay($G), slot: int, provider: int) -> boo
 	return conn >= 0 && int(conn) in conn_in(relay, slot).refused
 }
 
-// A remote client asking for `slot` (-1: any) behind `profile`, playing `game` (default the toy).
-net_join :: proc(session: ^Net, slot := -1, profile := netcode.Network.Wan, game: ^toy.Game = nil) -> ^Client {
-	endpoint := len(session.clients) + 1
-	link := netcode.netsim_wrap(
-		netcode.loopback_link(session.hub, netcode.Peer(endpoint)),
-		netcode.PROFILES[profile],
-		u32(endpoint) * 7919,
-		&session.clock,
-	)
+// The link of a remote client: hub endpoint `endpoint` (0: the next remote's) of `hub` (default the session's)
+// behind a network simulator of `raw` (default the built-in `profile`; an ideal one is the bare loopback link) on the
+// session's clock, seeded with `seed` (0: by endpoint). `live`: a live netsim the test sets (netsim_set), returned.
+net_link :: proc(
+	session: ^Net,
+	profile := netcode.Network.Wan,
+	raw: Maybe(netcode.Profile) = nil,
+	seed: u32 = 0,
+	live := false,
+	hub: ^netcode.Hub = nil,
+	endpoint := 0,
+) -> (
+	link: netcode.Link,
+	netsim: ^netcode.Net_Sim,
+) {
+	endpoint := endpoint != 0 ? endpoint : len(session.clients) + 1
+	inner := netcode.loopback_link(hub != nil ? hub : session.hub, netcode.Peer(endpoint))
+	seed := seed != 0 ? seed : u32(endpoint) * 7919
+	if live do return netcode.netsim_live(inner, seed, &session.clock)
+	return netcode.netsim_wrap(inner, raw.? or_else netcode.PROFILES[profile], seed, &session.clock), nil
+}
+
+// A remote client asking for `slot` (-1: any) as `name` (default Grace for the first remote, then Linus) with
+// `token`, its Profile its endpoint's colour (`config` replaces all of it), playing `game` (default the toy), on
+// `link` (default net_link's of `profile`, `raw`, `seed`, `hub` and `endpoint`), with `hooks` (default its watch's:
+// session.watch[endpoint], the last one shared past it).
+net_join :: proc(
+	session: ^Net,
+	slot := -1,
+	profile := netcode.Network.Wan,
+	game: ^toy.Game = nil,
+	name := "",
+	token := netcode.Token{},
+	raw: Maybe(netcode.Profile) = nil,
+	config: Maybe(Client_Config) = nil,
+	link: Maybe(netcode.Link) = nil,
+	hooks: Maybe(Hooks) = nil,
+	seed: u32 = 0,
+	hub: ^netcode.Hub = nil,
+	endpoint := 0,
+) -> ^Client {
+	endpoint := endpoint != 0 ? endpoint : len(session.clients) + 1
+	client_link, has_link := link.?
+	if !has_link do client_link, _ = net_link(session, profile, raw, seed, false, hub, endpoint)
+	client_config, has_config := config.?
+	if !has_config {
+		client_config = {
+			slot = slot,
+			player_name = name != "" ? name : endpoint == 1 ? "Grace" : "Linus",
+			profile = {color = endpoint_color(endpoint)},
+			token = token,
+		}
+	}
+	watch := &session.watch[min(endpoint, len(session.watch) - 1)]
 	client := netcode.client_create(
 		game != nil ? game : &toy.GAME,
-		{slot = slot, player_name = endpoint == 1 ? "Grace" : "Linus", profile = {color = endpoint_color(endpoint)}},
-		link,
-		net_hooks(session, &session.watch[endpoint]),
+		client_config,
+		client_link,
+		hooks.? or_else net_hooks(session, watch),
 	)
 	append(&session.clients, client)
 	return client
@@ -220,8 +269,16 @@ net_destroy :: proc(session: ^Net) {
 
 // Steps everyone for `seconds` of virtual time, or until `done` says so: each round steps the relay (or host) and
 // every client, then jumps to the earliest wake any of them asked for. Remote client `hitched` (an index into
-// session.clients) is not stepped: its process hitches, what arrives waits in its socket.
-net_run :: proc(session: ^Net, seconds: f64, done: proc(session: ^Net) -> bool = nil, hitched := -1) {
+// session.clients) is not stepped: its process hitches, what arrives waits in its socket. `each` watches the session
+// after every round (with `user`, the test's own record) and ends the run when it returns true.
+net_run :: proc(
+	session: ^Net,
+	seconds: f64,
+	done: proc(session: ^Net) -> bool = nil,
+	hitched := -1,
+	each: proc(session: ^Net, user: rawptr) -> bool = nil,
+	user: rawptr = nil,
+) {
 	end := session.clock.now + i64(seconds * 1e6)
 	for session.clock.now < end {
 		now := session.clock.now
@@ -230,7 +287,8 @@ net_run :: proc(session: ^Net, seconds: f64, done: proc(session: ^Net) -> bool =
 			if i == hitched do continue
 			wake = min(wake, netcode.client_step(client, now))
 		}
-		if done != nil && done(session) {
+		stop := each != nil && each(session, user)
+		if stop || (done != nil && done(session)) {
 			return
 		}
 		session.clock.now = clamp(wake, now + 1, end)
@@ -454,14 +512,13 @@ rollbacks_at_the_cap_restore_past_unsaved_ticks :: proc(t: ^testing.T) {
 	session: Net
 	net_make(&session, 0, 0)
 	defer net_destroy(&session)
-	link := netcode.netsim_wrap(
-		netcode.loopback_link(session.hub, 1),
-		{name = "far", latency = 180_000, jitter = 20_000, loss = 20},
-		11,
-		&session.clock,
-	)
-	client := netcode.client_create(&toy.GAME, {slot = -1}, link, hooks_for(&session.watch[1]))
-	append(&session.clients, client)
+	far := netcode.Profile {
+		name    = "far",
+		latency = 180_000,
+		jitter  = 20_000,
+		loss    = 20,
+	}
+	client := net_join(&session, raw = far, seed = 11)
 	net_run(&session, 12)
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	testing.expect(t, client.stats.stall_ticks > 0, "never at the cap")

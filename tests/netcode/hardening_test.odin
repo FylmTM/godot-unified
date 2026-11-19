@@ -671,20 +671,8 @@ refused_hello_does_not_replace_the_seated_member :: proc(t: ^testing.T) {
 	net_make_relay(&session, 2, 0)
 	defer net_destroy(&session)
 	TOKEN :: netcode.Token{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
-	seated := netcode.client_create(
-		&toy.GAME,
-		{slot = 0, token = TOKEN},
-		netcode.loopback_link(session.hub, 1),
-		hooks_for(&session.watch[1]),
-	)
-	append(&session.clients, seated)
-	other := netcode.client_create(
-		&toy.GAME,
-		{slot = 1},
-		netcode.loopback_link(session.hub, 2),
-		hooks_for(&session.watch[2]),
-	)
-	append(&session.clients, other)
+	seated := net_join(&session, profile = .Ideal, config = Client_Config{slot = 0, token = TOKEN})
+	net_join(&session, profile = .Ideal, config = Client_Config{slot = 1})
 	net_run(&session, 1)
 	testing.expect_value(t, seated.status, netcode.Status.Connected)
 	evil: Evil
@@ -912,11 +900,7 @@ a_replaced_input_does_not_hold_the_input_ack_back :: proc(t: ^testing.T) {
 	defer net_destroy(&session)
 	client := net_join(&session, -1, .Wan)
 	net_run(&session, 5)
-	// The client's machine hitches for 300 ms: the relay replaces the inputs it misses.
-	for end := session.clock.now + 300_000; session.clock.now < end; {
-		wake := netcode.host_step(session.host, session.clock.now)
-		session.clock.now = clamp(wake, session.clock.now + 1, end)
-	}
+	net_run(&session, 0.3, hitched = 0) // the client's machine hitches: the relay replaces the inputs it misses
 	net_run(&session, 20)
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	testing.expect(t, session.relay.replaced > 0)

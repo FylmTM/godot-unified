@@ -45,13 +45,7 @@ a_leave_and_the_next_hello_in_one_poll_on_one_link_peer :: proc(t: ^testing.T) {
 		same: Same_Peer
 		netcode.host_add_link(session.host, same_peer_link(hub, &same))
 		net_run(&session, 0.5)
-		old := netcode.client_create(
-			&toy.GAME,
-			{slot = -1, player_name = "Old"},
-			netcode.loopback_link(hub, 1),
-			hooks_for(&session.watch[1]),
-		)
-		append(&session.clients, old)
+		old := net_join(&session, profile = .Ideal, name = "Old", hub = hub)
 		net_run(&session, 2)
 		testing.expect_value(t, old.status, netcode.Status.Connected)
 		now := session.clock.now
@@ -60,13 +54,7 @@ a_leave_and_the_next_hello_in_one_poll_on_one_link_peer :: proc(t: ^testing.T) {
 		if !both_in_one_poll {
 			netcode.host_step(session.host, now) // the relay reads it alone
 		}
-		new_client := netcode.client_create(
-			&toy.GAME,
-			{slot = -1, player_name = "New"},
-			netcode.loopback_link(hub, 2),
-			hooks_for(&session.watch[2]),
-		)
-		append(&session.clients, new_client)
+		new_client := net_join(&session, profile = .Ideal, name = "New", hub = hub)
 		netcode.client_step(new_client, now) // its Hello goes out
 		net_run(&session, 6)
 		connected := 0
@@ -142,13 +130,7 @@ a_duplicate_hello_of_a_replaced_connection_on_one_link_peer :: proc(t: ^testing.
 	netcode.link_send(&wire_from_5, 0, capture.sent[0])
 	net_run(&session, 0.05)
 	testing.expect(t, session.relay.seats[1].conn >= 0, "the first connection is seated")
-	second := netcode.client_create(
-		&toy.GAME,
-		{slot = -1, player_name = "Linus"},
-		netcode.loopback_link(session.hub, ENDPOINT),
-		hooks_for(&session.watch[2]),
-	)
-	append(&session.clients, second)
+	second := net_join(&session, profile = .Ideal, name = "Linus", endpoint = ENDPOINT)
 	net_run(&session, 2)
 	testing.expect_value(t, second.status, netcode.Status.Connected)
 	members := len(session.relay.members)
@@ -189,13 +171,7 @@ a_stale_hello_on_one_link_peer_never_ends_the_live_connection :: proc(t: ^testin
 	wire_from_5 := netcode.loopback_link(session.hub, ENDPOINT) // sends only
 	defer netcode.link_close(&wire_from_5)
 	netcode.client_step(first, session.clock.now) // its Hello, still on its way: the process is gone
-	second := netcode.client_create(
-		&toy.GAME,
-		{slot = -1, player_name = "Linus"},
-		netcode.loopback_link(session.hub, ENDPOINT),
-		hooks_for(&session.watch[2]),
-	)
-	append(&session.clients, second)
+	second := net_join(&session, profile = .Ideal, name = "Linus", endpoint = ENDPOINT)
 	net_run(&session, 2)
 	testing.expect_value(t, second.status, netcode.Status.Connected)
 	members := len(session.relay.members)
@@ -231,26 +207,14 @@ a_newer_program_on_one_link_peer_replaces_the_live_connection :: proc(t: ^testin
 	net_join(&session, 0, .Ideal)
 	net_run(&session, 1)
 	ENDPOINT :: 5
-	old := netcode.client_create(
-		&toy.GAME,
-		{slot = -1, player_name = "Old", token = {1 = 7}},
-		netcode.loopback_link(session.hub, ENDPOINT),
-		hooks_for(&session.watch[2]),
-	)
-	append(&session.clients, old)
+	old := net_join(&session, profile = .Ideal, name = "Old", token = {1 = 7}, endpoint = ENDPOINT)
 	net_run(&session, 2)
 	testing.expect_value(t, old.status, netcode.Status.Connected)
 	// The old program stops reading (both share the endpoint, and what the relay sends would reach either); its
 	// connection is still open at the relay, heard from a moment ago.
 	pop(&session.clients)
 	defer netcode.client_destroy(old)
-	newer := netcode.client_create(
-		&toy.GAME,
-		{slot = -1, player_name = "New", token = {1 = 7}},
-		netcode.loopback_link(session.hub, ENDPOINT),
-		hooks_for(&session.watch[3]),
-	)
-	append(&session.clients, newer)
+	newer := net_join(&session, profile = .Ideal, name = "New", token = {1 = 7}, endpoint = ENDPOINT)
 	net_run(&session, 2)
 	testing.expect_value(t, newer.status, netcode.Status.Connected)
 	testing.expect_value(t, session.relay.seats[1].member, newer.member)

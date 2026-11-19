@@ -5,7 +5,6 @@ package test_netcode
 
 import "core:testing"
 
-import "../toy"
 import "unified:netcode"
 
 // Steps until the first remote client is Connected again and back within a cap of the relay; how long it took.
@@ -238,10 +237,9 @@ a_resume_while_verifying_a_backlog_holds_its_verified_tick :: proc(t: ^testing.T
 	session: Net
 	net_make(&session, 0, 0)
 	defer net_destroy(&session)
-	inner := netcode.netsim_wrap(netcode.loopback_link(session.hub, 1), netcode.PROFILES[.Wan], 7919, &session.clock)
+	inner, _ := net_link(&session)
 	link, cut := cut_wrap(inner)
-	client := netcode.client_create(&toy.GAME, {slot = -1, player_name = "Grace"}, link, hooks_for(&session.watch[1]))
-	append(&session.clients, client)
+	client := net_join(&session, link = link)
 	net_run(&session, 3)
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	net_run(&session, 2, hitched = 0) // its process hitches: the relay's ticks wait in its socket

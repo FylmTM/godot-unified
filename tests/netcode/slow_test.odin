@@ -10,20 +10,13 @@ import "unified:netcode"
 // A remote client behind a live network simulator whose profile the test changes.
 @(private = "file")
 live_join :: proc(session: ^Net, latency: i64) -> (^Client, ^netcode.Net_Sim) {
-	endpoint := len(session.clients) + 1
-	link, netsim := netcode.netsim_live(
-		netcode.loopback_link(session.hub, netcode.Peer(endpoint)),
-		u32(endpoint) * 7919,
-		&session.clock,
-	)
+	link, netsim := net_link(session, live = true)
 	path := netcode.Profile {
 		name    = "path",
 		latency = latency,
 	}
 	netcode.netsim_set(netsim, path, path)
-	client := netcode.client_create(&toy.GAME, {slot = -1}, link, hooks_for(&session.watch[endpoint]))
-	append(&session.clients, client)
-	return client, netsim
+	return net_join(session, link = link), netsim
 }
 
 // The ceiling the clients judge against (64 Hz: 304.5 ms).
