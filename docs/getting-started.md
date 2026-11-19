@@ -38,7 +38,7 @@ From the repo root (`uni.cmd` on Windows):
 ```
 
 Both copy [`examples/minimal_3d`](../examples/minimal_3d/), which passes its own `verify` at once. A game repo runs
-the same `./uni` from its own root. Coding agents: [`agents.md`](agents.md).
+the same `./uni` from its own root. Coding agents: [`agent-guide.md`](agent-guide.md).
 
 ## Next
 

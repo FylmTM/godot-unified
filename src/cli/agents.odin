@@ -1,4 +1,4 @@
-// The guidance unified ships for coding agents in a game repo (docs/agents.md, How the integration works): a short
+// The guidance unified ships for coding agents in a game repo (docs/agent-guide.md, How the integration works): a short
 // section of the repo's AGENTS.md between markers, and unified's skills (every SKILL_PREFIX directory of its
 // .claude/skills/) copied into the repo's. Both come from the unified submodule, so they match the library the game
 // builds against; `init` writes them, `agents` rewrites them after a submodule bump, and `vet` fails while they differ.
@@ -17,7 +17,7 @@ SKILL_PREFIX :: "unified-"
 
 // The AGENTS.md section's text, in unified's checkout. It lives once, there; a game repo's AGENTS.md holds it between
 // AGENTS_BEGIN and AGENTS_END.
-AGENTS_SECTION :: "src/cli/template/agents.md"
+AGENTS_SECTION :: "src/cli/template/agents-section.md"
 
 // The line before the section in a game repo's AGENTS.md. A line starting with AGENTS_BEGIN_MARK is the marker, so its
 // wording can change.

@@ -145,8 +145,9 @@ project's own rows, into `.out/bench.json`, reported and never gated by time (`u
 
 `init` makes a game from `examples/minimal_3d`, the smallest complete game, which CI builds, tests and runs on every
 push: a new game passes its own `verify` at once. In a game repo it adds `unified` as a submodule pinned at a pushed
-commit, never a local one, so the repo clones anywhere, and writes the game, the shims and the agent guidance (`docs/agents.md`)
-from that submodule, never from this checkout, so they always match the library they build against (`cmd_init`).
+commit, never a local one, so the repo clones anywhere, and writes the game, the shims and the agent guidance
+(`docs/agent-guide.md`) from that submodule, never from this checkout, so they always match the library they build
+against (`cmd_init`).
 
 ## Dependencies
 

@@ -41,7 +41,8 @@ and `unified-desync` (finding a determinism bug).
 `./uni init` writes two things into a new game repo, both from the submodule, so they match the pinned unified:
 
 - **A marked section of `AGENTS.md`**, a few lines pointing here, between `<!-- unified: begin ... -->` and
-  `<!-- unified: end -->`. Its text is `unified/src/cli/template/agents.md`; the rest of the file is the game's.
+  `<!-- unified: end -->`. Its text is `unified/src/cli/template/agents-section.md`; the rest of the file is the
+  game's.
 - **unified's skills**: every `unified-*` directory of `unified/.claude/skills/`, copied into the repo's
   `.claude/skills/`. The prefix marks them as unified's; the game's own skills take other names.
 

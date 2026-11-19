@@ -88,7 +88,7 @@ piece of work. The `board-work` skill has the statuses, the procedure and when a
 - Each fact has one home. README.md: what, why, the design and its reasons. `docs/getting-started.md`: setup. This
   file: roles, rules, workflow. Commands and options: `./uni help`. Packages and games: their `README.md` and doc
   comments (`./uni doc`). Procedures (how to do a recurring task): `.claude/skills/<name>/SKILL.md`. Agents in a game
-  repo: `docs/agents.md`; the `unified-*` skills ship to game repos, so they are written for one: here, drop
+  repo: `docs/agent-guide.md`; the `unified-*` skills ship to game repos, so they are written for one: here, drop
   `unified/` from their paths and name the example game. Rules for one kind of file: `.claude/rules/` (they load when Claude touches a matching file). No layout trees, test counts or measured times in docs: the tools print them.
 
 ## Commands

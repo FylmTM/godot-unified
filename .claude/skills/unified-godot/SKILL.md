@@ -7,9 +7,8 @@ description: Checking, running and playing a unified game in Godot - the order t
 
 Every command builds a stale extension and re-imports changed files first. What each step proves: `./uni test -h`.
 
-1. After a GDScript or scene change: `./uni test --suite godot --only validate`. It stops at the first strict error;
-   to list them all, `godot --headless --path . -s res://addons/unified/validate.gd -- --no-settings --frames=5` and
-   read its `Parse Error` lines.
+1. After a GDScript or scene change: `./uni test --suite godot --only validate`. It stops at the first strict error
+   (no `uni` command lists them all): fix it and run it again.
 2. After editing a level scene or its markers: `./uni bake`, and commit the `.tscn` and its `.level` together.
 3. Before handing back: the whole `./uni test --suite godot`, then `./uni verify`.
 

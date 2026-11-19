@@ -377,9 +377,9 @@ check_init :: proc(game, head: string) -> string {
 		}
 	}
 	agents_md := cli.must_read(cli.join(game, "AGENTS.md"))
-	if !strings.contains(agents_md, "unified/docs/agents.md") ||
-	   !os.is_file(cli.join(game, "unified/docs/agents.md")) {
-		return "AGENTS.md doesn't point at unified/docs/agents.md, or the submodule has none"
+	if !strings.contains(agents_md, "unified/docs/agent-guide.md") ||
+	   !os.is_file(cli.join(game, "unified/docs/agent-guide.md")) {
+		return "AGENTS.md doesn't point at unified/docs/agent-guide.md, or the submodule has none"
 	}
 	STALE :: []string{"./unified", "unified.cmd", "`unified ", "unified init", "github.com/FylmTM/unified)"}
 	for file in cli.find_files(game, "") {
