@@ -76,12 +76,13 @@ tracker_init :: proc(tracker: ^Event_Tracker($E), id_of: proc(event: E) -> Event
 	tracker.last_serial = last_serial
 }
 
-// Frees the tracker's lists and output buffers.
+// Frees the tracker's lists and output buffers and zeroes it: tracker_init makes it a new tracker again.
 tracker_destroy :: proc(tracker: ^Event_Tracker($E)) {
 	for list in tracker.ticks do delete(list)
 	delete(tracker.ticks)
 	delete(tracker.out)
 	delete(tracker.scratch)
+	tracker^ = {}
 }
 
 // The list of `tick`'s pending events, the ring grown to hold it.
