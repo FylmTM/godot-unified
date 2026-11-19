@@ -1,7 +1,7 @@
 // Odin's test runner stops a crashed test by freezing its thread: a lock that test held (a mutex shared between
 // tests, the heap) stays held, every test that waits for it waits forever, and the runner never ends. So a test
 // binary never runs bare: uni builds it (-build-mode:test, TEST_RUN_FLAGS) and runs it under a watchdog that kills
-// it CRASH_GRACE after a crash or at its timeout, and names the test that crashed and the tests still running.
+// it CRASH_GRACE after a crash or at TEST_HANG_TIMEOUT, and names the test that crashed and the tests still running.
 package cli
 
 import "core:fmt"
@@ -16,6 +16,10 @@ TEST_RUN_FLAGS :: []string{"-build-mode:test", "-define:ODIN_TEST_LOG_STATE_CHAN
 
 // How long a test binary may run on after a test crashed: the other tests normally end within it.
 CRASH_GRACE :: 3 * time.Second
+
+// Kills a hung run: a test binary still running this long after it started has hung (a deadlock, a wait that never
+// ends). Hang protection, not a speed target: far above any suite's run on the slowest CI runner, `--long` included.
+TEST_HANG_TIMEOUT :: 5 * time.Minute
 
 // What the runner's output says about the tests.
 Test_Watch :: struct {
@@ -92,9 +96,9 @@ Test_Run :: struct {
 // Runs test binaries to the end, all at once, each under the watchdog, its output kept whole in <exe>.log. A passing
 // run prints only the runners' warnings (a leak, a test's log.warn: test_output_warnings) and one last line,
 // "Finished N tests" (with several binaries, their tests added up); a failing binary prints its whole output (state
-// changes aside), and --verbose echoes every binary's as it comes. A binary killed after a crash or at the timeout
-// also says which tests crashed and which were still running.
-run_test_binaries :: proc(exes: []string, timeout: time.Duration) -> bool {
+// changes aside), and --verbose echoes every binary's as it comes. A binary killed after a crash or at
+// TEST_HANG_TIMEOUT also says which tests crashed and which were still running.
+run_test_binaries :: proc(exes: []string) -> bool {
 	runs := make([]Test_Run, len(exes))
 	start := time.tick_now()
 	for exe, i in exes {
@@ -137,8 +141,8 @@ run_test_binaries :: proc(exes: []string, timeout: time.Duration) -> bool {
 			running += 1
 			if crashed_at, ok := run.crash_at.?; ok && time.tick_since(crashed_at) > CRASH_GRACE {
 				run.killed = aprintf("it did not end within %.0fs of the crash", time.duration_seconds(CRASH_GRACE))
-			} else if timeout > 0 && time.tick_since(start) > timeout {
-				run.killed = aprintf("it ran past its timeout, %.0fs", time.duration_seconds(timeout))
+			} else if time.tick_since(start) > TEST_HANG_TIMEOUT {
+				run.killed = aprintf("it hung: still running after %.0fs", time.duration_seconds(TEST_HANG_TIMEOUT))
 			}
 			if run.killed != "" {
 				_ = os.process_kill(run.process)
@@ -335,25 +339,4 @@ test_output_warnings :: proc(output: string) -> []string {
 		append(&out, line)
 	}
 	return out[:]
-}
-
-// A suite's budget for a warm run (`--long`: its long budget).
-suite_budget :: proc(suite: ^Suite, opts: Test_Options) -> f64 {
-	return opts.long && suite.long_budget > 0 ? suite.long_budget : suite.budget
-}
-
-// What CI allows a suite (ci_allowance): CI_BUDGET_SCALE times its budget (`--long`: its long budget), or its CI
-// budget when that is more.
-suite_ci_budget :: proc(suite: ^Suite, opts: Test_Options) -> f64 {
-	return ci_allowance(suite_budget(suite, opts), suite.ci_budget)
-}
-
-// What CI allows the named suite (suite_ci_budget), anywhere: a test binary still running then has hung.
-suite_timeout :: proc(name: string, opts: Test_Options) -> time.Duration {
-	for &suite in state.suites {
-		if suite.name == name {
-			return time.Duration(suite_ci_budget(&suite, opts) * f64(time.Second))
-		}
-	}
-	return 0
 }

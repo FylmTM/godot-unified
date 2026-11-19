@@ -61,7 +61,7 @@ core works inside.
   is the game, and Godot only views it.
 - **Code-first, not editor-first.** Levels and content come from code and scripts, everything runs from the CLI,
   and dev tools live inside the game.
-- **Fast loops.** Builds, tests and tools are held to time budgets. Co-op is tested headless, many clients per
+- **Fast loops.** Builds, tests and tools are fast, and each says how long it took. Co-op is tested headless, many clients per
   process, without making a build.
 - **Agent-friendly.** One CLI with self-describing commands, deterministic tests and parallel worktrees: AI agents
   can do most of the work safely.

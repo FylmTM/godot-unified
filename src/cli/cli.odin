@@ -15,19 +15,15 @@ import "core:slice"
 import "core:strings"
 import "core:time"
 
-// A command: `run` parses its own arguments with `parse` and returns its result. `budget` is the seconds a warm run
-// may take (0: none, and `no_budget` says why).
+// A command: `run` parses its own arguments with `parse` and returns its result.
 Command :: struct {
-	name:      string,
-	summary:   string,
-	budget:    f64,
-	ci_budget: f64, // what CI's 4-core runners allow it (0: CI_BUDGET_SCALE times `budget`; ci_allowance)
-	no_budget: string,
+	name:    string,
+	summary: string,
 	// The options struct of each form the command parses (`option_types`, `option_forms`; `parse` refuses another):
 	// `help`'s usage line and -h's option table are made from their fields (command_usage).
-	options:   []Form,
-	details:   proc() -> string, // more for -h (nil: nothing): what the summary has no room for
-	run:       proc(args: []string) -> Result,
+	options: []Form,
+	details: proc() -> string, // more for -h (nil: nothing): what the summary has no room for
+	run:     proc(args: []string) -> Result,
 }
 
 // One way to call a command: its options struct, after a subcommand word when the command has several (`board
@@ -95,18 +91,13 @@ configure :: proc(config: Project_Config) {
 // A test suite of `test` (README.md, Test suites): `run` reports whether it passed. A project's tools/ adds its own
 // with `add_suites` before `run`.
 Suite :: struct {
-	name:        string,
-	summary:     string,
-	budget:      f64,
-	long_budget: f64, // with `test --long` (0: `budget`)
-	// What CI's 4-core runners allow it (0: CI_BUDGET_SCALE times its budget; ci_allowance): for work that scales
-	// with the cores, which 3x doesn't cover.
-	ci_budget:   f64,
-	run:         proc(games: []Game, opts: Test_Options) -> bool,
+	name:    string,
+	summary: string,
+	run:     proc(games: []Game, opts: Test_Options) -> bool,
 	// Mostly waits (the real clock, timers): run with other suites, it runs beside them in a child process.
-	beside:      bool,
+	beside:  bool,
 	// With `beside`: makes current, before the others start, what it builds that they share (nil: nothing).
-	prepare:     proc(),
+	prepare: proc(),
 }
 
 // What `test` passes each suite it runs: the options of that run (a nested `test`, as `verify` runs it, has its own).
@@ -117,28 +108,16 @@ Test_Options :: struct {
 	game:  string, // the game `test` names ("": every game): the odin suite compiles that game's tests only
 }
 
-// What a command reports: one line on stdout, or with --json one object (command, ok, summary, seconds, cold and
-// `data`, marshalled after the command returns, so it must not point at the command's stack).
+// What a command reports: one line on stdout, or with --json one object (command, ok, summary, seconds and `data`,
+// marshalled after the command returns, so it must not point at the command's stack).
 Result :: struct {
-	ok:        bool,
-	summary:   string,
-	data:      any,
-	budget:    f64, // this run's budget when its arguments decide it (test: its suites'; 0: the command's)
-	ci_budget: f64, // with `budget`: this run's CI allowance (test: its suites'; 0: ci_allowance of `budget`)
-}
-
-// CI allows this many times a command's or a suite's budget (shared runners are slower and noisier), or its own
-// `ci_budget` when that is more: what CI's 4-core runners cost work that scales with the cores (ci_allowance).
-CI_BUDGET_SCALE :: 3
-
-// What CI allows work with this budget and CI budget: CI_BUDGET_SCALE times the budget, or the CI budget when that
-// is more (0: none).
-ci_allowance :: proc(budget: f64, ci_budget: f64 = 0) -> f64 {
-	return max(budget * CI_BUDGET_SCALE, ci_budget)
+	ok:      bool,
+	summary: string,
+	data:    any,
 }
 
 // The run's state, one per process (`state`): the project, its configuration and pins, the commands and suites
-// registered, the command running and what made the run cold.
+// registered and the command running.
 State :: struct {
 	project:  Project,
 	config:   Project_Config,
@@ -149,8 +128,6 @@ State :: struct {
 	json:     bool,
 	verbose:  bool, // --verbose (or VERBOSE_ENV, so a uni the CLI starts is verbose too): echo every command line
 	start:    time.Tick,
-	cold:     [dynamic]string, // what this run built or fetched first: such a run isn't held to its budget
-	beside:   bool, // started beside other work (BESIDE_ENV): not held to its budget, the run that started it is
 	env_keys: []string, // the variables .env set
 	suites:   [dynamic]Suite,
 	on_fatal: proc(), // undoes a command's half-done work when it fails (fatal); runs once
@@ -158,16 +135,6 @@ State :: struct {
 
 // Set by --verbose for the processes the CLI starts (another uni reads it).
 VERBOSE_ENV :: "UNIFIED_VERBOSE"
-
-// Set for a uni the CLI starts beside other work it started (a suite beside the others, the godot suite's games and
-// lanes): that run's time says how busy the machine was, not how fast it is, so it isn't held to its budget; the run
-// that started it is, against its own (beside_env).
-BESIDE_ENV :: "UNIFIED_BESIDE"
-
-// The environment of a uni started beside other work (BESIDE_ENV).
-beside_env :: proc() -> []string {
-	return env_with(aprintf("%s=1", BESIDE_ENV))
-}
 
 // Adds a project's own test suites (call before `run`).
 add_suites :: proc(suites: ..Suite) {
@@ -214,7 +181,6 @@ run :: proc(command_sets: ..[]Command) -> ! {
 	} else {
 		state.verbose = os.get_env(VERBOSE_ENV, context.temp_allocator) != ""
 	}
-	state.beside = os.get_env(BESIDE_ENV, context.temp_allocator) != ""
 	if len(argv) == 0 || argv[0] == "help" || argv[0] == "-h" || argv[0] == "--help" {
 		print_help()
 		os.exit(len(argv) == 0 ? 2 : 0)
@@ -241,13 +207,11 @@ find_command :: proc(name: string) -> ^Command {
 	return nil
 }
 
-// Prints `uni help`: every command with its usage (every option and form) and summary, then how budgets, the pinned
-// Odin and the per-user cache work. Shown for `help`, -h, --help and a bare `uni`.
+// Prints `uni help`: every command with its usage (every option and form) and summary, then how the pinned Odin and
+// the per-user cache work. Shown for `help`, -h, --help and a bare `uni`.
 print_help :: proc() {
 	fmt.println("uni: build, test, check and run the games of this project (src/cli/README.md)\n")
-	fmt.println(
-		"usage: uni <command> [options] [--json] [--verbose]   (uni <command> -h: its options, budget and details)\n",
-	)
+	fmt.println("usage: uni <command> [options] [--json] [--verbose]   (uni <command> -h: its options and details)\n")
 	fmt.println(
 		"Any command: --json prints the result as one JSON object; --verbose echoes every command line it runs.\n",
 	)
@@ -255,11 +219,7 @@ print_help :: proc() {
 		fmt.printf("  %s\n      %s\n", strings.trim_space(command_usage(command)), command.summary)
 	}
 	fmt.printf(
-		"\nBudgets: seconds for a warm run (CI allows %dx, or more where -h says so: what CI's 4-core runners cost work that scales with the cores); over budget is reported, not failed. A cold run (it built or fetched something first) is exempt, and so is work run beside other work (a suite beside the others, the godot suite's games): the run that started it is held to its budget instead.\n",
-		CI_BUDGET_SCALE,
-	)
-	fmt.printf(
-		"Odin: the release pins.cfg pins, downloaded once by the shims (./uni, uni.cmd) into the per-user cache and put first on PATH.\nThe per-user cache (%s), shared by every checkout: the shims' Odin, the pinned Godot, the unified-box3d zip; `clean --cache` clears what the CLI put there.\n",
+		"\nEvery command prints how long it took (stderr); `bench` times the simulation itself.\nOdin: the release pins.cfg pins, downloaded once by the shims (./uni, uni.cmd) into the per-user cache and put first on PATH.\nThe per-user cache (%s), shared by every checkout: the shims' Odin, the pinned Godot, the unified-box3d zip; `clean --cache` clears what the CLI put there.\n",
 		USER_CACHE,
 	)
 }
@@ -267,20 +227,6 @@ print_help :: proc() {
 // The per-user cache (cache.odin, user_cache), as `help` names it.
 @(private)
 USER_CACHE :: "%LOCALAPPDATA%\\unified" when ODIN_OS == .Windows else "${XDG_CACHE_HOME:-~/.cache}/unified"
-
-// A command's budget line for its -h: the seconds a warm run may take and the CI allowance, or why it has none.
-budget_text :: proc(command: Command) -> string {
-	if command.budget > 0 && command.ci_budget > command.budget * CI_BUDGET_SCALE {
-		return aprintf(
-			"budget: %.0fs for a warm run (%.0fs in CI: its 4-core runners)",
-			command.budget,
-			command.ci_budget,
-		)
-	} else if command.budget > 0 {
-		return aprintf("budget: %.0fs for a warm run (%dx in CI)", command.budget, CI_BUDGET_SCALE)
-	}
-	return aprintf("budget: none (%s)", command.no_budget)
-}
 
 // Parses a command's arguments into `opts` (core:flags, Unix style: --name value, --name=value, positionals, and
 // everything after -- into an `overflow` field). -h prints the command's help and exits; a bad argument exits 2.
@@ -305,17 +251,11 @@ parse :: proc(opts: ^$Options, args: []string) {
 	}
 }
 
-// A command's -h: its usage line (every form), summary and budget, each option of its `options` with what it does,
+// A command's -h: its usage line (every form) and summary, each option of its `options` with what it does,
 // and its details.
 command_help :: proc(command: Command) -> string {
 	builder := strings.builder_make()
-	fmt.sbprintf(
-		&builder,
-		"usage: uni %s\n%s\n%s\n",
-		strings.trim_space(command_usage(command)),
-		command.summary,
-		budget_text(command),
-	)
+	fmt.sbprintf(&builder, "usage: uni %s\n%s\n", strings.trim_space(command_usage(command)), command.summary)
 	Row :: struct {
 		label, text: string,
 	}
@@ -455,24 +395,20 @@ usage :: proc(format: string, args: ..any) -> ! {
 	os.exit(2)
 }
 
-// Ends the run: the result on stdout, the time against the budget on stderr, the exit code.
+// Ends the run: the result on stdout, how long it took on stderr, the exit code.
 @(private)
 finish :: proc(result: Result) -> ! {
 	secs := time.duration_seconds(time.tick_since(state.start))
-	if result.budget > 0 {
-		report_timing(secs, result.ok, result.budget, result.ci_budget)
-	} else {
-		report_timing(secs, result.ok, state.command.budget, state.command.ci_budget)
-	}
+	what := strings.join(state.argv, " ", context.temp_allocator)
+	log("uni: %s %s in %.1fs", what, result.ok ? "done" : "FAILED", secs)
 	if state.json {
 		Out :: struct {
 			command: string,
 			ok:      bool,
 			summary: string,
 			seconds: f64,
-			cold:    []string,
 		}
-		head, err := json.marshal(Out{state.command.name, result.ok, result.summary, round2(secs), state.cold[:]})
+		head, err := json.marshal(Out{state.command.name, result.ok, result.summary, round2(secs)})
 		data := transmute([]byte)string("null")
 		if err == nil && result.data != nil {
 			data, err = json.marshal(result.data)
@@ -481,7 +417,7 @@ finish :: proc(result: Result) -> ! {
 			log("uni: cannot encode the result as JSON: %v", err)
 			os.exit(1)
 		}
-		// {"command":...,"cold":[...],"data":<the command's data>}
+		// {"command":...,"seconds":...,"data":<the command's data>}
 		fmt.printf("%s,\"data\":%s}\n", string(head[:len(head) - 1]), string(data))
 	} else if result.summary != "" {
 		fmt.println(result.summary)
@@ -504,47 +440,9 @@ fatal :: proc(format: string, args: ..any) -> ! {
 	finish({ok = false, summary = msg})
 }
 
-// Marks the run cold: it built or fetched `what` first, so it isn't held to its budget.
-cold :: proc(what: string) {
-	append(&state.cold, strings.clone(what))
-}
-
-// Whether this runs in CI (CI=true): work is held to its CI allowance there (ci_allowance), and the view index is checked by
-// the godot suite instead of rewritten.
+// Whether this runs in CI (CI=true): the view index is checked by the godot suite instead of rewritten.
 in_ci :: proc() -> bool {
 	return os.get_env("CI", context.temp_allocator) == "true"
-}
-
-@(private)
-report_timing :: proc(secs: f64, ok: bool, budget: f64, ci_budget: f64) {
-	note := ""
-	if budget > 0 {
-		allowed := in_ci() ? ci_allowance(budget, ci_budget) : budget
-		if len(state.cold) > 0 {
-			note = aprintf(
-				" (budget %.0fs; cold run, not held to it: %s)",
-				allowed,
-				strings.join(state.cold[:], ", ", context.temp_allocator),
-			)
-		} else if state.beside {
-			note = aprintf(
-				" (budget %.0fs; ran beside other work, not held to it: the run that started it is)",
-				allowed,
-			)
-		} else if secs > allowed {
-			note = aprintf(" (budget %.0fs)", allowed)
-			log(
-				"uni: OVER BUDGET: %s took %.1fs, budget %.0fs: find out why (AGENTS.md, Non-negotiables)",
-				strings.join(state.argv, " ", context.temp_allocator),
-				secs,
-				allowed,
-			)
-		} else {
-			note = aprintf(" (budget %.0fs)", allowed)
-		}
-	}
-	what := strings.join(state.argv, " ", context.temp_allocator)
-	log("uni: %s %s in %.1fs%s", what, ok ? "done" : "FAILED", secs, note)
 }
 
 // Rounds seconds to two decimals for the reports (--json, the suites' results).

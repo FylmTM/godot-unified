@@ -1,5 +1,5 @@
 // Dependencies the CLI fetches or builds, pinned in pins.cfg (README.md, Dependencies). Each `ensure_*` is a stamp
-// check when nothing changed (no process started), else it does the work and marks the run cold.
+// check when nothing changed (no process started), else it does the work.
 package cli
 
 import "core:os"
@@ -159,10 +159,7 @@ ensure_box3d :: proc(build := false) {
 		"downloads",
 		aprintf("%s-%s.zip", name[:len(name) - len(".zip")], sha256[:min(12, len(sha256))]),
 	)
-	if have, _ := sha256_file(zip); have == sha256 {
-		cold("unified-box3d unpack (the download cached)")
-	} else {
-		cold("unified-box3d download")
+	if have, _ := sha256_file(zip); have != sha256 {
 		download(aprintf("https://github.com/%s/releases/download/%s/%s", repo, tag, name), zip, sha256, name)
 	}
 	remove_tree(dir)
@@ -328,7 +325,6 @@ ensure_odinfmt :: proc() -> string {
 	if os.is_file(exe) && stamp_ok(stamp, key) {
 		return exe
 	}
-	cold("odinfmt build")
 	src := join(dir, "ols-src")
 	git_checkout(src, pin("odinfmt", "url"), commit)
 	must_run({

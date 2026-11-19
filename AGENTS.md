@@ -22,8 +22,8 @@ games in `games/` prove it.
 ## Non-negotiables
 
 - **Fast.** Everything we build, run and ship must be fast: builds, tests, checks, tooling, runtime. We left Unity
-  for speed and efficiency. Main subsystems have benchmarks. A step that is slower than its budget (`uni <command> -h`;
-  an over-budget run says so) is a bug: find out why and fix it.
+  for speed and efficiency. Main subsystems have benchmarks. Every `uni` command prints how long it took, and
+  `uni bench` the sim's step and re-sim times; a slowdown in either is a bug: find out why and fix it.
 - **Correct, proven by tests at every layer.** Each module, including every third-party dependency we rely on (the
   Box3D library and its bindings first), has independent tests covering everything we use: determinism, save/restore,
   rollback, replays. Upgrading a dependency must be safe because the tests say so.
@@ -44,12 +44,12 @@ games in `games/` prove it.
 
 ## Workflow
 
-- Iterate locally first. CI is the final check, and the cross-check of every reference run:
-  Linux x64, Linux arm64 and Windows x64 on every PR, all four on every push to `main` (macOS ARM64 again nightly
-  when `main` moved; the top of `.github/workflows/ci.yml`). `gh workflow run ci.yml --ref <branch>` runs all but
-  macOS on a branch (its runners are often out of capacity); add `-f macos=true` for sim changes and dependency
-  upgrades. macOS never blocks a merge: a PR merges when the other platforms are green, the run on `main` after the
-  merge (all four) is the macOS check, and a red macOS on `main` is fixed before anything else merges.
+- Iterate locally first. CI is the final check, and the cross-check of every reference run (the top of
+  `.github/workflows/ci.yml`): a PR's own run (Linux x64, Linux arm64, Windows x64, godot) is the check before
+  merging, and every push to `main` runs all four platforms, macOS ARM64 included (again nightly when `main` moved).
+  Don't dispatch extra runs as routine: `gh workflow run ci.yml --ref <branch>` is only for re-checking something on
+  demand. macOS never blocks a merge (its runners are often out of capacity): the run on `main` after the merge is
+  the macOS check, and a red macOS on `main` is fixed before anything else merges.
 - CI must stay fast. Every platform runs `uni bench` (each game's standard benchmark; reported, not gated).
 - Commit messages end with the co-author line. Docs stay lean: fold what we learn into the right doc, delete what
   stops being true. History lives in git.
@@ -92,8 +92,7 @@ piece of work. The `board-work` skill has the statuses, the procedure and when a
 ## Commands
 
 Everything runs through `./uni` (`uni.cmd` on Windows), from the repo root, on any OS; `./uni help` lists every
-command and `-h` on a command its options and budget. Every command rejects unknown arguments. Before handing work
-back:
+command and `-h` on a command its options. Every command rejects unknown arguments. Before handing work back:
 
 ```
 ./uni fmt                      # odinfmt (pinned; a hook formats each .odin file Claude edits)

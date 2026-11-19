@@ -322,7 +322,6 @@ ensure_templates :: proc() {
 	if len(need) == 0 {
 		return
 	}
-	cli.cold("export templates")
 	url := cli.aprintf(
 		"https://github.com/godotengine/godot/releases/download/%s-stable/Godot_v%s-stable_export_templates.tpz",
 		version,

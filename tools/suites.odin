@@ -14,8 +14,6 @@ private_suites :: proc() -> []cli.Suite {
 			{
 				name = "net",
 				summary = "the toy's relay and 3 clients over real UDP on the real clock (5 s; --long: 15 s)",
-				budget = 10,
-				long_budget = 25,
 				run = suite_net,
 				beside = true,
 				prepare = proc() {cli.build_headless(.release)}, 	// .out/release/: the godot suite's binaries are there too
@@ -23,7 +21,6 @@ private_suites :: proc() -> []cli.Suite {
 			{
 				name = "godot-bindings",
 				summary = "tests/godot and tests/godot_views (views, the level marker order, the session lifecycle) under headless Godot",
-				budget = 5,
 				run = suite_godot_bindings,
 				beside = true,
 				prepare = proc() {
