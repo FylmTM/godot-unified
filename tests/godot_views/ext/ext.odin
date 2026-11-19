@@ -182,7 +182,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 	view_scale = VIEW_SCALE,
 	event_key = event_key,
 	input_values = Input_Values,
-	view_data = #partial{.Typed2D = Typed2D_Data, .Card = Card_Data}, // every kind with data, as Glue.data's
+	view_data = #partial{.Typed2D = Typed2D_Data, .Card = Card_Data, .Remote3D = Remote3D_Data}, // every kind with data, as Glue.data's
 	view_policy = #partial {
 		.Scripted3D = {appear = .Verified, pose = .Script},
 		.Remote3D = {remote = .Verified},
