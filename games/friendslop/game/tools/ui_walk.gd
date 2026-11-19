@@ -191,6 +191,9 @@ func _walk_pause_menu() -> void:
 		"the session opens to friends")
 	if failed():
 		return
+	# the menu had paused it; opening to friends ends the pause (a remote link), and the next tick comes
+	await wait_for(func() -> bool: return session.tick > tick1, 2.0, "the session goes on after opening")
+	expect(not session.paused, "opening to friends ends the single-player pause")
 	expect(session.tick > tick1 and session.status == UnifiedSession.STATUS_CONNECTED, "the session went on")
 	expect(game.mode == game.Mode.HOST_LAN, "the flow follows: hosting on LAN")
 	await press_action(&"menu")
