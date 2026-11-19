@@ -36,6 +36,7 @@ Frame :: godot.Frame(g.Game, View, MultiView)
 Ship_View :: struct {
 	boost_ready: f32, // 0 just boosted .. 1 ready
 	thrust:      bool,
+	local:       bool, // one of this machine's players (godot.is_local): no name tag, louder sounds
 }
 
 Station_View :: struct {
@@ -51,12 +52,12 @@ Gate_View :: struct {
 
 // Station hits go to the station's view (they have no subject); the rest by their subject: a player's events to
 // their ship (keyed by their player key), a rock's to its shooter's ship (no scene view has a rock's key).
-event_key :: proc(event: g.Event, _: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
+event_key :: proc(event: g.Event, _: godot.Subject) -> godot.Event_Target(View) {
 	#partial switch _ in event {
 	case g.Event_Station_Hit:
-		return .Station, 0, .View
+		return godot.to_view(View.Station)
 	}
-	return
+	return {}
 }
 
 // ---- the frame (session thread): everything in metres (the host maps positions to pixels: Glue.view_scale)
@@ -77,7 +78,11 @@ fill_frame :: proc(f: ^Frame) {
 			pos  = sim.position_2d(physics.body_position_2d(f.world.phys, ship.body)),
 			rot  = physics.quat_2d(physics.body_rotation_2d(f.world.phys, ship.body)),
 			warp = physics.body_warp(f.world.phys, ship.body),
-		}, Ship_View{boost_ready = sim.timer_fraction(f.time, ship.boost_cooldown), thrust = ship.thrust})
+		}, Ship_View {
+			boost_ready = sim.timer_fraction(f.time, ship.boost_cooldown),
+			thrust      = ship.thrust,
+			local       = godot.is_local(f, player),
+		})
 	}
 	godot.push_view(f, {
 		kind = .Station,

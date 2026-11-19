@@ -11,7 +11,8 @@
 //   - the engine singleton `Unified` (class and singleton, like Godot's Input): `Unified.data`, `Unified.constants`,
 //     `Unified.input`, `Unified.session`, `Unified.tick_hz`, `Unified.view_scale` and `Unified.level_markers(root)`;
 //   - a class per enum type the event, command, data, constants and input types use (`Phase` -> EnumPhase) with its
-//     members as integer constants (EnumPhase.LOBBY) and a static `name(value)`.
+//     members as integer constants (EnumPhase.LOBBY) and static `name(value)` and `names()`; the View, MultiView and
+//     level enums are EnumView, EnumMultiView and EnumLevel whatever the game named them.
 #+private
 package godot
 
@@ -215,8 +216,12 @@ register_data_classes :: proc() {
 		// the view kinds: EnumView and EnumMultiView whatever the game named its enums (get_view and the scene's kind)
 		register_enum_class(api.view_enum, "EnumView")
 		register_enum_class(api.multi_enum, "EnumMultiView")
+		// the State's level enum: EnumLevel whatever the game named it (UnifiedSession.level and its signals)
+		if api.level_enum != nil do register_enum_class(api.level_enum, "EnumLevel")
 		for type in api.enum_types {
-			if type.id != api.view_enum.id && type.id != api.multi_enum.id do register_enum_class(type)
+			if type.id == api.view_enum.id || type.id == api.multi_enum.id do continue
+			if api.level_enum != nil && type.id == api.level_enum.id do continue
+			register_enum_class(type)
 		}
 		for layout in api.data do append(&D.data, register_data_class(layout, .Data))
 	}
@@ -541,6 +546,30 @@ register_enum_class :: proc(type: ^runtime.Type_Info, class_name := "") {
 			}
 			return gd.to_variant(fmt.tprintf("%d", value))
 		}, enum_class, {{"value", .INT, ""}}, gd.Dynamic_Arg{"", .STRING, ""}, static = true, doc = "The member's name, lowercased (its value as text for none).")
+	gd.bind_dynamic_method(
+		&enum_class.class,
+		"names",
+		proc(user: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
+			enum_class := (^Enum_Class)(user)
+			values := enum_class.info.values
+			order := make([]int, len(values), context.temp_allocator)
+			for &k, i in order do k = i
+			for i in 1 ..< len(order) { 	// value order (insertion sort: an enum is short)
+				for j := i; j > 0 && values[order[j]] < values[order[j - 1]]; j -= 1 {
+					order[j], order[j - 1] = order[j - 1], order[j]
+				}
+			}
+			names := gd.array_new()
+			gd.array_set_typed(&names, .STRING)
+			for k in order do gd.array_push(&names, strings.to_lower(enum_class.info.names[k], context.temp_allocator))
+			return array_variant(&names)
+		},
+		enum_class,
+		{},
+		gd.Dynamic_Arg{"", .ARRAY, "String"},
+		static = true,
+		doc = "Every member's name, lowercased, in value order (as [method name] gives them): a menu's options.",
+	)
 	append(&D.enums, enum_class)
 }
 

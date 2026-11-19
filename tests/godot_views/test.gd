@@ -278,29 +278,31 @@ func check_debug_draws(session: UnifiedSession) -> void:
 	check("hidden again: none", session.debug_draw_count == 0, session.debug_draw_count)
 
 
-# The level host (src/godot/README.md, Levels): the toy's first level is under level_root, and a travel command swaps
+# The level host (src/godot/README.md, Levels): EnumLevel, the toy's first level is under level_root, and a travel command swaps
 # in the other one once it is verified: the old instance freed, the signals in order, the markers the new level's.
 func check_levels(session: UnifiedSession, level_root: Node2D, level_signals: Array[String]) -> void:
+	# the State's level enum is EnumLevel whatever the game named it; names() lists its members in value order
+	check("EnumLevel.names()", EnumLevel.names() == ["meadow", "cave"], EnumLevel.names())
 	for i in 50:
-		if session.level == EnumArea.MEADOW:
+		if session.level == EnumLevel.MEADOW:
 			break
 		await create_timer(0.02).timeout
 	var meadow := session.level_scene
-	check("the first level's scene is under level_root", session.level == EnumArea.MEADOW and meadow != null 		and meadow.name == "Meadow" and meadow.get_parent() == level_root, [session.level, meadow])
+	check("the first level's scene is under level_root", session.level == EnumLevel.MEADOW and meadow != null 		and meadow.name == "Meadow" and meadow.get_parent() == level_root, [session.level, meadow])
 	check("level_changing, then level_changed", level_signals == ["changing 0", "changed 0"], level_signals)
 	var well := session.level_marker(0)
 	check("level_marker: the shown level's", well != null and well.name == "Well" and session.level_marker(1) == null,
 		well)
 	var travel := CommandTravel.new()
-	travel.to = EnumArea.CAVE
+	travel.to = EnumLevel.CAVE
 	check("send_command Travel", session.send_command(travel))
 	for i in 100:
-		if session.level == EnumArea.CAVE:
+		if session.level == EnumLevel.CAVE:
 			break
 		await create_timer(0.02).timeout
 	await process_frame
 	var cave := session.level_scene
-	check("the verified level's scene replaces the old one", session.level == EnumArea.CAVE and cave != null 		and cave.name == "Cave" and cave.get_parent() == level_root and not is_instance_valid(meadow) 		and level_root.get_child_count() == 1, [session.level, cave, level_root.get_child_count()])
+	check("the verified level's scene replaces the old one", session.level == EnumLevel.CAVE and cave != null 		and cave.name == "Cave" and cave.get_parent() == level_root and not is_instance_valid(meadow) 		and level_root.get_child_count() == 1, [session.level, cave, level_root.get_child_count()])
 	check("the signals of the change", level_signals == ["changing 0", "changed 0", "changing 1", "changed 1"],
 		level_signals)
 	var gem := session.level_marker(1)
@@ -314,13 +316,13 @@ func check_dropped_load(session: UnifiedSession) -> void:
 	var drop_root := func(_to: int) -> void: (func() -> void: session.level_root = null).call_deferred()
 	session.level_changing.connect(drop_root, CONNECT_ONE_SHOT)  # after this step, which requested the load
 	var travel := CommandTravel.new()
-	travel.to = EnumArea.MEADOW
+	travel.to = EnumLevel.MEADOW
 	check("send_command Travel back", session.send_command(travel))
 	for i in 100:
-		if session.level == EnumArea.MEADOW:
+		if session.level == EnumLevel.MEADOW:
 			break
 		await create_timer(0.02).timeout
-	check("without a level_root the level changes all the same", session.level == EnumArea.MEADOW \
+	check("without a level_root the level changes all the same", session.level == EnumLevel.MEADOW \
 		and session.level_scene == null, [session.level, session.level_scene])
 
 

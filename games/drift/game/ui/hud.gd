@@ -1,8 +1,9 @@
 extends CanvasLayer
 ## The in-game HUD (hud.tscn): the phase and wave, the match time, the station's HP bar, the score; the lobby's start
 ## prompt (Enter or the Start button: the `start` command) and the restart prompt when the match is over
-## (`restart`); banners for waves and the match's start and end; the session panel (code + players) and the
-## controls list. It follows the HUD data (`changed`), the roster and the input device.
+## (`restart`); banners for waves and the match's start and end, and for a pad's player the session refused; the
+## session panel (code + players) and the controls list. It follows the HUD data (`changed`), the roster and the input
+## device.
 
 ## Directions that make one control in the controls list (ControlsPanel.refresh).
 const MOVE: Array[StringName] = [&"move_up", &"move_left", &"move_down", &"move_right"]
@@ -35,6 +36,7 @@ func _ready() -> void:
 	Unified.session.sim_event.connect(_on_sim_event)
 	Game.input_device_changed.connect(_on_input_device_changed)
 	Unified.session.join_code_changed.connect(_refresh_players.unbind(1))
+	Unified.session.local_player_refused.connect(_on_local_player_refused)
 	get_viewport().size_changed.connect(_refresh_controls)  # the controls list keeps to the bottom-right corner
 	_on_hud_changed()
 
@@ -127,6 +129,10 @@ func _refresh_controls() -> void:
 
 
 ## Banners and the best time, once an event's tick is confirmed.
+func _on_local_player_refused(_local: int, reason: String) -> void:
+	_banner.show_message("Can't join: %s" % reason, UiTheme.TEXT, 2.5)
+
+
 func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return

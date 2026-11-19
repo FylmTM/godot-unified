@@ -692,3 +692,40 @@ pose_memory_grows :: proc(t: ^testing.T) {
 		if tick == 2 do testing.expect(t, found_all, "every key finds its tick - 1 pose after growing")
 	}
 }
+
+// is_local: one of this client's local players at the frame's tick, whatever its local index; nobody and a remote
+// player are not.
+@(test)
+is_local_names_this_clients_players :: proc(t: ^testing.T) {
+	frame: godot.Frame(toy.Game, View, MultiView)
+	couch := sim.Player {
+		index = 3,
+		id    = 7,
+	}
+	remote := sim.Player {
+		index = 1,
+		id    = 2,
+	}
+	frame.local_players[2] = couch // local 0 and 1 not in (yet)
+	testing.expect(t, godot.is_local(&frame, couch))
+	testing.expect(t, !godot.is_local(&frame, remote))
+	testing.expect(t, !godot.is_local(&frame, {}))
+}
+
+// Glue.event_key names a view as push_view keys it: a player's by their key, a fixed thing's by its index (an
+// Entity is index + 1), the one view of a kind by 0.
+@(test)
+to_view_keys_as_push_view_does :: proc(t: ^testing.T) {
+	player := sim.Player {
+		index = 1,
+		id    = 4,
+	}
+	testing.expect_value(
+		t,
+		godot.to_view(View.Dot, player),
+		godot.Event_Target(View){.Dot, sim.player_key(player), .View},
+	)
+	testing.expect_value(t, godot.to_view(View.Dot, sim.entity(5)), godot.Event_Target(View){.Dot, 5, .View})
+	testing.expect_value(t, godot.to_view(View.Dot), godot.Event_Target(View){.Dot, 0, .View})
+	testing.expect_value(t, godot.to_view(View.Dot, sim.Entity(0)).route, godot.Event_Route.Subject) // none: by subject
+}

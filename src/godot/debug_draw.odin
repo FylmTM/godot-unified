@@ -80,7 +80,7 @@ when DEVUI {
 			color := color_of(shape.color)
 			for _ in before ..< len(lines) do append(&colors, color)
 		}
-		for &point in lines do point = to_view(point)
+		for &point in lines do point = to_view_units(point)
 		if draw_view.mode == .Node3D {
 			draw_3d(gd.cast_to(gd.Node3D, root), lines[:], colors[:], texts[:], frame.draw_text[:frame.n_draw_text])
 		} else {
@@ -285,7 +285,7 @@ when DEVUI {
 			text := texts[i]
 			gd.Label3D_set_text(label, string(text_bytes[text.text[1]:][:text.text[0]]))
 			gd.Label3D_set_modulate(label, color_of(text.color))
-			pos := to_view(text.a)
+			pos := to_view_units(text.a)
 			gd.Node3D_set_position(label, {pos.x, pos.y, pos.z})
 			gd.Node3D_set_visible(label, true)
 		}
@@ -319,7 +319,7 @@ when DEVUI {
 			gd.RenderingServer_canvas_item_add_multiline(rendering_server, draw_view.canvas, points, packed_colors)
 		}
 		for text in texts {
-			pos := to_view(text.a)
+			pos := to_view_units(text.a)
 			gd.Font_draw_string(
 				draw_view.font,
 				draw_view.canvas,

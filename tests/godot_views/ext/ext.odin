@@ -298,14 +298,14 @@ fill_frame :: proc(f: ^Frame) {
 // Expired to the plain2d view keyed 2 (by its subject, a thing, it would reach no view), Joined to none (by its
 // subject: the player's view), the rest by their subject (Spawned: the player's view, its thing having none: the
 // decoys have its key, not its type).
-event_key :: proc(event: toy.Event, subject: godot.Subject) -> (kind: View, key: u64, route: godot.Event_Route) {
+event_key :: proc(event: toy.Event, subject: godot.Subject) -> godot.Event_Target(View) {
 	#partial switch _ in event {
 	case toy.Event_Expired:
-		return .Plain2D, 2, .View
+		return godot.to_view(View.Plain2D, sim.entity(2))
 	case sim.Event_Player_Joined:
-		return {}, 0, .No_View
+		return {route = .No_View}
 	}
-	return
+	return {}
 }
 
 @(export, link_name = "views_test_init")

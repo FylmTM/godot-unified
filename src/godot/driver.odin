@@ -27,6 +27,7 @@ Api :: struct {
 	multi_names:     []string, // the MultiView enum's members, lowercased, by kind
 	view_enum:       ^runtime.Type_Info, // the View enum (the class EnumView)
 	multi_enum:      ^runtime.Type_Info, // the MultiView enum (the class EnumMultiView)
+	level_enum:      ^runtime.Type_Info, // the State's level enum (the class EnumLevel; nil: no level field)
 	is_2d:           bool, // a sim.Position is a Vector2 (Glue.is_2d)
 	view_scale:      f32, // view units per sim unit (Glue.view_scale; 1 when unset)
 	view_policy:     []Kind_Policy, // Glue.view_policy by kind, filled in
@@ -205,7 +206,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	local_seen:      [LOCAL_MAX]u64, // the request generation the session thread applied last
 	open_req:        Open_Request, // main thread -> session thread: open to friends, or close (guarded by local_mu)
 	open_seen:       u64,
-	opened:          Mode, // what a single-player session opened to (Single: not opened)
+	opened:          Mode, // what it hosts on: opened to from single player, or hosted from the start (Single: not)
 	open_code:       string, // the direct join code it opened with (opening again posts it again)
 	roster:          u32, // the client's roster_changes last copied for the main thread
 	account:         [2]string, // the host player's platform account (Lobby.account): platform, id
@@ -385,6 +386,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	when intrinsics.type_has_field(State, "level") {
 		when intrinsics.type_is_specialization_of(intrinsics.type_field_type(State, "level"), sim.Active_Level) {
 			api.level_offset = int(offset_of(State, level))
+			api.level_enum = type_info_of(intrinsics.type_field_type(intrinsics.type_field_type(State, "level"), "id"))
 		}
 	}
 	api.level_scenes = make([]string, len(game.levels))
@@ -439,8 +441,8 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	if glue.event_key != nil {
 		api.event_key = proc(event: ^sim.Raw_Event, subject: Subject) -> (u8, u64, Event_Route) {
 			event_value := sim.event_value(event, sim.part(G, sim.GAME_EVENT))
-			kind, key, route := (^This_Glue)(g_glue).event_key(event_value, subject)
-			return u8(kind), key, route
+			target := (^This_Glue)(g_glue).event_key(event_value, subject)
+			return u8(target.kind), target.key, target.route
 		}
 	}
 	api.sample_input = proc() {
@@ -878,7 +880,7 @@ driver_open_requests :: proc(driver: ^Driver($G, $View, $MultiView), now: i64) {
 		request = driver.open_req
 	}
 	host := driver.host
-	if host == nil || driver.req.mode != .Single do return
+	if host == nil do return // a joiner: nothing to open or close
 	switch {
 	case request.mode == .Single:
 		netcode.host_set_open(host, false)
@@ -939,6 +941,24 @@ post_mode :: proc(driver: ^Driver($G, $View, $MultiView), mode: Mode, detail: st
 	post(driver, message)
 }
 
+// Why the relay refused a local player's Join, for the game (local_player_refused).
+@(private)
+refused_reason :: proc(why: netcode.Reject_Reason) -> string {
+	#partial switch why {
+	case .Full:
+		return "the session is full"
+	case .Slot_Taken:
+		return "that slot is taken"
+	case .Closed:
+		return "the session takes no new players"
+	case .Incompatible:
+		return "the session runs another build"
+	case .Newer_Connection:
+		return "this player is in the session on a newer connection"
+	}
+	return fmt.tprint(why)
+}
+
 // A main thread request about a local player (UnifiedSession.add_local_player, remove_local_player).
 @(private)
 Local_Request :: struct {
@@ -983,6 +1003,16 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 	This_Driver :: Driver(G, View, MultiView)
 	hooks := netcode.Hooks(G) {
 		user = driver,
+		// A local player's Join refused: the main thread frees its index and tells the game (local_player_refused).
+		seat = proc(user: rawptr, local: int, seated: bool, why: netcode.Reject_Reason) {
+			if seated do return
+			message := Message {
+				kind  = .Local_Refused,
+				local = u8(local),
+			}
+			message.len = u8(copy(message.text[:], refused_reason(why)))
+			post((^This_Driver)(user), message)
+		},
 		sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^State) -> Input {
 			driver := (^This_Driver)(user)
 			if driver.req.scripted && driver.game.scripted_input != nil {
@@ -1336,7 +1366,10 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 			return false
 		}
 		driver.host = netcode.host_create(game, host_config, hooks)
-		post_text(driver, .Join_Code, direct_join_code(netcode.udp_bound_port(&link), request.local))
+		// Hosted from the start, opened as if from single player: closing and opening again work alike.
+		driver.opened = .Host_Direct
+		driver.open_code = strings.clone(direct_join_code(netcode.udp_bound_port(&link), request.local))
+		post_text(driver, .Join_Code, driver.open_code)
 		netcode.host_add_link(driver.host, wrap_link(driver, link))
 	case .Host_Online:
 		driver.online = true
@@ -1352,6 +1385,7 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 			}
 		}
 		driver.host = netcode.host_create(game, host_config, hooks)
+		driver.opened = .Host_Online
 		netcode.host_add_link(driver.host, wrap_link(driver, link))
 	case .Join_Direct:
 		endpoint, ok := cnet.parse_endpoint(request.arg)

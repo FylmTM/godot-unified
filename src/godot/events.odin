@@ -40,7 +40,7 @@ Units :: enum u8 {
 }
 
 // Sim units to view units (Glue.view_scale): where the host makes a Godot value from a point.
-to_view :: #force_inline proc "contextless" (point: [3]f32) -> [3]f32 {
+to_view_units :: #force_inline proc "contextless" (point: [3]f32) -> [3]f32 {
 	return point * api.view_scale
 }
 
@@ -146,7 +146,7 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, units: Units) -> gd
 	switch {
 	case type.id == sim.Position:
 		point := [3]f32{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2)}
-		if units == .Sim do point = to_view(point)
+		if units == .Sim do point = to_view_units(point)
 		if api.is_2d do return gd.to_variant(gd.Vector2{point.x, point.y})
 		return gd.to_variant(gd.Vector3{point.x, point.y, point.z})
 	case is_handle(type):
@@ -239,7 +239,7 @@ nested_variant :: proc(nested: ^Data_Class, bytes: []u8, units: Units) -> gd.Var
 	if units == .Sim {
 		for offset in nested.positions {
 			position := (^sim.Position)(&instance.bytes[offset])
-			position^ = sim.Position(to_view(([3]f32)(position^)))
+			position^ = sim.Position(to_view_units(([3]f32)(position^)))
 		}
 	}
 	// the Variant holds a reference and ours goes: the object lives as long as a script keeps it

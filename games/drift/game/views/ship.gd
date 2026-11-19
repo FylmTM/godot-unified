@@ -15,6 +15,7 @@ var boost_ready := 1.0:  ## 0 just boosted .. 1 ready
 			_ready_pulse = 1.0
 		boost_ready = v
 var thrust := false
+var local := false  ## one of this machine's players (godot.is_local)
 
 var _r: float  ## the sim's ship radius, in pixels
 var _color := Color.WHITE
@@ -53,7 +54,6 @@ func _process(delta: float) -> void:
 	_ready_pulse = maxf(_ready_pulse - delta * 3.0, 0.0)
 	_leaving = move_toward(_leaving, 1.0 if _gone else 0.0, delta * 4.0)
 	_follow_slot()
-	var local := Unified.session.get_local_index(view.player) >= 0  # one of this machine's players
 	_tag.visible = not local and _leaving < 0.5
 	if _tag.visible:
 		var tag := Unified.session.get_player_name(view.player)  # the synced name, else "P<slot + 1>"
@@ -115,7 +115,6 @@ func _sim_revived() -> void:
 ## Effects play once, when an event is first shown (predicted, or confirmed when nothing predicted it). A cancelled
 ## shot is undone (its flash and sound: by its event id); the other effects are short and left as they played.
 func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
-	var local := Unified.session.get_local_index(view.player) >= 0  # one of this machine's players
 	if event is EventFired:  # predicted (a remote ship's trigger): a rollback may cancel it; undo the flash and sound
 		match state:
 			UnifiedSession.EVENT_EMITTED:

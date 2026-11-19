@@ -36,7 +36,10 @@ keeps no action state per device, so for a device the session follows the events
 for (`_input`: a joypad's events for the players on that pad, the keyboard's and mouse's for the players on it; a press
 latches; losing the focus releases the keyboard players' actions). Each local player is its own member of the session
 (`src/netcode/README.md`, Local players): `UnifiedSession.add_local_player` joins one to the running session, its
-commands name it (`send_command(command, local)`), and `Frame.local_players` / `local_players` say who they are.
+commands name it (`send_command(command, local)`), its input values are `Unified.local_input(local)`
+(`Unified.input` is local player 0's), and `Frame.local_players` (by local index, `{}` where none is in) and
+`UnifiedSession.local_players` (the keys of those in, compacted; by index: `get_local_player_key(local)`) say who
+they are; `local_players_changed` says when that changes, and `local_player_refused` when the session refuses one.
 
 **Setup and Profile** (`src/sim/README.md`, Setup and Profile) are GDScript classes built from the game's types, as a
 command's: a host passes a `UnifiedSetup` to `start_single`, `host_online` or `host_direct` (none: the game's default),
@@ -46,11 +49,13 @@ joins with. A game's saved progress is its own file, which the host turns into t
 **Open to friends.** A running single-player session becomes a hosted one (`UnifiedSession.open_online`,
 `open_direct`): the session thread opens the lobby or the socket and adds it to the running host
 (`src/netcode/README.md`, Relay: open and closed), and `mode` and `join_code` change (`mode_changed`). `close_online`
-lets nobody new in; the players in stay. A lobby that fails after opening closes again and the session plays on as
+lets nobody new into any hosted session, opened to friends or hosted from the start; the players in stay, and opening
+again the same way shows the code again. A lobby that fails after opening closes again and the session plays on as
 single player: only a session hosted from the start ends with its lobby.
 
 **Input values** are what only scripts know (a camera rig's look direction): the plain struct `Glue.input_values`
-names, whose fields scripts set on `Unified.input` and `sample_input` reads (`input_values`). The session samples at
+names, whose fields scripts set on `Unified.input` (local player 0's; another's `Unified.local_input(local)`) and
+`sample_input` reads (`input_values`). The session samples at
 process priority −1000, before any other node's `_process`, and emits `UnifiedSession.input_wanted` just before: a
 script sets its values there, whatever its node's priority, and this frame's sample takes them. Set in `_process`,
 they reach the next frame's sample.
@@ -156,19 +161,23 @@ tree, or from a tool script. A game's app layer reacts to `status_changed` and `
 `uni coop` and the flags work in every game. Nothing about the session answers once it is over. A client's LAN token
 is kept under `user://`, one per running copy of the game (`token_claim`), so a restarted copy takes its token back.
 
-The game's `View` and `MultiView` enums are the classes `EnumView` and `EnumMultiView`, whatever the game named them.
+The game's `View` and `MultiView` enums and the State's level enum are the classes `EnumView`, `EnumMultiView` and
+`EnumLevel`, whatever the game named them; every enum class has `name(value)` and `names()` (a menu's options, in
+value order).
 A scene view's scene holds a **`UnifiedView`** marker as a direct child of its root, its kind set in the scene by the
 member's lowercased name (which stays right when the enum is reordered); the root's class decides how it is posed. A
 MultiMeshInstance3D / 2D holding a **`UnifiedMultiView`** marker shows one MultiView kind. Views and their data are
 set before any other node's `_process` (the session runs at priority −1000), so a view's own `_process` sees the
-frame's pose. A `view_root` that leaves the tree holds no views, so a play scene needs no teardown.
+frame's pose. A `view_root` that leaves the tree holds no views, so a play scene needs no teardown. Unset, it is
+the session's parent: right for a session placed in the play scene (the template's); a session an autoload owns sets
+`view_root = null` (no scene views) until its play scene hands over its root.
 
 ## Levels
 
 The active level is state (`src/sim/README.md`, Levels), so the host reads it rather than being told: `install`
-finds the State's `level` field (a `sim.Active_Level`) by type, and each Frame carries the level of its tick and of
-the newest verified tick. The level on screen (`UnifiedSession.level`) follows the **verified** one, so a
-mispredicted change never shows and a rollback across a change costs the view nothing:
+finds the State's `level` field (a `sim.Active_Level`, named so: `src/sim/README.md`, Levels), and each Frame
+carries the level of its tick and of the newest verified tick. The level on screen (`UnifiedSession.level`) follows
+the **verified** one, so a mispredicted change never shows and a rollback across a change costs the view nothing:
 
 - **The scene.** With `level_root` set, the host loads the verified level's scene on a thread (the `res://` path its
   `.level` file names, so no index or naming convention is needed), emitting `level_changing`; once it is loaded it

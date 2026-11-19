@@ -2,11 +2,15 @@
 # extension in ext/). Leave, then host or join at once, while the left session is still saying goodbye:
 # 1. join a silent UDP peer (the client lingers up to 2 s for its Leave's ack), leave, start single player at once:
 #    the start is accepted, waits for the goodbye (cut to 1 s) and connects.
-# 2. host on a LAN port, leave, host on the same port at once: the old socket is closed before the new one opens.
+# 2. host on a LAN port, leave, host on the same port at once: the old socket is closed before the new one opens; it
+#    closes to new players and opens again (close_online, open_direct).
 # 3. (after 2) leave, host at once, leave again before the old session is gone: the waiting start is dropped ("left").
 # 4. a session that ends on its own (its ticks ran out) stops answering from its last frame: no local player.
-# 5. a session's Setup (start_single(setup), session.setup, the default again) and a second local player.
+# 5. a session's Setup (start_single(setup), session.setup, the default again) and a second local player (and
+#    local_players_changed saying so).
 # 6. open to friends: a running single-player session hosts on a port and closes; a failed open leaves it running.
+# 7. a replay: a 40-tick session's recording (user://recordings) played back, and every control a replay viewer uses
+#    (speed, seek, step, loop, the player it follows, the checkpoints it agreed with).
 # Every run ends with UnifiedSession.quit while a sound plays: the quit stops it first, so no playback leaks at exit
 # (the suite fails on a leak).
 # (The LAN token's claim, each copy of a game a slot and a token of its own, is tested in tests/godot_driver.)
@@ -20,7 +24,7 @@ extends SceneTree
 var s: Node
 var failed := 0
 var idle_end := 0.0
-var sections: Array[int] = [1, 2, 3, 4, 5, 6]
+var sections: Array[int] = [1, 2, 3, 4, 5, 6, 7]
 var _statuses: Array[String] = []
 var _started := false
 var _port := 0  # the port section 2 hosted on (section 3 hosts there again)
@@ -73,6 +77,8 @@ func _run() -> void:
 				went_on = await _setup_and_locals()
 			6:
 				went_on = await _open_to_friends()
+			7:
+				went_on = await _replay()
 			_:
 				check("section %d exists" % section, false)
 				went_on = false
@@ -127,6 +133,13 @@ func _host_again_on_the_port() -> bool:
 	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.tick > 5, 5.0, "hosting again"):
 		return false
 	check("the port was free", not _statuses.has("failed:cannot listen on UDP port %d" % _port), _statuses)
+	# a session hosted from the start closes and opens again like one opened from single player
+	var code: String = s.join_code
+	check("close_online on a hosted session", s.close_online())
+	check("closing clears its join code", s.join_code == "", s.join_code)
+	check("open_direct again", s.open_direct(_port))
+	if not await _wait_for(func() -> bool: return s.join_code == code, 5.0, "the join code is back"):
+		return false
 	return true
 
 
@@ -168,17 +181,24 @@ func _setup_and_locals() -> bool:
 	if not await _wait_for(func() -> bool: return s.local_player != 0, 5.0, "the Setup's session runs"):
 		return false
 	check("session.setup is the session's", s.setup.life_bonus == 4, s.setup.life_bonus)
+	var changes: Array[int] = [0]
+	var count_change := func() -> void: changes[0] += 1
+	s.local_players_changed.connect(count_change)
 	var second: int = s.add_local_player(UnifiedSession.DEVICE_KEYBOARD, "Second")
 	check("add_local_player gives local 1", second == 1, second)
 	if not await _wait_for(func() -> bool: return s.local_players.size() == 2, 5.0, "the second local player joins"):
 		return false
+	check("local_players_changed said it joined", changes[0] >= 1, changes[0])
 	var second_player: int = s.get_local_player_key(1)
 	check("get_local_index names local 1", s.get_local_index(second_player) == 1, second_player)
 	check("its device is the keyboard", s.get_local_device(1) == UnifiedSession.DEVICE_KEYBOARD)
 	check("send_command from local 1", s.send_command(CommandBump.new(), 1))
 	check("remove_local_player(1)", s.remove_local_player(1))
+	var joined_changes: int = changes[0]
 	if not await _wait_for(func() -> bool: return s.local_players.size() == 1, 5.0, "the second local player leaves"):
 		return false
+	check("local_players_changed said it left", changes[0] > joined_changes, changes[0])
+	s.local_players_changed.disconnect(count_change)
 	s.leave()
 	if not await _wait_for(func() -> bool: return not s.running, 5.0, "the Setup's session ends"):
 		return false
@@ -221,6 +241,67 @@ func _open_to_friends() -> bool:
 	check("a failed open leaves it single player, running", s.mode == UnifiedSession.MODE_SINGLE and s.status == UnifiedSession.STATUS_CONNECTED and modes[0].begins_with("%d:" % UnifiedSession.MODE_SINGLE), modes)
 	s.leave()
 	return await _wait_for(func() -> bool: return not s.running, 5.0, "the session ends")
+
+
+# 7. a replay of a recording and its controls
+func _replay() -> bool:
+	s.ticks = 40
+	check("record a 40-tick single player", s.start_single())
+	if not await _wait_for(func() -> bool: return s.local_player != 0, 5.0, "the recorded session runs"):
+		return false
+	var recorder: int = s.local_player
+	if not await _wait_for(func() -> bool: return not s.running, 5.0, "the recorded session ends"):
+		return false
+	s.ticks = 0
+	await _sleep(0.2)  # a recording another process saves at once is whole by now
+	var folder := _newest_recording()
+	check("its recording was kept", folder != "", folder)
+	check("replay it", s.replay(folder))
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.replay_last_tick > 0, 5.0, "the replay runs"):
+		return false
+	check("its ticks", s.replay_first_tick < s.replay_last_tick and s.replay_last_tick >= 40, [s.replay_first_tick, s.replay_last_tick])
+	check("it follows whoever recorded it", s.replay_player == recorder and s.local_player == recorder, [s.replay_player, recorder])
+	s.replay_speed = 2.0
+	if not await _wait_for(func() -> bool: return s.replay_speed == 2.0, 2.0, "the speed is taken"):
+		return false
+	s.replay_speed = 100.0
+	if not await _wait_for(func() -> bool: return s.replay_speed == 4.0, 2.0, "the speed is clamped"):
+		return false
+	s.replay_seek(10)
+	s.replay_step(5)
+	if not await _wait_for(func() -> bool: return s.tick == 15 and s.paused, 2.0, "seek 10, step 5: paused on 15"):
+		return false
+	s.replay_step(-3)
+	if not await _wait_for(func() -> bool: return s.tick == 12, 2.0, "a step back"):
+		return false
+	s.replay_loop(20, 24)
+	s.paused = false
+	if not await _wait_for(func() -> bool: return s.tick >= 20 and s.tick <= 24, 3.0, "the loop plays its range"):
+		return false
+	await _sleep(0.3)  # at 4x, more than one round of the 5-tick loop
+	check("it stays in the loop", s.tick >= 20 and s.tick <= 24, s.tick)
+	s.replay_loop(0, 0)
+	if not await _wait_for(func() -> bool: return s.tick == s.replay_last_tick, 3.0, "the loop stopped: it plays to the end"):
+		return false
+	check("every checkpoint agreed", s.replay_diverged_tick == 0 and s.replay_agreed_tick > 0, [s.replay_agreed_tick, s.replay_diverged_tick])
+	s.replay_player = 0
+	if not await _wait_for(func() -> bool: return s.replay_player == 0, 2.0, "the followed player is set"):
+		return false
+	s.leave()
+	return await _wait_for(func() -> bool: return not s.running, 5.0, "the replay ends")
+
+
+# The newest whole recording folder under user://recordings ("" for none): its session.json is written last, and
+# another run of this check (another process, the same user folder) may be writing one beside it.
+func _newest_recording() -> String:
+	var root := OS.get_user_data_dir() + "/recordings"
+	var sorted := Array(DirAccess.get_directories_at(root))
+	sorted.sort()  # the local time sorts by name
+	sorted.reverse()
+	for name: String in sorted:
+		if FileAccess.file_exists(root + "/" + name + "/session.json"):
+			return root + "/" + name
+	return ""
 
 
 func _sleep(sec: float) -> void:

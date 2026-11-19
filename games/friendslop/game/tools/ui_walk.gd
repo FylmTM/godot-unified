@@ -152,16 +152,16 @@ func _walk_travel() -> void:
 	if failed():
 		return
 	var travel := CommandTravel.new()
-	travel.to = EnumLevelId.ROUTE
+	travel.to = EnumLevel.ROUTE
 	expect(session.send_command(travel), "a travel command is taken")
-	await wait_for(func() -> bool: return session.level == EnumLevelId.ROUTE, 8.0, "the route on screen")
+	await wait_for(func() -> bool: return session.level == EnumLevel.ROUTE, 8.0, "the route on screen")
 	await wait_for(func() -> bool: return _marker_view("Trophy") != null, 5.0, "the route's marker views")
 	await shot("02b_route")
 	step("route: %d markers adopted" % views(EnumView.MARKER).size())
 	var pause := find(current_scene, ^"PauseMenu") as CanvasLayer
 	await press_action(&"menu")
 	await click(find(pause, ^"%Hub") as Control)
-	await wait_for(func() -> bool: return session.level == EnumLevelId.HUB, 8.0, "back in the hub")
+	await wait_for(func() -> bool: return session.level == EnumLevel.HUB, 8.0, "back in the hub")
 	await wait_for(func() -> bool: return _marker_view("Crate1") != null, 5.0, "the hub's marker views")
 	expect(not pause.visible, "Back to hub closes the menu")
 	step("back to the hub")
