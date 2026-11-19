@@ -16,9 +16,9 @@ var _t := 0.0
 
 func _ready() -> void:
 	Game.status_changed.connect(func(_s: UnifiedSession.Status, _d: String) -> void: _refresh())
-	Game.lobby_code_changed.connect(func(_c: String) -> void: _refresh())
+	Unified.session.join_code_changed.connect(func(_c: String) -> void: _refresh())
 	Game.input_device_changed.connect(func(_pad: bool) -> void: _refresh())
-	_copy.pressed.connect(func() -> void: Game.copy_with_feedback(_copy, Game.lobby_code))
+	_copy.pressed.connect(func() -> void: Game.copy_with_feedback(_copy, _code.text))
 	_cancel.pressed.connect(func() -> void:
 		Sfx.play(&"click")
 		Game.leave_to_menu())
@@ -41,6 +41,6 @@ func _unhandled_input(event: InputEvent) -> void:
 func _refresh() -> void:
 	_status.text = "Connected" if Game.status == UnifiedSession.STATUS_CONNECTED else "Connecting"
 	_detail.text = Game.status_detail if Game.status_detail != "" else "Talking to the lobby service."
-	_code_box.visible = Game.lobby_code != ""
-	_code.text = Game.lobby_code
-	_key_hint.text = Game.hint("Esc to cancel", "B to cancel")
+	_code.text = Unified.session.join_code if Game.mode == Game.Mode.HOST else ""  # online: the lobby code
+	_code_box.visible = _code.text != ""
+	_key_hint.text = "%s to cancel" % Game.input_label(&"ui_cancel")

@@ -4,10 +4,10 @@ extends CanvasLayer
 ## (`Unified.data.hud`, simulation/extension/hud.odin) when it changes, the roster for names and the input device for
 ## key labels; `_process` only animates. In-game buttons never take focus: Space and pad A are the dash.
 
-## The level-up picks by card (Unified.constants.upgrades order), and their keys as each device labels them.
+## The level-up picks by card (Unified.constants.upgrades order).
 const PICKS: Array[StringName] = [&"levelup_1", &"levelup_2", &"levelup_3"]
-const KEYS: Array[String] = ["1", "2", "3"]
-const PAD_KEYS: Array[String] = ["X", "Y", "B"]
+## A stick's directions, one control in the controls list (ControlsPanel.refresh).
+const MOVE: Array[StringName] = [&"move_forward", &"move_left", &"move_back", &"move_right"]
 ## The level-up panel stays up this long after a pick, so the picked card can be seen.
 const PICK_HOLD_S := 0.35
 
@@ -68,7 +68,7 @@ func _ready() -> void:
 	Unified.session.roster_changed.connect(_on_roster_changed)
 	Unified.session.sim_event.connect(_on_sim_event)
 	Game.input_device_changed.connect(func(_pad: bool) -> void: _label_keys())
-	Game.lobby_code_changed.connect(func(_code: String) -> void: _show_session())
+	Unified.session.join_code_changed.connect(func(_code: String) -> void: _show_session())
 	_root.resized.connect(_show_controls)  # the controls list places itself in the window's corner
 	_label_keys()
 	_on_hud_changed()
@@ -226,24 +226,20 @@ func _show_session() -> void:
 
 
 func _show_controls() -> void:
-	var keys := [["WASD / arrows", "Move"], ["Space", "Dash"]]
-	var pad := [["Left stick", "Move"], ["A", "Dash"]]
+	var rows := [[MOVE, "Move"], [&"dash", "Dash"]]
 	if _choosing:
-		keys.append(["1  2  3", "Pick an upgrade"])
-		pad.append(["X  Y  B", "Pick an upgrade"])
-	keys.append(["Esc", "Menu"])
-	pad.append(["Start", "Menu"])
-	_controls.refresh(keys, pad)
+		rows.append([PICKS, "Pick an upgrade"])
+	rows.append([&"menu", "Menu"])
+	_controls.refresh(rows)
 
 
 ## The key labels for the device in use: the level-up cards, the controls list, the match-over hint.
 func _label_keys() -> void:
-	var keys: Array[String] = PAD_KEYS if Game.using_pad else KEYS
 	var cards := Unified.constants.upgrades
 	for i in mini(_options.get_child_count(), cards.size()):
 		var card: DataUpgradeCard = cards[i]
-		(_options.get_child(i) as Button).text = "%s\n%s\n[%s]" % [card.name, card.detail, keys[i]]
-	_menu_hint.text = Game.hint("Esc: menu", "Start: menu")
+		(_options.get_child(i) as Button).text = "%s\n%s\n[%s]" % [card.name, card.detail, Game.input_label(PICKS[i])]
+	_menu_hint.text = "%s: menu" % Game.input_label(&"menu")
 	_show_controls()
 
 

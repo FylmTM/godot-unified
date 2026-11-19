@@ -38,6 +38,9 @@ func _run() -> void:
 		"the local player in the HUD")
 	expect(not _session_panel().visible, "no session panel in single player")
 	expect(_controls_panel().visible, "the controls list shows")
+	var move_keys := (_controls_panel().get_child(0).get_child(0) as Label).text  # its first row: Move
+	expect(move_keys == ("Left stick / D-pad" if game.using_pad else "WASD / Arrows"),
+		"the controls list labels Move with its bindings (InputMap): %s" % move_keys)
 	step("single player")
 	await _walk_play()
 	await _walk_pause_menu()
@@ -57,7 +60,7 @@ func _run() -> void:
 	var code := find(current_scene, ^"HUD/Root/Session/VBox/CodeRow/Code") as Label
 	expect(code != null and code.text.ends_with(":%d" % game.lan_port), "the session panel shows host:port")
 	await shot("06_lan_host")
-	step("hosted on LAN: %s" % game.lan_address)
+	step("hosted on LAN: %s" % game.session.join_code)
 	game.leave_to_menu()
 	await wait_for_scene("MainMenu", 5.0)
 
