@@ -24,8 +24,28 @@ below where a token scan can.
   with its field and tick (`sim.find_nan`); `tests/dmath` pins the bits per platform.
 - **Float to int:** x86 and ARM convert out-of-range floats differently, so a conversion that can be out of range
   goes through `to_i32_clamped` (a convention: the lint can't see types).
-- **No transcendentals.** Fixed tables (`DIR8`) and unit vectors stand in for angles (physics keeps a 2D rotation as
-  `(cos a, sin a)`). When a game needs sin, cos or atan2, they land here as fixed polynomials with tests pinning
-  their bits.
+- **Transcendentals are ours** (below): never `core:math`'s, whose bits are each platform's libm.
 - **An Input holds no floats** (`sim.wire_violation`): the client quantizes with `axis_i8`, `dir2`, `dir3`, and the
   decoders give a defined value for any bits another machine sends.
+
+## Transcendentals
+
+sin, cos, atan2 and exp are fixed polynomials of `+ − ×` in Horner order, with their range reductions, and nothing
+else: no table, no libm, no instruction a CPU may implement its own way. Each coefficient is written as an exact f32,
+so the compiler's constant conversion cannot differ by host. `tests/dmath` pins the results' bits over a fixed
+sweep of inputs on every CI platform, checks them against a twin that rounds once per operation (a failure there
+means the compiler fused or reordered something, not that the polynomial changed), and bounds their error.
+
+- **Angles are turns:** 1 is a full circle, a quarter turn is exactly 0.25. Reducing a turn to (-0.5, 0.5] is a
+  subtraction of its whole part, exact in f32, where radians would need an inexact multiply by 1/2π and a multi-word
+  reduction for large angles. Box3D takes radians: multiply by `TAU` at that call.
+- **The eighths are exact.** `angle_vec(k / 8)` is `DIR8[k]` bit for bit, quarter turns give exact 0, 1 and -1 (with
+  +0, as in `DIR8`), and `atan2_turns` is exact on the axes and diagonals, so code that mixes the table and angles
+  agrees at those directions.
+- **Every input has a defined, finite answer.** A NaN or an infinity gives the value each declaration names, and
+  `exp` neither overflows nor returns a subnormal: a result can always go into the block.
+- **An angle in the block is wrapped when it is advanced** (`wrap_angle`), so it never grows past where an f32 keeps
+  its fraction.
+- **Curves are sampled at bake time.** A designer curve reaches the sim as evenly spaced samples (`Curve`), looked up linearly:
+  the sim never evaluates the editor's cubic. A per-tick motion driven by a curve adds `curve_delta` rather than
+  setting the curve's value, so it composes with whatever else moves the same thing.
