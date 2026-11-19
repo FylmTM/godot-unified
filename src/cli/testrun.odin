@@ -94,17 +94,13 @@ run_test_binaries :: proc(exes: []string, timeout: time.Duration) -> bool {
 		run := &runs[i]
 		run.exe = exe
 		run.log_path = aprintf("%s.log", exe)
-		log_file, err := os.open(run.log_path, {.Write, .Create, .Trunc, .Inheritable})
+		log_file, err := os.open(run.log_path, {.Write, .Create, .Trunc})
 		if err != nil {
 			fatal("cannot create %s", run.log_path)
 		}
 		run.log_file = log_file
 		if state.verbose do log("+ %s", exe)
-		process, start_err := os.process_start({
-			command = strs(exe),
-			stdout  = log_file,
-			stderr  = log_file,
-		})
+		process, start_err := spawn({command = strs(exe), stdout = log_file, stderr = log_file}, log_file)
 		if start_err != nil {
 			fatal("cannot start %s: %v", exe, start_err)
 		}
