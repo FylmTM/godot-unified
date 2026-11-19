@@ -1,4 +1,4 @@
-// The unified CLI as a library (SPEC.md). A project's tools/ package (package main) calls `run` with the public
+// The unified CLI as a library (README.md). A project's tools/ package (package main) calls `run` with the public
 // commands plus its own:
 //
 //	main :: proc() {cli.run(cli.public_commands(), my_commands)}
@@ -52,8 +52,8 @@ option_forms :: proc(forms: ..Form) -> []Form {
 	return slice.clone(forms)
 }
 
-// What a project's tools/ adds to the conventions (SPEC.md, Layout), set with `configure` before `run`. A game repo
-// needs none of it; this repo registers its test root, its toy game and its Godot test extensions.
+// What a project's tools/ adds to the conventions (README.md, What a project adds), set with `configure` before
+// `run`. A game repo needs none of it; this repo registers its test root, its toy game and its Godot test extensions.
 Project_Config :: struct {
 	tests:      string, // the odin suite's root, relative to the project, compiled with -all-packages ("": the game's simulation/tests)
 	headless:   []Extra_Headless, // headless binaries besides the games' (`headless`, `build`)
@@ -88,7 +88,7 @@ configure :: proc(config: Project_Config) {
 	state.config = config
 }
 
-// A test suite of `test` (SPEC.md, Test suites): `run` reports whether it passed. A project's tools/ adds its own
+// A test suite of `test` (README.md, Test suites): `run` reports whether it passed. A project's tools/ adds its own
 // with `add_suites` before `run`.
 Suite :: struct {
 	name:        string,
@@ -105,12 +105,12 @@ Suite :: struct {
 // What `test` passes each suite it runs: the options of that run (a nested `test`, as `verify` runs it, has its own).
 Test_Options :: struct {
 	only: []string, // tests (odin) or steps (godot)
-	long: bool, // `--long`: the suites' long variants (SPEC.md, Test suites)
+	long: bool, // `--long`: the suites' long variants (README.md, Test suites)
 	game: string, // the game `test` names ("": every game): the odin suite compiles that game's tests only
 }
 
-// What a command reports: one line on stdout, or with --json one object with `data` (marshalled after the command
-// returns, so it must not point at the command's stack).
+// What a command reports: one line on stdout, or with --json one object (command, ok, summary, seconds, cold and
+// `data`, marshalled after the command returns, so it must not point at the command's stack).
 Result :: struct {
 	ok:      bool,
 	summary: string,
@@ -121,6 +121,8 @@ Result :: struct {
 // CI allows this many times a command's budget (shared runners are slower and noisier).
 CI_BUDGET_SCALE :: 3
 
+// The run's state, one per process (`state`): the project, its configuration and pins, the commands and suites
+// registered, the command running and what made the run cold.
 State :: struct {
 	project:  Project,
 	config:   Project_Config,
@@ -214,7 +216,7 @@ find_command :: proc(name: string) -> ^Command {
 // Prints `uni help`: every command with its usage (every option and form) and summary, then how budgets, the pinned
 // Odin and the per-user cache work. Shown for `help`, -h, --help and a bare `uni`.
 print_help :: proc() {
-	fmt.println("uni: build, test, check and run the games of this project (src/cli/SPEC.md)\n")
+	fmt.println("uni: build, test, check and run the games of this project (src/cli/README.md)\n")
 	fmt.println(
 		"usage: uni <command> [options] [--json] [--verbose]   (uni <command> -h: its options, budget and details)\n",
 	)

@@ -1,4 +1,4 @@
-// `Unified.level_markers(root)`: a level's markers in the order its .level file holds them (src/level/SPEC.md), so a
+// `Unified.level_markers(root)`: a level's markers in the order its .level file holds them (src/level/README.md), so a
 // view keyed by a marker index finds that marker's node. The rule is the exporter's (src/godot/tools/level_export.gd
 // `_collect` and `_kind`), which keeps its own GDScript copy (it runs in projects without the extension);
 // tests/godot_views/markers_check.gd proves the two agree.

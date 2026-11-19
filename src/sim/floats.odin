@@ -1,4 +1,4 @@
-// The NaN rule's check (src/dmath/SPEC.md, src/sim/SPEC.md): a NaN made at run time has each platform's own bits
+// The NaN rule's check (src/dmath/README.md): a NaN made at run time has each platform's own bits
 // (x64 sets the sign, arm64 doesn't), so a NaN in the block gives peers on different CPUs different checksums. No NaN
 // may reach the block; the sync-test looks for one after every step (headless.Run).
 package sim

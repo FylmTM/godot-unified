@@ -1,5 +1,5 @@
 @echo off
-rem uni, the unified CLI (src/cli/SPEC.md, Bootstrap): runs the binary .out\cli\current names, building one first
+rem uni, the unified CLI (src/cli/README.md, Bootstrap and self-rebuild): runs the binary .out\cli\current names, building one first
 rem when there is none. Odin is always the release pins.cfg pins, downloaded once into
 rem %LOCALAPPDATA%\unified\odin\<tag> (checked against its SHA-256) and put first on PATH.
 setlocal

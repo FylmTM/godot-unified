@@ -9,6 +9,7 @@ import "base:intrinsics"
 DURATION_EXACT :: 16
 DURATION_BUCKETS :: DURATION_EXACT + (24 - 4) * 8
 
+// A distribution of times in µs: counts in fixed buckets, the count and the maximum (durations_percentile reads it).
 Durations :: struct {
 	count:   int,
 	max_us:  i64,
@@ -36,12 +37,14 @@ duration_bucket_top :: proc(bucket: int) -> i64 {
 	return (i64(8 + sub) << uint(exponent - 3)) + (i64(1) << uint(exponent - 3)) - 1
 }
 
+// Counts one time of `us` µs.
 durations_add :: proc(durations: ^Durations, us: i64) {
 	durations.count += 1
 	durations.max_us = max(durations.max_us, us)
 	durations.buckets[duration_bucket(us)] += 1
 }
 
+// Adds `from`'s times into `into` (several clients' or sessions' step times as one distribution).
 durations_merge :: proc(into: ^Durations, from: Durations) {
 	into.count += from.count
 	into.max_us = max(into.max_us, from.max_us)

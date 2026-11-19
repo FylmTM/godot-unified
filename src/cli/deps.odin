@@ -1,11 +1,10 @@
+// Dependencies the CLI fetches or builds, pinned in pins.cfg (README.md, Dependencies). Each `ensure_*` is a stamp
+// check when nothing changed (no process started), else it does the work and marks the run cold.
 package cli
 
 import "core:os"
 import "core:strings"
 import "core:time"
-
-// Dependencies the CLI fetches or builds, pinned in pins.cfg (SPEC.md, Dependencies). Each `ensure_*` is a stamp
-// check when nothing changed (no process started), else it does the work and marks the run cold.
 
 // --- downloads --------------------------------------------------------------------------------------------------
 

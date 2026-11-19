@@ -1,4 +1,4 @@
-// The character controller (src/physics/SPEC.md), ported from Box3D's dynamic mover sample
+// The character controller (src/physics/README.md, Character), ported from Box3D's dynamic mover sample
 // (samples/dynamic_mover.cpp, which asks to be vendored). A rotation-locked dynamic capsule: a mover
 // joint drives it to a target horizontal velocity under a force cap, a pogo joint (a spring along
 // the ground normal) holds it above the ground found by ray probes. Standing on a kinematic body
@@ -11,12 +11,14 @@ import box3d "box3d:bindings"
 import "unified:dmath"
 import "unified:sim"
 
+// What the character's last update found and what it is doing.
 Character_Flag :: enum u8 {
 	On_Ground, // the probes found ground and the character is not jumping
 	Walkable, // that ground is flat enough to walk on
 	Jumping, // left the ground on purpose: the pogo doesn't pull it back down
 	Limp, // no drive, no pogo (held, stunned)
 }
+// A character's state flags (Character.flags).
 Character_Flags :: bit_set[Character_Flag;u8]
 
 // One character, in the block. Zero value: no character.
@@ -219,7 +221,7 @@ character_grounded :: proc(character: ^Character) -> bool {
 }
 
 // Advances the character's drive before the world step. `move` is the wanted horizontal direction in
-// world space (x, z), length ≤ 1; `jump` is a fresh press (edge); `speed_scale` scales max_speed.
+// world space (x, z), length ≤ 1; `jump` is a fresh press (edge); `speed_scale` scales max_speed (1: as tuned).
 // Returns true when it jumped this tick.
 character_update :: proc(
 	world: ^World,

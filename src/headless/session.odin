@@ -12,6 +12,8 @@ package headless
 import "unified:netcode"
 @(require) import "unified:sim"
 
+// What session_run plays: `clients` scripted clients (slots 0 ..< clients) for `ticks` ticks behind `profile`
+// (netcode.PROFILES, or one of its own), and optionally a late joiner and churning inputs.
 Session_Config :: struct {
 	clients:        int,
 	profile:        netcode.Profile, // every client's link, both ways
@@ -31,6 +33,7 @@ Session_Config :: struct {
 // How far apart churn asks the script for consecutive ticks: a fresh draw for any script period up to it.
 CHURN_SPREAD :: 4096
 
+// What session_run reports (session_result_destroy frees it).
 Session_Result :: struct($G: typeid) {
 	ok:         bool, // every client verified every tick and disconnected cleanly, and nothing desynced
 	desyncs:    int, // desyncs the relay detected and reported (a checksum tick on which players differ)

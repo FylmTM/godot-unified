@@ -1,6 +1,5 @@
-// The channel (src/netcode/SPEC.md): reliable and unreliable messages to peers over any number of links (the relay
-// serves its host's in-process client and remote peers at once), each (link, link peer) pair one channel Peer. It
-// runs the same minimal reliability protocol over every link:
+// The channel (src/netcode/README.md, Channel): reliable and unreliable messages to peers over any number of links,
+// each (link, link peer) pair one channel Peer, the same protocol over every link. Its datagrams:
 //
 //   datagram = u8 tag (0x80 | PROTOCOL_VERSION), u32 epoch, u32 peer epoch, u32 seq, u32 ack, u32 ack_bits,
 //              u8 recent, u16 recent delay (ACK_DELAY_UNIT_US), u8 chunk count, chunks
@@ -8,32 +7,11 @@
 //   older acks = up to ACK_EXT_WORDS u32: bit b of word w acks seq ack - 33 - (32 w + b)
 //   notice   = u8 tag, u32 0: "I run this protocol version", the answer to a datagram of another version
 //
-// The tag carries the protocol version, so two builds never read each other's datagrams. A datagram whose tag has the
-// top bit but another version is answered with a notice (a notice never is: two versions can't ping-pong); a notice
-// from a peer is the channel's Incompatible event. The notice's five bytes never change across versions.
-//
-// Every datagram acks the peer's latest sequence number plus a 32-bit history (and, while a burst arrives, the older
-// acks chunk: up to 256 seqs more), and names the datagram that arrived
-// last (`recent` back from the ack) with how long it waited before this one went out: the round trip measured from
-// it is the path's own. The last arrival, not the newest seq: under jitter the newest is the one that came fast, and
-// sampling only it would read the round trip short. A reliable message
-// rides in datagrams until one of them is acked, and is resent after a timeout derived from the
-// measured RTT. At most REL_IN_FLIGHT datagrams carrying reliable messages are in flight past the newest seq the
-// peer acked, so one ack (its seq, 32 more and the older acks chunk) covers a whole burst (a snapshot): the rest waits
-// for that ack instead of being resent though it arrived. Reliable bytes to a peer are paced (a token bucket of
-// REL_BURST refilled at REL_RATE): a burst never floods a home uplink or a default socket buffer. Reliable messages are delivered once, in order. Unreliable ones are delivered as
-// they arrive (possibly duplicated or reordered by the network). A sender keeps at most REL_WINDOW
-// reliable messages in flight past its oldest unacked one, and a receiver drops anything further
-// ahead, so a peer cannot grow the out-of-order buffer at will. A datagram whose header doesn't
-// validate never gets a connection (or a transport peer number).
-//
-// Epochs keep both sides on the same incarnation of a connection. `epoch` is the sender's (a fresh
-// value each time a side opens the connection), `peer epoch` echoes the receiver's last one seen
-// (0: none yet). A datagram echoing an epoch other than ours was meant for an earlier connection:
-// it is dropped unread while a newer connection runs, and otherwise answered by a new connection,
-// whose epoch ends the sender's stale side at once, so no side sits half-open. A new epoch from an
-// active peer means it started over (a restarted program on the same address, e.g. a rejoining
-// player): the old connection ends with Disconnected and the datagram opens the new one.
+// `epoch` is the sender's connection's (a fresh value each time a side opens one), `peer epoch` echoes the receiver's
+// last one seen (0: none yet). `recent` is how far back from `ack` the datagram that arrived last is, and its delay how
+// long it waited before this one went out (a round-trip sample). A datagram whose tag has the top bit but another
+// version is answered with a notice (a notice never is: two versions can't ping-pong); a notice from a peer is the
+// channel's Incompatible event. The notice's five bytes never change across versions.
 package netcode
 
 import "base:runtime"
@@ -41,18 +19,21 @@ import "core:fmt"
 
 import "unified:wire"
 
+// How channel_send delivers a message: as it comes (maybe lost, duplicated or reordered), or once and in order.
 Delivery :: enum u8 {
 	Unreliable,
 	Reliable,
 }
 
+// What a channel_poll event is.
 Event_Kind :: enum u8 {
-	Connected,
-	Disconnected,
+	Connected, // a connection opened (the peer's first datagram, or our first send to it)
+	Disconnected, // it ended: it timed out, the link said so, or the peer started over
 	Message,
 	Incompatible, // the peer runs another protocol version (its notice came)
 }
 
+// One thing channel_poll saw on a peer: a connection opened or ended, a message, or another protocol version.
 Event :: struct {
 	kind: Event_Kind,
 	peer: Peer,
@@ -82,6 +63,8 @@ ACK_DELAY_UNIT_US :: 16 // the ack delay's unit (a u16: up to ~1 s; longer satur
 CHUNK_OVERHEAD :: 7 // kind u8, id u32, len u16
 MAX_MESSAGE :: MAX_DATAGRAM - HEADER_BYTES - CHUNK_OVERHEAD // the largest message channel_send takes
 
+// Reliable and unreliable messages to channel peers over any number of links (channel_make); the relay and each
+// client own one.
 Channel :: struct {
 	links:  [dynamic]Link,
 	conns:  [MAX_PEERS]Conn,
@@ -110,10 +93,12 @@ Ended_Epochs :: struct {
 
 ENDED_EPOCHS :: 64 // twice MAX_PEERS: a whole session leaving at once, and its stragglers
 
+// A channel's datagrams and bytes sent and received since it was made, and its reliable resends (Client_Stats.net).
 Channel_Stats :: struct {
 	datagrams_sent, datagrams_recv, bytes_sent, bytes_recv, resends: int,
 }
 
+// A reliable message queued to a peer, held until a datagram carrying it is acked.
 Rel_Msg :: struct {
 	id:        u32,
 	data:      Pooled,
@@ -121,6 +106,7 @@ Rel_Msg :: struct {
 	acked:     bool,
 }
 
+// A datagram we sent: its seq, when, and the reliable messages an ack of it delivers (a connection keeps SENT_RING).
 Sent_Packet :: struct {
 	at:    i64,
 	seq:   u32,
@@ -129,6 +115,8 @@ Sent_Packet :: struct {
 	ids:   [MAX_IDS_PER_PACKET]u32,
 }
 
+// One channel peer's connection: the (link, link peer) it maps to, both epochs, its send and receive state. Reset, not
+// freed, when it ends: its buffers serve the next connection on that peer.
 Conn :: struct {
 	used:        bool, // the (link, lpeer) mapping is assigned
 	link:        int,

@@ -20,6 +20,7 @@ Run :: struct {
 	log_to:      string, // with capture: also keep both streams in <log_to>.stdout / .stderr
 }
 
+// How a process ran: its exit, whether it was killed at its timeout, its captured output and its time.
 Ran :: struct {
 	exit_code: int,
 	ok:        bool, // exited 0 within the timeout
@@ -29,6 +30,7 @@ Ran :: struct {
 	seconds:   f64,
 }
 
+// A process `start` started; `wait` collects it (once).
 Proc :: struct {
 	run:      Run,
 	process:  os.Process,

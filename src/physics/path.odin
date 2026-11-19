@@ -1,5 +1,5 @@
-// Kinematic paths (src/physics/SPEC.md): a platform's pose as a pure function of its phase tick, and the
-// drive that makes a kinematic body follow it without drift.
+// Kinematic paths (src/physics/README.md, Kinematic paths): a platform's pose as a pure function of its phase tick, and
+// the drive that makes a kinematic body follow it without drift.
 package physics
 
 import box3d "box3d:bindings"
@@ -7,12 +7,14 @@ import "unified:sim"
 
 MAX_PATH_POINTS :: 16
 
+// How a path runs through its points.
 Path_Mode :: enum u8 {
 	Ping_Pong, // 0 → n-1 → 0 → ...
 	Loop, // 0 → n-1, then back to 0 along seconds[n-1], and again
 	Once, // 0 → n-1, then stays there
 }
 
+// How a path moves along each leg between two points.
 Path_Ease :: enum u8 {
 	Linear,
 	Smooth, // smoothstep 3t² − 2t³ on every leg

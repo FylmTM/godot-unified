@@ -3,6 +3,7 @@ package wire
 
 import "base:intrinsics"
 
+// Appends little-endian values to `buf`, which grows as needed (writer_make).
 Writer :: struct {
 	buf: [dynamic]u8,
 }

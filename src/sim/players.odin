@@ -1,4 +1,4 @@
-// Players (src/sim/SPEC.md "Players"): a slot is an input index 0 ..< PLAYERS; a player is a session member, the
+// Players (src/sim/README.md, Players): a slot is an input index 0 ..< PLAYERS; a player is a session member, the
 // person, named by a Player handle that stays theirs when they leave and come back in any free slot. The game
 // keeps its Players in its State's field `players`: the member table, who holds each slot and the game's per-player
 // struct. The harness updates it before `tick` from the tick's presence and join records and emits the join and
@@ -69,12 +69,12 @@ player_of_key :: proc(key: u64) -> Player {
 	return {index = u16(key & 0xFFFF), id = u16(key >> 16)}
 }
 
-// The player queries below each take the tick being computed (`sim.player_data(t, player)`) or a State's Players
-// (`sim.player_data(&state.players, player)`, outside a tick: views, tests).
+// The player queries below each take the tick being computed (`sim.player_data(t, player)`), a State's Players
+// (`sim.player_data(&state.players, player)`: views) or a simulation (its current state: tests, drivers outside
+// `tick`).
 
-// The player's data, or nil when the handle is nobody, stale or forgotten. Valid while the player is absent.
-// The player's data (nil: a member the state doesn't remember), of the tick being computed, a State's Players or a
-// simulation's current state.
+// The player's data, or nil when the handle is nobody, stale or forgotten; valid while the player is absent. Of the
+// tick being computed, a State's Players or a simulation's current state.
 player_data :: proc {
 	player_data_of_players,
 	player_data_of_tick,
@@ -236,26 +236,26 @@ present_count_of_sim :: proc(simulation: ^Sim($G)) -> int {
 	return present_count_of_players(&simulation.state.players)
 }
 
-// Walks the players with their data (iterate_present or iterate_known, then next), of the tick being computed, a
-// State's Players or a simulation's current state:
+// A walk over the players with their data (iterate_present or iterate_known, then next):
 //
 //   players := sim.iterate_present(t)
 //   for data, player in sim.next(&players) { ... }
-//
-// iterate_present: the present players in slot order; iterate_known: every remembered member, present or absent, in
-// member order.
 Players_Iterator :: struct($T: typeid, $Input: typeid, $PLAYERS: int) {
 	players: ^Players(T, Input, PLAYERS),
 	index:   int, // the next slot (present) or member (known) to look at
 	known:   bool,
 }
 
+// Starts a walk over the present players, in slot order, of the tick being computed, a State's Players or a
+// simulation's current state.
 iterate_present :: proc {
 	iterate_present_of_players,
 	iterate_present_of_tick,
 	iterate_present_of_sim,
 }
 
+// Starts a walk over every member the table remembers, present or absent, in member order, of the tick being
+// computed, a State's Players or a simulation's current state.
 iterate_known :: proc {
 	iterate_known_of_players,
 	iterate_known_of_tick,

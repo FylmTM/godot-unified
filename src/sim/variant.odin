@@ -1,5 +1,5 @@
-// A game declares its commands and events as unions of plain structs (src/sim/SPEC.md "Commands",
-// "Events"). On the wire, in the log and in the ring each value is its kind (the variant's index in
+// A game declares its commands and events as unions of plain structs (src/sim/README.md, Commands,
+// Events). On the wire, in the log and in the ring each value is its kind (the variant's index in
 // the union) and its struct's bytes; these helpers go between the two by RTTI.
 package sim
 

@@ -1,4 +1,4 @@
-// The input relay (src/netcode/SPEC.md, Relay), generic over the game type: only its Input, PLAYERS and tick rate
+// The input relay (src/netcode/README.md, Relay), generic over the game type: only its Input, PLAYERS and tick rate
 // matter, it runs no game code. Driven by relay_step from the host's own loop; serves any number of links at once.
 package netcode
 
@@ -12,6 +12,8 @@ package netcode
 import "unified:sim"
 import "unified:wire"
 
+// A relay's session (relay_create): its seed, length, start players, content and build id, and the optional recording
+// and typed desync reports.
 Relay_Config :: struct {
 	seed:          u64,
 	ticks:         u32, // session length; 0: endless
@@ -23,7 +25,9 @@ Relay_Config :: struct {
 	local_start:   bool,
 	// Optional: the session's input log, written tick by tick as ticks are finalized (sim/log.odin's format;
 	// sim.log_sink_memory, headless.log_sink_file). The relay owns the sink: relay_end_recording (or relay_destroy)
-	// writes the tick count and closes it. Without one, the session is kept only RELAY_RING ticks back.
+	// writes the tick count and closes it; a recording that never ended still reads to its last tick. Without one, the
+	// session is kept only RELAY_RING ticks back. A shipped game leaves it off, or records to disk as an opt-in for bug
+	// reports.
 	recording:     sim.Log_Sink,
 	// Typed desync reports (dev builds): clients keep the snapshots of their last checksum ticks, and a desync report
 	// carries what differs between two of them (a majority player's and a diverged one's, sim.snapshot_diff).
@@ -157,8 +161,8 @@ Relay :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Ga
 	detailed:            bool, // the session's first desync got its typed report (later ones are its consequences)
 	first_desync:        Desync_Report, // the first desync reported (its detail owned by the relay)
 	replaced:            int, // inputs that came too late, replaced by the slot's previous one
-	// Late joiners let in unchecked: no other player's checksum of their snapshot's tick came (src/netcode/SPEC.md,
-	// Late join).
+	// Late joiners let in unchecked: no other player's checksum of their snapshot's tick came (src/netcode/README.md,
+	// Late join and rejoin).
 	unchecked_snapshots: int,
 	ending:              bool,
 	end_us:              i64,

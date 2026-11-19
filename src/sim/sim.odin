@@ -1,5 +1,5 @@
 // The deterministic simulation harness, generic over the game type, sim.Game(State, Input, World, Event, Cmd,
-// PLAYERS) (src/sim/SPEC.md):
+// PLAYERS) (src/sim/README.md):
 //
 //   State    the state block: plain data (no pointers, no padding), so a snapshot is a copy and its bytes
 //            are the checksum input. It holds the players (`players: sim.Players(...)`), tables and handles.
@@ -38,8 +38,8 @@ Library :: struct {
 	box3d:   string, // box3d_pin()
 }
 
-// The unified-box3d release the build is pinned to: `[box3d] tag` of unified's pins.cfg (src/cli/SPEC.md, Pins),
-// embedded at compile time. Part of compat_of: Box3D's state is the sim's (src/physics/SPEC.md), so builds pinned to
+// The unified-box3d release the build is pinned to: `[box3d] tag` of unified's pins.cfg (src/cli/README.md, Pins),
+// embedded at compile time. Part of compat_of: Box3D's state is the sim's (src/physics/README.md), so builds pinned to
 // other releases refuse each other. A UNIFIED_BOX3D checkout (unified-box3d's own development) still reports the pin.
 box3d_pin :: proc() -> string {
 	PINS :: #load("../../pins.cfg", string)
@@ -58,6 +58,7 @@ box3d_pin :: proc() -> string {
 
 #assert(ODIN_ENDIAN == .Little) // the block's in-memory bytes are its canonical LE serialization
 
+// A set of input slots, one bit per slot (Inputs.present, Inputs.replaced).
 Slots :: bit_set[0 ..< MAX_PLAYERS;u32]
 
 // What a tick consumes, by slot: every slot's input, which slots are present, the join records and the commands
@@ -85,7 +86,9 @@ Inputs :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game)
 //   part(G, GAME_WORLD)    the World           part(G, GAME_PLAYERS)  PLAYERS, the slot count
 //
 // Inside a body, name the parts it uses once: `State :: sim.part(G, sim.GAME_STATE)`. Odin refuses `part` in a
-// proc's parameter list, so a parameter is a struct built from G (`^Sim($G)`, `^Tick(G)`, `^Inputs(G)`).
+// proc's parameter list, so a parameter is a struct built from G (`^Sim($G)`, `^Tick(G)`, `^Inputs(G)`). Passing
+// something that is not a sim.Game (`sim.Tick(State)`) gives a where-clause error followed by a cascade of `part`
+// errors: read the first.
 part :: intrinsics.type_polymorphic_record_parameter_value
 GAME_STATE :: 0
 GAME_INPUT :: 1
@@ -185,28 +188,29 @@ Game :: struct(
 	// play together instead of desyncing.
 	version:           string,
 	tick_hz:           int, // a power of two, 32..128; dt = 1 / tick_hz exactly
-	// Optional: the content the game ships with, its level file's bytes (src/level/SPEC.md), embedded once in the
+	// Optional: the content the game ships with, its level file's bytes (src/level/README.md), embedded once in the
 	// sim package (`content = #load("../../game/levels/arena.level")`). create, compat_of and from_snapshot use it
 	// when given no content, so every host, run and suite plays it unless given other bytes (a test's own level,
 	// the headless `--level FILE`).
 	content:           []u8,
 
-	// Optional: the World for a session with this seed and content (the level file's bytes, src/level/SPEC.md;
+	// Optional: the World for a session with this seed and content (the level file's bytes, src/level/README.md;
 	// empty when the game has none): physics world, static geometry, scratch buffers. The bytes outlive the World
 	// (the caller of create owns them). nil: a zeroed World (a game without one names sim.No_World).
 	world_create:      proc(seed: u64, content: []u8) -> ^World,
 	// Optional: frees what world_create made (nil: free(world)).
 	world_destroy:     proc(world: ^World),
-	// The World's rollback state (nil: none), asked for right after world_create: a physics game returns
-	// physics.extra(world.phys, State).
+	// The World's rollback state (nil: none), asked for right after world_create, so bodies made there are the
+	// World's: a physics game returns physics.extra(world.phys, State).
 	extra:             proc(world: ^World) -> Extra,
 	// Optional: fills the tick-0 state (the block is zeroed before): t.number is 0, no player is present. May emit,
 	// roll and create physics bodies.
 	init:              proc(t: ^Tick(Game(State, Input, World, Event, Cmd, PLAYERS))),
 	// Advances the state from tick.number - 1 to tick.number.
 	tick:              proc(tick: ^Tick(Game(State, Input, World, Event, Cmd, PLAYERS))),
-	// Optional: a scripted player, for tests, benchmarks and headless checks (never called by the sim): the input of
-	// the player in `slot` for `tick`, and right after it that player's commands (sim.send_command(out, command)).
+	// Optional: a scripted player, for tests, benchmarks, headless checks and Godot's `--scripted` sessions (never
+	// called by the sim; without one they play zero Inputs): the input of the player in `slot` for `tick`, and right
+	// after it that player's commands (sim.send_command(out, command)).
 	// `state` is the caller's current state; a script that answers from (seed, slot, tick) alone (sim.script_bits)
 	// gives every client of a session and every offline run the same player.
 	scripted_input:    proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
@@ -256,6 +260,8 @@ Ring_Slot :: struct($State: typeid) {
 	events: Events, // emitted by the step that produced `tick`
 }
 
+// A running simulation of game G (create, from_snapshot; destroy): the tick counter, the block, the World, the Extra
+// and the ring of saved ticks. Read `tick` and `state` directly; change them only through step, restore and save.
 Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	game:         ^G,
 	seed:         u64,
@@ -363,7 +369,7 @@ game_content :: proc(game: ^$G, content: []u8) -> []u8 where intrinsics.type_is_
 	return content if content != nil else game.content
 }
 
-// The identity of a game's content (src/level/SPEC.md): XXH3 of the bytes, 0 for none.
+// The identity of a game's content (src/level/README.md): XXH3 of the bytes, 0 for none.
 content_hash :: proc(content: []u8) -> u64 {
 	return hash_bytes(content) if len(content) > 0 else 0
 }
@@ -588,9 +594,10 @@ save_tick :: proc(simulation: ^Sim($G)) {
 	slot.saved = true
 }
 
-// Restores the saved state of `tick` (it must still be in the ring). The extra goes first: if it fails, the block
-// and the tick are left as they were and false comes back (the caller treats the sim as broken). The later ticks leave the ring: they are
-// another timeline's until they are stepped again.
+// Restores the saved state of `tick`; false, changing nothing, when the ring no longer holds it or holds it unsaved
+// (step(save = false)). The extra goes first: if it fails, the block and the tick are left as they were and false
+// comes back (the caller treats the sim as broken). The later ticks leave the ring: they are another timeline's until
+// they are stepped again.
 restore :: proc(simulation: ^Sim($G), tick: u32) -> bool {
 	index := ring_slot(simulation, tick)
 	slot := &simulation.ring[index]

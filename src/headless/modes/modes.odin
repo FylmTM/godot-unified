@@ -1,5 +1,5 @@
-// A game's headless binary: the CLI of src/headless/SPEC.md, generic over the game, on top of the in-memory runs of
-// unified:headless. The game's `main` calls modes.run(&GAME, ...). Every mode prints one JSON object as its last
+// A game's headless binary (src/headless/README.md, The binary), generic over the game, on top of the in-memory runs
+// of unified:headless. The game's `main` calls modes.run(&GAME, ...). Every mode prints one JSON object as its last
 // stdout line; a non-zero exit code means failure. `help` lists the modes and their options.
 package modes
 
@@ -24,7 +24,8 @@ Mode :: struct($G: typeid) {
 // Runs the mode named on the command line on `game` (its scripted player plays the runs, on its content). `bench`:
 // the game's standard benchmark, what `bench` runs without options (`uni bench`); none (zero): `bench` without
 // options runs nothing, and `uni bench` has no row for the game. `variants`: other variants of the game (e.g. other
-// tunings), picked with `--game NAME` (sim.Game.name) on any mode. `lobbies`: lobby services (eos.lobby) for the
+// tunings), picked with `--game NAME` (sim.Game.name) on any mode; `--level FILE` on any mode plays a copy of the
+// game on that level instead of its content. `lobbies`: lobby services (eos.lobby) for the
 // <name>-host and <name>-client modes; a game opts in, and links the service's SDK. `own_modes`: the game's own modes.
 run :: proc(
 	game: ^$G,

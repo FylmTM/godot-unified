@@ -1,4 +1,4 @@
-// unified:cli's library parts (src/cli/SPEC.md, Testing): the config and .env parsers, zip writing and reading,
+// unified:cli's library parts (src/cli/README.md, Testing): the config and .env parsers, zip writing and reading,
 // build manifests, SHA-256, and the small parsers the commands use. The commands themselves run end to end in
 // `uni selftest` and every CI job.
 package test_cli
@@ -289,7 +289,7 @@ sources_import_reads_import_lines :: proc(t: ^testing.T) {
 }
 
 // The level scenes uni bake exports: every scene in game/levels/, and any other one with its .level beside it, never
-// one under a hidden or .gdignore'd directory or addons/ (src/level/SPEC.md, Baking).
+// one under a hidden or .gdignore'd directory or addons/ (src/level/README.md, Baking).
 @(test)
 level_scenes_are_found_wherever_a_game_keeps_them :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived

@@ -1,4 +1,4 @@
-// unified:godot's command line (src/godot/SPEC.md, command-line flags): its own flags are read and checked, a near
+// unified:godot's command line (src/godot/README.md, command-line flags): its own flags are read and checked, a near
 // miss of one is an error, the game's and tool scripts' flags pass, and a build without the dev UI ignores the dev
 // flags.
 package test_godot_driver

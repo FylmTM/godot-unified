@@ -8,13 +8,9 @@
 //   extension_api.json          -> <out>/api.gen.odin       (package gdext: builtin layouts, enums, class wrappers)
 //
 // Class wrappers use ptrcall: each argument is passed as a pointer to its encoded value (int -> i64,
-// float -> f64, bool -> u8, objects -> the Object*, builtins -> their in-memory layout).
-// String/StringName/NodePath parameters take Odin strings; returned strings live in context.temp_allocator.
-// Methods with StringName parameters are a proc group: Odin strings, or interned ^StringName (gd.sn) with no
-// per-call conversion.
-// Methods returning a RefCounted class return `Ref(T)`: the caller owns one reference (`unref` it).
-// Vararg methods (emit_signal, call, call_deferred...) go through a Variant call and take `..any`.
-// Debug builds check that every class wrapper runs on Godot's main thread.
+// float -> f64, bool -> u8, objects -> the Object*, builtins -> their in-memory layout); vararg methods (emit_signal,
+// call, call_deferred...) go through a Variant call. What the wrappers look like to a caller (strings, StringName
+// proc groups, Ref(T), the main-thread check): src/gdext/README.md, Wrappers.
 package gdext_gen
 
 import "core:encoding/json"
@@ -349,6 +345,7 @@ builtin_opaque: map[string]int // opaque builtins -> size
 enum_types: map[string]string // "Class.Enum" / "Enum" -> Odin type name
 variant_type_index: map[string]int // builtin name -> Variant::Type
 
+// How a parameter or result crosses ptrcall: what the wrapper converts it from and to.
 Arg_Kind :: enum {
 	Bool,
 	Int,
@@ -362,6 +359,7 @@ Arg_Kind :: enum {
 	Pointer,
 }
 
+// A Godot type as a wrapper sees it: its kind, the Odin type of the parameter or result, and its ptrcall slot type.
 Type_Info :: struct {
 	kind:  Arg_Kind,
 	param: string, // Odin parameter / return type
@@ -583,6 +581,7 @@ emit_vararg_body :: proc(
 	}
 }
 
+// One parameter of a method or constructor: its Odin name, its type, and its Odin default ("": none).
 Param :: struct {
 	name: string,
 	ti:   Type_Info,
@@ -633,6 +632,7 @@ write_args_array :: proc(builder: ^strings.Builder, params: []Param) -> string {
 	return "&_args[0]"
 }
 
+// What a generator run emitted and skipped, counted for its summary line.
 Stats :: struct {
 	classes, methods, vararg, skipped_vararg, skipped_virtual, builtin_methods, sn_overloads: int,
 }

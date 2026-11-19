@@ -1,4 +1,4 @@
-// This repo's CLI (src/cli/SPEC.md): the public commands of unified:cli plus unified's private ones, which no game
+// This repo's CLI (src/cli/README.md): the public commands of unified:cli plus unified's private ones, which no game
 // needs (yet), and what this repo adds to the conventions (its test root, the toy game, the Godot test projects).
 // Run it through the shims, ./uni or uni.cmd; the binary rebuilds itself when a source changes. A command moves into
 // src/cli when a game needs it. The files:

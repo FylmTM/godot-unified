@@ -1,4 +1,4 @@
-// Sim events on the Godot side (src/godot/SPEC.md "Events"): the game's event union, read by RTTI once at install.
+// Sim events on the Godot side (src/godot/README.md, Events): the game's event union, read by RTTI once at install.
 // The session thread feeds every simulated tick's events to the view's tracker (each identified by its tick, kind,
 // subject and index among equal ones) and posts them as kind + bytes, positions in sim units; the main thread makes
 // each an object of its class (sim_classes.odin) and hands it to the subject's view and to the `sim_event` signal, as

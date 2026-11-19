@@ -1,10 +1,12 @@
 package godot
 
+// Whether a set's view is in the sim or lingering after its key left it.
 Phase :: enum u8 {
 	Alive,
 	Lingering, // gone from the sim; kept for `linger_s` (death animation, or a rollback that brings it back)
 }
 
+// One key's view in a View_Set, and when it was last seen or started lingering.
 Entry :: struct($V: typeid) {
 	view:     V,
 	phase:    Phase,

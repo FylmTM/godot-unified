@@ -5,17 +5,22 @@ package netcode
 
 import "unified:sim"
 
+// A session hosted in this process (host_create): the relay's settings and the host player's own.
 Host_Config :: struct {
 	seed:          u64,
 	ticks:         u32, // 0: endless
 	compat:        u64, // build/game id the relay checks (0: sim.compat_of(game, content))
-	content:       []u8, // the level (src/level/SPEC.md; nil: the game's own, sim.Game.content); borrowed for the host's lifetime
+	content:       []u8, // the level (src/level/README.md; nil: the game's own, sim.Game.content); borrowed for the host's lifetime
 	player_name:   string, // the host player's display name
-	account:       Account, // optional: the host player's own platform account (borrowed for the host's lifetime)
+	// Optional: the host player's own platform account (the Godot host asks its lobby, Lobby.account), borrowed for the
+	// host's lifetime.
+	account:       Account,
 	recording:     sim.Log_Sink, // optional: the session's input log (Relay_Config.recording)
 	desync_detail: bool, // typed desync reports (Relay_Config.desync_detail)
 }
 
+// The relay and the host player's own client in one process (host_create), joined by a loopback hub. Driven by
+// host_step.
 Host :: struct($G: typeid) {
 	relay:   ^Relay(G),
 	client:  ^Client(G),

@@ -7,6 +7,8 @@ import "core:sync"
 @(private)
 FRESH :: u32(4)
 
+// A triple buffer of frames between one writer thread and one reader thread: the reader always gets the newest
+// published frame, an unread one is replaced, neither thread waits.
 Triple :: struct($T: typeid) {
 	slots:  [3]T,
 	latest: u32, // atomic: index of the newest published slot | FRESH while unread
@@ -43,6 +45,7 @@ triple_front :: proc(triple: ^Triple($T)) -> (frame: ^T, fresh: bool) {
 
 // ---- single-producer single-consumer queue (bounded; push fails when full)
 
+// A bounded lock-free queue of `N` items (a power of two) from one producer thread to one consumer thread.
 Queue :: struct($T: typeid, $N: int) where (N & (N - 1)) == 0 {
 	items: [N]T,
 	head:  u32, // consumer

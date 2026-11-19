@@ -4,7 +4,7 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 
-// The project the CLI runs in: this repo, or a game repo with unified as a submodule at unified/ (SPEC.md, Layout).
+// The project the CLI runs in: this repo, or a game repo with unified as a submodule at unified/ (README.md, Layout).
 Project :: struct {
 	root:    string, // the project root: the shims, tools/, .out/
 	unified: string, // the unified checkout: the root itself, or <root>/unified
@@ -18,7 +18,7 @@ Game :: struct {
 	dir:  string,
 }
 
-// The project is two levels above the running binary (<root>/.out/cli/unified-<hash>).
+// The project is two levels above the running binary (<root>/.out/cli/uni-<hash>-<odin commit>).
 @(private)
 find_project :: proc() -> (project: Project) {
 	exe, err := os.get_executable_path(context.allocator)

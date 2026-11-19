@@ -1,4 +1,5 @@
-// Static geometry from a level file (src/level/SPEC.md): one static body per level body, in file order.
+// Static geometry from a level file (src/physics/README.md, Static level geometry; src/level/README.md): one static
+// body per level body, in file order.
 package physics
 
 import "core:fmt"
@@ -24,7 +25,7 @@ create_with_level :: proc(
 ) {
 	ok: bool
 	level_data, ok = level.load(content)
-	if !ok do return nil, {}, "the level file is missing or not a level (src/level/SPEC.md)"
+	if !ok do return nil, {}, "the level file is missing or not a level (src/level/README.md)"
 	phys = create(settings)
 	problem = create_static(phys, &level_data, default_category)
 	return

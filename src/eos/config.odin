@@ -21,6 +21,7 @@ CREDENTIAL_NAMES :: [5]string {
 	"UNIFIED_EOS_CLIENT_SECRET",
 }
 
+// The five product credentials (credentials_load); never logged.
 Credentials :: struct {
 	product_id, sandbox_id, deployment_id, client_id, client_secret: string,
 }

@@ -1,4 +1,4 @@
-// Box3D's value types and definitions (src/physics/SPEC.md, The boundary): mirrors of the bindings' structs
+// Box3D's value types and definitions (src/physics/README.md, The boundary): mirrors of the bindings' structs
 // (`box3d:bindings`, upstream's C API 1:1) with Odin names, [3]f32 vectors and [4]f32 rotations (x, y, z, w). Each has
 // its binding's layout scalar for scalar (tests/physics/box3d_test.odin walks both by RTTI), so a conversion is a
 // transmute or a pointer cast, never math or a copy loop. Opaque data that callers only pass around are aliases.

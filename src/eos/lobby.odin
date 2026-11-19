@@ -1,9 +1,10 @@
 // EOS as a netcode.Lobby: the one way a game reaches online play, the Godot host (godot.init) and a game's headless
-// binary (modes.run) alike (src/eos/SPEC.md).
+// binary (modes.run) alike (src/eos/README.md).
 package eos
 
 import "unified:netcode"
 
+// How eos.lobby starts EOS: where the SDK is, the relay policy, and the headless tools' keychain options.
 Lobby_Config :: struct {
 	lib_dirs:            []string, // where to look for the SDK library; empty = default_lib_dirs()
 	relay_control:       Maybe(Relay_Control), // default Allow_Relays ($UNIFIED_EOS_RELAYS overrides it)

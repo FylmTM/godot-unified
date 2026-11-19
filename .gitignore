@@ -1,9 +1,9 @@
-# Generated output, anywhere (src/cli/SPEC.md): the CLI, builds, downloads, Godot's import caches. Safe to delete.
+# Generated output, anywhere (src/cli/README.md): the CLI, builds, downloads, Godot's import caches. Safe to delete.
 .out/
 .godot/
 .DS_Store
 
-# This checkout's UNIFIED_* settings (src/cli/SPEC.md, Local settings): never committed.
+# This checkout's UNIFIED_* settings (src/cli/README.md, Local settings): never committed.
 .env
 
 # Old per-checkout toolchain folder (no longer written)

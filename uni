@@ -1,5 +1,5 @@
 #!/bin/sh
-# uni, the unified CLI (src/cli/SPEC.md, Bootstrap): runs the binary .out/cli/current names, building one first when
+# uni, the unified CLI (src/cli/README.md, Bootstrap and self-rebuild): runs the binary .out/cli/current names, building one first when
 # there is none. Odin is always the release pins.cfg pins, downloaded once into ~/.cache/unified/odin/<tag> (checked
 # against its SHA-256) and put first on PATH.
 case "$0" in

@@ -1,13 +1,12 @@
-package cli
-
-import "core:os"
-import "core:strings"
-
 // The EOS C SDK is not ours to redistribute (Epic's EOS Developer Agreement), so nothing fetches it: each machine
 // downloads it from Epic's developer portal and names it with UNIFIED_EOS_SDK (the unzipped root, or its SDK/
 // directory; the environment or .env). It is read where it lies: its version (SDK/Include/eos_version.h) must match
 // pins.cfg [eos_sdk], and a game's build copies this host's library next to the game's library. Without it a game
 // builds and plays single player and LAN; online play needs it. CI has no SDK and no EOS credentials.
+package cli
+
+import "core:os"
+import "core:strings"
 
 // The credentials a release build compiles in, from the environment or .env (empty values are left out). The same
 // names are the dev builds' run-time source (src/eos/config.odin).

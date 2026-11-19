@@ -3,6 +3,7 @@
 // no more, so a session thread's steady state allocates nothing.
 package netcode
 
+// Datagram-sized byte slots, reused instead of allocated (pool_put, pool_release).
 Slot_Pool :: struct {
 	slots: [dynamic][MAX_DATAGRAM]u8,
 	free:  [dynamic]i32, // released slots, taken again first
@@ -49,6 +50,7 @@ pool_release :: proc(pool: ^Slot_Pool, held: Pooled) {
 	append(&pool.free, held.slot)
 }
 
+// Frees the pool's memory; what it held (pool_bytes) is gone with it.
 pool_destroy :: proc(pool: ^Slot_Pool) {
 	delete(pool.slots)
 	delete(pool.free)

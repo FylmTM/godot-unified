@@ -1,4 +1,4 @@
-// 2D physics: Box3D bodies locked to the plane z = 0 (src/physics/SPEC.md, "2D"). The plane uses
+// 2D physics: Box3D bodies locked to the plane z = 0 (src/physics/README.md, 2D). The plane uses
 // Godot's 2D axes (x right, y down, z into the screen); a 2D rotation is a unit vector (cos a, sin a)
 // about +Z, so nothing here needs trig.
 package physics

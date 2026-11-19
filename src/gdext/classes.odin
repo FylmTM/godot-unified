@@ -19,6 +19,8 @@ import "core:fmt"
 import "core:strings"
 import "unified:gdext/gdi"
 
+// The start of every extension class's instance struct (`using hdr: Instance_Header`): the engine object it extends
+// and its Class, set before Class.init runs.
 Instance_Header :: struct {
 	obj:   Object, // the engine object this instance extends
 	class: ^Class,
@@ -44,6 +46,8 @@ Virtual_Call :: struct {
 	which: Virtual,
 }
 
+// An extension class: its ClassDB name and parent, the instance size, the editor's help, and the engine virtuals it
+// overrides. Register it with register_class, then bind its members (bind_*); it must outlive the extension.
 Class :: struct {
 	name, parent:       string,
 	native:             string, // the engine class an instance is built on when `parent` is one of ours ("": parent)
@@ -732,7 +736,9 @@ method_3r :: proc(
 }
 
 // Binds a method callable from GDScript (and typed calls from other extensions): the Odin proc takes the
-// instance pointer, then 0-3 arguments; `names` are the argument names shown in the editor.
+// instance pointer, then 0-3 arguments; `names` are the argument names shown in the editor. A RefCounted result says
+// who owns it, on the typed and the Variant path alike: a `Ref(T)` hands the method's reference to Godot, a bare `T`
+// is borrowed (Godot takes a reference of its own).
 bind_method :: proc {
 	method_0,
 	method_0r,
@@ -744,6 +750,7 @@ bind_method :: proc {
 	method_3r,
 }
 
+// How the inspector edits a property (Godot's PropertyHint values we use), with bind_property's `hint_string`.
 Property_Hint :: enum u32 {
 	NONE            = 0,
 	RANGE           = 1,

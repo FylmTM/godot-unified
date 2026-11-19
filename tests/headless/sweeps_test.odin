@@ -209,7 +209,7 @@ sweep_widths :: proc(t: ^testing.T, $G: typeid, name: string, rates: []int) {
 
 // Two players on round trips of 120 to 400 ms, lossless and with loss, at every rate: a narrow Input and the widest
 // (whose window is shorter than the input delay at 128 Hz): no input is replaced, but with loss in the first half
-// second (a start player whose Welcome was lost: the netcode spec, Start).
+// second (a start player whose Welcome was lost: src/netcode/README.md, Relay).
 sweep_round_trips :: proc(t: ^testing.T) {
 	for tick_hz in ([]int{32, 64, 128}) {
 		for latency in ([]i64{60_000, 125_000, 150_000, 200_000}) {

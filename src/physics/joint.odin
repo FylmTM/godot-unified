@@ -1,6 +1,6 @@
-// Joints (src/physics/SPEC.md, What physics covers): every Box3D joint proc on a joint ref, named by its names without
-// `get_`. The generic joint_* procs take any joint ref; a per-type proc takes its typed ref, so a setter of another
-// type does not compile. Creation takes the two bodies as links and fills the def's body ids itself.
+// Joints (src/physics/README.md, What physics covers): every Box3D joint proc on a joint ref, named by its names
+// without `get_`. The generic joint_* procs take any joint ref; a per-type proc takes its typed ref, so a setter of
+// another type does not compile. Creation takes the two bodies as links and fills the def's body ids itself.
 package physics
 
 import "base:intrinsics"

@@ -1,4 +1,4 @@
-// Random numbers (src/sim/SPEC.md "Random numbers"), integer-only, built on SplitMix64's mixing function:
+// Random numbers (src/sim/README.md, Random numbers), integer-only, built on SplitMix64's mixing function:
 //
 // - Rng: one stream, for code outside `tick` that wants "the next number" (level generation, shuffles). A draw
 //   added anywhere shifts every later draw from it.
@@ -9,6 +9,7 @@ package sim
 
 @(require) import "base:intrinsics" // only in generic procs
 
+// One stream of random numbers (rng_seed, then rng_next, rng_below, rng_f32): its state is the whole of it.
 Rng :: struct {
 	state: u64,
 }

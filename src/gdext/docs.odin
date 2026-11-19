@@ -20,6 +20,8 @@ Bound :: struct {
 	static:    bool,
 }
 
+// What a Bound member is: a method, a property's accessor (get_/set_, left out of the help), a property, a signal or
+// an integer constant.
 Bound_Kind :: enum u8 {
 	Method,
 	Accessor,
@@ -34,6 +36,7 @@ Doc_Type :: struct {
 	enum_name: string,
 }
 
+// One argument of a bound method or signal, as the class reference shows it.
 Doc_Arg :: struct {
 	name: string,
 	type: Doc_Type,

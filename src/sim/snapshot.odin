@@ -35,7 +35,8 @@ Snap_Header :: struct {
 	compat:  u64,
 }
 
-// Encodes the ring snapshot of `tick` into a new byte slice.
+// Encodes the ring snapshot of `tick` into a new byte slice. The ring must hold `tick` saved (asserted): state_at
+// answers whether it does.
 snapshot_encode :: proc(simulation: ^Sim($G), tick: u32, allocator := context.allocator) -> []u8 {
 	out := make([dynamic]u8, allocator)
 	return snapshot_encode_into(simulation, tick, &out)

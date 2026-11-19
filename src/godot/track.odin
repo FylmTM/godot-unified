@@ -2,6 +2,7 @@ package godot
 
 import "core:math"
 
+// A position and rotation a view is shown at.
 Pose :: struct {
 	pos: [3]f32,
 	rot: [4]f32, // unit quaternion (x, y, z, w)
@@ -9,6 +10,8 @@ Pose :: struct {
 
 IDENTITY :: [4]f32{0, 0, 0, 1}
 
+// How a view's track smooths rollback corrections: the error offset decays as exp(-dt / tau_s), and a jump longer than
+// teleport_dist snaps.
 Smoothing :: struct {
 	// Time constant of the error decay: after `tau_s` a correction has shrunk to 1/e (37%), after 3 tau to 5%.
 	// 0 disables smoothing (corrections snap).

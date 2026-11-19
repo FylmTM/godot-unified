@@ -1,4 +1,4 @@
-// The Bodies group (src/physics/SPEC.md, What physics covers): every body proc once, through physics. Setters are
+// The Bodies group (src/physics/README.md, What physics covers): every body proc once, through physics. Setters are
 // read back through their getters. The api_* helpers serve the other per-group files (shape, world, geometry,
 // queries).
 package test_physics

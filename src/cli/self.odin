@@ -1,3 +1,10 @@
+// The self-rebuild (README.md, Bootstrap and self-rebuild). Each binary .out/cli/uni-<hash> has a manifest,
+// <binary>.inputs (not .manifest: Windows reads foo.exe.manifest as the program's own): the content hash, then one
+// line per input with its size and modification time: every source file it was built from (outside the Odin
+// install), the directories they sit in (a new file changes its directory's time) and the odin executable. Before
+// every command the binary checks them: all the same, it runs. Else it hashes the sources: the same content, it
+// refreshes the times and runs; different, it rebuilds itself to uni-<new hash>, points .out/cli/current at it and
+// runs that with the same arguments.
 package cli
 
 import "core:encoding/json"
@@ -8,14 +15,8 @@ import "core:strconv"
 import "core:strings"
 import "core:time"
 
-// The self-rebuild (SPEC.md, Bootstrap and self-rebuild). Each binary .out/cli/uni-<hash> has a manifest,
-// <binary>.inputs (not .manifest: Windows reads foo.exe.manifest as the program's own): the content hash, then one
-// line per input with its size and modification time: every source file it was built from (outside the Odin
-// install), the directories they sit in (a new file changes its directory's time) and the odin executable. Before
-// every command the binary checks them: all the same, it runs. Else it hashes the sources: the same content, it
-// refreshes the times and runs; different, it rebuilds itself to uni-<new hash>, points .out/cli/current at it and
-// runs that with the same arguments.
-
+// One input of a manifest (write_manifest): a source file, a directory or the odin executable, with the size and
+// time it had.
 Manifest_Entry :: struct {
 	kind:  string, // "file", "dir" or "odin"
 	path:  string,
@@ -96,7 +97,8 @@ binary_name :: proc(hash, odin_commit: string) -> string {
 	return aprintf("uni-%s-%s%s", hash[:12], odin_commit, EXE)
 }
 
-// Rebuilds the CLI from source, installs it and runs it with our arguments in our place.
+// Rebuilds the CLI from source, installs it and runs it with our arguments in our place. No lock: concurrent
+// rebuilds of the same sources write the same file.
 @(private)
 rebuild :: proc(cli_dir: string, args: []string) -> ! {
 	odin := which("odin")

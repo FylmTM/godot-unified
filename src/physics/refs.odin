@@ -1,4 +1,4 @@
-// References (src/physics/SPEC.md, References): how the block names bodies, shapes and joints (Box3D's ids without
+// References (src/physics/README.md, References): how the block names bodies, shapes and joints (Box3D's ids without
 // the world index, so blocks match across worlds and machines), the checked accessors, freeing what a value refers to
 // (destroy_refs, despawn), and check_refs, which finds every ref in the block by RTTI.
 package physics
@@ -48,42 +48,52 @@ Distance_Joint_Ref :: struct {
 	using joint: Joint_Ref,
 }
 
+// A filter joint (create_filter_joint).
 Filter_Joint_Ref :: struct {
 	using joint: Joint_Ref,
 }
 
+// A motor joint (create_motor_joint).
 Motor_Joint_Ref :: struct {
 	using joint: Joint_Ref,
 }
 
+// A mover joint (create_mover_joint).
 Mover_Joint_Ref :: struct {
 	using joint: Joint_Ref,
 }
 
+// A parallel joint (create_parallel_joint).
 Parallel_Joint_Ref :: struct {
 	using joint: Joint_Ref,
 }
 
+// A pogo joint (create_pogo_joint).
 Pogo_Joint_Ref :: struct {
 	using joint: Joint_Ref,
 }
 
+// A prismatic joint (create_prismatic_joint).
 Prismatic_Joint_Ref :: struct {
 	using joint: Joint_Ref,
 }
 
+// A revolute joint (create_revolute_joint).
 Revolute_Joint_Ref :: struct {
 	using joint: Joint_Ref,
 }
 
+// A spherical joint (create_spherical_joint).
 Spherical_Joint_Ref :: struct {
 	using joint: Joint_Ref,
 }
 
+// A weld joint (create_weld_joint).
 Weld_Joint_Ref :: struct {
 	using joint: Joint_Ref,
 }
 
+// A wheel joint (create_wheel_joint).
 Wheel_Joint_Ref :: struct {
 	using joint: Joint_Ref,
 }
@@ -143,8 +153,8 @@ joint_ref_of :: proc "contextless" (id: box3d.JointId) -> Joint_Ref {
 	return {index1 = id.index1, generation = id.generation}
 }
 
-// Whether a (possibly stale) link names a live body. A zero link is not valid. Box3D's generations are u16 and
-// reused last-in-first-out, so a link 65,536 reuses old names a live body again (SPEC.md, known limits).
+// Whether a (possibly stale) link names a live body. A zero link is not valid; a link stale for long enough can name
+// a live body again (README.md, Known limits).
 body_valid :: proc(world: ^World, body_link: Body_Link) -> bool {
 	return body_link.index1 != 0 && box3d.Body_IsValid(link_id(world, body_link))
 }

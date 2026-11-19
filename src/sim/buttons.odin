@@ -1,4 +1,4 @@
-// Buttons (src/sim/SPEC.md "Input"): an Input's buttons are state, a bit_set field named `buttons` holding what is
+// Buttons (src/sim/README.md, Input): an Input's buttons are state, a bit_set field named `buttons` holding what is
 // down. Presses and releases are what changed since the tick before (Players keeps each slot's input of the tick
 // before, so a rollback, a snapshot and a replay carry it), so a repeated input (prediction, the relay's
 // substitute) never presses twice.

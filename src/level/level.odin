@@ -1,4 +1,4 @@
-// Godot-authored levels for the sim (src/level/SPEC.md): the `UNLV` file the exporter writes, read into
+// Godot-authored levels for the sim (src/level/README.md): the `UNLV` file the exporter writes, read into
 // plain slices. Deterministic and pointer-free in what it returns to the sim (the Level lives in the
 // World, outside the block). The bytes stay owned by the caller: strings are views into them.
 //
@@ -21,6 +21,7 @@ import "unified:wire"
 MAGIC :: "UNLV"
 VERSION :: 2 // bump on any change to a .level file's bytes (the sim-change skill)
 
+// What a level shape is: a Godot box, sphere, capsule or convex polygon (a 2D level's extruded).
 Shape_Kind :: enum u8 {
 	Box,
 	Sphere,
@@ -28,6 +29,7 @@ Shape_Kind :: enum u8 {
 	Hull,
 }
 
+// One collision shape of a level body, in the body's frame: only its kind's fields are set.
 Shape :: struct {
 	kind:        Shape_Kind,
 	pos:         [3]f32, // body-local
@@ -38,6 +40,8 @@ Shape :: struct {
 	points:      [][3]f32, // Hull, body-local
 }
 
+// A static body of the level (a StaticBody3D, a StaticBody2D or a TileMapLayer): its pose, its surface (friction and
+// restitution from its PhysicsMaterial, category and material from its metadata) and its shapes.
 Body :: struct {
 	name:        string,
 	pos:         [3]f32,
@@ -66,6 +70,7 @@ Prop :: struct {
 	value: Prop_Value,
 }
 
+// A property's value, by the type it was exported as.
 Prop_Value :: union {
 	bool,
 	i32,
@@ -78,17 +83,20 @@ Prop_Value :: union {
 // Another marker: its index in Level.markers (-1: none).
 Marker_Ref :: distinct i32
 
+// A marker node: its kind (the game's vocabulary), name, transform, exported script properties and path.
 Marker :: struct {
 	index: int, // in Level.markers (scene-tree order)
 	kind:  string,
 	name:  string,
 	pos:   [3]f32,
 	rot:   [4]f32,
-	scale: [3]f32,
+	scale: [3]f32, // 2D: (sx, sy, 1)
 	props: []Prop,
-	path:  [][3]f32, // a Path3D child's points, world space (empty: none)
+	path:  [][3]f32, // a Path3D or Path2D child's points, world space, metres (empty: none)
 }
 
+// A loaded level file (load): its bodies and markers in scene-tree order, in storage that destroy frees. A game keeps
+// it in its World, outside the block.
 Level :: struct {
 	// A 2D level's pixels per metre (its view maps metres back to pixels with it); 0: a 3D level.
 	px_per_m:  f32,
@@ -164,7 +172,8 @@ read_points :: proc(decoder: ^Decoder) -> Span {
 	return span
 }
 
-// Parses a level file. The strings are views into `data`, which must outlive the Level.
+// Parses a level file: not ok for a truncated or malformed file, trailing bytes, or another version than VERSION
+// (readers accept only the current one). The strings are views into `data`, which must outlive the Level.
 load :: proc(data: []u8, allocator := context.allocator) -> (level: Level, ok: bool) {
 	context.allocator = allocator
 	decoder := Decoder {

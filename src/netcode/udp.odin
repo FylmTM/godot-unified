@@ -7,6 +7,7 @@ import cnet "core:net"
 
 MAX_UDP_PEERS :: MAX_PEERS
 
+// A UDP link's state (udp_listen, udp_connect): its non-blocking socket and the endpoints it numbered as peers.
 Udp_Link :: struct {
 	sock:      cnet.UDP_Socket,
 	endpoints: [MAX_UDP_PEERS]cnet.Endpoint, // index = peer id

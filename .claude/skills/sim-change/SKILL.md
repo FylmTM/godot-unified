@@ -26,7 +26,7 @@ traces in `tests/physics` (`BOX3D_GOLDEN`, Box3D alone; `GOLDEN_CHARACTERS` and 
    right.
 4. Run CI on all four platforms before merging (below).
 
-Details: `src/headless/SPEC.md` (End-to-end suites, Reference runs).
+Details: `src/headless/README.md` (End-to-end suites, Reference runs).
 
 ## Full CI before merging
 
@@ -68,7 +68,8 @@ refused. Nothing in it is bumped by hand.
 | `level.VERSION` (`src/level/level.odin`) | a `.level` file's bytes | the level format changes |
 
 A bump of any of the first two, or of the snapshot or log format, moves the reference runs' hashes: regenerate them
-(above). A protocol bump also updates `src/netcode/SPEC.md` (The wire).
+(above). A protocol change updates the layout where the code states it (`netcode.Msg`, the `channel.odin` and
+`window.odin` headers) in the same diff.
 
 ## Speed
 

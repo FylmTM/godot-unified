@@ -68,6 +68,7 @@ trace_write :: proc(trace: ^Trace, path: string) -> bool {
 	return os.write_entire_file(path, builder.buf[:]) == nil
 }
 
+// Where an offline run ended: its last tick and that tick's checksum.
 Run_Result :: struct {
 	final_tick:     u32,
 	final_checksum: u64,
@@ -185,6 +186,7 @@ run_sim :: proc(
 	return
 }
 
+// What run_interleaved found: how many of the second run's ticks differ from the first's, and the first one that does.
 Interleaved_Result :: struct {
 	mismatches:     int,
 	second_start:   u32, // the first run's tick at which the second sim was created
@@ -193,7 +195,7 @@ Interleaved_Result :: struct {
 	final_checksum: u64,
 }
 
-// Two sims of one run alive in one process at once (#123, cold vs warm): the first runs the scripted
+// Two sims of one run alive in one process at once (cold vs warm): the first runs the scripted
 // run; at its halfway tick a second sim is created (the first is warm) and replays the first's inputs one
 // tick per tick of the first, half a run behind; the first is destroyed and the second runs the rest
 // alone. Every tick of the second is compared with the first's. Catches state that instances share (a
@@ -249,6 +251,7 @@ interleaved_step :: proc(
 	}
 }
 
+// What a sync-tested run found (run_synctest, Run): a run passes with no mismatch, `check` and `problem` empty.
 Synctest_Result :: struct {
 	mismatches:     int,
 	resimulated:    int, // ticks re-simulated
@@ -268,16 +271,20 @@ Synctest_Result :: struct {
 // with the recorded inputs, each tick's checksum and events compared with the forward one's. A game test drives it
 // with the game's scripted player (run_scripted) or its own inputs (run_inputs, then run_step), seats and unseats
 // members (run_seat), changes the state between steps (run_pin) and asserts `mismatches == 0`, `check == ""`,
-// `problem == ""` and its own facts. `simulation` is at the newest tick between steps.
+// `problem == ""` (scenarios.expect_synced) and its own facts. `simulation` is at the newest tick between steps.
 //
-//   run := headless.run_begin(&g.GAME, seed)
+//   run := headless.run_begin(&GAME, seed, seated = 2) // slots 0, 1: members 1, 2, present after one step
 //   defer headless.run_end(&run)
-//   for _ in 1 ..= 600 do headless.run_scripted(&run, 4)
+//   for _ in 1 ..= 600 do headless.run_scripted(&run, 2)
 //
-//   headless.run_seat(&run, 0, 1)        // member 1 holds slot 0 from the next step on
-//   inputs := headless.run_inputs(&run)  // who is present, with their join records
+//   headless.run_seat(&run, 2, 7)        // member 7 holds slot 2 from the next step on (0: nobody)
+//   inputs := headless.run_inputs(&run)  // the seated members present, join records where needed (sim.seat)
 //   inputs.input[0] = input
+//   sim.add_command(&inputs, 0, command) // a Cmd_X value, or the game's Cmd union
 //   headless.run_step(&run, &inputs)
+//   ship := sim.slot_data(run.simulation, 0)
+//   headless.run_pin(&run)               // the test changed the state: never restore before this tick
+//   scenarios.expect_synced(t, &run)     // every re-simulation agreed: no mismatch, check or problem
 Run :: struct($G: typeid) {
 	using result: Synctest_Result,
 	simulation:   ^sim.Sim(G),

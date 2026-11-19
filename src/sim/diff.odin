@@ -1,5 +1,5 @@
-// Typed desync reports (src/netcode/SPEC.md, Desyncs): what differs between two snapshots of the same tick, field by
-// field through the State's RTTI (a table's items by index), then the extra's image.
+// Typed desync reports (src/netcode/README.md, Checksums and desyncs): what differs between two snapshots of the
+// same tick, field by field through the State's RTTI (a table's items by index), then the extra's image.
 package sim
 
 import "base:runtime"

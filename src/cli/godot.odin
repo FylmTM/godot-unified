@@ -1,3 +1,4 @@
+// Godot: the pinned editor, the import cache, and running a game's tool scripts strictly (README.md, Tool scripts).
 package cli
 
 import "core:encoding/json"
@@ -7,12 +8,10 @@ import "core:strconv"
 import "core:strings"
 import "core:time"
 
-// Godot: the pinned editor, the import cache, and running a game's tool scripts strictly (SPEC.md, Test suites and
-// tool scripts).
-
-// The pinned editor: UNIFIED_GODOT when it names an install that reports exactly the pinned version, else the
-// official build downloaded (hash-checked) into the per-user cache (user_cache), shared by every checkout: one
-// download per machine, and one path for the OS to know it by (Windows Firewall remembers programs by path).
+// The pinned editor: UNIFIED_GODOT when it names an install that reports exactly the pinned version (checked once
+// per file: its path, size and time), else the official build downloaded (hash-checked) into the per-user cache
+// (user_cache), shared by every checkout: one download per machine, and one path for the OS to know it by (Windows
+// Firewall remembers programs by path).
 godot :: proc() -> string {
 	@(static) cached: string
 	if cached != "" {
@@ -230,6 +229,7 @@ Tool_Run :: struct {
 	quiet:   bool, // don't echo the script's output (it is shown on failure)
 }
 
+// How a tool script run went, judged by the strict rules (judge_tool).
 Tool_Result :: struct {
 	ok:       bool,
 	result:   json.Value, // the UNIFIED_RESULT object (nil when missing)

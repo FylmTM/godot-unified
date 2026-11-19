@@ -1,5 +1,5 @@
-// What a game provides (the Glue) and what crosses from the session thread to the main thread (the Frame data):
-// src/godot/SPEC.md.
+// What a game provides (the Glue), what fill_frame pushes, and what crosses from the session thread to the main thread
+// (the Frame data). How a game uses them: src/godot/README.md.
 package godot
 
 import "base:intrinsics"
@@ -35,8 +35,9 @@ View_Item :: struct($View: typeid) {
 	rot:    [4]f32, // unit quaternion (x, y, z, w); dmath.quat_yaw, quat_angle_2d (2D); zero = identity
 }
 
-// One MultiMesh instance this tick (fill_frame: push_multi_view). Position and rotation interpolate from the
-// instance with the same key at tick - 1 (the host remembers it); scale, color and custom are the tick's.
+// One MultiMesh instance this tick (fill_frame: push_multi_view). Position and rotation (on the shorter arc)
+// interpolate from the instance with the same key at tick - 1 (the host remembers it); scale, color and custom are the
+// tick's.
 Multi_View_Item :: struct($MultiView: typeid) {
 	key:    u64, // identifies the instance across ticks, per kind (a handle's sim.handle_key); 0: not interpolated
 	kind:   MultiView,
@@ -47,7 +48,8 @@ Multi_View_Item :: struct($MultiView: typeid) {
 	custom: [4]f32, // the instance custom data (the game's shader reads it)
 }
 
-// What fill_frame gets (session thread): the tick's state and world, and where the items go.
+// What fill_frame gets (session thread): the tick's state and world, and where the items go. Its buffers grow to what
+// a fill pushes; a fill past their hard limits is a runaway loop and panics.
 Frame :: struct($G, $View, $MultiView: typeid) {
 	state:        ^sim.part(G, sim.GAME_STATE),
 	world:        ^sim.part(G, sim.GAME_WORLD), // at the frame's tick
@@ -118,7 +120,8 @@ Frame_Data :: struct {
 	alloc:        runtime.Allocator, // the views', multis' and data's (they grow on the session thread)
 }
 
-// What a game provides, typed by its game (a sim.Game) and its view kinds (enums).
+// What a game provides, typed by its game (a sim.Game) and its view kinds (enums); install checks it. Its procs are
+// named procs, never inline lambdas.
 Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specialization_of(G, sim.Game) {
 	// Main thread, every frame: the local player's Input from Godot's input (the action helpers, input.odin).
 	sample_input: proc(input: ^sim.part(G, sim.GAME_INPUT)),
@@ -130,13 +133,10 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	// Optional: what only scripts know for sample_input (a camera's look direction), a plain struct: scripts set its
 	// fields on Unified.input, sample_input reads them with input_values(T).
 	input_values: typeid,
-	// Optional, the view space: the sim's XY plane is shown in Godot 2D (a sim.Position reaches GDScript as a
-	// Vector2, else a Vector3).
+	// Optional, the view space (src/godot/README.md, View space): the sim's XY plane is shown in Godot 2D, x right,
+	// y down (a sim.Position reaches GDScript as a Vector2, else a Vector3).
 	is_2d:        bool,
 	// Optional, the view space: view units per sim unit (zero: 1), e.g. 32 for 2D art drawn at 32 px per metre.
-	// fill_frame, smoothing, events and commands are in sim units; the host scales a point where it makes a Godot
-	// value (a scene view's position, a MultiMesh instance's origin, a sim.Position a script reads) and divides one a
-	// script set (a command's). Scripts scale sizes with Unified.view_scale.
 	view_scale:   f32,
 
 	// Main thread, optional: where an event (the game's union) goes. `.View`: the scene view of that kind and key;
@@ -284,7 +284,9 @@ roster_reset :: proc() {
 // Pushes a scene view from fill_frame (session thread): after the frame, the subject the view stands for, then the
 // item and, optionally, its data struct (set as the view's properties; a kind always pushes one data type and one
 // subject type). The subject is the view's identity and its key (UnifiedView.key), and decides which events reach it
-// (src/godot/SPEC.md, Events): an event goes to the views pushed with its subject's type and key.
+// (src/godot/README.md, Events): an event goes to the views pushed with its subject's type and key. The data, a plain
+// struct, is set as the root's properties of the same names, converted like every sim-facing field
+// (src/godot/README.md, Data and classes), when the view spawns and whenever its bytes change.
 //
 //   godot.push_view(f, player, {kind = .Ship, pos = ...}, Ship_View{...})  // a player's: keyed by sim.player_key
 //   godot.push_view(f, sim.entity(i), {kind = .Gate, pos = ...})         // a fixed thing's: keyed by its index

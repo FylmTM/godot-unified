@@ -1,4 +1,4 @@
-// Players are session members (src/netcode/SPEC.md, Members): the relay recognizes a person who comes back by the
+// Players are session members (src/netcode/README.md, Members): the relay recognizes a person who comes back by the
 // account their link vouches for, else by their client's token, and gives them the same member id in whatever slot
 // is free; the newest connection of a person wins; the roster is kept by member; neither accounts nor tokens reach
 // the recording.

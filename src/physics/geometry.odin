@@ -1,4 +1,4 @@
-// Geometry (src/physics/SPEC.md, What physics covers): hulls, meshes, height fields and compounds to build shapes
+// Geometry (src/physics/README.md, What physics covers): hulls, meshes, height fields and compounds to build shapes
 // from, and their mass and bounds. Host-side and outside the block: a game builds them when its World is created (or
 // when it needs a new one), keeps them in its World and frees them with their destroy_*. A hull shape copies its hull
 // into Box3D's geometry database; mesh, height field and compound shapes keep a pointer to the game's, so those live
@@ -161,7 +161,6 @@ destroy_compound :: proc(compound: ^Compound_Data) {
 
 // ---- mass and bounds
 
-// A sphere's mass data at a density (kg/m³).
 // The density that gives a box of half extents `half` the mass `mass` (kg), by Box3D's own mass computation (so the
 // body's mass is `mass`).
 box_density :: proc(mass: f32, half: [3]f32) -> f32 {
@@ -179,6 +178,7 @@ capsule_density :: proc(mass: f32, capsule: Capsule) -> f32 {
 	return mass / compute_capsule_mass(capsule, 1).mass
 }
 
+// A sphere's mass data at a density (kg/m³).
 compute_sphere_mass :: proc(sphere: Sphere, density: f32) -> Mass_Data {
 	sphere := sphere
 	return transmute(Mass_Data)box3d.ComputeSphereMass((^box3d.Sphere)(&sphere), density)

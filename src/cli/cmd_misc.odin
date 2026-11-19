@@ -1,3 +1,4 @@
+// The commands bench, setup and clean.
 package cli
 
 import "core:encoding/json"
@@ -5,8 +6,6 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 import "core:time"
-
-// bench, setup, clean.
 
 // A client's worst frame must fit here: a forward step, a restore, a re-sim at the prediction cap (14 ticks at 64 Hz)
 // and a deep checksum (a checksum tick inside the re-sim), each at its p99 (unified's target, the frame budget's bad

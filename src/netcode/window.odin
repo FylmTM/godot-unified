@@ -18,12 +18,14 @@ package netcode
 import "unified:sim"
 import "unified:wire"
 
+// A part of a window tick that follows its flags byte (the layout: this file's header).
 Window_Flag :: enum u8 {
 	Presence, // present and replaced differ from the tick before
 	Inputs, // some player's input bytes differ from the tick before
 	Commands, // the tick has commands
 	Joins, // the tick has join records
 }
+// A window tick's first byte: which of its parts follow.
 Window_Flags :: bit_set[Window_Flag;u8]
 
 // The most bytes window_write_tick writes for a tick with `commands`: every field changed, every slot joining.

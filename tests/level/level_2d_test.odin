@@ -1,4 +1,4 @@
-// src/level/SPEC.md, 2D levels: version 2 records px_per_m, other versions are refused, Vector2 props read
+// src/level/README.md, 2D levels: version 2 records px_per_m, other versions are refused, Vector2 props read
 // back, and the exporter's 2D fixture (tests/godot/levels/level_2d.tscn, exported by `uni test --suite godot-bindings`)
 // builds the bodies it was drawn with: metres, z = 0, rotations about +Z.
 package test_level
@@ -58,7 +58,7 @@ round_trip_2d :: proc(t: ^testing.T) {
 	testing.expect(t, string(again) == string(data))
 }
 
-// Readers accept only the current version (src/sim/SPEC.md, format versions): 1 (no px_per_m) and the next one are
+// Readers accept only the current version (src/sim/README.md, Files): 1 (no px_per_m) and the next one are
 // refused.
 @(test)
 other_versions_refused :: proc(t: ^testing.T) {

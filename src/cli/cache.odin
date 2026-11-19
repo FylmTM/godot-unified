@@ -1,13 +1,12 @@
+// The per-user cache (README.md, Layout): pinned downloads shared by every checkout on the machine, keyed by version
+// and SHA-256 so two pins never share a path. The shims put the pinned Odin there (odin/<tag>); the CLI puts Godot
+// (godot/<version>-<sha>) and the unified-box3d zips (downloads/). `clean` leaves it; `clean --cache` clears what
+// the CLI put there.
 package cli
 
 import "core:os"
 import "core:strings"
 import "core:time"
-
-// The per-user cache (SPEC.md, Layout): pinned downloads shared by every checkout on the machine, keyed by version and
-// SHA-256 so two pins never share a path. The shims put the pinned Odin there (odin/<tag>); the CLI puts Godot
-// (godot/<version>-<sha>) and the unified-box3d zips (downloads/). `clean` leaves it; `clean --cache` clears what
-// the CLI put there.
 
 // <per-user cache>/unified: %LOCALAPPDATA% on Windows, ${XDG_CACHE_HOME:-~/.cache} elsewhere (where the shims look).
 user_cache :: proc() -> string {

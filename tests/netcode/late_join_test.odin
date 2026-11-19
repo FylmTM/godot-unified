@@ -318,7 +318,7 @@ slow_join :: proc(
 	return
 }
 
-// A genuine snapshot that takes 12, 20 or 60 s to arrive (inside the 63 s the spec gives a large world's snapshot):
+// A genuine snapshot that takes 12, 20 or 60 s to arrive (inside the time FIN_RING gives a large world's snapshot):
 // the joiner then verifies up to ~3900 finalized ticks in one client_step, more than 1024 (a checksum ring that
 // short would lose some before they are reported), and the relay still compares its checksum with the honest
 // player's report of its tick.

@@ -1,4 +1,4 @@
-// The step's events (src/physics/SPEC.md, What physics covers): contacts, sensors, joints and body moves, in Box3D's
+// The step's events (src/physics/README.md, Results): contacts, sensors, joints and body moves, in Box3D's
 // order (part of the world state, so the same after a restore and on every machine). Read them in the tick that
 // stepped, before destroying bodies; a re-simulation regenerates them, and nothing about them is kept.
 package physics
@@ -15,6 +15,7 @@ Contact_Event :: struct {
 	speed:  f32, // .Hit only: the approach speed
 }
 
+// What a contact event reports: touching began, touching ended, or a hit.
 Contact_Kind :: enum u8 {
 	Begin,
 	End,
@@ -28,6 +29,7 @@ Sensor_Event :: struct {
 	visitor: Overlap, // an End's visitor may be gone: zero
 }
 
+// What a sensor event reports: the visitor entered or left the sensor.
 Sensor_Kind :: enum u8 {
 	Begin,
 	End,

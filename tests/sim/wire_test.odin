@@ -1,4 +1,4 @@
-// Values from another machine (src/sim/SPEC.md, Input and Commands): a modified or buggy client can send any bytes,
+// Values from another machine (src/sim/README.md, Bytes from another machine): a modified or buggy client can send any bytes,
 // and every peer and every replay must read them alike without `tick` indexing out of bounds or seeing a NaN.
 package test_sim
 

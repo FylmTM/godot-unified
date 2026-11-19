@@ -1,7 +1,7 @@
 // The determinism lint (AGENTS.md "Deterministic simulation"): a token scan that fails on constructs a
 // simulation must not use. Cheap (a few ms), run from a test package: `tests/lint` runs it over unified and its
 // games, and a game outside the repo calls `check_game` from its own sim tests. It can't prove determinism
-// (end-to-end suites and reference runs do); it stops the known traps from creeping in. src/lint/SPEC.md.
+// (end-to-end suites and reference runs do); it stops the known traps from creeping in (src/lint/README.md).
 package lint
 
 import "base:runtime"
@@ -27,6 +27,8 @@ Kind :: enum u8 {
 	Tick,
 }
 
+// What one package may import and use: its kind's bans (Kind) plus its own lists. check lints a package by it;
+// sim_rule makes a game's.
 Rule :: struct {
 	pkg:           string, // the package's name, for messages (and the tests' rule table)
 	dir:           string, // the package's directory (subdirectories included); see `check`
@@ -52,8 +54,8 @@ FLOAT_TRAPS :: []string {
 	"complex128",
 }
 
-// Inside a tick: f32 only, no clocks, entropy or cycle counters, none of sim's file procs (input logs, log sinks,
-// whole files: tools and tests use them; a tick that touched a file would do it again on every re-simulation), no
+// The identifiers a tick may not name: f32 only (no f64 or f16 types, no fused, quaternion or complex arithmetic), no
+// cycle counters or random generators (clocks and files are out of reach: a tick imports neither), no
 // state outside the block (`@(static)` and `@(thread_local)` variables: not rolled back, not hashed) and no code that
 // differs per platform or build (ODIN_OS, ODIN_ARCH, ODIN_DEBUG: peers would run different sims).
 SIM_IDENTS :: []string {
@@ -93,7 +95,7 @@ BUILTIN_CALLS :: []string{"min", "max", "clamp"}
 SIM_FIELDS :: []string{"replaced"}
 
 // What library code inside a tick may import: the deterministic packages and the integer bit helpers. Not Box3D's
-// bindings: Box3D is physics' (src/physics/SPEC.md, The boundary).
+// bindings: Box3D is physics' (src/physics/README.md, The boundary).
 TICK_IMPORTS :: []string {
 	"unified:sim",
 	"unified:physics",
@@ -197,7 +199,7 @@ check_game :: proc(
 // packages (relative paths). Box3D only through physics (BOX3D, banned).
 GAME_IMPORTS :: []string{"unified:", "../"}
 
-// Box3D's bindings: physics' implementation, never imported by a game (src/physics/SPEC.md, The boundary).
+// Box3D's bindings: physics' implementation, never imported by a game (src/physics/README.md, The boundary).
 BOX3D :: []string{"box3d:"}
 
 // Lints every .odin file under `rule.dir` (an absolute path, or relative to the current directory) with `scan`,

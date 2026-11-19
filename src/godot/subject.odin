@@ -1,4 +1,4 @@
-// An event's subject as the host reads it by RTTI (src/godot/SPEC.md "Events"): its first sim.Player field, and its
+// An event's subject as the host reads it by RTTI (src/godot/README.md, Events): its first sim.Player field, and its
 // first handle or sim.Entity field. Public for tests/godot_driver, like the rest of the view logic.
 package godot
 

@@ -7,7 +7,7 @@ import "core:slice"
 import "core:strings"
 import "core:time"
 
-// The public commands (SPEC.md, Commands): every project's CLI has them.
+// The public commands (README.md, Commands): every project's CLI has them.
 public_commands :: proc() -> []Command {
 	return slice.clone([]Command {
 		{
@@ -66,6 +66,13 @@ public_commands :: proc() -> []Command {
 			budget  = 3,
 			options = option_types(Vet_Opts),
 			run     = cmd_vet,
+		},
+		{
+			name    = "doc",
+			summary = "a package's API: each file's header comment and every public declaration with its doc comment and file:line (no package: list them with their README's title)",
+			budget  = 1,
+			options = option_types(Doc_Opts),
+			run     = cmd_doc,
 		},
 		{
 			name    = "fmt",
@@ -318,7 +325,7 @@ suite_names :: proc() -> []string {
 }
 
 // Prints a child `uni`'s log (its stderr): whole when it failed or with --verbose; else only its warnings (lines with
-// OVER BUDGET or WARN), so a passing run stays a few lines (SPEC.md, Test suites).
+// OVER BUDGET or WARN), so a passing run stays a few lines (README.md, Test suites).
 child_log :: proc(stderr: string, ok: bool) {
 	text := strings.trim_right_space(stderr)
 	if text == "" {
