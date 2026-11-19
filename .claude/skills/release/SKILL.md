@@ -25,11 +25,12 @@ git tag v<version> <commit> && git push origin v<version>
 
 `.github/workflows/release.yml` runs, all or nothing:
 
-- **the tag**: a release tag (the rule `uni release --tag` checks) and on `main`;
+- **the tag**: `v<major>.<minor>.<patch>` or `v<major>.<minor>.<patch>-rc.<n>` (numbers without leading zeros), on
+  `main`; the workflow's first job is the one check of that rule;
 - **check**: `ci.yml`, called: everything CI runs on a push to `main` (fmt, vet, the four test platforms with macOS,
   the godot job);
 - **games**: on windows-x64 and macos-arm64, every game with an `export_presets.cfg` exported and smoke-tested
-  (`uni release --no-eos --tag v<version>`, then the same with `--no-devui`);
+  (`uni release --no-eos --version <version>`, then the same with `--no-devui`), the zips thrown away;
 - **publish**, only when both pass: a GitHub release titled `unified v<version>` (a prerelease while the major
   version is 0, and for a release candidate), its notes generated from the PRs merged since the last tag, with
   GitHub's source archives; no binaries.
@@ -49,7 +50,7 @@ has). It builds this host's package (macOS arm64 on a Mac, Windows x64 on Window
 ```
 ./uni release                               # every game with export_presets.cfg, in turn
 ./uni release <game>                        # one: <game>-dev-<sha>-<platform>.zip
-./uni release --tag v<x.y.z> [<game>]       # stamped with a release's version: <game>-v<x.y.z>-<platform>.zip
+./uni release --version <x.y.z> [<game>]    # stamped with a release's version: <game>-v<x.y.z>-<platform>.zip
 ./uni release --no-eos <game>               # what a release's check builds: no EOS, single player and LAN
 ./uni release --no-devui <game>             # without the dev UI (-nodevui.zip): a public build
 ```
@@ -60,15 +61,16 @@ check builds both; the smoke test checks the extension's `dev ui on|off`. A game
 
 ## How a build works
 
-- **The version.** A tag is its only source: the repo's `project.godot` says `dev` and the presets `0.0.0`, and
-  `uni release` stamps the version into the export (`application/config/version`, which the main menu shows, and
-  the presets' numeric version keys: a release candidate's numbers, `0.2.0-rc.1` puts `0.2.0` there; a local
-  build's `dev-<sha>` puts `0.0.0`) and fails if the export doesn't carry it.
+- **The version.** The repo's `project.godot` says `dev` and the presets `0.0.0`; `uni release` stamps the version
+  (`--version`, a release's from its tag; else `dev-<sha>`) into the export (`application/config/version`, which the
+  main menu shows, and the presets' numeric version keys: a release candidate's numbers, `0.2.0-rc.1` puts `0.2.0`
+  there; a local build's `dev-<sha>` puts `0.0.0`), restores the files byte for byte after, and fails if the export
+  doesn't carry it.
 - **The build** (`uni release`, `tools/release.odin`, the same on a CI runner and locally), per game: the release
   extension (online play needs the `UNIFIED_EOS_*` IDs and SDK, so only a developer's machine builds it; CI passes
-  `--no-eos`; `--no-devui` drops the dev UI), Godot's headless import and export, ad-hoc codesign on macOS, a zip
-  that unpacks to one folder of its own name with the game inside, its `.sha256` (LF line endings, so
-  `shasum -a 256 -c` works on macOS), and a headless smoke test of the unpacked zip.
+  `--no-eos`; `--no-devui` drops the dev UI), Godot's headless import and export (any error line fails the build),
+  ad-hoc codesign on macOS, a zip that unpacks to one folder of its own name with the game inside, its `.sha256` (LF
+  line endings, so `shasum -a 256 -c` works on macOS), and a headless smoke test of the unpacked zip.
 - **Downloads.** Godot is the pinned editor in the per-user cache, shared by every checkout (`uni setup` prints where;
   or `UNIFIED_GODOT` at exactly that version); export templates go to Godot's standard folder (only this platform's
   files, pulled from the official `.tpz` by range requests). Every download is checked against its SHA-256 in

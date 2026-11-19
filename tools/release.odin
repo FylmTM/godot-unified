@@ -8,27 +8,8 @@ import "core:time"
 
 import "unified:cli"
 
-// Playable game builds (the `release` skill): for each game with export_presets.cfg (or the one named), the host
-// platform's package (macOS arm64 on a Mac, Windows x64 on Windows) in <game>/.out/release/:
-// <game>-v<version>-<platform>.zip (local builds: <game>-dev-<sha>-<platform>.zip) unpacking to one folder of the same
-// name with the app, and its .sha256. Locally, it is how someone gets a playable build; in
-// .github/workflows/release.yml it is part of a library release's check (every game, on both platforms; the zips are
-// thrown away: no game builds are published). Steps, per game, each failing loudly:
-//   1. the game's extension in release mode; when it imports unified:eos, the EOS SDK (UNIFIED_EOS_SDK) and the EOS
-//      IDs (UNIFIED_EOS_*, the environment or .env) must be there, and their values must end up in the library;
-//      with --no-eos (CI, which has neither) the package is single player and LAN only: no IDs, no SDK library (the
-//      export is checked for one); with --no-devui the extension is built without the dev UI
-//      (-define:UNIFIED_DEVUI=false: no overlay, F1 or F3 notes), for public builds; the zip's name says -nodevui,
-//   2. the pinned Godot and this host's export templates (pulled out of the official archive with HTTP range reads,
-//      each file checked against its pin) in Godot's own folder,
-//   3. the version stamped into project.godot and the export preset's version keys for the export (the files are
-//      restored byte for byte after); the export must carry it (.pck, macOS Info.plist),
-//   4. headless import, then --export-release with the game's preset; any error line fails,
-//   5. macOS: arm64 only (lipo), ad-hoc codesign, verify, ditto zip; Windows: our zip, the same folder layout,
-//   6. smoke test: the unpacked zip runs a single-player session headless with unified's own session flags
-//      (`-- --autostart --ticks N --quit-at-end`): exit 0, no error line, the extension's
-//      `unified: extension initialized` line, which says whether the dev UI is in (`dev ui on|off`), and the
-//      session's result line, its final tick N. Every game passes it as it is: it needs nothing of the game's.
+// `uni release`: playable game builds of this host's platform, every game's or one's. The `release` skill
+// (.claude/skills/release/SKILL.md) is the pipeline's home: the steps, the version, the rules a game's export follows.
 
 Release_Host :: struct {
 	preset:       string,
@@ -63,8 +44,7 @@ SMOKE_FRAMES :: 1200 // at --max-fps 60, ~20 s: the session must have ended (and
 
 Release_Opts :: struct {
 	game:     string `args:"pos=0" usage:"a game (default: every game with export_presets.cfg, in turn)"`,
-	version:  string `usage:"the version to stamp (default: the tag's, or dev-<commit>)"`,
-	tag:      string `hint:"v<version>" usage:"a library release tag (v1.2.3 or v1.2.3-rc.1): its version is stamped into every game"`,
+	version:  string `usage:"the version to stamp (default: dev-<commit>)"`,
 	no_eos:   bool `usage:"no online play: no EOS SDK or IDs in the package (CI has neither); single player and LAN"`,
 	no_devui: bool `usage:"no dev UI (overlay, panels, F3 notes): the build for the public; playtest builds keep it"`,
 }
@@ -78,18 +58,6 @@ cmd_release :: proc(args: []string) -> cli.Result {
 		cli.fatal("macOS builds are arm64 and need an Apple Silicon host")
 	}
 	version := opts.version
-	if opts.tag != "" {
-		if len(opts.tag) < 2 || opts.tag[0] != 'v' || !release_version(opts.tag[1:]) {
-			cli.usage(
-				"a release tag is v<major>.<minor>.<patch>, optionally -rc.<n>: v0.1.0, v0.2.0-rc.1 (got %s)",
-				opts.tag,
-			)
-		}
-		if version != "" && version != opts.tag[1:] {
-			cli.usage("the tag %s is version %s, not %s", opts.tag, opts.tag[1:], version)
-		}
-		version = opts.tag[1:]
-	}
 	games: [dynamic]cli.Game
 	if opts.game != "" {
 		append(&games, cli.game(opts.game))
@@ -115,41 +83,6 @@ cmd_release :: proc(args: []string) -> cli.Result {
 	return {ok = true, summary = strings.join(zips[:], "\n"), data = cli.box(zips[:])}
 }
 
-// A library release's version, its tag without the `v`: <major>.<minor>.<patch>, optionally -rc.<n>, the numbers
-// without leading zeros (release.yml checks a tag by the same rule).
-release_version :: proc(version: string) -> bool {
-	numbers, separator, candidate := strings.partition(version, "-rc.")
-	if separator == "" && strings.contains(version, "-") {
-		return false
-	}
-	if separator != "" && !plain_number(candidate) {
-		return false
-	}
-	parts := strings.split(numbers, ".", context.temp_allocator)
-	if len(parts) != 3 {
-		return false
-	}
-	for part in parts {
-		if !plain_number(part) {
-			return false
-		}
-	}
-	return true
-}
-
-// Digits without a leading zero ("0" itself is one).
-plain_number :: proc(text: string) -> bool {
-	if text == "" || len(text) > 1 && text[0] == '0' {
-		return false
-	}
-	for char in text {
-		if char < '0' || char > '9' {
-			return false
-		}
-	}
-	return true
-}
-
 valid_version :: proc(version: string) -> bool {
 	if version == "" || !(is_alnum(version[0])) {
 		return false
@@ -171,15 +104,11 @@ release_label :: proc(version: string) -> string {
 	return version[0] >= '0' && version[0] <= '9' ? cli.aprintf("v%s", version) : version
 }
 
-// What goes into the platforms' numeric version fields (macOS CFBundle*Version, Windows file version): the version
-// itself when it is numeric (a tag's: 0.1.1), a release candidate's numbers (0.2.0-rc.1: 0.2.0), else 0.0.0 (local
-// builds: dev-<commit>).
+// What goes into the platforms' numeric version fields (macOS CFBundle*Version, Windows file version): the version's
+// numbers (a release's 0.1.1; a release candidate's 0.2.0-rc.1: 0.2.0), else 0.0.0 (local builds: dev-<commit>).
 platform_version :: proc(version: string) -> string {
-	if release_version(version) {
-		numbers, _, _ := strings.partition(version, "-")
-		return numbers
-	}
-	parts := strings.split(version, ".")
+	numbers, _, _ := strings.partition(version, "-")
+	parts := strings.split(numbers, ".")
 	if len(parts) > 4 {
 		return "0.0.0"
 	}
@@ -193,7 +122,7 @@ platform_version :: proc(version: string) -> string {
 			}
 		}
 	}
-	return version
+	return numbers
 }
 
 short_commit :: proc(dir: string) -> string {
