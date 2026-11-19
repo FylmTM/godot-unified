@@ -30,20 +30,61 @@ SESSION_TICKS_LONG :: 256
 // online play fails at once, as on CI (the walk's bad-code join would wait seconds for EOS). `uni coop` is online.
 SUITE_OFFLINE_ENV :: []string{"UNIFIED_EOS_SDK=", "UNIFIED_EOS_LIB_DIR="}
 
+// The godot suite's steps that write the project's import cache (.godot/) while they run: they run before the lanes
+// split, with nothing else on the project. The headless editor replaces the class cache and the UID cache on every
+// start (missing for an instant on Windows): a Godot starting on the project then finds none of its classes, and a
+// script whose base class is the game's own stops at `Could not find base class`.
+GODOT_STEPS_ALONE :: []string{"import", "editor"}
+
 // The godot suite's steps that run in a lane of their own, beside the others (a child `uni test <game> --suite godot
-// --only ...`), chosen so the two lanes take about as long. Each tool run passes --no-settings and the editor has the
-// project's own editor settings (editor_env), so the lanes share nothing they write but Godot's import cache, current
-// before either starts.
-GODOT_LANE_APART :: []string{"editor", "bake"}
+// --only ...`), chosen so the two lanes take about as long. Each tool run passes --no-settings, so the lanes share
+// nothing they write; they only read the import cache, current before either starts (GODOT_STEPS_ALONE).
+GODOT_LANE_APART :: []string{"walk"}
 
 // The lanes pay off only with cores to spare: every game already runs in parallel, so two lanes each double the Godot
 // processes (no gain measured on CI's 4-core runners; a quarter of the suite's time on 28 threads).
 GODOT_LANE_MIN_CORES :: 16
 
+// How a godot suite run of a game runs its steps (godot_plan): `alone` first, one after another, then `apart` in a
+// lane of its own beside `rest` (`apart` is empty when the run has no lanes: every step after `alone` is in `rest`).
+// Each in GODOT_STEPS order.
+Godot_Plan :: struct {
+	alone, apart, rest: []string,
+}
+
+// The plan of a godot suite run of a game for its `only` steps (empty: all) on a machine with `cores`: the steps of
+// GODOT_STEPS_ALONE alone, and lanes when both have steps and there are GODOT_LANE_MIN_CORES. The import is always
+// in `alone` (every step starts Godot on the project, which needs it), as it always runs.
+godot_plan :: proc(only: []string, cores: int) -> Godot_Plan {
+	alone, apart, rest: [dynamic]string
+	for step in GODOT_STEPS {
+		if step != "import" && len(only) > 0 && !slice.contains(only, step) {
+			continue
+		}
+		if slice.contains(GODOT_STEPS_ALONE, step) {
+			append(&alone, step)
+		} else if slice.contains(GODOT_LANE_APART, step) {
+			append(&apart, step)
+		} else {
+			append(&rest, step)
+		}
+	}
+	if len(apart) == 0 || len(rest) == 0 || cores < GODOT_LANE_MIN_CORES {
+		all: [dynamic]string
+		for step in GODOT_STEPS {
+			if slice.contains(apart[:], step) || slice.contains(rest[:], step) {
+				append(&all, step)
+			}
+		}
+		return {alone[:], nil, all[:]}
+	}
+	return {alone[:], apart[:], rest[:]}
+}
+
 // Each game under headless Godot (README.md, Test suites); several games run in parallel, and on a machine with
 // GODOT_LANE_MIN_CORES a game's steps in two lanes (GODOT_LANE_APART beside the rest), once its extension is current
-// and its project imported. A step that passes or is skipped says so only with --verbose; a failing one always does,
-// and stops the steps after it in its lane.
+// and the steps that write its import cache have run (godot_plan). A step that passes or is skipped says so only with
+// --verbose; a failing one always does, and stops the steps after it in its lane.
 suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 	only := opts.only
 	for step_name in only {
@@ -78,32 +119,9 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 		if want(only, "import") {
 			pass(game, "import", true, seconds_since(import_start))
 		}
-		// The lane apart, when this run has steps in both lanes: its steps are skipped here.
-		apart, rest: [dynamic]string
-		steps := GODOT_STEPS
-		for step in steps[1:] {
-			if want(only, step) {
-				append(slice.contains(GODOT_LANE_APART, step) ? &apart : &rest, step)
-			}
-		}
-		lane: Maybe(Proc)
-		if len(apart) > 0 && len(rest) > 0 && os.get_processor_core_count() >= GODOT_LANE_MIN_CORES {
-			cmd: [dynamic]string
-			append(&cmd, self_exe(), "test", game.name, "--suite", "godot", "--only", strings.join(apart[:], ","))
-			if opts.long {
-				append(&cmd, "--long")
-			}
-			if state.verbose do log("uni: %s: %s beside the other steps", game.name, strings.join(apart[:], ", "))
-			lane = start({
-				cmd     = cmd[:],
-				dir     = state.project.root,
-				capture = true,
-				quiet   = true,
-				timeout = 900 * time.Second,
-			})
-			only = rest[:]
-		}
-		if want(only, "editor") && !halted(game, ok, "editor") {
+		plan := godot_plan(only, os.get_processor_core_count())
+		// alone: nothing else runs on the project while the editor rewrites its import cache (GODOT_STEPS_ALONE)
+		if slice.contains(plan.alone, "editor") {
 			if has_extension(game) {
 				start := time.tick_now()
 				ok = pass(game, "editor", editor_check(game), seconds_since(start)) && ok
@@ -111,7 +129,24 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 				skip(game, "editor", "no extension")
 			}
 		}
-		if want(only, "session") && !halted(game, ok, "session") {
+		// The lane apart, when this run has one: its steps are skipped here.
+		lane: Maybe(Proc)
+		if len(plan.apart) > 0 && !halted(game, ok, strings.join(plan.apart, ", ")) {
+			cmd: [dynamic]string
+			append(&cmd, self_exe(), "test", game.name, "--suite", "godot", "--only", strings.join(plan.apart, ","))
+			if opts.long {
+				append(&cmd, "--long")
+			}
+			if state.verbose do log("uni: %s: %s beside the other steps", game.name, strings.join(plan.apart, ", "))
+			lane = start({
+				cmd     = cmd[:],
+				dir     = state.project.root,
+				capture = true,
+				quiet   = true,
+				timeout = 900 * time.Second,
+			})
+		}
+		if slice.contains(plan.rest, "session") && !halted(game, ok, "session") {
 			if has_session_step(game) {
 				start := time.tick_now()
 				ticks := opts.long ? SESSION_TICKS_LONG : SESSION_TICKS
@@ -120,7 +155,7 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 				skip(game, "session", "no extension or no headless binary")
 			}
 		}
-		if want(only, "bake") && !halted(game, ok, "bake") {
+		if slice.contains(plan.rest, "bake") && !halted(game, ok, "bake") {
 			start := time.tick_now()
 			baked := bake_view_index(game, check = true, quiet = !state.verbose)
 			baked = bake(game, check = true, quiet = !state.verbose).ok && baked
@@ -132,7 +167,7 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 			timeout:      f64,
 		}
 		for script_step in ([]Script_Step{{"validate", "validate", nil, 60}, {"walk", "ui_walk", nil, 90}}) {
-			if !want(only, script_step.step) || halted(game, ok, script_step.step) {
+			if !slice.contains(plan.rest, script_step.step) || halted(game, ok, script_step.step) {
 				continue
 			}
 			script := tool_script(game, script_step.script)
@@ -150,7 +185,7 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 			})
 			ok = pass(game, script_step.step, result.ok, result.seconds) && ok
 		}
-		if want(only, "drive") && !halted(game, ok, "drive") {
+		if slice.contains(plan.rest, "drive") && !halted(game, ok, "drive") {
 			if has_extension(game) {
 				start := time.tick_now()
 				ok = pass(game, "drive", drive_check(game), seconds_since(start)) && ok

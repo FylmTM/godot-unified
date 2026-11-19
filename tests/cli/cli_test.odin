@@ -4,6 +4,7 @@
 package test_cli
 
 import "core:os"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 import "core:time"
@@ -293,6 +294,36 @@ import_current_follows_class_names_and_the_cache :: proc(t: ^testing.T) {
 	testing.expect(t, cli.import_current(dir))
 	os.remove(cli.join(dir, ".godot", "global_script_class_cache.cfg"))
 	testing.expect(t, !cli.import_current(dir), "the class cache is gone")
+}
+
+// The godot suite never runs a step that writes a project's import cache beside another step on it: the headless
+// editor replaces the class cache as it starts, and a tool script starting then can't find the game's classes.
+@(test)
+godot_plan_runs_import_cache_writers_alone :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	join :: proc(steps: []string) -> string {return strings.join(steps, ",")}
+	for cores in ([]int{4, 28}) {
+		for only in ([][]string{nil, {"editor"}, {"editor", "walk"}, {"walk"}, {"session", "walk"}, {"import"}}) {
+			plan := cli.godot_plan(only, cores)
+			testing.expectf(t, len(plan.alone) > 0 && plan.alone[0] == "import", "%v: the import first", only)
+			for step in cli.GODOT_STEPS_ALONE {
+				in_lane := slice.contains(plan.apart, step) || slice.contains(plan.rest, step)
+				testing.expectf(t, !in_lane, "%v on %d cores: %s runs beside other steps", only, cores, step)
+			}
+			if len(plan.apart) > 0 {
+				testing.expectf(t, len(plan.rest) > 0, "%v on %d cores: a lane apart beside nothing", only, cores)
+			}
+		}
+	}
+	all := cli.godot_plan(nil, 28)
+	testing.expect_value(t, join(all.alone), "import,editor")
+	testing.expect_value(t, join(all.apart), "walk")
+	testing.expect_value(t, join(all.rest), "session,bake,validate,drive")
+	few := cli.godot_plan(nil, 4)
+	testing.expect_value(t, len(few.apart), 0)
+	testing.expect_value(t, join(few.rest), "session,bake,validate,walk,drive")
+	testing.expect_value(t, join(cli.godot_plan({"walk"}, 28).rest), "walk")
+	testing.expect_value(t, len(cli.godot_plan({"editor"}, 28).rest), 0)
 }
 
 // sources_import reads import lines only: a commented-out import doesn't count, an attributed one does.
