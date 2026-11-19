@@ -80,9 +80,11 @@ each time; the views show the newest guess and are told when it changes.
 - Work too costly for every entity every tick runs on `sim.due` turns (Neighbours and time slicing).
 
 **Randomness** (`src/sim/README.md`, Random numbers)
-- A rule's own rolls are keyed rolls (`sim.roll_below`, `sim.roll_f32`) named by a purpose enum, a key and an index.
-- A roll a command causes (a draw, a shuffle, a reward) names state, never the tick: a stream in the block
-  (`sim.rng_keyed`, then `sim.rng_below` / `sim.shuffle`), so a command placed a tick late draws the same.
+- A rule's own rolls on a tick no command decides are keyed rolls (`sim.roll_below`, `sim.roll_f32`) named by a
+  purpose enum, a key and an index.
+- A roll on a tick a command decides (its own effect, or a phase or timer it starts) names state, never the tick: a
+  stream in the block (`sim.rng_keyed`, then `sim.rng_below` / `sim.shuffle`), so a command placed a tick late draws
+  the same. One stream per player or hero: a shared one deals in the relay's order.
 - A view peeks a roll the sim will make with `sim.roll_below_at` from `Frame.seed`, through the proc the tick calls.
 
 **Determinism** (`src/dmath/README.md`)

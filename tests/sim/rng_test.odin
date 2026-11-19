@@ -9,30 +9,38 @@ import "unified:sim"
 // The cross-platform pin of rng_keyed and shuffle: a stream's first draws, and a 10-item deck shuffled from it.
 @(test)
 rng_keyed_golden :: proc(t: ^testing.T) {
-	stream := sim.rng_keyed(42, Purpose.Loot, 7)
-	testing.expect_value(t, sim.rng_next(&stream), 0x81C9B07B1CC26C57)
-	testing.expect_value(t, sim.rng_next(&stream), 0x24320FDDC8C8AC7F)
-	testing.expect_value(t, sim.rng_next(&stream), 0x31070A5AF006D483)
+	stream := sim.rng_keyed(42, Purpose.Loot, 7, 3)
+	testing.expect_value(t, sim.rng_next(&stream), 0x0115B8ABCE127EF4)
+	testing.expect_value(t, sim.rng_next(&stream), 0x3E7229CA7585A5F9)
+	testing.expect_value(t, sim.rng_next(&stream), 0x62D9047D19F94302)
 	deck := [10]u8{0, 1, 2, 3, 4, 5, 6, 7, 8, 9}
 	dealer := sim.rng_keyed(42, Purpose.Spread)
 	sim.shuffle(&dealer, deck[:])
-	testing.expect_value(t, deck, [10]u8{8, 2, 1, 4, 9, 3, 5, 6, 7, 0})
-	testing.expect_value(t, dealer.state, 0x530B48C9CF4CBAEC) // where the shuffle left the stream
+	testing.expect_value(t, deck, [10]u8{9, 4, 2, 6, 5, 7, 1, 0, 8, 3})
+	testing.expect_value(t, dealer.state, 0xA4C122A408041B83) // where the shuffle left the stream
 }
 
-// rng_keyed: the same names start the same stream; another seed, purpose or key another one, and none starts where
-// a keyed roll's hash does.
+// rng_keyed: the same names start the same stream; another seed, purpose, key or index another one (a key and an
+// index swapped too), and a stream doesn't repeat the keyed rolls of the same names on tick 0.
 @(test)
 rng_keyed_streams :: proc(t: ^testing.T) {
-	base := sim.rng_keyed(42, Purpose.Loot, 7)
-	testing.expect_value(t, sim.rng_keyed(42, Purpose.Loot, 7), base)
+	base := sim.rng_keyed(42, Purpose.Loot, 7, 2)
+	testing.expect_value(t, sim.rng_keyed(42, Purpose.Loot, 7, 2), base)
 	others := [?]sim.Rng {
-		sim.rng_keyed(43, Purpose.Loot, 7),
-		sim.rng_keyed(42, Purpose.Crit, 7),
-		sim.rng_keyed(42, Purpose.Loot, 8),
+		sim.rng_keyed(43, Purpose.Loot, 7, 2),
+		sim.rng_keyed(42, Purpose.Crit, 7, 2),
+		sim.rng_keyed(42, Purpose.Loot, 8, 2),
+		sim.rng_keyed(42, Purpose.Loot, 7, 3),
+		sim.rng_keyed(42, Purpose.Loot, 2, 7),
 		sim.rng_keyed(42, Purpose.Loot),
 	}
 	for other, i in others do testing.expectf(t, other != base, "stream %d starts like the base", i)
+	same := 0
+	for index in 0 ..< 64 {
+		stream := sim.rng_keyed(42, Purpose.Loot, 7, index)
+		same += int(sim.rng_below(&stream, 1 << 30) == sim.roll_below_at(42, 0, 1 << 30, Purpose.Loot, 7, index))
+	}
+	testing.expect_value(t, same, 0)
 	// neighbouring keys are independent: the low bit of the first draw agrees about half the time
 	agree := 0
 	for key in u64(0) ..< 10_000 {

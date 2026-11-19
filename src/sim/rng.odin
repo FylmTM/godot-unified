@@ -37,14 +37,21 @@ rng_seed :: proc(seed: u64) -> Rng {
 	return {seed}
 }
 
-// A stream for the block named by what it is for, never by the tick: the session's seed (Tick.seed, or a seed the
-// state keeps), `purpose` (a value of the game's own enum) and `key` (a hero, a floor, both packed). Kept in the State,
-// it rolls back with it, and its draws are the same whatever tick each is made on, so a draw a command causes doesn't
+// A stream for the block named by what it is for, never by the tick, as a keyed roll is: the session's seed
+// (Tick.seed, or a seed the state keeps), `purpose` (a value of the game's own enum), `key` (a hero, an entity's
+// handle_key) and `index` (a fight, a floor): `rng_keyed(t.seed, Roll.Draw, u64(hero), fight)`. Kept in the State, it
+// rolls back with it, and its draws are the same whatever tick each is made on, so a draw a command causes doesn't
 // change when the command lands a tick later than predicted. Two streams that should differ must differ in something.
-rng_keyed :: proc(seed: u64, purpose: $Purpose, key: u64 = 0) -> Rng where intrinsics.type_is_enum(Purpose) {
+rng_keyed :: proc(
+	seed: u64,
+	purpose: $Purpose,
+	key: u64 = 0,
+	index: int = 0,
+) -> Rng where intrinsics.type_is_enum(Purpose) {
 	bits := mix64(seed + STREAM_DOMAIN)
 	bits = mix64((bits ~ u64(purpose)) + GAMMA)
-	return {mix64((bits ~ key) + GAMMA)}
+	bits = mix64((bits ~ key) + GAMMA)
+	return {mix64((bits ~ u64(index)) + GAMMA)}
 }
 
 // Puts `items` in a uniformly random order drawn from `rng` (Fisher-Yates from the last item, rng_below each step:

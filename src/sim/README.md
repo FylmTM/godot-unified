@@ -329,7 +329,7 @@ Two kinds, on SplitMix64's mixing function, integer-only:
 - **Keyed rolls** (`roll_below`, `roll_f32`) keep nothing in the block: a roll hashes (seed, tick number, purpose,
   key, index), with `purpose` a value of the game's own enum. A roll depends only on what it names, so adding or
   reordering one system's rolls never moves another's; two rolls that should differ must differ in something (in a
-  loop, the index). A rule's own rolls are keyed: a spawn wave, a crit on a timer's hit.
+  loop, the index). A rule's own rolls on a tick no command decides are keyed: a spawn wave on the clock.
 - **A keyed roll can be peeked.** It reads no state, so anyone who can name it computes it early: a HUD shows "the next
   upgrade" with `roll_below_at` from `Frame.seed`, touching nothing. Put the roll in one proc that both the tick and
   the view call. Name the tick when it is known from state (the tick a spawn is due); name tick 0 and something stable
@@ -337,18 +337,26 @@ Two kinds, on SplitMix64's mixing function, integer-only:
   `roll_below_at` too then, with `t.seed` (`roll_below` always names the current tick):
   `creep_kind :: proc(seed: u64, wave, index: int) -> Kind {return Kind(sim.roll_below_at(seed, 0, len(Kind), Roll.Creep, u64(wave), index))}`,
   called as `creep_kind(t.seed, ...)` by the tick and `creep_kind(f.seed, ...)` by the view.
-- **Streams in the block** (`Rng`, started by `rng_keyed` from a seed, a purpose and a key, never the tick): a
-  sequence kept in the State, drawn with `rng_below` and `shuffle`. It rolls back with the block, and its n-th draw
-  is the same whatever tick it is made on.
+- **Streams in the block** (`Rng`, started by `rng_keyed` from a seed, a purpose, a key and an index, never the
+  tick): a sequence kept in the State, drawn with `rng_below` and `shuffle`. It rolls back with the block, and its
+  n-th draw is the same whatever tick it is made on.
 
-**A roll a command causes names state, never the tick.** The relay may place a command a tick later than its sender
-predicted, and the rollback re-simulates it on that tick: a keyed roll on the tick number would change the card
-already drawn, in the sender's hand. So a draw, a shuffle or a reward a command causes comes from a stream in the
-block (`hero.draws = sim.rng_keyed(t.seed, Roll.Draw, u64(hero))` when the fight starts, then
-`sim.shuffle(&hero.draws, sim.slice(&hero.pile))`), or from a keyed roll that names tick 0 and a counter the state
-keeps. A stream named by what it is for is also why a save needs only the seed: a resumed run starts its streams
-again from the same names. A draw added anywhere in one stream shifts every later draw from it, so each sequence that
-should stay put has a stream of its own.
+**A roll on a tick a command decides names state, never the tick**: the command's own effect, and a phase or timer it
+starts (the enemies' turn that begins when the last "ready" lands). The relay may place a command a tick later than
+its sender predicted, and the rollback re-simulates it on that tick: a keyed roll on the tick number would change the
+card already drawn, in the sender's hand. So such a draw, shuffle or reward comes from a stream in the block
+(`hero.draws = sim.rng_keyed(t.seed, Roll.Draw, u64(hero), fight)` when a fight starts, naming the fight so each one
+deals anew, then `sim.shuffle(&hero.draws, sim.slice(&hero.pile))`), or from a keyed roll that names tick 0 and a
+counter the state keeps.
+
+- **One stream per player or hero.** A stream several players' commands draw from deals in the relay's order, and a
+  predicted draw changes when the relay orders the commands otherwise.
+- **A draw added anywhere in a stream shifts every later draw from it**, so each sequence that should stay put has a
+  stream of its own.
+- **A save and streams.** A stream restarted at each save point from names that include it (a floor, a fight) needs
+  nothing in the save but the seed: a resumed run starts it again from the same names. A stream carried across a save
+  point is not in the save, and a resumed run deals differently. What the run has won (a deck, a relic) is progress,
+  and lives in the Setup the save gives (Setup and Profile).
 
 Outside `tick` (level generation, tests, benchmarks) `rng_seed` starts a stream from any number.
 
