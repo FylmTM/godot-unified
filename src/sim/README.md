@@ -277,6 +277,25 @@ them the same way, so a bad value can neither crash `tick` (an index out of boun
 - **A Setup** that does not read as sent is refused (`setup_violation`), never zeroed: a zeroed Setup would play
   another session than the host's.
 
+## Hidden information
+
+**unified guarantees integrity, not secrecy.** Every client runs the whole sim from the seed, the Setup and every
+input and command: a late joiner gets the whole block in its snapshot, a replay the whole log, and the seed reaches
+every view (`Frame.seed`). So every client holds every player's hand, every enemy's plan, and every draw a stream in
+the block or a keyed roll will make. What a player sees is what the game's views show: a hand is hidden by a view
+that shows it face down, never by the sim, and a modified client shows itself everything.
+
+**Integrity holds against a modified guest**, not the host. A guest acts only through its inputs and commands, which
+every peer reads and applies alike (Bytes from another machine), and a guest whose state differs is found by the
+relay's checksum check (`src/netcode/README.md`, Checksums and desyncs), never a new truth. **The host is trusted**: it
+runs the relay, which orders and finalizes every slot's input (it may stand in for a late one), and its state wins
+a two-player tie.
+
+That suits co-op, where nobody gains by peeking. A game where a secret matters (versus play, a hidden role, a
+traitor) needs a server that holds the secret and reveals it, which unified does not have. Secrets inside a shared
+deterministic sim (each player committing to a hash and revealing later) would leave the sim unable to resolve
+anything that touches an unrevealed card, so unified offers none.
+
 ## Events
 
 Events tell the view what happened (a shot, a pickup). They are not state: not in the block, not hashed. One struct

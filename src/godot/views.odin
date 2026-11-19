@@ -150,11 +150,12 @@ Sync_Stats :: struct {
 // ---- the marker classes
 
 Unified_View_Node :: struct {
-	using hdr: gd.Instance_Header,
-	kind:      string,
-	key:       i64,
-	player:    i64,
-	linger_s:  f64,
+	using hdr:   gd.Instance_Header,
+	kind:        string,
+	key:         i64,
+	player:      i64,
+	linger_s:    f64,
+	parent_path: string, // where the kind's views spawn, from view_root ("": view_root itself)
 }
 
 Unified_Multi_View_Node :: struct {
@@ -185,7 +186,10 @@ register_classes :: proc() {
 		doc_brief = "Marks a scene as the view of one kind of the game's scene views.",
 		doc = "A direct child of the scene's root. [code]uni bake[/code] indexes the scenes by it; the host sets [member key] and keeps [member player] current. The root may be a Node3D (position and quaternion), a Node2D (position and rotation) or anything else (data only), posed before any other node's [code]_process[/code]; a kind the game's view policy script-poses is not posed: the host calls its script's [code]_sim_pose(position: Vector3, rotation: Quaternion)[/code] (2D: [code](position: Vector2, rotation: float)[/code]) with that pose whenever it changes. Its script may define [code]_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState)[/code], properties named after the fields of the view's data, and the lifecycle callbacks [code]_sim_despawned()[/code] (its key is gone: it lingers [member linger_s], no longer posed, then is freed), [code]_sim_revived()[/code] (a rollback brought it back while it lingered) and [code]_sim_cancelled()[/code] (a rollback removed it before its spawn tick was verified: freed at once).",
 		init = proc(instance: rawptr) {(^Unified_View_Node)(instance).linger_s = LINGER_S},
-		fini = proc(instance: rawptr) {delete((^Unified_View_Node)(instance).kind)},
+		fini = proc(instance: rawptr) {
+			delete((^Unified_View_Node)(instance).kind)
+			delete((^Unified_View_Node)(instance).parent_path)
+		},
 	}
 	class := &unified_view_class
 	gd.register_class(class)
@@ -221,6 +225,16 @@ register_classes :: proc() {
 		proc(node: ^Unified_View_Node) -> f64 {return node.linger_s},
 		proc(node: ^Unified_View_Node, linger_s: f64) {node.linger_s = max(linger_s, 0)},
 		doc = "How long the view stays once its key is gone (an exit animation), in seconds.",
+	)
+	gd.bind_property(
+		class,
+		"parent_path",
+		proc(node: ^Unified_View_Node) -> string {return node.parent_path},
+		proc(node: ^Unified_View_Node, path: string) {
+			delete(node.parent_path)
+			node.parent_path = strings.clone(path)
+		},
+		doc = "Where this kind's views spawn: a node path from the session's view_root (a hand's container: [code]\"Hand\"[/code]); empty, or a path to no node (an error, once), view_root itself. The views are added at the end of its children: their order is the game's (a card's script moves itself, [method Node.move_child], when its data changes). A posed kind under another parent is posed in that parent's space.",
 	)
 	unified_multi_view_class = {
 		name = "UnifiedMultiView",
@@ -419,7 +433,7 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 	}
 	scene_view.hooks = hooks
 	pose_view(scene_view, {to_view_units(item.pos), item.rot})
-	gd.Node_add_child(root, node, false, .INTERNAL_MODE_DISABLED)
+	gd.Node_add_child(view_parent(root, scene_view, kind), node, false, .INTERNAL_MODE_DISABLED)
 	// data after _ready: a script's property setters may use its @onready nodes
 	if item.data_type != nil {
 		fields := data_fields(item.data_type)
@@ -519,6 +533,23 @@ set_prop :: proc(object: gd.Object, name: ^gd.StringName, value: gd.Variant) {
 	value := value
 	gd.Object_set(object, name, value)
 	gd.variant_destroy(&value)
+}
+
+// Where a new view goes: the node its marker's parent_path names from `root` (view_root), else `root` itself.
+view_parent :: proc(root: gd.Node, scene_view: ^Scene_View, kind: string) -> gd.Node {
+	if !alive(scene_view.marker_id) do return root
+	path := (^Unified_View_Node)(gd.instance_of(scene_view.marker, &unified_view_class)).parent_path
+	if path == "" do return root
+	if parent := gd.Node_get_node_or_null(root, path); parent.ptr != nil do return parent
+	report_once(
+		fmt.tprintf("parent:%s", kind),
+		fmt.tprintf(
+			"unified: view kind %q spawns under %q, which view_root has no node at: under view_root",
+			kind,
+			path,
+		),
+	)
+	return root
 }
 
 free_view :: proc(scene_view: ^Scene_View) {
@@ -632,6 +663,10 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 			// appear-on-verified: no view, no entry, until a verified tick has its key
 			if !appear_now(appear, item.since, frame.verified) && set_get(&V.set, id) == nil do continue
 			entry, spawned, revived := set_see(&V.set, id)
+			if !spawned && entry.phase == .Alive && entry.view != nil && !alive(entry.view.id) {
+				free_view(entry.view) // its node went with its parent (a hand's container freed): a new one
+				spawned = true
+			}
 			if spawned {
 				entry.view = spawn_view(root, &item, frame)
 				if entry.view != nil do entry.linger_s = entry.view.linger_s

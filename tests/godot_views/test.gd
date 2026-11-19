@@ -84,6 +84,9 @@ func _initialize() -> void:
 	plain_multi.custom_aabb = GAME_BOUNDS  # the game's own bounds: the host keeps them
 	var views := Node2D.new()
 	world.add_child(views)
+	var hand := HBoxContainer.new()  # the cards' parent (card.tscn's parent_path), laying them out in a row
+	hand.name = "Hand"
+	views.add_child(hand)
 	var session := UnifiedSession.new()
 	session.local_name = "player"
 	root.add_child(session)
@@ -120,6 +123,8 @@ func _initialize() -> void:
 	var blink: Node2D = null
 	var blink_despawned := false
 	var blink_kept := false
+	var card: Control = null  # the thing's data-only view, followed until it is freed
+	var card_seen := {}  # what it showed while alive
 	for i in 150:  # up to ~3 s
 		await create_timer(0.02).timeout
 		typed = child_of_kind(views, "typed2d")
@@ -135,13 +140,23 @@ func _initialize() -> void:
 		elif is_instance_valid(blink) and blink.get("despawns") == 1:
 			blink_despawned = true
 			blink_kept = blink_kept or blink.position == Vector2(999, 999)  # the host no longer sets its pose
+		if card == null:
+			card = child_of_kind(hand, "card") as Control
+			if card != null:
+				card_seen = {events = card.get("events"), positions = []}
+		if card != null and is_instance_valid(card):
+			card_seen.first_life = card.get("life_at_first_process")
+			card_seen.life_sets = card.get("life_sets")
+			card_seen.despawns = card.get("despawns")
+			card_seen.parent = card.get_parent()
+			(card_seen.positions as Array).append(card.position)
 		if i == 5:
 			press(&"ui_accept", true)  # one press, shorter than a tick: latched until a tick takes it
 		elif i == 6:
 			press(&"ui_accept", false)
 		if typed != null and typed.get("updates") > 1 and typed.get("ticks_sets") > 2 \
 				and typed_multi.visible_instance_count == 2 and blink_despawned and not is_instance_valid(blink) \
-				and events.any(func(e: Array) -> bool:
+				and card != null and not is_instance_valid(card) and events.any(func(e: Array) -> bool:
 					return e[0] is EventExpired and e[1] == UnifiedSession.EVENT_CONFIRMED):
 			break
 	check("typed 2D view spawned from the index", typed != null, typed)
@@ -194,7 +209,8 @@ func _initialize() -> void:
 	check("Unified.view_scale: the Glue's", near(Unified.view_scale, 10.0), Unified.view_scale)
 	check("a sim.Position in session data: view units (x 10), a Vector2",
 		toy.at.is_equal_approx(Vector2(toy.x, toy.y) * 10.0), [toy.at, toy.x, toy.y])
-	check_events(events, typed, plain, me)
+	check_events(events, typed, me)
+	check_card(card, card_seen, hand)
 	check("by subject type: a view of another table's handle with the thing's key gets none of its events",
 		decoys_seen and decoy_events.is_empty(), decoy_events)
 	check("scene data as properties (an enum as its int)", typed.get("shown") and typed.get("mode") == 1 and typed.get("hp") == -3 \
@@ -206,6 +222,7 @@ func _initialize() -> void:
 	check("one latched press spawned one thing", toy.spawned == 1, toy.spawned)
 	check_players(session, me, roster_changes[0])
 	check_view_lookup(session, typed, plain, me)
+	await check_hand(session, hand, me)
 
 	# 2D, colors + custom: stride 16 = transform (8) + color (4) + custom (4)
 	check("2D MultiMesh instances", typed_multi.visible_instance_count == 2, typed_multi.visible_instance_count)
@@ -415,7 +432,7 @@ func check_unnamed() -> void:
 # CANCELLED once, its fields typed properties; the subject's view gets them too (the player's view: the toy's
 # things have no scene view, so `Spawned` falls back to its player), unless Glue.event_key routes it (Expired to the
 # plain2d view keyed 2, Joined to none).
-func check_events(events: Array[Array], typed: Node, plain: Node, me: int) -> void:
+func check_events(events: Array[Array], typed: Node, me: int) -> void:
 	check("event states are class constants", UnifiedSession.EVENT_EMITTED == 0 \
 		and UnifiedSession.EVENT_CONFIRMED == 1 and UnifiedSession.EVENT_CANCELLED == 2,
 		[UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED, UnifiedSession.EVENT_CANCELLED])
@@ -450,9 +467,98 @@ func check_events(events: Array[Array], typed: Node, plain: Node, me: int) -> vo
 	check("event_key No_View: Joined reaches no view (the signal only)",
 		not (typed.get("events") as Array).any(func(e: Array) -> bool: return e[0] is EventPlayerJoined),
 		typed.get("events"))
-	var on_plain: Array = (plain.get("events") as Array) if plain != null else []
-	check("event_key View: Expired reaches the view it names, in both states",
-		on_plain.size() >= 2 and on_plain.all(func(e: Array) -> bool: return e[0] is EventExpired), on_plain)
+
+
+# A data-only view (ext/ext.odin's card: a Control root): spawned from the index under view_root, its data set before
+# its first _process and again when it changes, never posed (its own layout stays), an event_key event reaching it
+# while it lingers after its thing went, _sim_despawned once, then freed.
+func check_card(card: Control, seen: Dictionary, hand: Node) -> void:
+	check("a Control view spawned from the index under its kind's parent (the marker's parent_path)",
+		not seen.is_empty() and seen.parent == hand, seen.get("parent"))
+	if seen.is_empty():
+		return
+	check("its data is set before its first _process", seen.first_life > 0, seen.first_life)
+	check("its data is set again when it changes", seen.life_sets > 1, seen.life_sets)
+	check("the host never poses a data-only view: its container lays it out",
+		(seen.positions as Array).all(func(p: Vector2) -> bool: return p == Vector2.ZERO), seen.positions)
+	var on_card: Array = seen.events
+	check("event_key View: Expired reaches the card it names, in both states",
+		on_card.size() >= 2 and on_card.all(func(e: Array) -> bool: return e[0] is EventExpired) \
+		and on_card[-1][1] == UnifiedSession.EVENT_CONFIRMED, on_card)
+	check("... while it lingers: after _sim_despawned (an exit animation may start there and play the event)",
+		on_card.size() > 0 and on_card[0][1] == UnifiedSession.EVENT_EMITTED and on_card[0][2] == 1, on_card)
+	check("a data-only view that leaves gets _sim_despawned once, then is freed",
+		seen.despawns == 1 and not is_instance_valid(card), seen.despawns)
+
+
+# A hand: three things spawned a tick or two apart, each its own card in the hand's container at once, laid out in a
+# row, each with its own data and its own despawn; the hand is empty once they all went and lingered. Then the hand's
+# container is freed with cards in it: the next frame spawns them again under view_root (the path names no node,
+# reported once) and back in a new hand once it is there.
+func check_hand(session: UnifiedSession, hand: Container, me: int) -> void:
+	var seen := {}  # card instance id -> {key, holder, life_sets, despawns, events}
+	var most := 0
+	var row := true  # every time 2 or more were in the hand, the container had them side by side
+	for k in 3:
+		press(&"ui_accept", true)
+		await create_timer(0.02).timeout
+		press(&"ui_accept", false)
+		await create_timer(0.02).timeout
+	for i in 150:  # up to ~3 s: a thing lives at most ~1 s
+		var cards := hand.get_children().filter(func(c: Node) -> bool: return c.get_node_or_null(^"UnifiedView") != null)
+		most = maxi(most, cards.size())
+		for k in cards.size():
+			var card := cards[k] as Control
+			seen[card.get_instance_id()] = {key = (card.get("marker") as UnifiedView).key, holder = card.get("holder"),
+				life_sets = card.get("life_sets"), despawns = card.get("despawns"), events = card.get("events")}
+			if k > 0:
+				row = row and card.position.x > (cards[k - 1] as Control).position.x
+		if seen.size() >= 3 and cards.is_empty():
+			break
+		await create_timer(0.02).timeout
+	var records: Array = seen.values()
+	var keys := records.map(func(r: Dictionary) -> int: return r.key)
+	check("a hand: three cards, two or more in the container at once, side by side", seen.size() == 3 and most >= 2 \
+		and row, [seen.size(), most, row])
+	check("each card its own key and data", keys.size() == 3 and keys[0] != keys[1] and keys[1] != keys[2] \
+		and keys[0] != keys[2] and records.all(func(r: Dictionary) -> bool: return r.holder == me and r.life_sets > 0),
+		records)
+	check("each card its own despawn and its own Expired, then the hand is empty",
+		records.all(func(r: Dictionary) -> bool: return r.despawns == 1 \
+			and (r.events as Array).any(func(e: Array) -> bool: return e[0] is EventExpired)) \
+		and hand.get_child_count() == 0, records)
+	# a card with a while to live, then its container freed under it
+	var long_lived: Control = null
+	for attempt in 20:
+		press(&"ui_accept", true)
+		await create_timer(0.02).timeout
+		press(&"ui_accept", false)
+		await create_timer(0.02).timeout
+		for child in hand.get_children():
+			if child.get_node_or_null(^"UnifiedView") != null and child.get("life") > 30:
+				long_lived = child as Control
+		if long_lived != null:
+			break
+	check("a card with a while to live", long_lived != null)
+	if long_lived == null:
+		return
+	var key := (long_lived.get("marker") as UnifiedView).key
+	var views := hand.get_parent()
+	hand.free()
+	var again: Node = null
+	for i in 20:
+		await create_timer(0.02).timeout
+		for child in views.get_children():
+			var marker := child.get_node_or_null(^"UnifiedView") as UnifiedView
+			if marker != null and marker.kind == "card" and marker.key == key:
+				again = child
+		if again != null:
+			break
+	check("a card whose parent was freed spawns again, under view_root while its path names no node",
+		again != null and (again.get("marker") as UnifiedView).key == key, again)
+	var new_hand := HBoxContainer.new()
+	new_hand.name = "Hand"
+	views.add_child(new_hand)
 
 
 # Game input off (UnifiedSession.game_input): a press doesn't reach the sim; an action still held when it comes back

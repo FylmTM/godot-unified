@@ -222,6 +222,7 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 				"is not a member of the game's View enum",
 				"is not a thing's index",
 				"unified: UnifiedSetup.from_json: ",
+				"which view_root has no node at",
 			},
 			nil,
 		},
