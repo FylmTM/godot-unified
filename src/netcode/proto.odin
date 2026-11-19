@@ -522,9 +522,9 @@ tick_command_budget :: proc($Input: typeid, $PLAYERS: int, profile_size: int) ->
 }
 
 // Own inputs per client packet: what fits one message next to at least one command of the largest size, every
-// input changed.
+// input changed (INPUTS_MAX of a zero-byte Input, sim.No_Input).
 @(private)
 inputs_window :: proc($Input: typeid) -> u32 {
 	room := MAX_MESSAGE - INPUTS_HEAD - COMMANDS_HEAD - COMMAND_SEND_HEAD - sim.COMMAND_MAX
-	return u32(min(room / window_input_max_bytes(Input), INPUTS_MAX))
+	return u32(min(room / max(window_input_max_bytes(Input), 1), INPUTS_MAX))
 }

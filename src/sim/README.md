@@ -43,6 +43,10 @@ controls' state, never a one-shot: buttons are a bit_set field named `buttons` h
 derives presses and releases against the slot's input of the tick before, which the state keeps (a predicted repeat
 never presses twice). A one-shot value is a command.
 
+A game whose players act through commands alone (a turn-based one: every decision is a one-shot) names
+`sim.No_Input`. Its ticks still carry each slot's presence, so its sessions predict, roll back, join late and replay
+like any other; only the input bytes are gone, from the wire, the log and the State.
+
 ### World
 
 `World` is everything outside the block: the Box3D world, level geometry, scratch (`sim.No_World` for none). **It
