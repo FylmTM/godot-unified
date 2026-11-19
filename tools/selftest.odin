@@ -11,8 +11,9 @@ Selftest_Opts :: struct {}
 // `selftest`: proves the bootstrap and `init` end to end. A fresh clone of this checkout's HEAD in .out/selftest/,
 // bootstrapped by its shim with an empty per-user cache, so the shim downloads the pinned Odin, checks its SHA-256,
 // unpacks it and builds the CLI with it. Then `init` a game outside it with the clone as its submodule pinned to HEAD
-// (checking the pin and the commands and links its files name), then check its view index, build it, run a headless
-// mode and every test suite in that game repo. Then `init --in-repo` the same game inside the clone (checking it wrote
+// (checking the pin, the commands and links its files name, and its agent guidance: AGENTS.md's section and unified's
+// skills), then check its view index, build it, run a headless mode and every test suite in that game repo; later,
+// that guidance gone stale fails its vet until `agents` rewrites it. Then `init --in-repo` the same game inside the clone (checking it wrote
 // only the game and its tests import), its index, build, a headless mode, the clone's odin suite and the game's godot
 // suite. Last, the test watchdog: a test crashing while it holds a lock must fail its run within seconds. Only when
 // called (before tooling PRs, after a pin or toolchain change); never by `verify`, nor by CI. It tests the committed
@@ -212,6 +213,17 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		}
 		cli.log("selftest: %s: ok (%.1fs)", step.what, cli.seconds_since(started))
 	}
+	// The agent guidance after a bump: what the game repo's copy no longer matches fails its vet, and `agents` brings
+	// it back (src/cli/agents.odin).
+	cli.log("selftest: == stale agent guidance fails vet; agents rewrites it")
+	agents_start := time.tick_now()
+	if problem := check_agents_refresh(game, env, shim(game, "vet"), shim(game, "agents")); problem != "" {
+		return {
+			ok      = false,
+			summary = cli.aprintf("selftest: the agents check: %s; the work is in %s", problem, cli.rel(work)),
+		}
+	}
+	cli.log("selftest: the agents check: ok (%.1fs)", cli.seconds_since(agents_start))
 	// The test watchdog: a test that crashes holding a lock another test waits for must fail the run within seconds,
 	// naming both (tests/cli/crash_test.odin, src/cli/testrun.odin).
 	cli.log("selftest: == a crashing test fails the run within seconds, named with the test it blocks")
@@ -293,6 +305,37 @@ download_env :: proc(work, cache: string) -> []string {
 // The game `init --in-repo` makes inside the clone, at examples/<it>.
 IN_REPO_GAME :: "selftest_game"
 
+// Makes the game repo's agent guidance stale as a submodule bump would (an edited section, a changed skill, a skill
+// unified no longer ships in the stamp), then: `vet` must fail naming `uni agents`, `agents` must pass, and the
+// guidance must be the submodule's again, the retired skill gone and the game's own skill kept ("": all held).
+check_agents_refresh :: proc(game: string, env, vet, agents: []string) -> string {
+	skills := cli.join(game, cli.SKILLS_DIR)
+	agents_md := cli.join(game, "AGENTS.md")
+	text := cli.must_read(agents_md)
+	edited, _ := strings.replace(text, "## unified", "## unified (an older section)", 1)
+	cli.write_text(agents_md, edited)
+	cli.write_text(cli.join(skills, cli.GAME_SKILLS[0], "SKILL.md"), "an older skill\n")
+	cli.write_text(cli.join(skills, "retired", "SKILL.md"), "a skill unified no longer ships\n")
+	cli.write_text(cli.join(skills, "own", "SKILL.md"), "the game's own skill\n")
+	stamp := cli.join(skills, cli.SKILLS_STAMP)
+	cli.write_text(stamp, cli.aprintf("%sretired\n", cli.must_read(stamp)))
+	vetted := cli.run_proc({cmd = vet, dir = game, env = env, capture = true, quiet = true})
+	if vetted.ok || !strings.contains(strings.concatenate({vetted.stdout, vetted.stderr}), "uni agents") {
+		return cli.aprintf("vet passed, or failed without naming uni agents (exit %d)", vetted.exit_code)
+	}
+	if written := cli.run_proc({cmd = agents, dir = game, env = env}); !written.ok {
+		return cli.aprintf("agents failed (exit %d)", written.exit_code)
+	}
+	if problems := cli.agents_problems(cli.join(game, "unified"), game); len(problems) > 0 {
+		return cli.aprintf("still stale after agents: %s", strings.join(problems, "; "))
+	}
+	if os.exists(cli.join(skills, "retired")) || !os.is_file(cli.join(skills, "own", "SKILL.md")) {
+		return "agents left the retired skill or removed the game's own"
+	}
+	os.remove_all(cli.join(skills, "own"))
+	return ""
+}
+
 // What `init --in-repo` changed in the clone (next to `game`'s repo): the game's directory, nothing else (its tests
 // join the test compile through the git-ignored tests/games.gen.odin).
 check_in_repo :: proc(game, head: string) -> string {
@@ -321,6 +364,14 @@ check_init :: proc(game, head: string) -> string {
 	})
 	if !strings.contains(pinned.stdout, head) {
 		return cli.aprintf("the unified submodule is not pinned to %s: %s", head, strings.trim_space(pinned.stdout))
+	}
+	if problems := cli.agents_problems(cli.join(game, "unified"), game); len(problems) > 0 {
+		return cli.aprintf("the agent guidance is not the submodule's: %s", strings.join(problems, "; "))
+	}
+	for name in cli.GAME_SKILLS {
+		if !os.is_file(cli.join(game, cli.SKILLS_DIR, name, "SKILL.md")) {
+			return cli.aprintf("%s/%s/SKILL.md is missing", cli.SKILLS_DIR, name)
+		}
 	}
 	STALE :: []string{"./unified", "unified.cmd", "`unified ", "unified init", "github.com/FylmTM/unified)"}
 	for file in cli.find_files(game, "") {

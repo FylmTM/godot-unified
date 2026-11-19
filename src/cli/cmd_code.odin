@@ -155,6 +155,13 @@ cmd_vet :: proc(args: []string) -> Result {
 		}
 	}
 	failed: [dynamic]string
+	// a game repo's agent guidance is the submodule's (agents.odin): stale after a bump until `uni agents`
+	if !is_unified_repo() {
+		if problems := agents_problems(state.project.unified, state.project.root); len(problems) > 0 {
+			append(&failed, "the agent guidance (run uni agents)")
+			log("vet: the agent guidance differs from the unified submodule's:\n  %s", strings.join(problems, "\n  "))
+		}
+	}
 	for result, i in run_all(runs) {
 		if !result.ok {
 			job := jobs[i]

@@ -32,7 +32,7 @@ import "unified:dmath"
 MAX_PLAYERS :: 32
 
 // The library's own simulation (src/sim, src/dmath, src/physics): bump it in a change that makes a reference
-// run or a golden trace compute differently because of the library, not a game's rules (the sim-change skill). Part of
+// run or a golden trace compute differently because of the library, not a game's rules (the library-sim-change skill). Part of
 // compat_of, so builds on other library versions refuse each other instead of desyncing; a game's own changes bump
 // its Game.version.
 LIBRARY_VERSION :: 8

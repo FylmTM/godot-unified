@@ -116,6 +116,9 @@ init_game_repo :: proc(dir, name, typed_dir, source_arg, ref: string) -> Result 
 		fatal("unified at %s has no %s: too old for this CLI's init", pinned, TEMPLATE_GAME)
 	}
 	count := write_game(submodule, dir, name, repo = true)
+	if os.exists(join(submodule, AGENTS_SECTION)) { 	// an older unified pin ships no agent guidance
+		count += write_agents(submodule, dir)
+	}
 	write_text(join(dir, "tools", ".gdignore"), "")
 	for shim in ([]string{"uni", "uni.cmd"}) {
 		copy_file(join(dir, shim), join(submodule, shim))

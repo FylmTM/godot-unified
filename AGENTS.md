@@ -87,7 +87,10 @@ piece of work. The `board-work` skill has the statuses, the procedure and when a
 - Generated output goes to `.out/` (the root's and each game's), git-ignored and safe to delete.
 - Each fact has one home. README.md: what, why, the design and its reasons. `docs/getting-started.md`: setup. This
   file: roles, rules, workflow. Commands and options: `./uni help`. Packages and games: their `README.md` and doc
-  comments (`./uni doc`). Procedures (how to do a recurring task): `.claude/skills/<name>/SKILL.md`. Rules for one
+  comments (`./uni doc`). Procedures (how to do a recurring task): `.claude/skills/<name>/SKILL.md`; the game-facing
+  ones (`cli.GAME_SKILLS`) are copied into every game repo, so they are written for one (unified at `unified/`) and
+  still right here, and the rest are this repo's own. A game repo's `AGENTS.md` section is `src/cli/template/agents.md`
+  (`src/cli/README.md`, Agent guidance). Rules for one
   kind of file: `.claude/rules/` (they load when Claude touches a matching file). No layout trees, test counts or measured times in docs: the tools print them.
 
 ## Commands

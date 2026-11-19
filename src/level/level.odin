@@ -30,7 +30,7 @@ import "unified:dmath"
 import "unified:wire"
 
 MAGIC :: "UNLV"
-VERSION :: 3 // bump on any change to a .level file's bytes (the sim-change skill)
+VERSION :: 3 // bump on any change to a .level file's bytes (the library-sim-change skill)
 
 // How many evenly spaced samples of its domain a Curve property holds.
 CURVE_SAMPLES :: 32
