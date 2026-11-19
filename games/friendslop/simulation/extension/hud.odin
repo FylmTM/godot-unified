@@ -54,7 +54,7 @@ hud_of :: proc(state: ^g.State, tick: u32) -> (hud: Data_Hud) {
 			holding = character.held_kind,
 			held    = character.held_by != {},
 			stunned = character.stun > 0,
-			fallen  = character.respawn > 0,
+			fallen  = sim.timer_running(sim.game_time(state, tick), character.respawn),
 			charge  = f32(character.charge) / f32(g.THROW_CHARGE_TICKS),
 		}
 	}

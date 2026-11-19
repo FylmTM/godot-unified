@@ -16,7 +16,7 @@ advance_phase :: proc(t: ^Tick) {
 		if places(t).start.half == {} do return
 		players := sim.iterate_present(t)
 		for character, player in sim.next(&players) {
-			if character.respawn > 0 || !in_volume(places(t).start, player_pos(t, player)) do continue
+			if sim.timer_running(t, character.respawn) || !in_volume(places(t).start, player_pos(t, player)) do continue
 			at := places(t).start.pos
 			start_run(t)
 			sim.emit(t, Event_Run_Started{position = sim.Position(at), player = player})
@@ -25,7 +25,7 @@ advance_phase :: proc(t: ^Tick) {
 	case .Run:
 		players := sim.iterate_present(t)
 		for character, player in sim.next(&players) {
-			if character.respawn > 0 do continue
+			if sim.timer_running(t, character.respawn) do continue
 			pos := player_pos(t, player)
 			for &checkpoint in sim.slice(&places(t).checkpoints) {
 				if checkpoint.index <= int(t.state.checkpoint) || !in_volume(checkpoint.volume, pos) do continue

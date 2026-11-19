@@ -45,8 +45,8 @@ Character :: struct {
 	charge:        u16, // ticks the throw button has been held while holding something
 	held_ticks:    u16, // ticks this player has been held
 	break_window:  u16, // ticks left to finish a break-free
-	respawn:       u16, // ticks until a fallen player respawns (0: not fallen)
-	pad_cooldown:  u16,
+	respawn:       sim.Timer, // fallen while it runs (RESPAWN_TICKS): parked far below, back when it fires
+	pad_cooldown:  sim.Timer, // no pad launch while it runs (PAD_COOLDOWN_TICKS)
 	held_kind:     Held_Kind,
 	held_item:     u8, // the item index (held_kind .Item)
 	grab_point:    u8, // which grab point of the held item
@@ -58,9 +58,9 @@ Character :: struct {
 Item :: struct {
 	body:           physics.Body_Ref,
 	holders:        [2]sim.Player, // the player holding each grab point ({}: free)
-	thrown_by:      sim.Player, // the last thrower (while thrown_ticks > 0), whether still here or not
-	thrown_ticks:   u16,
-	pad_cooldown:   u16,
+	thrown_by:      sim.Player, // the last thrower (while `thrown` runs), whether still here or not
+	thrown:         sim.Timer, // "thrown by thrown_by" while it runs (THROWN_TAG_TICKS): hit attribution, catches
+	pad_cooldown:   sim.Timer, // no pad launch while it runs (PAD_COOLDOWN_TICKS)
 	// The thrower's body and this item's don't touch from the throw until the item is clear of them (release_throws).
 	thrower_ignore: physics.Filter_Joint_Ref,
 }
@@ -77,6 +77,6 @@ Trigger :: struct {
 	body:     physics.Body_Ref, // its static body: a sensor box, a bell's sphere (create_trigger_body)
 	sensor:   physics.Shape_Ref, // plates, switches, locks: the volume's sensor
 	active:   bool, // plates: pressed now; bells, switches and locks: fired (latched)
-	_pad:     u8,
-	cooldown: u16, // bells: no ring again before this runs out
+	_pad:     [3]u8,
+	cooldown: sim.Timer, // bells: no ring again while it runs (BELL_COOLDOWN_TICKS)
 }

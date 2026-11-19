@@ -10,7 +10,6 @@ press_triggers :: proc(t: ^Tick) {
 	for i in 0 ..< places(t).trigger_count {
 		def := &places(t).triggers[i]
 		trigger := &t.state.triggers[i]
-		if trigger.cooldown > 0 do trigger.cooldown -= 1
 		entity, position := sim.entity(def.marker), sim.Position(def.volume.pos)
 		switch def.kind {
 		case .Plate:
@@ -29,7 +28,7 @@ press_triggers :: proc(t: ^Tick) {
 			for visitor in t.world.overlaps {
 				player := sim.player_of_key(visitor.tag)
 				character := sim.player_data(t, player)
-				if character == nil || character.respawn > 0 || !sim.player_present(t, player) do continue
+				if character == nil || sim.timer_running(t, character.respawn) || !sim.player_present(t, player) do continue
 				trigger.active = true
 				sim.emit(t, Event_Switch_On{entity = entity, position = position, player = player})
 				break
