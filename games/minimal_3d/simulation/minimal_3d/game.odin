@@ -10,7 +10,7 @@ PLAYERS :: 4 // input slots: the most players in the game at once
 TICK_HZ :: 64
 
 // The game's types for unified:sim: no World (no physics, no level).
-Game :: sim.Game(State, Input, sim.No_World, Event, Cmd, PLAYERS)
+Game :: sim.Game(State, Input, sim.No_World, Event, Cmd, sim.No_Setup, sim.No_Profile, PLAYERS)
 // What every system gets: the state, the inputs and commands, the tick's player changes.
 Tick :: sim.Tick(Game)
 

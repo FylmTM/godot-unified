@@ -75,7 +75,7 @@ re-baked with the exporter that writes it.
 A level's identity is `sim.content_hash(bytes)`: the log, the snapshot and the netcode's compat carry it, so a replay
 or a peer with another level is refused (`src/sim/README.md`). A game embeds the level it ships with once,
 `sim.Game.content = #load(...)`, which every host, run and suite plays; a headless run can take another file
-(`uni help`). A game's World gets the bytes from `world_create(seed, content)` and loads them there
+(`uni help`). A game's World gets the bytes from `world_create(seed, content, setup)` and loads them there
 (`physics.create_with_level` for a physics game).
 
 ## Baking

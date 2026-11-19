@@ -213,7 +213,7 @@ Width_Input :: struct($B: int) {
 Width_State :: struct($B: int, $PLAYERS: int) {
 	players: sim.Players(struct {
 			sum: u32,
-		}, Width_Input(B), PLAYERS),
+		}, sim.No_Profile, Width_Input(B), PLAYERS),
 }
 
 @(private = "file")
@@ -225,7 +225,16 @@ Width_Event :: union {
 // netcode.game_violation of a game of PLAYERS players with a B-byte Input.
 @(private = "file")
 width_violation :: proc($PLAYERS: int, $B: int) -> string {
-	G :: sim.Game(Width_State(B, PLAYERS), Width_Input(B), sim.No_World, Width_Event, sim.No_Commands, PLAYERS)
+	G :: sim.Game(
+		Width_State(B, PLAYERS),
+		Width_Input(B),
+		sim.No_World,
+		Width_Event,
+		sim.No_Commands,
+		sim.No_Setup,
+		sim.No_Profile,
+		PLAYERS,
+	)
 	game := G {
 		name = "width",
 	}

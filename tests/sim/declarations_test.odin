@@ -86,9 +86,11 @@ inputs_compare_as_bytes :: proc(t: ^testing.T) {
 		x: f32,
 	}
 	Float_State :: struct {
-		players: sim.Players(u8, Float_Input, 2),
+		players: sim.Players(u8, sim.No_Profile, Float_Input, 2),
 	}
-	a, b: sim.Inputs(sim.Game(Float_State, Float_Input, toy.World, toy.Event, toy.Cmd, 2))
+	a, b: sim.Inputs(
+		sim.Game(Float_State, Float_Input, toy.World, toy.Event, toy.Cmd, sim.No_Setup, sim.No_Profile, 2),
+	)
 	a.present = {0}
 	b.present = {0}
 	b.replaced = {0}
@@ -117,7 +119,7 @@ extra_rate_check :: proc(t: ^testing.T) {
 
 // sim.game_violation of a toy with these unions and this tick rate.
 declared :: proc($Cmd, $Event: typeid, tick_hz := 64) -> string {
-	game := sim.Game(toy.State, toy.Input, toy.World, Event, Cmd, toy.PLAYERS) {
+	game := sim.Game(toy.State, toy.Input, toy.World, Event, Cmd, sim.No_Setup, sim.No_Profile, toy.PLAYERS) {
 		name    = "toy",
 		tick_hz = tick_hz,
 	}
@@ -267,13 +269,22 @@ declarations_are_checked :: proc(t: ^testing.T) {
 		}
 	}
 	Float_State :: struct {
-		players: sim.Players(u8, Float_Input, toy.PLAYERS),
+		players: sim.Players(u8, sim.No_Profile, Float_Input, toy.PLAYERS),
 		at:      f64,
 	}
 	Float_Input :: struct {
 		x: f32,
 	}
-	floats := sim.Game(Float_State, Float_Input, toy.World, toy.Event, toy.Cmd, toy.PLAYERS) {
+	floats := sim.Game(
+		Float_State,
+		Float_Input,
+		toy.World,
+		toy.Event,
+		toy.Cmd,
+		sim.No_Setup,
+		sim.No_Profile,
+		toy.PLAYERS,
+	) {
 		name    = "floats",
 		tick_hz = 64,
 	}
@@ -282,7 +293,7 @@ declarations_are_checked :: proc(t: ^testing.T) {
 
 // compat_of of a toy with these unions, Input and State (the toy's name, version and tick rate).
 compat_with :: proc($State, $Input, $Event, $Cmd: typeid, content: []u8 = nil) -> u64 {
-	game := sim.Game(State, Input, toy.World, Event, Cmd, toy.PLAYERS) {
+	game := sim.Game(State, Input, toy.World, Event, Cmd, sim.No_Setup, sim.No_Profile, toy.PLAYERS) {
 		name    = toy.GAME.name,
 		version = toy.GAME.version,
 		tick_hz = toy.GAME.tick_hz,
@@ -307,7 +318,7 @@ Other_Input :: struct {
 }
 
 Other_State :: struct {
-	players: sim.Players(toy.Player_Data, Other_Input, toy.PLAYERS),
+	players: sim.Players(toy.Player_Data, sim.No_Profile, Other_Input, toy.PLAYERS),
 }
 
 // compat_of tells builds apart by what they compute with: the name, version and tick rate, the unions (the same

@@ -19,7 +19,7 @@ State :: struct {
 	spawner:        u32, // the next rock_spawn marker, in turn
 	score:          u32, // gems picked this match
 	gems_dropped:   u32, // small rocks destroyed, for GEM_DROP_EVERY
-	players:        sim.Players(Ship, Input, PLAYERS),
+	players:        sim.Players(Ship, sim.No_Profile, Input, PLAYERS),
 	gates:          [MAX_GATES]Gate,
 	rocks:          sim.Table(Rock, MAX_ROCKS),
 	bullets:        sim.Table(Bullet, MAX_BULLETS),

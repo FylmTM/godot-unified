@@ -464,7 +464,7 @@ Field :: struct {
 	rng:     sim.Rng,
 	splits:  u32,
 	spawns:  u32,
-	players: sim.Players(u32, Field_Input, 2), // every sim's State has one; the ships read their slot's input directly
+	players: sim.Players(u32, sim.No_Profile, Field_Input, 2), // every sim's State has one; the ships read their slot's input directly
 }
 
 // The library's join and leave: listed in every game's event union.
@@ -484,7 +484,16 @@ Field_World :: struct {
 	phys: ^physics.World,
 }
 
-Field_Game :: sim.Game(Field, Field_Input, Field_World, Library_Events, sim.No_Commands, 2)
+Field_Game :: sim.Game(
+	Field,
+	Field_Input,
+	Field_World,
+	Library_Events,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	2,
+)
 Field_Inputs :: sim.Inputs(Field_Game)
 Field_Tick :: sim.Tick(Field_Game)
 
@@ -492,7 +501,7 @@ FIELD := Field_Game {
 	name = "field",
 	version = "1",
 	tick_hz = HZ,
-	world_create = proc(seed: u64, _: []u8) -> ^Field_World {return field_world_create(1)},
+	world_create = proc(seed: u64, _: []u8, _: sim.No_Setup) -> ^Field_World {return field_world_create(1)},
 	world_destroy = proc(field_world: ^Field_World) {
 		physics.destroy(field_world.phys)
 		free(field_world)
@@ -532,7 +541,7 @@ field_world_create :: proc(workers: i32) -> ^Field_World {
 // The field with its world stepped on 4 workers: every checksum must match the 1-worker field's.
 field_on_4_workers :: proc() -> Field_Game {
 	game := FIELD
-	game.world_create = proc(seed: u64, _: []u8) -> ^Field_World {return field_world_create(4)}
+	game.world_create = proc(seed: u64, _: []u8, _: sim.No_Setup) -> ^Field_World {return field_world_create(4)}
 	return game
 }
 

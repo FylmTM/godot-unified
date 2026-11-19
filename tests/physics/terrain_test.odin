@@ -12,7 +12,7 @@ import "unified:sim"
 Terrain :: struct {
 	crates:  [2]physics.Body_Ref,
 	balls:   [3]physics.Body_Ref,
-	players: sim.Players(u32, Field_Input, 2),
+	players: sim.Players(u32, sim.No_Profile, Field_Input, 2),
 }
 
 Terrain_World :: struct {
@@ -20,7 +20,16 @@ Terrain_World :: struct {
 	level: level.Level,
 }
 
-Terrain_Game :: sim.Game(Terrain, Field_Input, Terrain_World, Library_Events, sim.No_Commands, 2)
+Terrain_Game :: sim.Game(
+	Terrain,
+	Field_Input,
+	Terrain_World,
+	Library_Events,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	2,
+)
 Terrain_Tick :: sim.Tick(Terrain_Game)
 
 TERRAIN := Terrain_Game {
@@ -28,7 +37,7 @@ TERRAIN := Terrain_Game {
 	version = "1",
 	tick_hz = HZ,
 	content = #load("../godot/levels/shapes_3d.level"),
-	world_create = proc(seed: u64, content: []u8) -> ^Terrain_World {
+	world_create = proc(seed: u64, content: []u8, _: sim.No_Setup) -> ^Terrain_World {
 		terrain := new(Terrain_World)
 		problem: string
 		terrain.phys, terrain.level, problem = physics.create_with_level({tick_hz = HZ}, content)

@@ -65,7 +65,7 @@ Roll :: enum u8 {
 
 // The physics world with the level's static geometry (src/level/README.md); the pillars and walls the enemies keep to;
 // the start spots and the items from the level's markers.
-world_create :: proc(seed: u64, content: []u8) -> ^World {
+world_create :: proc(seed: u64, content: []u8, _: sim.No_Setup) -> ^World {
 	world := new(World)
 	problem: string
 	world.phys, world.level, problem = physics.create_with_level(

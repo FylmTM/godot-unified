@@ -4,7 +4,7 @@ import "unified:sim"
 
 // The whole simulation state: one pointer-free block (checked by sim.create).
 State :: struct {
-	players: sim.Players(Player_Data, Input, PLAYERS),
+	players: sim.Players(Player_Data, sim.No_Profile, Input, PLAYERS),
 	balls:   sim.Table(Ball, MAX_BALLS),
 }
 

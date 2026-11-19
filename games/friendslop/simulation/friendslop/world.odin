@@ -112,7 +112,7 @@ World :: struct {
 // triggers' static bodies. A property's default lives in its marker's script (game/levels/markers/), which the export
 // writes whole: the sim reads the properties without defaults of its own and asserts what its rules need. The bodies
 // the block owns (items, platforms) are created by init.
-world_create :: proc(seed: u64, content: []u8) -> ^World {
+world_create :: proc(seed: u64, content: []u8, _: sim.No_Setup) -> ^World {
 	world := new(World)
 	world.character_def = physics.CHARACTER_DEFAULT
 	world.character_def.radius = PLAYER_RADIUS

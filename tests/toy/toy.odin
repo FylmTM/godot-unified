@@ -85,7 +85,7 @@ Player_Data :: struct {
 State :: struct {
 	spawned: u32,
 	_pad:    u32,
-	players: sim.Players(Player_Data, Input, PLAYERS),
+	players: sim.Players(Player_Data, sim.No_Profile, Input, PLAYERS),
 	things:  sim.Table(Thing, 32),
 }
 
@@ -113,7 +113,7 @@ Event :: union {
 	Event_Expired,
 }
 
-Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Cmd, sim.No_Setup, sim.No_Profile, PLAYERS)
 Sim :: sim.Sim(Game)
 Inputs :: sim.Inputs(Game)
 Tick :: sim.Tick(Game)

@@ -145,15 +145,15 @@ players_is_plain_at_any_player_count :: proc(t: ^testing.T) {
 	Wide :: struct {
 		value: u64,
 	}
-	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Players(Wide, toy.Input, 3))), "")
-	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Players(Wide, [3]u8, 4))), "")
-	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Players(u32, u8, 1))), "")
+	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Players(Wide, sim.No_Profile, toy.Input, 3))), "")
+	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Players(Wide, sim.No_Profile, [3]u8, 4))), "")
+	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Players(u32, sim.No_Profile, u8, 1))), "")
 }
 
 // A member who left on a tick keeps its entry through that tick, so the game can clean up by its handle in
 // t.player_changes.left: when the table is full, newcomers take the entries of members who left earlier.
 Tight_State :: struct {
-	players: sim.Players(u32, toy.Input, 2),
+	players: sim.Players(u32, sim.No_Profile, toy.Input, 2),
 }
 
 Tight_Event :: union {
@@ -161,7 +161,16 @@ Tight_Event :: union {
 	sim.Event_Player_Left,
 }
 
-Tight_Game :: sim.Game(Tight_State, toy.Input, toy.World, Tight_Event, sim.No_Commands, 2)
+Tight_Game :: sim.Game(
+	Tight_State,
+	toy.Input,
+	toy.World,
+	Tight_Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	2,
+)
 
 TIGHT := Tight_Game {
 	name = "tight",

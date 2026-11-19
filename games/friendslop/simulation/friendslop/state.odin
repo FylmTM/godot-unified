@@ -6,7 +6,7 @@ import "unified:sim"
 // The whole simulation state: one pointer-free block (checked by sim.create). Items, platforms and triggers are
 // indexed like the World's lists of them (the level's markers, in level order).
 State :: struct {
-	players:     sim.Players(Character, Input, PLAYERS),
+	players:     sim.Players(Character, sim.No_Profile, Input, PLAYERS),
 	items:       [MAX_ITEMS]Item,
 	platforms:   [MAX_PLATFORMS]Platform,
 	triggers:    [MAX_TRIGGERS]Trigger,

@@ -47,7 +47,7 @@ Rig :: struct {
 	jumps:      u32,
 	prev:       [2]b8,
 	_pad:       u16,
-	players:    sim.Players(u32, Rig_Input, 2), // every sim's State has one; the characters read their slot's input directly
+	players:    sim.Players(u32, sim.No_Profile, Rig_Input, 2), // every sim's State has one; the characters read their slot's input directly
 }
 
 Rig_World :: struct {
@@ -64,7 +64,7 @@ RIG_PATH := physics.Path {
 	ease = .Smooth,
 }
 
-Rig_Game :: sim.Game(Rig, Rig_Input, Rig_World, Library_Events, sim.No_Commands, 2)
+Rig_Game :: sim.Game(Rig, Rig_Input, Rig_World, Library_Events, sim.No_Commands, sim.No_Setup, sim.No_Profile, 2)
 Rig_Inputs :: sim.Inputs(Rig_Game)
 Rig_Tick :: sim.Tick(Rig_Game)
 
@@ -72,7 +72,7 @@ RIG := Rig_Game {
 	name = "rig",
 	version = "1",
 	tick_hz = HZ,
-	world_create = proc(seed: u64, _: []u8) -> ^Rig_World {return rig_world_create(1)},
+	world_create = proc(seed: u64, _: []u8, _: sim.No_Setup) -> ^Rig_World {return rig_world_create(1)},
 	world_destroy = proc(rig_world: ^Rig_World) {
 		physics.destroy(rig_world.phys)
 		delete(rig_world.scratch)
@@ -115,7 +115,7 @@ rig_world_create :: proc(workers: i32) -> ^Rig_World {
 // The rig with its world stepped on 4 workers: every checksum must match the 1-worker rig's.
 rig_on_4_workers :: proc() -> Rig_Game {
 	game := RIG
-	game.world_create = proc(seed: u64, _: []u8) -> ^Rig_World {return rig_world_create(4)}
+	game.world_create = proc(seed: u64, _: []u8, _: sim.No_Setup) -> ^Rig_World {return rig_world_create(4)}
 	return game
 }
 
