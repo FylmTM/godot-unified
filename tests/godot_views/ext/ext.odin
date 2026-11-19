@@ -35,7 +35,7 @@ Frame :: godot.Frame(toy.Game, View, MultiView)
 // purpose: the host reports the missing property as an error the suite expects.
 Typed2D_Data :: struct {
 	shown:     bool,
-	mode:      Mode, // an enum only view data uses: an int, no class
+	mode:      Mode, // an enum only view data uses: an int, with its class (EnumMode) since GLUE.view_data declares it
 	_pad:      [2]u8,
 	hp:        i32,
 	ticks:     u32, // the frame's tick: changes every frame
@@ -150,6 +150,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 	view_scale = VIEW_SCALE,
 	event_key = event_key,
 	input_values = Input_Values,
+	view_data = #partial{.Typed2D = Typed2D_Data}, // its enums and nested structs get classes at load
 	view_policy = #partial {
 		.Scripted3D = {appear = .Verified, pose = .Script},
 		.Plain3D = {smoothing = {tau_s = 0.05}},

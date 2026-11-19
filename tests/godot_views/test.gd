@@ -213,6 +213,7 @@ func _initialize() -> void:
 	check_card(card, card_seen, hand)
 	check("by subject type: a view of another table's handle with the thing's key gets none of its events",
 		decoys_seen and decoy_events.is_empty(), decoy_events)
+	check("a declared view data type's enum has its class (Glue.view_data)", EnumMode.OPEN == 1, EnumMode.OPEN)
 	check("scene data as properties (an enum as its int)", typed.get("shown") and typed.get("mode") == 1 and typed.get("hp") == -3 \
 		and near(typed.get("charge"), 0.5) and typed.get("dir").is_equal_approx(Vector2(0.6, -0.8)) \
 		and typed.get("tint").is_equal_approx(Color(1, 0.5, 0.25, 1)),

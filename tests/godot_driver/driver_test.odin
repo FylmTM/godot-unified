@@ -818,6 +818,26 @@ Generic_Data :: union {
 	Data_Generic,
 }
 
+@(private = "file")
+Data_Keyword :: struct {
+	class: u8, // `row.class` does not parse in GDScript
+}
+
+@(private = "file")
+Keyword_Data :: union {
+	Data_Keyword,
+}
+
+// A field named like a GDScript keyword in what GDScript reads is an install problem naming it: a script couldn't
+// read it.
+@(test)
+a_keyword_field_is_an_install_problem :: proc(t: ^testing.T) {
+	glue := GLUE
+	glue.data = Keyword_Data
+	problems := godot.install_problems(&toy.GAME, glue)
+	testing.expectf(t, len(problems) == 1 && strings.contains(problems[0], "Data_Keyword.class"), "%v", problems)
+}
+
 // A generic struct in what GDScript reads (here session data) is an install problem naming its field: no class can be
 // named after it (`Ring($T=u8, $N=4)`), and Godot would fail at load. sim's collections are Arrays, never a problem.
 @(test)
