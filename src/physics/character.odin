@@ -35,7 +35,9 @@ Character :: struct {
 	jump_buffer:   u16, // ticks left in which an early jump press fires on landing
 	jump_ticks:    u16,
 	flags:         Character_Flags,
-	_pad:          u8,
+	// The warp epoch, bumped by character_teleport: a view pushes it (godot.View_Item.warp) to snap, not glide, across
+	// a teleport.
+	warp:          u8,
 }
 #assert(size_of(Character) == 64)
 
@@ -202,7 +204,7 @@ character_set_limp :: proc(world: ^World, character: ^Character, limp: bool) {
 	}
 }
 
-// Moves the character (respawn): velocities zeroed, ground forgotten.
+// Moves the character (respawn): velocities zeroed, ground forgotten, its warp epoch bumped (Character.warp).
 character_teleport :: proc(world: ^World, character: ^Character, pos: [3]f32) {
 	id := body_id(world, character.body)
 	box3d.Body_SetTransform(id, transmute(box3d.Vec3)pos, transmute(box3d.Quat)[4]f32{0, 0, 0, 1})
@@ -213,6 +215,7 @@ character_teleport :: proc(world: ^World, character: ^Character, pos: [3]f32) {
 	character.flags -= {.On_Ground, .Walkable, .Jumping}
 	character.coyote = 0
 	character.jump_buffer = 0
+	character.warp += 1
 }
 
 // Whether the character stands on walkable ground (what jumps and ground movement go by).

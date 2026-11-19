@@ -44,7 +44,8 @@ Ship :: struct {
 	boost_cooldown: sim.Timer, // no boost while it runs (BOOST_COOLDOWN_TICKS)
 	gate_cooldown:  sim.Timer, // no warp while it runs (GATE_CHARGE_TICKS)
 	thrust:         bool, // thrusting this tick (the view's flame)
-	_pad:           [3]u8,
+	warp:           u8, // bumped where the ship is moved (a gate, the reset): its view snaps (godot.View_Item.warp)
+	_pad:           [2]u8,
 	shots:          u32,
 	gems:           u32,
 }

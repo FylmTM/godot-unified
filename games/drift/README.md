@@ -97,7 +97,7 @@ session and an offline run agree.
   - `ship` (`Ship_View`), keyed by its player (`sim.player_key`), so the view survives a leave and comes back with
     the player in any slot; its colour and "P<n>" follow the slot they hold (`Unified.session.get_player_slot`).
     When the player leaves, the ship shrinks away while the view lingers (`_sim_despawned`; `_sim_revived` undoes
-    it).
+    it). A gate and the reset bump the ship's warp epoch (`Ship.warp`): the view snaps across, never glides.
   - `station` (`Station_View`), key 0.
   - `gate` (`Gate_View`), keyed by the gate's index.
 - MultiMesh views (MultiMeshInstance2D, `TRANSFORM_2D`, keyed by handle):

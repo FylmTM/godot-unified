@@ -153,12 +153,16 @@ plate's mass, a spawn per slot, an item kind or platform mode the sim knows).
   loading it on a thread behind a loading label, and a marker view finds its marker with
   `UnifiedSession.level_marker`.
 - Scene views: `player` (keyed by `sim.player_key`; data `limp`, `holding`, `charge`) and `marker`, every sim object
-  the active level placed (items, platforms, bells, plates, switches, locks), keyed by its level marker index. An event about
-  a player goes to that player's view, so grabbed, dropped and thrown stay with the holder; one about a marker alone
-  goes to that marker's view.
+  the active level placed (items, platforms, bells, plates, switches, locks), keyed by its level marker index (data
+  `held_by`: the player holding a one-handle item). Markers are script-posed (`Glue.view_policy`): the view takes
+  the sim's pose, except an item the local player holds, drawn at their hand every rendered frame. A respawn, a park
+  below the level and an item sent home bump a warp epoch (`physics.Character.warp`, `Item.warp`): the view snaps
+  there instead of gliding. An event about a player goes to that player's view, so grabbed, dropped and thrown stay
+  with the holder; one about a marker alone goes to that marker's view.
 - Session data `Data_Hud` (`Unified.data.hud`): the phase, the run's and best times, the checkpoint, the reset
   countdown, and each slot's player (`DataHudPlayer`).
 - Constants (`Unified.constants`): the player capsule (radius, half height, feet), the heavy crate's
-  `handle_outset` and each item kind's size (`item_sizes`), which the item markers draw.
+  `handle_outset`, each item kind's size (`item_sizes`), which the item markers draw, and the hold point
+  (`hold_dist`, `hold_up`, `hold_pitch`) a held item is drawn at.
 - Input: the InputMap's move, jump, grab and throw, the stick turned by the camera rig's `look` and `right`
   (`Unified.input`, set on `input_wanted`), the aim its look.
