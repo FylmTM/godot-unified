@@ -64,7 +64,7 @@ Ignore_State :: struct {
 	ignore:        physics.Filter_Joint_Ref,
 	begins:        u32,
 	_pad:          u32,
-	players:       sim.Players(u32, Rig_Input, 2),
+	players:       sim.Players(u32, sim.No_Profile, Rig_Input, 2),
 }
 
 Ignore_World :: struct {
@@ -72,7 +72,16 @@ Ignore_World :: struct {
 	events: [dynamic]physics.Contact_Event,
 }
 
-Ignore_Game :: sim.Game(Ignore_State, Rig_Input, Ignore_World, Library_Events, sim.No_Commands, 2)
+Ignore_Game :: sim.Game(
+	Ignore_State,
+	Rig_Input,
+	Ignore_World,
+	Library_Events,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	2,
+)
 Ignore_Tick :: sim.Tick(Ignore_Game)
 
 IGNORE_TICKS :: 320
@@ -89,7 +98,7 @@ IGNORE := Ignore_Game {
 	name = "ignore",
 	version = "1",
 	tick_hz = HZ,
-	world_create = proc(seed: u64, _: []u8) -> ^Ignore_World {
+	world_create = proc(seed: u64, _: []u8, _: sim.No_Setup) -> ^Ignore_World {
 		ignore_world := new(Ignore_World)
 		ignore_world.phys = physics.create({tick_hz = HZ})
 		ground(ignore_world.phys)
@@ -156,8 +165,8 @@ ignore_synctest :: proc(t: ^testing.T) {
 		},
 	)
 	on_4 := IGNORE
-	on_4.world_create = proc(seed: u64, content: []u8) -> ^Ignore_World {
-		ignore_world := IGNORE.world_create(seed, content)
+	on_4.world_create = proc(seed: u64, content: []u8, setup: sim.No_Setup) -> ^Ignore_World {
+		ignore_world := IGNORE.world_create(seed, content, setup)
 		physics.world_set_worker_count(ignore_world.phys, 4)
 		return ignore_world
 	}

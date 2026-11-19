@@ -8,6 +8,7 @@ import "core:testing"
 import g "../survivor"
 import "unified:headless/scenarios"
 @(require) import "unified:physics" // the workers check (in the long tier while the game ships one worker)
+@(require) import "unified:sim"
 
 SUITE := scenarios.Suite(g.Game) {
 	game    = &g.GAME_STRESS,
@@ -67,8 +68,8 @@ when scenarios.LONG || g.PHYSICS_WORKERS > 1 {
 	@(test)
 	the_reference_run_matches_on_other_workers :: proc(t: ^testing.T) {
 		game := g.GAME_STRESS
-		game.world_create = proc(seed: u64, content: []u8) -> ^g.World {
-			world := g.world_create(seed, content)
+		game.world_create = proc(seed: u64, content: []u8, setup: sim.No_Setup) -> ^g.World {
+			world := g.world_create(seed, content, setup)
 			physics.world_set_worker_count(world.phys, OTHER_WORKERS)
 			return world
 		}
