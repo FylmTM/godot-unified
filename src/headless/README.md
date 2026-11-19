@@ -18,7 +18,9 @@ A game's `simulation/headless/main.odin` calls `modes.run(&GAME, ...)`; `uni hea
 it, and the binary's `help` lists every mode and its options. The modes:
 
 - offline, in memory: `sim` (a run, its trace and input log), `synctest` (a rollback every tick), `replay` (an input
-  log, optionally from a portable snapshot's tick: an F3 note's recording, `src/godot/README.md`);
+  log, optionally from a portable snapshot's tick: an F3 note's recording, `src/godot/README.md`), `predict-stats`
+  (how many rollbacks `sim.Game.predict_input` would save on a log: a game adopts a hook when its own recordings of
+  real play say so, never on the scripted player's, whose inputs are held for a fixed period);
 - `session`: a relay and scripted clients in process on the virtual clock behind a network profile (`session_run`);
   `uni bench` runs it;
 - `relay`, `client`: separate processes over local UDP on the real clock (`uni test --suite net`);

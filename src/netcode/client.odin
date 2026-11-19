@@ -679,8 +679,8 @@ load_snapshot :: proc(client: ^Client($G), now: i64) {
 	client.snap_buf = nil
 }
 
-// Inputs for predicting `tick`: own input and commands, the others' latest finalized input repeated
-// (their commands are unknown until finalized: none).
+// Inputs for predicting `tick`: own input and commands, the others' latest finalized input repeated, or the game's
+// guess from it (sim.Game.predict_input); their commands are unknown until finalized: none.
 @(private)
 predicted_inputs :: proc(client: ^Client($G), tick: u32, out: ^usim.Inputs(G)) {
 	out^ = {}
@@ -688,6 +688,11 @@ predicted_inputs :: proc(client: ^Client($G), tick: u32, out: ^usim.Inputs(G)) {
 		last := &client.fin[client.fin_upto % FIN_RING]
 		out.present = last.present
 		out.input = last.input
+		if predict := client.game.predict_input; predict != nil && tick > client.fin_upto {
+			for slot in last.present {
+				out.input[slot] = predict(last.input[slot], tick - client.fin_upto) // our own is written over below
+			}
+		}
 	}
 	if tick >= client.first_tick {
 		out.present += {client.slot}

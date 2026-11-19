@@ -521,3 +521,61 @@ run_resume :: proc(
 	result.final_tick = start + ticks
 	return result, true
 }
+
+// What `predict-stats` measures: the rollbacks a client `depth` ticks deep would have had over a recorded log, with
+// the remote players' inputs guessed by repeating their last one and by the game's sim.Game.predict_input (the same
+// count when it has none), summed over every slot as the observing client.
+Prediction_Stats :: struct {
+	ticks:         int,
+	depth:         u32,
+	repeat_last:   int,
+	predict_input: int,
+}
+
+// Replays a log's inputs through the client's prediction rule, offline (no sim runs): a client verifying tick T
+// predicted it from the newest tick it knew, T - depth, or the tick of its last rollback if later (a rollback predicts
+// the ticks after it again). A tick whose guess differs from the final inputs in presence, in a remote input's bytes,
+// or by a remote command (never predicted) costs one rollback, and the guesses after it start over from it.
+prediction_stats :: proc(game: ^$G, input_log: ^sim.Input_Log(G), depth: u32) -> (stats: Prediction_Stats) {
+	Input :: sim.part(G, sim.GAME_INPUT)
+	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
+	stats.ticks = len(input_log.ticks)
+	stats.depth = depth
+	guess :: proc(game: ^$G, last: $Input, ahead: u32, hooked: bool) -> Input {
+		return hooked && game.predict_input != nil ? game.predict_input(last, ahead) : last
+	}
+	for observer in 0 ..< PLAYERS {
+		for hooked in ([]bool{false, true}) {
+			rolled_back := 0 // the tick (log index + 1) of the last rollback
+			count := 0
+			for k in 0 ..< len(input_log.ticks) {
+				tick := k + 1
+				final := &input_log.ticks[k]
+				base := max(tick - int(depth), rolled_back)
+				if observer not_in final.present || base < 1 {
+					continue
+				}
+				known := &input_log.ticks[base - 1]
+				wrong := final.present - {observer} != known.present - {observer}
+				for slot in final.present - {observer} {
+					predicted := guess(game, known.input[slot], u32(tick - base), hooked)
+					actual := final.input[slot]
+					wrong ||= transmute([size_of(Input)]u8)predicted != transmute([size_of(Input)]u8)actual
+				}
+				for command in sim.log_commands(input_log, k) {
+					wrong ||= int(command.slot) != observer
+				}
+				if wrong {
+					count += 1
+					rolled_back = tick
+				}
+			}
+			if hooked {
+				stats.predict_input += count
+			} else {
+				stats.repeat_last += count
+			}
+		}
+	}
+	return
+}
