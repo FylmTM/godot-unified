@@ -1,11 +1,12 @@
 // sim's inline collections as GDScript sees them, in every class built from the game's types (events, commands,
 // data, constants, input values, the Setup and the Profile): a sim.List or sim.Queue as an Array of its live items (a
 // Queue's oldest first), typed by the item, and a sim.Bits as an Array of the indices it holds. A settable one (a
-// Setup, input values, a nested value, a command) takes such an Array back: at most the collection's capacity, each
-// item as its field would be.
+// Setup, a Profile, input values, a nested value, a command) takes such an Array back: at most the collection's
+// capacity, each item as its field would be.
 #+private
 package godot
 
+import "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
 import "core:strconv"
@@ -67,6 +68,7 @@ collection_of :: proc(type: ^runtime.Type_Info) -> (collection: Collection, ok: 
 		collection.capacity, _ = strconv.parse_int(named.name[start:close], 10)
 		collection.elem = type_info_of(i64)
 	}
+	assert(collection.elem != nil, "a sim collection without its items")
 	return collection, true
 }
 
@@ -74,8 +76,14 @@ collection_of :: proc(type: ^runtime.Type_Info) -> (collection: Collection, ok: 
 collection_variant :: proc(type: ^runtime.Type_Info, collection: Collection, bytes: []u8, units: Units) -> gd.Variant {
 	array := typed_array(type)
 	if collection.kind == .Bits {
-		for bit in 0 ..< collection.capacity {
-			if bytes[collection.items_at + bit / 8] & (1 << uint(bit % 8)) != 0 do gd.array_push(&array, i64(bit))
+		// word by word, each set bit by its trailing zeros (as sim.bits_next walks)
+		for word_at := 0; word_at * 64 < collection.capacity; word_at += 1 {
+			word := u64(read_uint(bytes[collection.items_at + word_at * 8:][:8]))
+			for word != 0 {
+				bit := word_at * 64 + int(intrinsics.count_trailing_zeros(word))
+				if bit < collection.capacity do gd.array_push(&array, i64(bit))
+				word &= word - 1
+			}
 		}
 		return array_variant(&array)
 	}

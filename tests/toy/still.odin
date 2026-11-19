@@ -66,6 +66,7 @@ still_tick :: proc(t: ^Still_Tick) {
 				data.bumps = 0
 			case Cmd_Travel:
 				if command.to != t.state.level.id do sim.level_enter(t, command.to)
+			case Cmd_Trail:
 			case Cmd_Pause:
 				sim.set_paused(t, command.paused)
 			case:

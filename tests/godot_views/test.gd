@@ -273,6 +273,18 @@ func _initialize() -> void:
 	check("a sim.List set as an Array reads back", input.picks == [3, 1], input.picks)
 	input.picks = [1, 2, 3, 4]  # past its capacity: refused with an error line, the value kept
 	check("a sim.List past its capacity is refused", input.picks == [3, 1], input.picks)
+	input.picks = [300]  # an item its type can't hold: refused, the value kept
+	input.set(&"picks", ["a"])  # not an int (untyped: the parser would refuse it)
+	check("a sim.List item that doesn't fit is refused", input.picks == [3, 1], input.picks)
+	input.flags = [2, 9]
+	check("a sim.Bits set as its indices reads back", input.flags == [2, 9], input.flags)
+	input.flags = [10]  # past its size: refused
+	check("a sim.Bits index past its size is refused", input.flags == [2, 9], input.flags)
+	input.order = [5, 6]
+	check("a sim.Queue set as an Array reads back, oldest first", input.order == [5, 6], input.order)
+	var areas: Array[DataMarkArea] = toy.areas  # typed by its class: assigning it would fail otherwise
+	check("a sim.List of nested structs: an Array of their class", areas.size() == 2 and areas[1].layer == 6 \
+		and areas[1].corner == Vector2(4, 5), areas)
 	check("an Entity field starts as none", input.pick == -1, input.pick)
 	input.pick = 2
 	var picked := input.pick
@@ -655,6 +667,22 @@ func check_commands(session: UnifiedSession, toy: DataToy) -> void:
 		[mark_area.corner, mark_area.layer])
 	check("by shape: [4]f32 a Vector4, Quat a Quaternion, [2]i32 a Vector2i", toy.tint == Vector4(1, 2, 3, 4) \
 		and toy.turn == Quaternion.IDENTITY and toy.cell == Vector2i(-3, 7), [toy.tint, toy.turn, toy.cell])
+	# a List of positions in a command: view units in, sim units in the sim, view units back (in a nested struct too)
+	var trail := CommandTrail.new()
+	trail.points = [Vector2(10, 20), Vector2(30, 40)]
+	check("send_command a List of positions", session.send_command(trail))
+	var long_trail := CommandTrail.new()
+	long_trail.points = [Vector2.ZERO, Vector2.ZERO, Vector2.ZERO, Vector2.ZERO]  # past its capacity
+	check("a List past its capacity: the command is refused", not session.send_command(long_trail))
+	for i in 100:
+		await create_timer(0.02).timeout
+		if toy.trail.size() == 2:
+			break
+	check("a List of positions arrives in sim units", toy.trail_first == Vector3(1, 2, 0), toy.trail_first)
+	check("and reads back in view units", toy.trail == [Vector2(10, 20), Vector2(30, 40)], toy.trail)
+	var box: DataTrailBox = toy.trail_box
+	check("a nested struct's List of positions in view units", box.points == [Vector2(10, 20), Vector2(30, 40)],
+		box.points)
 	# a command without fields (zero bytes): the bumps start over, then one more
 	check("send_command ClearBumps", session.send_command(CommandClearBumps.new()))
 	var bump3 := CommandBump.new()

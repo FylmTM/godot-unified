@@ -122,6 +122,54 @@ data_problems :: proc(data: typeid, constants: typeid, input_values: typeid, pro
 	if input_values != nil do struct_problems("Glue.input_values", type_info_of(input_values), true, problems)
 }
 
+// A problem for every generic struct (its type's name holds its parameters: `Ring($T=u8, $N=4)`) in these types and the
+// structs, arrays and collections they hold, which no GDScript class can be named after; sim's List, Queue and Bits
+// are Arrays (collections.odin), a handle an int.
+generic_problems :: proc(types: []^runtime.Type_Info, problems: ^[dynamic]string) {
+	context.allocator = runtime.heap_allocator()
+	walk :: proc(type: ^runtime.Type_Info, seen: ^[dynamic]typeid, problems: ^[dynamic]string) {
+		if type == nil || type.id == sim.Position || type.id == sim.Player || is_handle(type) do return
+		if collection, is_collection := collection_of(type); is_collection {
+			walk(collection.elem, seen, problems)
+			return
+		}
+		#partial switch info in runtime.type_info_base(type).variant {
+		case runtime.Type_Info_Array:
+			walk(info.elem, seen, problems)
+		case runtime.Type_Info_Enumerated_Array:
+			walk(info.elem, seen, problems)
+		case runtime.Type_Info_Struct:
+			for known in seen do if known == type.id do return
+			append(seen, type.id)
+			for i in 0 ..< int(info.field_count) {
+				field := info.types[i]
+				named, is_named := field.variant.(runtime.Type_Info_Named)
+				_, is_collection := collection_of(field)
+				_, is_struct := runtime.type_info_base(field).variant.(runtime.Type_Info_Struct)
+				if is_named &&
+				   is_struct &&
+				   !is_collection &&
+				   !is_handle(field) &&
+				   strings.contains_rune(named.name, '(') {
+					append(
+						problems,
+						fmt.aprintf(
+							"%v.%s is a %v, a generic struct no GDScript class can be named after: use a plain struct (or a sim.List, Queue or Bits)",
+							type.id,
+							info.names[i],
+							field.id,
+						),
+					)
+					continue
+				}
+				walk(field, seen, problems)
+			}
+		}
+	}
+	seen := make([dynamic]typeid, context.temp_allocator)
+	for type in types do walk(type, &seen, problems)
+}
+
 // A Glue struct type's problems: not a struct, not plain (`plain`: padding-free, no pointers: sim.plain_violation), or
 // a field of one of Godot's own types (data maps by shape: [3]f32, godot.Color...).
 struct_problems :: proc(what: string, type: ^runtime.Type_Info, plain: bool, problems: ^[dynamic]string) {

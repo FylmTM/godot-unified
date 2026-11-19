@@ -787,3 +787,29 @@ to_view_keys_as_push_view_does :: proc(t: ^testing.T) {
 	testing.expect_value(t, godot.to_view(View.Dot), godot.Event_Target(View){.Dot, 0, .View})
 	testing.expect_value(t, godot.to_view(View.Dot, sim.Entity(0)).route, godot.Event_Route.Subject) // none: by subject
 }
+
+@(private = "file")
+Ring :: struct($T: typeid, $N: int) {
+	items: [N]T,
+}
+
+@(private = "file")
+Data_Generic :: struct {
+	ring: Ring(u8, 4),
+	bag:  sim.List(u8, 4), // a sim collection: an Array, no problem
+}
+
+@(private = "file")
+Generic_Data :: union {
+	Data_Generic,
+}
+
+// A generic struct in what GDScript reads (here session data) is an install problem naming its field: no class can be
+// named after it (`Ring($T=u8, $N=4)`), and Godot would fail at load. sim's collections are Arrays, never a problem.
+@(test)
+a_generic_struct_is_an_install_problem :: proc(t: ^testing.T) {
+	glue := GLUE
+	glue.data = Generic_Data
+	problems := godot.install_problems(&toy.GAME, glue)
+	testing.expectf(t, len(problems) == 1 && strings.contains(problems[0], "Data_Generic.ring"), "%v", problems)
+}

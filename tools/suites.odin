@@ -224,6 +224,8 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 				"unified: UnifiedSetup.from_json: ",
 				"which view_root has no node at",
 				"it holds at most",
+				"unified: UnifiedInput.picks: item 0: ",
+				"unified: UnifiedInput.flags: item 0: ",
 			},
 			nil,
 		},
