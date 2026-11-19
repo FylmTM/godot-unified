@@ -1,10 +1,15 @@
 // Input log (the replay file): "UNIL", version u16, seed u64, levels hash u64 (0: none), compat u64
 // (compat_of of the build that recorded it, 0: unknown), players u8, input size u16, tick count u32 (0 with ticks
-// after it: a recording that never ended, read to its last whole tick), profile size u8, setup size u16, then the
-// session's Setup (setup size bytes), then per tick (write_tick, also the netcode's finalized tick): present u32,
-// replaced u32, players × the input's bytes (plain data, so its memory is its little-endian serialization), command
-// count u8, then per command: slot u8, kind u8, size u8, the struct's bytes; then the join record count u8, then per
-// record (in slot order): slot u8, member u16, the Profile its join brings (profile size bytes).
+// after it: a recording that never ended, read to its last whole tick), profile size u8, setup size u16, from u32
+// (the tick before the first tick record: 0, or the snapshot's a recording continues), then the session's Setup
+// (setup size bytes), then records, each a kind u8 and its bytes:
+//   RECORD_TICK (0): a tick (write_tick, also the netcode's finalized tick): present u32, replaced u32, players × the
+//     input's bytes (plain data, so its memory is its little-endian serialization), command count u8, then per
+//     command: slot u8, kind u8, size u8, the struct's bytes; then the join record count u8, then per record (in slot
+//     order): slot u8, member u16, the Profile its join brings (profile size bytes);
+//   RECORD_CHECKPOINT (1): tick u32, checksum u64: the recorder's sim.checksum of a tick the log already holds (a
+//     relay's judged majority, a client's own), written when it is known.
+// The tick count counts tick records.
 package sim
 
 @(require) import "base:intrinsics" // only in a where clause
@@ -15,8 +20,11 @@ import "unified:wire"
 @(private)
 LOG_MAGIC :: "UNIL"
 // Bump on any change to what the bytes hold.
-LOG_VERSION :: 8
-LOG_HEADER :: 40 // the header's fixed part: the session's Setup follows it
+LOG_VERSION :: 9
+LOG_HEADER :: 44 // the header's fixed part: the session's Setup follows it
+// The record kinds after the header.
+RECORD_TICK :: 0
+RECORD_CHECKPOINT :: 1
 @(private)
 LOG_TICKS_AT :: 33 // the header's tick count
 COMMAND_HEAD :: 3 // slot, kind, size: a command's bytes on the wire and in the log, before its data
@@ -37,20 +45,40 @@ Log_Tick :: struct($G: typeid) {
 // A recorded session's inputs in memory, tick by tick (log_append, log_inputs; log_encode and log_decode go to and
 // from the file's bytes). With the seed, the Setup and the levels it is the whole session.
 Input_Log :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
-	seed:     u64,
-	setup:    part(G, GAME_SETUP), // the session's (sim.create(game, seed, setup) replays it)
-	content:  u64, // content_hash of the session's levels (0: none)
-	compat:   u64, // compat_of of the build that recorded it (0: unknown, e.g. a relay that accepts any build)
-	ticks:    [dynamic]Log_Tick(G), // ticks[k] holds tick k + 1
-	commands: [dynamic]Raw_Command, // every tick's commands, in tick order
+	seed:        u64,
+	setup:       part(G, GAME_SETUP), // the session's (sim.create(game, seed, setup) replays it)
+	content:     u64, // content_hash of the session's levels (0: none)
+	compat:      u64, // compat_of of the build that recorded it (0: unknown, e.g. a relay that accepts any build)
+	from:        u32, // the tick before ticks[0]: 0, or the snapshot's tick a recording continues
+	ticks:       [dynamic]Log_Tick(G), // ticks[k] holds tick from + k + 1
+	commands:    [dynamic]Raw_Command, // every tick's commands, in tick order
+	checkpoints: [dynamic]Checkpoint, // in the order they were recorded (not always by tick: judging finishes out of order)
 }
 
-// Frees the log's ticks and commands and leaves it empty, ready to append to again.
+// A tick's checksum as the recorder computed it (log_checkpoint), where a replay checks its own.
+Checkpoint :: struct {
+	after:    u32, // tick records before it in the log (so the bytes encode as they were recorded)
+	tick:     u32,
+	checksum: u64,
+}
+
+// Frees the log's ticks, commands and checkpoints and leaves it empty, ready to append to again.
 log_destroy :: proc(input_log: ^Input_Log($G)) {
 	delete(input_log.ticks)
 	delete(input_log.commands)
+	delete(input_log.checkpoints)
 	input_log.ticks = nil
 	input_log.commands = nil
+	input_log.checkpoints = nil
+}
+
+// Records the recorder's checksum of `tick`, a tick the log holds already (from < tick <= from + len(ticks)).
+log_checkpoint :: proc(input_log: ^Input_Log($G), tick: u32, checksum: u64) {
+	assert(
+		tick > input_log.from && int(tick - input_log.from) <= len(input_log.ticks),
+		"log_checkpoint: a tick the log doesn't hold",
+	)
+	builtin.append(&input_log.checkpoints, Checkpoint{u32(len(input_log.ticks)), tick, checksum})
 }
 
 // Appends a tick's inputs (the next tick).
@@ -275,7 +303,15 @@ log_write_tick :: proc(writer: ^wire.Writer, input_log: ^Input_Log($G), k: int) 
 	write_tick(writer, log_tick.present, log_tick.replaced, input, commands, log_tick.joins[:], profiles)
 }
 
-// The log's bytes: the header, then the ticks.
+// Writes a checkpoint record's body: tick u32, checksum u64.
+@(private)
+write_checkpoint :: proc(writer: ^wire.Writer, tick: u32, checksum: u64) {
+	wire.w_u8(writer, RECORD_CHECKPOINT)
+	wire.w_u32(writer, tick)
+	wire.w_u64(writer, checksum)
+}
+
+// The log's bytes: the header, then the records (each checkpoint after the ticks it was recorded after).
 log_encode :: proc(input_log: ^Input_Log($G), allocator := context.allocator) -> []u8 {
 	Input :: part(G, GAME_INPUT)
 	Setup :: part(G, GAME_SETUP)
@@ -296,17 +332,26 @@ log_encode :: proc(input_log: ^Input_Log($G), allocator := context.allocator) ->
 		profile_size = size_of(Profile),
 		setup        = bytes_of(&input_log.setup),
 		ticks        = len(input_log.ticks),
+		from         = input_log.from,
 	}
 	write_log_header(&writer, header)
-	for k in 0 ..< len(input_log.ticks) {
+	next := 0
+	for k in 0 ..= len(input_log.ticks) {
+		for next < len(input_log.checkpoints) && int(input_log.checkpoints[next].after) <= k {
+			write_checkpoint(&writer, input_log.checkpoints[next].tick, input_log.checkpoints[next].checksum)
+			next += 1
+		}
+		if k == len(input_log.ticks) do break
+		wire.w_u8(&writer, RECORD_TICK)
 		log_write_tick(&writer, input_log, k)
 	}
 	return writer.buf[:]
 }
 
 // Parses log_encode's bytes into an Input_Log of game G; false when the header does not match G's Input, Profile,
-// Setup and PLAYERS, its Setup does not read as sent (setup_violation) or the bytes are malformed. A recording that
-// never ended (tick count 0) is read to its last whole tick (a cut one after it is left out).
+// Setup and PLAYERS, its Setup does not read as sent (setup_violation) or the bytes are malformed (an unknown record,
+// a checkpoint of a tick the log doesn't hold before it). A recording that never ended (tick count 0) is read to its
+// last whole record (a cut one after it is left out).
 log_decode :: proc(data: []u8, $G: typeid) -> (input_log: Input_Log(G), ok: bool) {
 	Input :: part(G, GAME_INPUT)
 	Setup :: part(G, GAME_SETUP)
@@ -317,7 +362,7 @@ log_decode :: proc(data: []u8, $G: typeid) -> (input_log: Input_Log(G), ok: bool
 	   header.input_size != size_of(Input) ||
 	   header.profile_size != size_of(Profile) ||
 	   len(header.setup) != size_of(Setup) ||
-	   len(body) < header.ticks * tick_bytes(Input, PLAYERS, nil) {
+	   len(body) < header.ticks * (1 + tick_bytes(Input, PLAYERS, nil)) {
 		return
 	}
 	copy(bytes_of(&input_log.setup), header.setup)
@@ -327,21 +372,34 @@ log_decode :: proc(data: []u8, $G: typeid) -> (input_log: Input_Log(G), ok: bool
 	input_log.seed = header.seed
 	input_log.content = header.content
 	input_log.compat = header.compat
+	input_log.from = header.from
 	input_log.ticks = make([dynamic]Log_Tick(G), 0, header.ticks)
 	reader := wire.reader_make(body)
 	inputs: Inputs(G)
-	// A recording whose writer never patched the count (it stopped without ending): every whole tick to the end. Its
-	// last tick may be cut (a torn write, a copy of a growing file): the ticks before it are the recording.
+	// A recording whose writer never patched the count (it stopped without ending): every whole record to the end.
+	// Its last record may be cut (a torn write, a copy of a growing file): the records before it are the recording.
 	unended := header.ticks == 0
-	for k := 0; unended ? wire.r_remaining(&reader) > 0 : k < header.ticks; k += 1 {
-		if !inputs_read(&reader, &inputs) {
-			if unended do return input_log, true
+	for wire.r_remaining(&reader) > 0 {
+		whole := true
+		switch wire.r_u8(&reader) {
+		case RECORD_TICK:
+			whole = (unended || len(input_log.ticks) < header.ticks) && inputs_read(&reader, &inputs)
+			if whole do log_append(&input_log, &inputs)
+		case RECORD_CHECKPOINT:
+			tick, checksum := wire.r_u32(&reader), wire.r_u64(&reader)
+			held := tick > input_log.from && int(tick - input_log.from) <= len(input_log.ticks)
+			whole = reader.ok && held
+			if whole do log_checkpoint(&input_log, tick, checksum)
+		case:
+			whole = false
+		}
+		if !whole {
+			if unended do return input_log, true // its last record cut short
 			log_destroy(&input_log)
 			return {}, false
 		}
-		log_append(&input_log, &inputs)
 	}
-	if wire.r_remaining(&reader) != 0 {
+	if !unended && len(input_log.ticks) != header.ticks {
 		log_destroy(&input_log)
 		return {}, false
 	}
@@ -414,9 +472,19 @@ log_stream_tick :: proc(stream: ^Log_Stream, inputs: ^Inputs($G)) {
 	if stream.sink.write == nil {
 		return
 	}
+	wire.w_u8(&stream.writer, RECORD_TICK)
 	inputs_write(&stream.writer, inputs)
 	log_stream_put(stream)
 	stream.ticks += 1
+}
+
+// Appends the recorder's checksum of a tick the recording holds already (a relay's judged majority, a client's own).
+log_stream_checkpoint :: proc(stream: ^Log_Stream, tick: u32, checksum: u64) {
+	if stream.sink.write == nil {
+		return
+	}
+	write_checkpoint(&stream.writer, tick, checksum)
+	log_stream_put(stream)
 }
 
 // Patches the tick count, closes the sink; false if a write failed.
@@ -445,22 +513,26 @@ Log_Header :: struct {
 	profile_size: int,
 	setup:        []u8, // the session's Setup's bytes (decode_log: a view into the log's bytes)
 	ticks:        int,
+	from:         u32, // the tick before the first tick record (Input_Log.from)
 }
 
 // The header of a recording of game G (log_stream_begin): its sizes, with this session's seed, Setup (`setup`: its
-// bytes are borrowed until log_stream_begin returns), content hash and compat.
+// bytes are borrowed until log_stream_begin returns), content hash and compat; `from`: the tick before its first tick
+// (a recording that continues a snapshot: its tick).
 log_header :: proc(
 	game: ^$G,
 	seed: u64,
 	setup: ^$S,
 	content: u64,
 	compat: u64,
+	from: u32 = 0,
 ) -> Log_Header where intrinsics.type_is_specialization_of(G, Game) &&
 	S == part(G, GAME_SETUP) {
 	return {
 		seed         = seed,
 		content      = content,
 		compat       = compat,
+		from         = from,
 		players      = part(G, GAME_PLAYERS),
 		input_size   = size_of(part(G, GAME_INPUT)),
 		profile_size = size_of(part(G, GAME_PROFILE)),
@@ -487,6 +559,7 @@ write_log_header :: proc(writer: ^wire.Writer, header: Log_Header) {
 	wire.w_u32(writer, u32(header.ticks))
 	wire.w_u8(writer, u8(header.profile_size))
 	wire.w_u16(writer, u16(len(header.setup)))
+	wire.w_u32(writer, header.from)
 	wire.w_bytes(writer, header.setup)
 }
 
@@ -503,7 +576,9 @@ decode_log :: proc(data: []u8) -> (header: Log_Header, body: []u8, ok: bool) {
 	header.input_size = int(wire.r_u16(&reader))
 	header.ticks = int(wire.r_u32(&reader))
 	header.profile_size = int(wire.r_u8(&reader))
-	header.setup = wire.r_bytes(&reader, int(wire.r_u16(&reader)))
+	setup_size := int(wire.r_u16(&reader))
+	header.from = wire.r_u32(&reader)
+	header.setup = wire.r_bytes(&reader, setup_size)
 	if !reader.ok || string(magic) != LOG_MAGIC || version != LOG_VERSION {
 		return
 	}

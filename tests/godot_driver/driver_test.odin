@@ -12,6 +12,7 @@ import "core:testing"
 import "core:time"
 
 import "unified:godot"
+import "unified:headless"
 import "unified:netcode"
 import "unified:sim"
 
@@ -128,8 +129,8 @@ take_events :: proc(out: ^[dynamic]godot.Event_Message, shown: u32) {
 	}
 }
 
-// The recording of the session (driver.odin, what an F3 note carries): its snapshot and input log replay offline to
-// the checksum the session computed of a tick the log reaches.
+// The recording of the session (driver.odin, what an F3 note carries): its snapshot and input log replay offline,
+// agreeing with every checkpoint (this machine's checksum of each checksum tick) the log holds.
 @(private = "file")
 recording_replays :: proc(t: ^testing.T) {
 	snapshot, log_bytes: [dynamic]u8
@@ -137,25 +138,16 @@ recording_replays :: proc(t: ^testing.T) {
 	defer delete(log_bytes)
 	info, recorded := godot.api.recording(&snapshot, &log_bytes)
 	if !testing.expect(t, recorded, "the session was recorded") do return
-	testing.expectf(t, info.check_tick > info.from && info.check_tick <= info.to, "a tick to check: %v", info)
+	testing.expectf(t, info.checkpoints > 0, "checkpoints to check: %v", info)
 	input_log, log_ok := sim.log_decode(log_bytes[:], toy.Game)
 	defer sim.log_destroy(&input_log)
 	testing.expect(t, log_ok, "the input log decodes")
 	testing.expect_value(t, len(input_log.ticks), int(info.to - info.from))
-	simulation, err := sim.from_snapshot(&toy.GAME, snapshot[:])
-	if !testing.expect_value(t, err, sim.Snap_Error.None) do return
-	defer sim.destroy(simulation)
-	checked := false
-	for k in 0 ..< len(input_log.ticks) {
-		inputs := sim.log_inputs(&input_log, k)
-		sim.step(simulation, &inputs)
-		if simulation.tick == info.check_tick {
-			testing.expect_value(t, sim.checksum(simulation), info.check)
-			checked = true
-		}
-	}
-	testing.expect(t, checked, "the replay reached the checked tick")
-	testing.expect_value(t, simulation.tick, info.to)
+	testing.expect_value(t, input_log.from, info.from)
+	testing.expect_value(t, len(input_log.checkpoints), info.checkpoints)
+	result, ok := headless.run_replay(&toy.GAME, &input_log, snapshot = snapshot[:])
+	testing.expectf(t, ok && result.checkpoints == info.checkpoints && result.diverged_tick == 0, "%v", result)
+	testing.expect_value(t, result.final_tick, info.to)
 }
 
 @(test)

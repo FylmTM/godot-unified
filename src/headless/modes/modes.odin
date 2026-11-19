@@ -51,8 +51,8 @@ run :: proc(
 		run     = mode_synctest,
 	}, Mode(G) {
 		name    = "replay",
-		options = "--log F [--snapshot F] [--trace F]",
-		help    = "replays an input log (from a snapshot's tick with --snapshot, as in an F3 note); fails on another build's",
+		options = "--log F [--snapshot F] [--trace F] [--any-build 1]",
+		help    = "replays an input log (from a snapshot's tick with --snapshot, as in an F3 note) against its checkpoints: the last agreeing and the first divergent; another build's only with --any-build 1",
 		run     = mode_replay,
 	}, Mode(G) {
 		name    = "predict-stats",
@@ -286,14 +286,18 @@ mode_replay :: proc(game: ^$G, args: ^Args) -> bool {
 		snapshot, read_err = os.read_entire_file(path, context.allocator)
 		if read_err != nil do die("replay: cannot read snapshot %s", path)
 	}
-	result, ok := uheadless.run_replay(game, &input_log, &trace, snapshot)
-	if path := opt_str(args, "trace"); ok && path != "" {
-		ok = uheadless.trace_write(&trace, path)
+	any_build := opt_int(args, "any-build", 0, low = 0, high = 1) == 1
+	result, ok := uheadless.run_replay(game, &input_log, &trace, snapshot, any_build)
+	if path := opt_str(args, "trace"); result.final_tick != 0 && path != "" {
+		ok = uheadless.trace_write(&trace, path) && ok
 	}
 	fmt.printfln(
-		`{{"mode":"replay","ticks":%d,"final_checksum":"%016x","ok":%v}}`,
+		`{{"mode":"replay","ticks":%d,"final_checksum":"%016x","checkpoints":%d,"agreed_tick":%d,"diverged_tick":%d,"ok":%v}}`,
 		result.final_tick,
 		result.final_checksum,
+		result.checkpoints,
+		result.agreed_tick,
+		result.diverged_tick,
 		ok,
 	)
 	return ok

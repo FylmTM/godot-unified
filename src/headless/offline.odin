@@ -5,6 +5,7 @@ package headless
 import "base:intrinsics"
 import "core:fmt"
 import "core:os"
+@(require) import "core:slice" // only in generic procs
 import "core:strings"
 
 import "unified:sim"
@@ -72,6 +73,11 @@ trace_write :: proc(trace: ^Trace, path: string) -> bool {
 Run_Result :: struct {
 	final_tick:     u32,
 	final_checksum: u64,
+	// A replay against the log's checkpoints (the recorder's checksums): how many it compared, the last tick that
+	// agreed and the first that didn't (0: none). It replays to the end either way, so the trace is whole.
+	checkpoints:    int,
+	agreed_tick:    u32,
+	diverged_tick:  u32,
 }
 
 // A change of who holds a slot in a scripted run: from `tick` on, member `member` (the relay's id; 0: nobody).
@@ -196,6 +202,9 @@ run_sim :: proc(
 		result.final_checksum = sim.checksum(simulation)
 		if trace != nil {
 			trace_add(trace, tick, result.final_checksum)
+		}
+		if input_log != nil && tick % sim.DEEP_CHECKSUM_EVERY == 0 {
+			sim.log_checkpoint(input_log, tick, result.final_checksum) // the ticks peers compare
 		}
 	}
 	result.final_tick = ticks
@@ -477,6 +486,7 @@ run_replay :: proc(
 	input_log: ^sim.Input_Log(G),
 	trace: ^Trace = nil,
 	snapshot: []u8 = nil,
+	any_build := false,
 ) -> (
 	result: Run_Result,
 	ok: bool,
@@ -490,18 +500,25 @@ run_replay :: proc(
 		return
 	}
 	if compat := sim.compat_of(game); input_log.compat != 0 && input_log.compat != compat {
+		if !any_build {
+			fmt.eprintfln(
+				"replay: the log was recorded by another build (compat %016x, this build is %016x; --any-build replays it against its checkpoints)",
+				input_log.compat,
+				compat,
+			)
+			return
+		}
 		fmt.eprintfln(
-			"replay: the log was recorded by another build (compat %016x, this build is %016x)",
+			"replay: recorded by another build (compat %016x): comparing %d checkpoints",
 			input_log.compat,
-			compat,
+			len(input_log.checkpoints),
 		)
-		return
 	}
 	simulation: ^sim.Sim(G)
 	if snapshot != nil {
 		// the log starts after the snapshot's tick (a session recorded from a joiner's join: an F3 note)
 		err: sim.Snap_Error
-		simulation, err = sim.from_snapshot(game, snapshot)
+		simulation, err = sim.from_snapshot(game, snapshot, any_build = any_build)
 		if err != .None {
 			fmt.eprintfln("replay: the snapshot does not load: %v", err)
 			return
@@ -510,6 +527,14 @@ run_replay :: proc(
 		simulation = sim.create(game, input_log.seed, input_log.setup)
 	}
 	defer sim.destroy(simulation)
+	if simulation.tick != input_log.from {
+		fmt.eprintfln("replay: the log continues tick %d, the run starts at tick %d", input_log.from, simulation.tick)
+		return
+	}
+	checkpoints := make([]sim.Checkpoint, len(input_log.checkpoints), context.temp_allocator)
+	copy(checkpoints, input_log.checkpoints[:])
+	slice.sort_by(checkpoints, proc(a, b: sim.Checkpoint) -> bool {return a.tick < b.tick})
+	next := 0
 	for k in 0 ..< len(input_log.ticks) {
 		inputs := sim.log_inputs(input_log, k)
 		sim.step(simulation, &inputs)
@@ -517,9 +542,27 @@ run_replay :: proc(
 		if trace != nil {
 			trace_add(trace, simulation.tick, result.final_checksum)
 		}
+		for next < len(checkpoints) && checkpoints[next].tick <= simulation.tick {
+			checkpoint := checkpoints[next]
+			next += 1
+			if checkpoint.tick != simulation.tick do continue
+			result.checkpoints += 1
+			if checkpoint.checksum == result.final_checksum {
+				if result.diverged_tick == 0 do result.agreed_tick = checkpoint.tick
+			} else if result.diverged_tick == 0 {
+				result.diverged_tick = checkpoint.tick
+				fmt.eprintfln(
+					"replay: first divergent checkpoint: tick %d (recorded %016x, replayed %016x); last agreeing: tick %d",
+					checkpoint.tick,
+					checkpoint.checksum,
+					result.final_checksum,
+					result.agreed_tick,
+				)
+			}
+		}
 	}
 	result.final_tick = simulation.tick
-	return result, true
+	return result, result.diverged_tick == 0
 }
 
 // `snapshot`: scripted run to `ticks`, then a portable snapshot of that tick (the caller owns `data`).

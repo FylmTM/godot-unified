@@ -440,6 +440,13 @@ client_inputs :: proc(client: ^Client($G), tick: u32) -> ^usim.Inputs(G) {
 	return nil
 }
 
+// The client's own checksum of a checksum tick (every CHECKSUM_EVERY) it stepped, final once the tick is verified
+// (what it reports to the relay); false for another tick or one the ring no longer keeps.
+client_checksum :: proc(client: ^Client($G), tick: u32) -> (value: u64, ok: bool) {
+	entry := client.chk[(tick / CHECKSUM_EVERY) % CHK_RING]
+	return entry.value, tick != 0 && tick % CHECKSUM_EVERY == 0 && entry.tick == tick
+}
+
 // The client's counters and live estimates (round trip, input delay, the channel's bytes and datagrams).
 client_stats :: proc(client: ^Client($G)) -> Client_Stats {
 	stats := client.stats
