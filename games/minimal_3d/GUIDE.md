@@ -28,6 +28,8 @@ each time; the views show the newest guess and are told when it changes.
   `sim.buttons`), axes quantized (`dmath.axis_i8`). A one-shot (throw, pick, ready) is a command (Input; Commands).
 - Both come from another machine: an Input's enum declares a member of value 0, and `tick` survives any value (Bytes
   from another machine).
+- A cheat or a test shortcut (give XP, spawn enemies) is a `Cmd_Dev_<Name>` command: a form in the dev UI, left out
+  by a public build (Commands).
 - In-game lobby flow (ready, team) is commands in a waiting phase of the state. A bot fills the same `Input` a player
   sends, before the systems that read it, so one code path moves both.
 
