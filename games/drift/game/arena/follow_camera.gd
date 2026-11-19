@@ -27,9 +27,9 @@ func shake(amount: float) -> void:
 
 func _process(delta: float) -> void:
 	var arena := get_parent() as DriftArena
-	var me: Node2D = arena.local_ship_view() if arena != null else null
-	if me != null:
-		var p := me.global_position
+	var center: Variant = arena.local_ships_center() if arena != null else null
+	if center != null:
+		var p: Vector2 = center
 		position = p
 		if _last != Vector2.INF and p.distance_to(_last) > CUT_DIST:
 			reset_smoothing()

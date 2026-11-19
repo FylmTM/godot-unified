@@ -9,11 +9,17 @@ extends Node
 signal changed(setting: StringName)
 
 enum WindowMode { WINDOWED, FULLSCREEN }
+## The session's difficulty (the sim's Difficulty, the Setup's), in its order.
+enum Difficulty { NORMAL, HARD }
+## The role the player joins as (the sim's Role, the Profile's), in its order.
+enum Role { GUNNER, BRUISER, RUNNER }
 
 const PATH := "user://settings.cfg"
 ## The settings the panel shows, in this order, with their row labels.
 const LABELS: Dictionary[StringName, String] = {
 	&"player_name": "Player name",
+	&"role": "Role",
+	&"difficulty": "Difficulty (hosting)",
 	&"master_volume": "Master volume",
 	&"sfx_volume": "Effects volume",
 	&"window_mode": "Window",
@@ -27,6 +33,17 @@ const LABELS: Dictionary[StringName, String] = {
 	set(value):
 		player_name = value
 		_changed(&"player_name")
+
+## What the player joins as: Unified.profile.role at every start or join.
+@export var role := Role.GUNNER:
+	set(value):
+		role = value
+		_changed(&"role")
+## How hard a session this player hosts plays: the Setup's difficulty.
+@export var difficulty := Difficulty.NORMAL:
+	set(value):
+		difficulty = value
+		_changed(&"difficulty")
 
 @export_category("audio")
 ## Linear, 0..1.
@@ -74,6 +91,15 @@ const LABELS: Dictionary[StringName, String] = {
 	set(value):
 		best_time = value
 		_changed(&"best_time")
+## The most waves a session this player hosted reached, at each difficulty: the next session's Setup.best_wave.
+@export var best_wave_normal := 0:
+	set(value):
+		best_wave_normal = value
+		_changed(&"best_wave_normal")
+@export var best_wave_hard := 0:
+	set(value):
+		best_wave_hard = value
+		_changed(&"best_wave_hard")
 
 var _isolated := false
 var _apply_window := false

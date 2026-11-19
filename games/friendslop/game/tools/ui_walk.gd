@@ -180,6 +180,18 @@ func _walk_pause_menu() -> void:
 	expect(not pause.visible, "Esc closes the menu")
 	await press_action(&"menu")
 	step("Esc menu")
+	# open to friends: the single-player session hosts on the LAN port and keeps running
+	var tick1: int = session.tick
+	await click(find(pause, ^"%Invite") as Control)
+	await wait_for(func() -> bool: return session.mode == UnifiedSession.MODE_HOST_DIRECT and session.join_code != "", 5.0,
+		"the session opens to friends")
+	if failed():
+		return
+	expect(session.tick > tick1 and session.status == UnifiedSession.STATUS_CONNECTED, "the session went on")
+	expect(game.mode == game.Mode.HOST_LAN, "the flow follows: hosting on LAN")
+	await press_action(&"menu")
+	expect((find(pause, ^"%StopInviting") as Control).visible, "the menu offers to stop inviting")
+	step("invited friends: %s" % session.join_code)
 
 
 func _session_panel() -> Control:

@@ -17,6 +17,10 @@ WASD / left stick to move (camera-relative), mouse / right stick to look, Space 
 and drop, RMB or Q / LT held to charge a throw (release throws), Esc / Start for the menu, F1 for the dev UI. Grab a
 friend to carry them; mash jump to break free.
 
+**Invite friends**: a single-player session opens to friends from the pause menu (on the LAN port, the code on the
+session panel) and keeps running, the hub and route as they are; Stop inviting lets nobody new in while the friends
+playing stay.
+
 ## Loop
 
 - **Hub** level (spawn, late join): loose items, a lift, a ferry, a jump pad and a bumper. No goals.

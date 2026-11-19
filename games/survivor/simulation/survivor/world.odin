@@ -63,7 +63,7 @@ Roll :: enum u8 {
 
 // The physics world with the level's static geometry (src/level/README.md); the pillars and walls the enemies keep to;
 // the start spots and the items from the level's markers.
-world_create :: proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^World {
+world_create :: proc(seed: u64, levels: []sim.Level_File, _: Setup) -> ^World {
 	world := new(World)
 	problem: string
 	world.phys, problem = physics.create_with_levels(
@@ -112,12 +112,18 @@ world_destroy :: proc(world: ^World) {
 	free(world)
 }
 
-// The tick-0 state: the arena's static geometry, the lobby, the `play` tuning, the level's items with their bodies; players join when they are
-// first present (update_players).
+// The tick-0 state: the arena's static geometry, the lobby, the `play` tuning at the Setup's difficulty, its best wave,
+// the level's items with their bodies; players join when they are first present (update_players).
 init :: proc(t: ^Tick) {
 	physics.level_change(t, t.world.phys, Level_Id.Arena)
 	t.state.phase = .Lobby
 	t.state.tuning = TUNINGS[.Play]
+	if t.setup.difficulty == .Hard {
+		t.state.tuning.spawn_base = t.state.tuning.spawn_base * HARD_SPAWN_PCT / 100
+		t.state.tuning.spawn_per_wave = t.state.tuning.spawn_per_wave * HARD_SPAWN_PCT / 100
+		t.state.tuning.hp_pct_per_wave += HARD_HP_PCT_PER_WAVE
+	}
+	t.state.best_wave = t.setup.best_wave
 	for i in 0 ..< int(t.world.items.count) {
 		item_reset(t.state, t.world, i)
 	}
@@ -150,13 +156,28 @@ item_reset :: proc(state: ^State, world: ^World, i: int) {
 	}
 }
 
-// Fresh progress (no body, not alive): a new player's, and everyone's at a reset. The body must be gone.
-character_reset :: proc(character: ^Character) {
+// Fresh progress (no body, not alive) in `role`: a new player's, and everyone's at a reset. The body must be gone.
+character_reset :: proc(character: ^Character, role: Role) {
 	character^ = {
 		fire_interval = FIRE_INTERVAL_TICKS,
 		level         = 1,
 		speed         = PLAYER_SPEED,
+		role          = role,
 	}
+	switch role {
+	case .Gunner:
+		character.fire_interval -= ROLE_FIRE_TICKS
+	case .Bruiser:
+		character.damage_bonus = ROLE_DAMAGE
+	case .Runner:
+		character.speed += ROLE_SPEED
+	}
+}
+
+// The scripted players' Profiles (sim.Game.scripted_profile): each slot another role, so the reference run covers
+// them all.
+scripted_profile :: proc(seed: u64, slot: int) -> Profile {
+	return {role = Role(slot % len(Role))}
 }
 
 // A body at the start spot of `slot` (the level's spawn marker), with full HP.

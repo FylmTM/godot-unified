@@ -96,6 +96,43 @@ func _walk_play() -> void:
 	_stick(Vector2.ZERO)
 	_move(Vector2.ZERO)
 	session.sim_event.disconnect(on_event)
+	await _walk_couch()
+
+
+## Couch co-op: pad 1's Start joins a second local player, whose ship moves by pad 1's stick alone; it leaves again.
+func _walk_couch() -> void:
+	if failed():
+		return
+	var start := InputEventJoypadButton.new()
+	start.device = 1
+	start.button_index = JOY_BUTTON_START
+	start.pressed = true
+	Input.parse_input_event(start)
+	await wait_for(func() -> bool: return session.local_players.size() == 2, 5.0, "pad 1 joins as a second local player")
+	if failed():
+		return
+	var second: int = session.get_local_player_key(1)
+	var ship := session.get_player_view(EnumView.SHIP, second) as Node2D
+	await wait_for(func() -> bool:
+		ship = session.get_player_view(EnumView.SHIP, second) as Node2D
+		return ship != null, 3.0, "the second local player's ship")
+	if failed():
+		return
+	var from := ship.global_position
+	var axis := InputEventJoypadMotion.new()
+	axis.device = 1
+	axis.axis = JOY_AXIS_LEFT_X
+	axis.axis_value = 1.0
+	Input.parse_input_event(axis)
+	await seconds(0.6)
+	axis.axis_value = 0.0
+	Input.parse_input_event(axis)
+	var moved := ship.global_position.x - from.x
+	expect(moved > 10.0, "pad 1's stick moves the second ship (+%d px)" % int(moved))
+	session.remove_local_player(1)
+	session.set_local_device(0, UnifiedSession.DEVICE_ANY)
+	await wait_for(func() -> bool: return session.local_players.size() == 1, 5.0, "the second local player leaves")
+	step("couch: pad 1 joined, steered its own ship (+%d px), left" % int(moved))
 
 
 ## Online play through the lobby service (default: skipped; it needs EOS, or a game's stand-in session).

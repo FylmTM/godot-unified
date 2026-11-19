@@ -14,14 +14,14 @@ PLAYERS :: 4 // input slots: the most players in the game at once
 
 // The game's version (sim.Game.version, part of the netcode's compat): bump it when a rule or constant changes what a
 // tick computes without changing the State or Input layout.
-VERSION :: "8" // 8: the fire cooldown runs on while dead (sim.Timer)
+VERSION :: "9" // 9: difficulty, best wave and roles (the Setup and the Profile)
 
 // The game's levels, in GAME.levels' order (the State's `level` says which is active).
 Level_Id :: enum u8 {
 	Arena,
 }
 
-Game :: sim.Game(State, Input, World, Event, Cmd, sim.No_Setup, sim.No_Profile, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Cmd, Setup, Profile, PLAYERS)
 Tick :: sim.Tick(Game)
 
 // The game as played (the `play` tuning).
@@ -38,6 +38,7 @@ GAME := Game {
 	tick              = tick,
 	scripted_input    = scripted_input,
 	scripted_commands = scripted_commands,
+	scripted_profile  = scripted_profile,
 	bench_prepare     = bench_prepare,
 }
 
@@ -56,6 +57,7 @@ GAME_STRESS := Game {
 	tick              = tick,
 	scripted_input    = scripted_input,
 	scripted_commands = scripted_commands,
+	scripted_profile  = scripted_profile,
 	bench_prepare     = bench_prepare,
 }
 

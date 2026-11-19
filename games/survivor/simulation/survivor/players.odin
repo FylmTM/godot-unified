@@ -11,7 +11,8 @@ update_players :: proc(t: ^Tick) {
 		character_leave(t.world, sim.player_data(t, player))
 	}
 	for player in t.player_changes.joined {
-		character_reset(sim.player_data(t, player)) // someone new: fresh progress
+		// someone new: fresh progress, in the role they picked (their Profile, from their first tick)
+		character_reset(sim.player_data(t, player), sim.player_profile(t, player).role)
 	}
 	for player in t.player_changes.arrived {
 		character_spawn(t.world, sim.player_data(t, player), sim.player_slot(t, player)) // one back keeps their progress

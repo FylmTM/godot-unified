@@ -33,7 +33,12 @@ advance_phase :: proc(t: ^Tick) {
 		} else if alive == 0 && !t.state.tuning.endless {
 			t.state.phase = .Over
 			t.state.over_tick = t.number
-			sim.emit(t, Event_Match_Over{duration_s = sim.seconds(t.number - t.state.match_tick, TICK_HZ)})
+			t.state.best_wave = dmath.max(t.state.best_wave, t.state.wave + 1)
+			sim.emit(t, Event_Match_Over {
+				duration_s = sim.seconds(t.number - t.state.match_tick, TICK_HZ),
+				waves      = t.state.wave + 1,
+				best_wave  = t.state.best_wave,
+			})
 		}
 	case .Over:
 		if t.number - t.state.over_tick >= OVER_HOLD_TICKS {
@@ -52,7 +57,7 @@ reset_world :: proc(t: ^Tick) {
 	known := sim.iterate_known(t)
 	for character in sim.next(&known) {
 		physics.destroy_body(t.world.phys, &character.body)
-		character_reset(character)
+		character_reset(character, character.role)
 	}
 	for i in 0 ..< int(t.world.items.count) {
 		item_reset(t.state, t.world, i)

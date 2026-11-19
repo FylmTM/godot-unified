@@ -2,7 +2,8 @@ class_name DriftArena
 extends Node2D
 ## The play scene: the level (its art is the arena's visuals; the sim loads its exported .level), the views root
 ## handed to the session (ships, the station, gates), the multi views (rocks, bullets, gems), the camera following the
-## local ship, effects and the HUD. Turns the mouse or the right stick into the aim for every input sample, and routes the
+## local ships, effects and the HUD. Couch co-op: a pad that presses Start joins as another local player (the first
+## player keeps the keyboard and mouse). Turns the mouse or the right stick into the aim for every input sample, and routes the
 ## sim's events (sim_event) to effects, sounds and camera shake: rock effects as soon as an event is first shown
 ## (predicted), the rest once its tick is confirmed.
 
@@ -37,6 +38,22 @@ func _input(event: InputEvent) -> void:
 		_mouse_aim = true
 
 
+## A pad whose Start is pressed joins as another local player, unless it plays already.
+func _unhandled_input(event: InputEvent) -> void:
+	var button := event as InputEventJoypadButton
+	if button == null or not button.pressed or button.button_index != JOY_BUTTON_START:
+		return
+	var session := Unified.session
+	for local: int in session.get_local_indices():
+		if session.get_local_device(local) == button.device:
+			return  # this pad plays already
+	if session.get_local_indices().size() == 1 and session.get_local_device(0) == UnifiedSession.DEVICE_ANY:
+		session.set_local_device(0, UnifiedSession.DEVICE_KEYBOARD)  # the first player keeps keyboard and mouse
+	var local: int = session.add_local_player(button.device, "Pad %d" % (button.device + 1))
+	if local >= 0:
+		get_viewport().set_input_as_handled()
+
+
 func _set_aim() -> void:
 	var stick := Input.get_vector(&"aim_left", &"aim_right", &"aim_up", &"aim_down")
 	if stick.length() > 0.3:
@@ -50,9 +67,23 @@ func _set_aim() -> void:
 	Unified.input.aim = dir  # world space (x right, y down); zero keeps the heading
 
 
-## The local player's ship view (null until they have one).
+## The first local player's ship view (null until they have one).
 func local_ship_view() -> Node2D:
 	return Unified.session.get_player_view(EnumView.SHIP, Unified.session.local_player) as Node2D
+
+
+## Where the camera looks: the middle of every local player's ship (null: none has one yet).
+func local_ships_center() -> Variant:
+	var sum := Vector2.ZERO
+	var count := 0
+	for player: int in Unified.session.local_players:
+		var ship := Unified.session.get_player_view(EnumView.SHIP, player) as Node2D
+		if ship != null:
+			sum += ship.global_position
+			count += 1
+	if count == 0:
+		return null
+	return sum / count
 
 
 ## The union of the level's drawn rects and polygons, in global pixels.
