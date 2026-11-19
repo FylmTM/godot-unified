@@ -261,3 +261,19 @@ input_encodings :: proc(t: ^testing.T) {
 		testing.expect(t, abs(dmath.length(dmath.dir3_vec({raw, 65535 - raw})) - 1) < 0.00001)
 	}
 }
+
+// quat_mul: the identity on either side; b then a, as quat_rotate sees it; two quarter turns about +Y make a half turn.
+@(test)
+quat_mul_composes_rotations :: proc(t: ^testing.T) {
+	a := [4]f32{0.5, 0.5, 0.5, 0.5} // a third of a turn about (1, 1, 1)
+	b := [4]f32{0, 0.6, 0, 0.8} // about +Y
+	testing.expect_value(t, dmath.quat_mul({0, 0, 0, 1}, a), a)
+	testing.expect_value(t, dmath.quat_mul(a, {0, 0, 0, 1}), a)
+	vec := [3]f32{1, -2, 3}
+	chained := dmath.quat_rotate(a, dmath.quat_rotate(b, vec))
+	composed := dmath.quat_rotate(dmath.quat_mul(a, b), vec)
+	for i in 0 ..< 3 do testing.expectf(t, abs(chained[i] - composed[i]) < 1e-6, "b then a: %v vs %v", chained, composed)
+	quarter := [4]f32{0, 0.70710678, 0, 0.70710678}
+	half := dmath.quat_mul(quarter, quarter)
+	testing.expectf(t, abs(half.y - 1) < 1e-6 && abs(half.w) < 1e-6, "two quarter turns: %v", half)
+}

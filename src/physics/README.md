@@ -1,7 +1,8 @@
-# `unified:physics`: Box3D for games, characters, kinematic paths
+# `unified:physics`: Box3D for games, characters, ragdolls, kinematic paths
 
 Box3D as `sim` rollback state, its whole API addressed by references from the state block, plus what every co-op
-physics game needs: creation helpers, a character controller, kinematic paths, static level geometry and a 2D plane.
+physics game needs: creation helpers, a character controller, a ragdoll, kinematic paths, static level geometry and a 2D
+plane.
 Deterministic: f32, `+ − × ÷ sqrt`, no trig, float-to-int through `dmath`, state in the block or the Box3D world.
 
 It uses `sim` (the harness it plugs into), `dmath` and `level` (static geometry); a physics game's sim package uses
@@ -112,6 +113,13 @@ the block (`geometry.odin`'s header): a game keeps a mesh, height field or compo
 A dynamic character controller, ported from Box3D's dynamic mover sample, since every game with walking players
 needs one: its state is a `Character` in the block, its tuning a `Character_Def` in game code. `character.odin`'s
 header says how it works.
+
+## Ragdoll
+
+A ragdoll, ported from Box3D's sample human, since a co-op physics game knocks people over, throws them and piles them
+up: its state is a `Ragdoll` in the block (bodies, joints and filter joints, found by `check_refs` and freed by
+`destroy_refs` like any refs), its tuning a `Ragdoll_Def` in game code. Its bones are the sample's, numbers and all, so
+a view draws them from `ragdoll_capsules`; `ragdoll.odin`'s header says how it differs from the sample.
 
 ## Kinematic paths
 
