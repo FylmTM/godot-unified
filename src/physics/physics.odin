@@ -66,7 +66,8 @@ World :: struct {
 	// The game's levels, parsed and built (create_with_levels), and the filter category of their shapes that have none.
 	levels:         [dynamic]Baked_Level,
 	level_category: u64,
-	meshes:         [dynamic]^Mesh_Data, // what create_level_shape built (shapes point at it)
+	level_hulls:    [dynamic]^Hull_Data, // what build_level_shape built (shapes point at it)
+	level_meshes:   [dynamic]^Mesh_Data,
 }
 
 // b3CreateWorld/b3DestroyWorld scan and modify Box3D's global world table and lazily initialise its
@@ -132,8 +133,10 @@ destroy :: proc(world: ^World) {
 	// The geometry the world's shapes pointed at, now that they are gone.
 	for &baked in world.levels do unbake_level(&baked)
 	delete(world.levels)
-	for mesh in world.meshes do destroy_mesh(mesh)
-	delete(world.meshes)
+	for hull in world.level_hulls do destroy_hull(hull)
+	delete(world.level_hulls)
+	for mesh in world.level_meshes do destroy_mesh(mesh)
+	delete(world.level_meshes)
 	delete_layout(world.refs)
 	for cached in world.layouts {
 		delete_layout(cached.layout)
@@ -243,27 +246,50 @@ extra :: proc(world: ^World, $State: typeid) -> sim.Extra {
 			return world.ring[slot].size + len(world.body_ring[slot]) * size_of(Body_Entry)
 		},
 		// A corrupt image can be found halfway through the load and leave the world half-written, so the world is
-		// saved first and put back on failure. Loads are rare (late join).
+		// saved first and put back on failure. Loads are rare (late join). The body table comes from another machine
+		// too: an entry with unknown flags or padding, a dead entry that isn't zero, or a level body Box3D doesn't
+		// hold (level_change would destroy it by its index) refuses the image, never a crash later.
 		load = proc(data: rawptr, bytes: []u8) -> bool {
 			world := (^World)(data)
 			if len(bytes) < 4 do return false
 			size := int((^u32le)(raw_data(bytes))^)
 			table := bytes[4:]
 			if size > len(table) || (len(table) - size) % size_of(Body_Entry) != 0 do return false
+			entries := make([]Body_Entry, (len(table) - size) / size_of(Body_Entry), context.temp_allocator)
+			copy(entries_bytes(entries), table[size:])
 			box3d.World_SaveSnapshot(world.id, &world.scratch)
-			if !box3d.World_LoadImage(world.id, raw_data(table[:size]), i32(len(table[:size]))) {
+			if !box3d.World_LoadImage(world.id, raw_data(table[:size]), i32(len(table[:size]))) ||
+			   !entries_valid(world, entries) {
 				box3d.World_RestoreSnapshot(world.id, &world.scratch)
 				return false
 			}
-			entries := table[size:]
-			resize(&world.bodies, len(entries) / size_of(Body_Entry))
-			copy(entries_bytes(world.bodies[:]), entries)
+			resize(&world.bodies, len(entries))
+			copy(world.bodies[:], entries)
 			return true
 		},
 		check = proc(data: rawptr, state: rawptr) -> string {
 			return check_refs((^World)(data), state)
 		},
 	}
+}
+
+// Whether a loaded body table fits the loaded Box3D world (the image's load): known flags, zero padding, a dead entry
+// zero, every level body a static body alive in Box3D at its generation. (One the block also owns: check_refs.)
+@(private)
+entries_valid :: proc(world: ^World, entries: []Body_Entry) -> bool {
+	for entry, index in entries {
+		if transmute(u8)entry.flags >> len(Body_Flag) != 0 || entry._pad != 0 || entry._pad2 != {} { 	// a bit of no flag
+			return false
+		}
+		if .Alive not_in entry.flags {
+			if entry != {} do return false
+			continue
+		}
+		if .Level not_in entry.flags do continue
+		id := body_id(world, Body_Ref{index1 = i32(index + 1), generation = entry.generation})
+		if !box3d.Body_IsValid(id) || box3d.Body_GetType(id) != .staticBody do return false
+	}
+	return true
 }
 
 // The body table's entries as bytes (plain data, little-endian, padding zeroed by every write).

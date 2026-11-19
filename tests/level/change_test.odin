@@ -250,8 +250,8 @@ level_change_does_not_grow :: proc(t: ^testing.T) {
 	for size in yard_sizes do testing.expectf(t, size == yard_sizes[0], "the yard's world grew: %v", yard_sizes)
 }
 
-// check_refs knows the level's bodies from orphans: one whose level flag is cleared is an orphan, and a joint ref to a
-// body of the level left behind is stale after a change.
+// check_refs knows the level's bodies from orphans: one whose level flag is cleared is an orphan (a joint left on the
+// old level: a_joint_left_on_the_old_level_is_named).
 @(test)
 level_change_check_refs :: proc(t: ^testing.T) {
 	session := sim.create(&PIT, 9)
@@ -262,4 +262,284 @@ level_change_check_refs :: proc(t: ^testing.T) {
 		if .Level in entry.flags do entry.flags -= {.Level}
 	}
 	testing.expect(t, physics.check_refs(world, &session.state) != "", "a level body without its flag is an orphan")
+}
+
+// level_change's contract: "check_refs names a joint ref left behind". A weld from a crate to a level body, kept in the
+// block across a change, is stale after it and named; destroying the stale ref is safe.
+Hang :: struct {
+	crate:   physics.Body_Ref,
+	weld:    physics.Weld_Joint_Ref,
+	level:   sim.Active_Level(Area),
+	_pad:    u32,
+	players: sim.Players(u32, sim.No_Profile, Pit_Input, 2),
+}
+
+Hang_Game :: sim.Game(Hang, Pit_Input, Pit_World, Pit_Events, sim.No_Commands, sim.No_Setup, sim.No_Profile, 2)
+Hang_Tick :: sim.Tick(Hang_Game)
+
+@(test)
+a_joint_left_on_the_old_level_is_named :: proc(t: ^testing.T) {
+	game := Hang_Game {
+		name = "hang",
+		version = "1",
+		tick_hz = 64,
+		world_create = proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^Pit_World {
+			return pit_world_create(1, levels)
+		},
+		world_destroy = PIT.world_destroy,
+		extra = proc(pit_world: ^Pit_World) -> sim.Extra {return physics.extra(pit_world.phys, Hang)},
+		init = proc(t: ^Hang_Tick) {
+			physics.level_change(t, t.world.phys, Area.Yard)
+			def := physics.shape_def(CAT_CRATE)
+			def.density = 1
+			t.state.crate, _ = physics.create_box(
+				t.world.phys,
+				physics.body_def(.Dynamic, {0, 1, 0}),
+				def,
+				{0.3, 0.3, 0.3},
+			)
+		},
+		tick = proc(t: ^Hang_Tick) {
+			world := t.world.phys
+			if t.number == 5 {
+				hit, ok := physics.world_cast_ray_closest(world, {10, 10, 10}, {0, -20, 0})
+				assert(ok, "no floor under (10, 10)")
+				t.state.weld = physics.create_weld_joint(
+					world,
+					physics.link(t.state.crate),
+					hit.body,
+					physics.default_weld_joint_def(),
+				)
+			}
+			if t.number == 10 do physics.level_change(t, world, Area.Pit)
+			physics.step(world)
+		},
+		levels = pit_levels[:],
+	}
+	session := sim.create(&game, 3)
+	defer sim.destroy(session)
+	inputs: sim.Inputs(Hang_Game)
+	for _ in u32(1) ..= 9 do sim.step(session, &inputs)
+	testing.expect_value(t, physics.check_refs(session.world.phys, &session.state), "")
+	testing.expect(t, physics.joint_valid(session.world.phys, session.state.weld.joint))
+	sim.step(session, &inputs)
+	testing.expect(t, physics.check_refs(session.world.phys, &session.state) != "", "the stale weld is named")
+	testing.expect(t, !physics.joint_valid(session.world.phys, session.state.weld.joint))
+	physics.destroy_joint(session.world.phys, &session.state.weld.joint) // safe on the stale ref
+	testing.expect_value(t, physics.check_refs(session.world.phys, &session.state), "")
+}
+
+// "The world holds the active level only", with no dynamic body at all: only the level's statics, flipped every 4
+// ticks; the save and the image of a visit to the yard stay the size of the first one's.
+@(test)
+a_world_of_level_statics_only_does_not_grow :: proc(t: ^testing.T) {
+	game := PIT
+	game.name = "pit static"
+	game.init = proc(t: ^Pit_Tick) {
+		physics.level_change(t, t.world.phys, Area.Yard)
+	}
+	game.tick = proc(t: ^Pit_Tick) {
+		if t.number % 4 == 0 {
+			physics.level_change(t, t.world.phys, Area.Pit if t.state.level.id == .Yard else Area.Yard)
+		}
+		physics.step(t.world.phys)
+	}
+	session := sim.create(&game, 9)
+	defer sim.destroy(session)
+	first_save, first_image := 0, 0
+	for tick in u32(1) ..= 8 * 300 {
+		inputs := pit_inputs(tick)
+		sim.step(session, &inputs)
+		if tick % 8 != 2 do continue
+		save, image := sim.save_size(session), sim.snapshot_size(session)
+		if tick / 8 == 1 do first_save, first_image = save, image
+		if tick / 8 > 1 && (save != first_save || image != first_image) {
+			testing.expectf(
+				t,
+				false,
+				"visit %d: save %d B (first %d), image %d B (first %d)",
+				tick / 8 + 1,
+				save,
+				first_save,
+				image,
+				first_image,
+			)
+			return
+		}
+	}
+}
+
+// A crafted body table cannot crash a joiner: physics' load refuses a table that disagrees with the Box3D image it
+// comes with (a block-owned crate claimed by the level, a level entry where Box3D has no body), unknown flag bits,
+// non-zero padding and a dead entry that isn't zero, and puts the world back as it was.
+@(test)
+a_crafted_body_table_is_refused_at_load :: proc(t: ^testing.T) {
+	session := sim.create(&PIT, 9)
+	defer sim.destroy(session)
+	for tick in u32(1) ..= 30 {
+		inputs := pit_inputs(tick)
+		sim.step(session, &inputs)
+	}
+	world := session.world.phys
+	extra := physics.extra(world, Pit)
+	honest := image_of(session)
+	before := sim.checksum(session)
+	Craft :: enum {
+		Crate_Claimed,
+		Ghost_Level_Body,
+		Unknown_Flag,
+		Padding,
+		Dead_Not_Zero,
+	}
+	for craft in Craft {
+		entries := make([]physics.Body_Entry, 64, context.temp_allocator)
+		copy(entries, world.bodies[:])
+		crate := session.state.crates[0]
+		switch craft {
+		case .Crate_Claimed:
+			entries[crate.index1 - 1].flags += {.Level}
+			entries[crate.index1 - 1].generation = crate.generation
+		case .Ghost_Level_Body:
+			entries[63] = {
+				flags      = {.Alive, .Level},
+				generation = 7,
+			}
+		case .Unknown_Flag:
+			(^u8)(&entries[crate.index1 - 1].flags)^ |= 0x80
+		case .Padding:
+			entries[crate.index1 - 1]._pad2[1] = 1
+		case .Dead_Not_Zero:
+			entries[63].tag = 5
+		}
+		crafted := make([dynamic]u8, context.temp_allocator)
+		append(&crafted, ..honest[:])
+		append(&crafted, ..([^]u8)(raw_data(entries))[:len(entries) * size_of(physics.Body_Entry)])
+		testing.expectf(t, !extra.load(extra.data, crafted[:]), "%v: loaded", craft)
+		testing.expectf(t, sim.checksum(session) == before, "%v: the world was not put back", craft)
+	}
+	honest_table := make([dynamic]u8, context.temp_allocator)
+	append(&honest_table, ..honest[:])
+	append(&honest_table, ..([^]u8)(raw_data(world.bodies))[:len(world.bodies) * size_of(physics.Body_Entry)])
+	testing.expect(t, extra.load(extra.data, honest_table[:]), "the honest table loads")
+}
+
+// The honest part of a portable physics image of the session's current tick: Box3D's image with its size first, the
+// body table after it left out (for a test to append its own).
+@(private = "file")
+image_of :: proc(session: ^sim.Sim(Pit_Game)) -> []u8 {
+	extra := physics.extra(session.world.phys, Pit)
+	image := extra.image(extra.data, int(session.tick % u32(len(session.ring))), true)
+	size := int((^u32le)(raw_data(image))^)
+	out := make([dynamic]u8, context.temp_allocator)
+	append(&out, ..image[:4 + size])
+	return out[:]
+}
+
+// ... and a crafted snapshot whose digest is right is refused whole by from_snapshot (Extra_Rejected): a body table
+// grown to a level entry Box3D never made, or a Body_Ref in the block naming a body Box3D never made (the extra's
+// check, run at every load). Before, the first crashed the joiner at the next level change, the second at its next tick.
+@(test)
+a_crafted_snapshot_is_refused_by_from_snapshot :: proc(t: ^testing.T) {
+	source := sim.create(&PIT, 9)
+	for tick in u32(1) ..= 20 {
+		inputs := pit_inputs(tick)
+		sim.step(source, &inputs)
+	}
+	snap := sim.snapshot_encode(source, 20)
+	sim.destroy(source)
+	defer delete(snap)
+	block_at := sim.SNAP_HEADER + 2 // no Setup: its length only
+	image_len_at := block_at + size_of(Pit)
+	image_len := int((^u32le)(&snap[image_len_at])^)
+	testing.expect_value(t, image_len_at + 4 + image_len, len(snap))
+	for ghost_ref in ([]bool{false, true}) {
+		crafted := make([dynamic]u8, context.temp_allocator)
+		append(&crafted, ..snap[:])
+		extra_entries := 0
+		if ghost_ref {
+			crate := (^physics.Body_Ref)(&crafted[block_at + int(offset_of(Pit, crates))])
+			crate.index1 = 150_000
+		} else {
+			extra_entries = 64
+			for i in 0 ..< extra_entries {
+				entry: physics.Body_Entry
+				if i == extra_entries - 1 do entry = {
+					flags      = {.Alive, .Level},
+					generation = 7,
+				}
+				bytes := transmute([size_of(physics.Body_Entry)]u8)entry
+				append(&crafted, ..bytes[:])
+			}
+		}
+		(^u32le)(&crafted[image_len_at])^ = u32le(image_len + extra_entries * size_of(physics.Body_Entry))
+		digest := transmute([8]u8)u64le(sim.hash_bytes(crafted[sim.SNAP_HEADER:]))
+		copy(crafted[sim.SNAP_HEADER - 8:], digest[:])
+		joiner, err := sim.from_snapshot(&PIT, crafted[:])
+		testing.expectf(t, joiner == nil && err == .Extra_Rejected, "ghost ref %v: %v", ghost_ref, err)
+		if joiner != nil do sim.destroy(joiner)
+	}
+}
+
+// A game's own level shape made in a tick: built once in world_create (build_level_shape), created by the tick as
+// often as rollbacks re-run it. The world keeps the one mesh BVH, and the sync-test agrees.
+Piece :: struct {
+	piece:   physics.Body_Ref,
+	players: sim.Players(u32, sim.No_Profile, Pit_Input, 1),
+}
+
+Piece_World :: struct {
+	phys: ^physics.World,
+	ramp: physics.Built_Level_Shape,
+}
+
+Piece_Game :: sim.Game(Piece, Pit_Input, Piece_World, Pit_Events, sim.No_Commands, sim.No_Setup, sim.No_Profile, 1)
+
+PIECE_RAMP := level.Shape {
+	kind      = .Mesh,
+	rot       = {0, 0, 0, 1},
+	points    = {{0, 0, 0}, {4, 2, 0}, {4, 2, 4}, {0, 0, 4}},
+	triangles = {{0, 2, 1}, {0, 3, 2}},
+	materials = {{}},
+}
+
+@(test)
+a_level_shape_made_in_a_tick_is_built_once :: proc(t: ^testing.T) {
+	game := Piece_Game {
+		name = "piece",
+		version = "1",
+		tick_hz = 64,
+		world_create = proc(_: u64, _: []sim.Level_File, _: sim.No_Setup) -> ^Piece_World {
+			piece_world := new(Piece_World)
+			piece_world.phys = physics.create({tick_hz = 64})
+			ok: bool
+			piece_world.ramp, ok = physics.build_level_shape(piece_world.phys, &PIECE_RAMP)
+			assert(ok)
+			return piece_world
+		},
+		world_destroy = proc(piece_world: ^Piece_World) {
+			physics.destroy(piece_world.phys)
+			free(piece_world)
+		},
+		extra = proc(piece_world: ^Piece_World) -> sim.Extra {return physics.extra(piece_world.phys, Piece)},
+		tick = proc(t: ^sim.Tick(Piece_Game)) {
+			world := t.world.phys
+			if t.number == 10 {
+				t.state.piece = physics.create_body(world, physics.body_def(.Static, {0, 0, 0}))
+				physics.create_level_shape(world, t.state.piece, physics.default_shape_def(), t.world.ramp)
+			}
+			physics.step(world)
+		},
+	}
+	run := headless.run_begin(&game, 1, window = 8)
+	defer headless.run_end(&run)
+	for _ in u32(1) ..= 40 {
+		inputs := sim.Inputs(Piece_Game) {
+			present = {0},
+		}
+		headless.run_step(&run, &inputs)
+	}
+	testing.expect_value(t, run.mismatches, 0)
+	testing.expect_value(t, len(run.simulation.world.phys.level_meshes), 1)
+	hit, ok := physics.world_cast_ray_closest(run.simulation.world.phys, {2, 10, 2}, {0, -20, 0})
+	testing.expect(t, ok && hit.body == physics.link(run.simulation.state.piece), "the ramp is there")
 }

@@ -95,3 +95,30 @@ character_golden :: proc(t: ^testing.T, workers: i32) {
 		GOLDEN_CHARACTERS,
 	)
 }
+
+// Bodies on a level mesh and a height field (the terrain fixture: crates on its conveyor deck, balls down its hill),
+// checksummed on the deep-checksum ticks (the whole world, its baked geometry included): the pin that every platform
+// collides with mesh BVHs and height fields alike, which no box-only golden or shipped level covers. Update it in
+// the same commit as a change that is meant to alter it.
+GOLDEN_TERRAIN :: [4]u64{0x8faece850c419414, 0x8184beb3d6dec314, 0xd2274cd1b34c28c7, 0x94e4bcd27aad5368}
+
+@(test)
+terrain_golden_trace :: proc(t: ^testing.T) {
+	simulation := sim.create(&TERRAIN, 5)
+	defer sim.destroy(simulation)
+	got: [4]u64
+	for tick in u32(1) ..= 128 {
+		inputs := sim.Inputs(Terrain_Game) {
+			present = {0, 1},
+		}
+		sim.step(simulation, &inputs)
+		if tick % 32 == 0 do got[tick / 32 - 1] = sim.checksum(simulation)
+	}
+	testing.expectf(
+		t,
+		got == GOLDEN_TERRAIN,
+		"terrain golden trace changed: %x (pinned %x). If the change to src/physics, src/level, Box3D or the build flags is intended, update GOLDEN_TERRAIN in tests/physics/golden_test.odin in the same commit",
+		got,
+		GOLDEN_TERRAIN,
+	)
+}
