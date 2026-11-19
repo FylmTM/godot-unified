@@ -11,11 +11,12 @@ names_derive_from_the_types :: proc(t: ^testing.T) {
 	commands := sim.command_names(toy.Cmd, context.temp_allocator)
 	testing.expect(
 		t,
-		len(commands) == 4 &&
+		len(commands) == 5 &&
 		commands[0] == "bump" &&
 		commands[1] == "mark" &&
 		commands[2] == "clear_bumps" &&
-		commands[3] == "travel",
+		commands[3] == "travel" &&
+		commands[4] == "pause",
 	)
 	events := sim.event_names(toy.Event, context.temp_allocator)
 	testing.expect(

@@ -787,6 +787,7 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 				tick         = info.tick,
 				local_player = local,
 				seed         = simulation.seed,
+				time         = sim.game_time(current, info.tick),
 				out          = out,
 				poses        = &driver.poses,
 			}

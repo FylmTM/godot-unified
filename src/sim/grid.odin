@@ -110,9 +110,10 @@ grid_box_next :: proc(walk: ^Grid_Box($CELLS, $CAP)) -> (ids: []i32, ok: bool) {
 	return grid.ids[grid.cell_start[base + walk.first_column]:grid.cell_start[base + walk.last_column + 1]], true
 }
 
-// Whether `key`'s turn comes this tick, once every `period` ticks: (key + tick) % period == 0. Keys spread evenly over
+// Whether `key`'s turn comes this tick, once every `period` ticks of game time: (key + t.time) % period == 0, so a
+// pause moves no key's turn. Keys spread evenly over
 // the period (dense keys: each tick takes a period-th of them), so work too costly every tick for every entity runs
 // for each once per period: `if sim.due(t, handle.index, CHECK_TICKS) { ... }`. period > 0.
 due :: proc(tick: ^Tick($G), key: $K, period: u32) -> bool where intrinsics.type_is_integer(K) {
-	return (u64(key) + u64(tick.number)) % u64(period) == 0
+	return (u64(key) + u64(tick.time)) % u64(period) == 0
 }
