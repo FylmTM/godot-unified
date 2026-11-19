@@ -50,3 +50,30 @@ the_sync_test_catches_state_written_while_drawing :: proc(t: ^testing.T) {
 	result := headless.run_synctest(&PEEK, 64, 8, 3, 1)
 	testing.expectf(t, result.mismatches > 0, "%d mismatches", result.mismatches)
 }
+
+// The test helpers a game's rule tests use: a run on a Setup, a step with inputs by slot, a step with a slot's
+// command, the last event of a type, and a dev command known by its type.
+@(test)
+run_helpers_step_with_a_setup_inputs_and_commands :: proc(t: ^testing.T) {
+	run := headless.run_begin(&toy.GAME, 3, setup = toy.Setup{life_bonus = 4}, seated = 2)
+	defer headless.run_end(&run)
+	testing.expect_value(t, run.simulation.setup.life_bonus, 4)
+	moves: [toy.PLAYERS]toy.Input
+	moves[1].dx = 5
+	headless.run_step(&run, moves)
+	testing.expect_value(t, run.recorded[run.simulation.tick].input[1].dx, 5)
+	headless.run_command(&run, 1, toy.Cmd_Bump{amount = 7})
+	testing.expect_value(t, sim.slot_data(run.simulation, 1).bump_sum, 7)
+	headless.run_command(&run, moves, 0, toy.Cmd(toy.Cmd_Bump{amount = 2}))
+	testing.expect_value(t, sim.slot_data(run.simulation, 0).bump_sum, 2)
+	testing.expect_value(t, run.recorded[run.simulation.tick].input[1].dx, 5)
+	for _ in 0 ..< 200 do headless.run_step(&run)
+	testing.expect_value(t, run.mismatches, 0)
+	_, found := headless.run_last_event(&run, sim.Event_Player_Left)
+	testing.expect(t, !found, "nobody left")
+	headless.run_seat(&run, 1, 0)
+	headless.run_step(&run)
+	left, left_found := headless.run_last_event(&run, sim.Event_Player_Left)
+	testing.expect(t, left_found && left.player.id == 2, "the last tick's leave")
+	testing.expect(t, !sim.command_is_dev(toy.Cmd_Bump))
+}

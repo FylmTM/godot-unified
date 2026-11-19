@@ -65,7 +65,7 @@ event_key :: proc(event: g.Event, _: godot.Subject) -> godot.Event_Target(View) 
 HIT_FLASH_S :: 0.125 // a hit rock's flash fades over this
 HIT_SQUASH :: 0.08 // a hit rock squashes by this much of its radius at the flash's height
 BULLET_SCALE :: [3]f32{1.6, 0.6, 1} // a bullet's quad, stretched along its velocity
-GEM_SPIN :: 2 // rad/s
+GEM_SPIN :: 0.3 // turns per second
 GEM_PULSE :: 0.18 // a gem's squash and stretch, at GEM_PULSE_RATE rad/s
 GEM_PULSE_RATE :: 6
 GEM_FADE_S :: 2 // a gem fades out over its last seconds
@@ -137,7 +137,7 @@ fill_frame :: proc(f: ^Frame) {
 			key    = sim.handle_key(handle),
 			kind   = .Gem,
 			pos    = sim.position_2d(gem.pos),
-			rot    = godot.quat_angle_2d(age * GEM_SPIN),
+			rot    = godot.quat_turns_2d(age * GEM_SPIN),
 			scale  = {1 + pulse, 1 - pulse, 1},
 			color  = {1, 0.85, 0.3, 0.25 + 0.75 * fade},
 			custom = {age, 0, 0, 0},

@@ -36,9 +36,7 @@ route_begin :: proc(seated: int) -> Run {
 
 // One sync-tested tick of the seated members (headless.run_seat) with these inputs (by slot).
 step :: proc(run: ^Run, inputs_by_slot: [g.PLAYERS]g.Input) {
-	inputs := headless.run_inputs(run)
-	inputs.input = inputs_by_slot
-	headless.run_step(run, &inputs)
+	headless.run_step(run, inputs_by_slot)
 }
 
 player_pos :: proc(run: ^Run, slot: int) -> [3]f32 {

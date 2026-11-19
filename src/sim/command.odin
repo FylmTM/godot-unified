@@ -56,8 +56,21 @@ Commands :: struct($Cmd: typeid) {
 // (commands_decode) and the dev UI offers as a form.
 DEV_COMMAND_PREFIX :: "Cmd_Dev_"
 
-// Whether variant `kind` of a command union is a dev command (its type is named Cmd_Dev_*).
-command_is_dev :: proc(commands: typeid, kind: int) -> bool {
+// Whether a command is a dev command (its type is named Cmd_Dev_*): by its type (`sim.command_is_dev(Cmd_Dev_Spawn)`),
+// or by its variant index in a command union known at run time.
+command_is_dev :: proc {
+	command_is_dev_type,
+	command_is_dev_kind,
+}
+
+// command_is_dev of a command type (a variant of the game's union).
+command_is_dev_type :: proc($C: typeid) -> bool {
+	named, is_named := type_info_of(C).variant.(runtime.Type_Info_Named)
+	return is_named && strings.has_prefix(named.name, DEV_COMMAND_PREFIX)
+}
+
+// command_is_dev of variant `kind` of the command union `commands`.
+command_is_dev_kind :: proc(commands: typeid, kind: int) -> bool {
 	variants := union_variants(commands)
 	if kind < 0 || kind >= len(variants) do return false
 	named, is_named := variants[kind].variant.(runtime.Type_Info_Named)

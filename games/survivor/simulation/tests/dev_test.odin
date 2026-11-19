@@ -51,8 +51,9 @@ draws_and_zones_change_nothing :: proc(t: ^testing.T) {
 @(test)
 dev_commands_apply :: proc(t: ^testing.T) {
 	testing.expect(t, sim.has_dev_commands(g.Cmd))
-	testing.expect(t, !sim.command_is_dev(g.Cmd, 0), "Cmd_Pick is no dev command")
-	testing.expect(t, sim.command_is_dev(g.Cmd, 1) && sim.command_is_dev(g.Cmd, 2) && sim.command_is_dev(g.Cmd, 3))
+	testing.expect(t, !sim.command_is_dev(g.Cmd_Pick), "Cmd_Pick is no dev command")
+	testing.expect(t, sim.command_is_dev(g.Cmd_Dev_Spawn) && sim.command_is_dev(g.Cmd_Dev_Give_Xp))
+	testing.expect(t, sim.command_is_dev(g.Cmd_Dev_Skip_Wave))
 	run := headless.run_begin(&g.GAME, 3, seated = 2)
 	defer headless.run_end(&run)
 	simulation := run.simulation

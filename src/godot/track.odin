@@ -248,12 +248,20 @@ yaw_of :: proc(q: [4]f32) -> f32 {
 	return math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x))
 }
 
-// Rotation about +Z by `angle` radians: a 2D angle (Godot's Node2D.rotation: 0 = +x, positive turns +x toward +y).
-quat_angle_2d :: proc(angle: f32) -> [4]f32 {
-	return {0, 0, math.sin(angle * 0.5), math.cos(angle * 0.5)}
+// Rotation about +Z by `turns` (the sim's angle unit: dmath's): a 2D angle (Godot's Node2D.rotation: 0 = +x,
+// positive turns +x toward +y). Box3D's radians stay behind physics.
+quat_turns_2d :: proc(turns: f32) -> [4]f32 {
+	half := turns * math.PI // half the angle, in radians
+	return {0, 0, math.sin(half), math.cos(half)}
 }
 
-// The 2D angle (radians about +Z) of a rotation.
-angle_2d_of :: proc(q: [4]f32) -> f32 {
+// The 2D angle (turns about +Z, in (-0.5, 0.5]) of a rotation.
+turns_2d_of :: proc(q: [4]f32) -> f32 {
+	return radians_2d_of(q) / math.TAU
+}
+
+// The 2D angle in radians (Godot's Node2D.rotation) of a rotation.
+@(private)
+radians_2d_of :: proc(q: [4]f32) -> f32 {
 	return math.atan2(2 * (q.w * q.z + q.x * q.y), 1 - 2 * (q.y * q.y + q.z * q.z))
 }

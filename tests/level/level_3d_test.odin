@@ -101,11 +101,11 @@ fixture_3d_records :: proc(t: ^testing.T) {
 	spot := &loaded.markers[0]
 	testing.expect(t, spot.kind == "spot" && len(spot.props) == 1)
 	if len(spot.props) == 1 {
-		curve, is_curve := spot.props[0].value.(level.Curve_Ref)
+		curve, is_curve := spot.props[0].value.(level.Curve_Samples)
 		testing.expect(t, spot.props[0].key == "falloff" && is_curve)
 		if is_curve {
 			// flat tangents at (0, 0) and (1, 1): Godot's cubic is the smoothstep 3x² - 2x³
-			samples := loaded.curves[curve]
+			samples := curve^
 			for sample, i in samples {
 				x := f32(i) / (level.CURVE_SAMPLES - 1)
 				testing.expectf(t, near_f32(sample, x * x * (3 - 2 * x)), "sample %d: %v", i, sample)

@@ -325,12 +325,35 @@ Run :: struct($G: typeid) {
 	floats:       [dynamic]u32, // the State's float offsets (sim.find_nan)
 }
 
-// A run of `game` from tick 0, on its levels, sync-tested `window` ticks back (1 ..= max_window(game)). `seated`: slots 0 ..< seated are seated (run_seat: slot i is member i + 1) and play one step
-// with zero inputs, so their players are present at tick 1; 0: nobody is seated yet, no step.
-run_begin :: proc(game: ^$G, seed: u64, window: u32 = 8, seated := 0) -> (run: Run(G)) {
+// A run of `game` from tick 0, on its levels, with its default Setup or `setup`, sync-tested `window` ticks back
+// (1 ..= max_window(game)). `seated`: slots 0 ..< seated are seated (run_seat: slot i is member i + 1) and play one
+// step with zero inputs, so their players are present at tick 1; 0: nobody is seated yet, no step.
+//
+//   run := headless.run_begin(&g.GAME, 1, setup = g.Setup{difficulty = .Hard}, seated = 2)
+run_begin :: proc {
+	run_begin_default,
+	run_begin_with_setup,
+}
+
+// run_begin with the game's default Setup.
+run_begin_default :: proc(game: ^$G, seed: u64, window: u32 = 8, seated := 0) -> Run(G) {
+	return run_begin_with_setup(game, seed, game.setup, window, seated)
+}
+
+// run_begin with this Setup.
+run_begin_with_setup :: proc(
+	game: ^$G,
+	seed: u64,
+	setup: $S,
+	window: u32 = 8,
+	seated := 0,
+) -> (
+	run: Run(G),
+) where S ==
+	sim.part(G, sim.GAME_SETUP) {
 	assert(window >= 1 && int(window) <= max_window(game))
 	assert(seated >= 0 && seated <= sim.part(G, sim.GAME_PLAYERS), "seated: 0 to the game's player count")
-	run.simulation = sim.create(game, seed)
+	run.simulation = sim.create(game, seed, setup)
 	sim.dev_attach(run.simulation) // draws on in the re-simulations only (run_step)
 	run.window = window
 	append(&run.recorded, sim.Inputs(G){})
@@ -353,8 +376,79 @@ run_end :: proc(run: ^Run($G)) {
 	delete(run.floats)
 }
 
-// One forward tick with `inputs`, then its sync-test.
-run_step :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
+// One forward tick, then its sync-test: with `inputs` (run_inputs, filled by the test), with the seated members
+// present (run_inputs) playing `input` by slot, or with no input:
+//
+//   headless.run_step(&run, inputs_by_slot)  // [PLAYERS]Input
+//   headless.run_step(&run)                  // the seated present, zero input
+//
+// run_command steps with a slot's command.
+run_step :: proc {
+	run_step_inputs,
+	run_step_by_slot,
+	run_step_seated,
+}
+
+// run_step with the seated members present playing `input` by slot.
+run_step_by_slot :: proc(
+	run: ^Run($G),
+	input: [$N]$I,
+) where N == sim.part(G, sim.GAME_PLAYERS) &&
+	I == sim.part(G, sim.GAME_INPUT) {
+	inputs := run_inputs(run)
+	inputs.input = input
+	run_step_inputs(run, &inputs)
+}
+
+// run_step with the seated members present and zero input.
+run_step_seated :: proc(run: ^Run($G)) {
+	inputs := run_inputs(run)
+	run_step_inputs(run, &inputs)
+}
+
+// One forward tick and its sync-test (run_step) in which `slot` sends `command` (a Cmd_X value, or the game's Cmd
+// union; it must fit: asserted), the seated members present, with no input or playing `input` by slot:
+//
+//   headless.run_command(&run, 1, g.Cmd_Pick{choice = 2})
+//   headless.run_command(&run, inputs_by_slot, 0, g.Cmd_Fire{})
+run_command :: proc {
+	run_command_seated,
+	run_command_by_slot,
+}
+
+// run_command with no input.
+run_command_seated :: proc(
+	run: ^Run($G),
+	slot: int,
+	command: $C,
+	loc := #caller_location,
+) where C == sim.part(G, sim.GAME_CMD) ||
+	intrinsics.type_is_variant_of(sim.part(G, sim.GAME_CMD), C) {
+	inputs := run_inputs(run)
+	sent := sim.add_command(&inputs, slot, command)
+	assert(sent, "run_command: a command that doesn't fit the tick", loc)
+	run_step_inputs(run, &inputs)
+}
+
+// run_command with the seated members playing `input` by slot.
+run_command_by_slot :: proc(
+	run: ^Run($G),
+	input: [$N]$I,
+	slot: int,
+	command: $C,
+	loc := #caller_location,
+) where N == sim.part(G, sim.GAME_PLAYERS) &&
+	I == sim.part(G, sim.GAME_INPUT) &&
+	(C == sim.part(G, sim.GAME_CMD) || intrinsics.type_is_variant_of(sim.part(G, sim.GAME_CMD), C)) {
+	inputs := run_inputs(run)
+	inputs.input = input
+	sent := sim.add_command(&inputs, slot, command)
+	assert(sent, "run_command: a command that doesn't fit the tick", loc)
+	run_step_inputs(run, &inputs)
+}
+
+// run_step with these inputs.
+run_step_inputs :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
 	simulation := run.simulation
 	append(&run.recorded, inputs^)
 	sim.dev_enable(simulation, 0)
@@ -466,6 +560,20 @@ run_pin :: proc(run: ^Run($G)) {
 	sim.save(simulation)
 	run.forward[simulation.tick] = sim.checksum(simulation)
 	run.floor = simulation.tick
+}
+
+// The last event of type E (a variant of the game's Event union) the newest tick emitted; found is false for none.
+run_last_event :: proc(
+	run: ^Run($G),
+	$E: typeid,
+) -> (
+	event: E,
+	found: bool,
+) where intrinsics.type_is_variant_of(sim.part(G, sim.GAME_EVENT), E) {
+	for &raw in sim.events_at(run.simulation, run.simulation.tick) {
+		if value, is := sim.event_value(&raw, sim.part(G, sim.GAME_EVENT)).(E); is do event, found = value, true
+	}
+	return
 }
 
 // How many events of type E (a variant of the game's Event union) the forward ticks emitted.
