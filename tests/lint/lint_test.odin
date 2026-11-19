@@ -29,7 +29,14 @@ RULES := []Rule {
 	// (base:runtime).
 	{pkg = "level", kind = .Tick, imports = {"unified:wire", "base:runtime", "base:intrinsics"}},
 	// The harness: also walks RTTI, hashes and formats errors.
-	{pkg = "sim", kind = .Tick, imports = SIM_IMPORTS, allow_fields = {"replaced"}}, // it fills and logs Inputs.replaced
+	// It fills and logs Inputs.replaced, owns the Dev and reads the dev UI build switch (sim.DEV).
+	{
+		pkg          = "sim",
+		kind         = .Tick,
+		imports      = SIM_IMPORTS,
+		allow_fields = {"replaced", "dev"},
+		allow_config = {"UNIFIED_DEVUI"},
+	},
 	// Real-time code beside the sim: the encoding, the netcode (its clocks are fine), the EOS transport (its SDK
 	// bindings need f64 fields and system: libraries), the headless library, modes and scenarios, the lint itself.
 	{pkg = "wire", kind = .Realtime},
@@ -355,6 +362,13 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 		{"f :: proc(x: f32) -> f32 {\n\treturn min(\n\t\tx,\n\t\tg(1, 2),\n\t)\n}\n", true},
 		{"f :: proc(x: f32) -> f32 {\n\treturn clamp(x, -1, 1)\n}\n", true},
 		{"f :: proc(t: ^Tick) -> bool {\n\treturn t.inputs.replaced != {}\n}\n", false}, // differs per peer
+		{"f :: proc(t: ^Tick) -> bool {\n\treturn t.dev != nil\n}\n", false}, // one machine's draws and zone clock
+		{"DEV :: #config(UNIFIED_DEVUI, true)\n", false}, // sim.DEV is the harness's to read
+	}
+	// ... and the harness may read that one build option
+	for rule in RULES do if rule.pkg == "sim" {
+		allowed := lint.scan(rule, "dev.odin", "package sim\nDEV :: #config(UNIFIED_DEVUI, true)\n")
+		testing.expectf(t, len(allowed) == 0, "sim reads UNIFIED_DEVUI: %v", allowed)
 	}
 	game_rule := lint.sim_rule("survivor", "")
 	sim_rule: Rule

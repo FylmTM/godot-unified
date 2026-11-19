@@ -28,6 +28,8 @@ Session_Config :: struct {
 	// rollbacks on most ticks, the bound of real play from above (an analog stick changes every tick; the default
 	// script holds an input for its period, all slots switching together). Commands keep the script's ticks.
 	churn:          bool,
+	// Every client attaches a sim.Dev (Client_Config.dev): its result reports each zone's time per stepped tick.
+	dev:            bool,
 }
 
 // How far apart churn asks the script for consecutive ticks: a fresh draw for any script period up to it.
@@ -53,6 +55,8 @@ Session_Result :: struct($G: typeid) {
 session_result_destroy :: proc(result: ^Session_Result($G)) {
 	for client in result.clients {
 		delete(client.checksums)
+		for zone in client.zones do delete(zone.name)
+		delete(client.zones)
 	}
 	delete(result.clients)
 	delete(result.desync.detail)
@@ -179,6 +183,7 @@ session_run :: proc(game: ^$G, cfg: Session_Config) -> (result: Session_Result(G
 		client_cfg := netcode.Client_Config {
 			slot      = slot,
 			join_tick = join,
+			dev       = cfg.dev,
 		}
 		return netcode.client_create(game, client_cfg, link, scripted_hooks(scripted))
 	}

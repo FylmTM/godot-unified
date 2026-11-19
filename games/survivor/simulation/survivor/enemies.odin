@@ -67,7 +67,9 @@ steer_enemies :: proc(t: ^Tick) {
 		desired: [2]f32
 		if target := nearest_target(&targets, enemy.pos); target != nil {
 			desired = dmath.normalize(target.pos.xz - enemy.pos) * speed
+			if sim.drawing(t) do sim.debug_line(t, sim.position_floor(enemy.pos, 0.1), target.pos, .Yellow) // who it chases
 		}
+		if enemy.climbing && sim.drawing(t) do sim.debug_sphere(t, sim.position_floor(enemy.pos), enemy.radius, .Red)
 		separation: [2]f32
 		for row in grid_near(&scratch.grid, enemy.pos) {
 			for other_index in row {

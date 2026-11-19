@@ -79,6 +79,10 @@ end-to-end suite and the bench run (`GAME_STRESS`), `bench` an endless match hol
 12. The physics step, then the players' positions read back (`read_back`).
 13. `advance_phase`.
 
+The systems are grouped into timing zones (`Zone`: `uni bench`'s zone row). Its debug draws: the steering draws who
+each enemy chases and the enemies climbing an item, and `physics.debug_draw` the physics shapes, contacts and sleep
+state; none of it is state.
+
 ## Events
 
 `player_died`, `player_respawned`, `match_started`, `match_over`, `level_up`, `enemy_died`, `gem_collected`,

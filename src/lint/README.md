@@ -20,6 +20,9 @@ packages it may import; a package without one fails), and every game under `game
 - **A game's layout is its rule table** (`check_game`): `headless/`, `extension/` and `tests/` are known, and every
   other directory is a sim package (`sim_rule`), so a new sim package is linted without editing a list. No game code
   imports Box3D's bindings: Box3D is physics' (`src/physics/README.md`, The boundary).
+- **Allowances are by name, with a reason where listed.** A Tick rule may read named fields the bans list
+  (`allow_fields`: the harness fills `Inputs.replaced`) and a named `#config` (`allow_config`: the harness's dev UI
+  switch, `sim.DEV`); everything else of the kind stays banned.
 - **What it can't see: types.** A float-to-int conversion goes through `dmath.to_i32_clamped` by convention, and
   `x := 1.5 * y` is f64 until a cast. `dmath`'s `min`, `max` and `clamp` take integers too, since the lint bans the
   builtins whatever the type. Address-dependent values are left to the end-to-end suites' desync detection.

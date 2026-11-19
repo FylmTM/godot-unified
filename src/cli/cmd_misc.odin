@@ -60,6 +60,10 @@ Bench_Report :: struct {
 	snapshot_bytes:     int,
 	save_bytes:         int, // what each tick's save copies (the block and the extras' saves)
 	mismatches:         int,
+	// The game's zones (sim.zone): each one's self time per forward step, from a second pass with the zones timed; and
+	// that pass's step (its mean less step_us's: what timing them costs).
+	zones:              map[string]Bench_Stat,
+	zoned_step_us:      Bench_Stat,
 	frame_p99_us:       f64, // the target's measure: step + restore + re-sim + deep checksum, each at its p99
 	within_target:      bool,
 }
@@ -102,6 +106,25 @@ Net_Rows :: struct {
 // The churn session's length: its rollbacks, stalls and client steps settle well within it.
 @(private)
 BENCH_CHURN_TICKS :: "600"
+
+// A game's zone row: its zones' mean self times per step, the largest first, and what timing them costs.
+@(private)
+zones_row :: proc(bench: Bench_Report) -> string {
+	Zone :: struct {
+		name: string,
+		us:   f64,
+	}
+	zones := make([dynamic]Zone, context.temp_allocator)
+	for name, stat in bench.zones do append(&zones, Zone{name, stat.mean})
+	slice.sort_by(zones[:], proc(a, b: Zone) -> bool {return a.us > b.us || (a.us == b.us && a.name < b.name)})
+	parts := make([dynamic]string, context.temp_allocator)
+	for zone in zones do append(&parts, aprintf("%s %.1f", zone.name, zone.us))
+	return aprintf(
+		"zones (us per step, self time): %s; timing them: %+.1f us",
+		strings.join(parts[:], ", ", context.temp_allocator),
+		bench.zoned_step_us.mean - bench.step_us.mean,
+	)
+}
 
 // .out/bench.json.
 Bench_Summary :: struct {
@@ -176,6 +199,7 @@ cmd_bench :: proc(args: []string) -> Result {
 			bench.snapshot_encode_us.mean,
 			bench.snapshot_keep_us.mean,
 		)
+		if len(bench.zones) > 0 do log("%-12s %s", "", zones_row(bench))
 		if bench.mismatches > 0 {
 			append(&failed, game.name) // a re-sim that disagrees is a bug, whatever the timing
 		}

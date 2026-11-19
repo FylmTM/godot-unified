@@ -39,6 +39,7 @@ Rule :: struct {
 	bans:          []string, // imports banned besides the kind's, each with what is under it ("c:": all of c)
 	allow_globals: []string, // package-level variables a Tick package may keep: each needs a reason where listed
 	allow_fields:  []string, // SIM_FIELDS a Tick package may read (the harness that fills them): a reason where listed
+	allow_config:  []string, // the `#config` names a Tick package may read (sim.DEV): a reason where listed
 }
 
 // What a Realtime package may not name: fused or complex arithmetic. (core:math, banned there too, pulls in
@@ -91,8 +92,9 @@ BUILTIN_CALLS :: []string{"min", "max", "clamp"}
 
 // The fields a tick may not read (`x.name`): they differ between peers computing the same tick. `replaced`
 // (sim.Inputs): the relay substituted a late input; a peer that predicted it right steps the tick without it, a
-// peer catching up or replaying the log with it.
-SIM_FIELDS :: []string{"replaced"}
+// peer catching up or replaying the log with it. `dev` (sim.Tick, sim.Zone_Scope): the debug draws and zone clock
+// one machine's host attached.
+SIM_FIELDS :: []string{"replaced", "dev"}
 
 // What library code inside a tick may import: the deterministic packages and the integer bit helpers. Not Box3D's
 // bindings: Box3D is physics' (src/physics/README.md, The boundary).
@@ -298,7 +300,10 @@ scan :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator)
 				prev = {tok.kind, prev[0], prev[1]}
 				continue // import alias
 			}
-			if bans.strict && prev[0] == .Hash && tok.text == "config" {
+			if bans.strict &&
+			   prev[0] == .Hash &&
+			   tok.text == "config" &&
+			   !slice.contains(rule.allow_config, config_name(scanner)) {
 				report(&out, tok, name, "`#config` (a build option: peers would run different sims)", rule, allocator)
 			}
 			for banned in bans.idents {
@@ -344,6 +349,15 @@ scan :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator)
 		prev = {tok.kind, prev[0], prev[1]}
 	}
 	return out[:]
+}
+
+// The option a `#config` reads (`scanner` is right after `config`): the name after its `(`, else "".
+@(private)
+config_name :: proc(scanner: tokenizer.Tokenizer) -> string {
+	ahead := scanner
+	if tokenizer.scan(&ahead).kind != .Open_Paren do return ""
+	name := tokenizer.scan(&ahead)
+	return name.kind == .Ident ? name.text : ""
 }
 
 // Whether the tokens after a name (`scanner` is right after it) are a call with two or more arguments: `(`, then a

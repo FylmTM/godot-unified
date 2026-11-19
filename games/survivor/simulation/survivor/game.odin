@@ -54,22 +54,60 @@ GAME_STRESS := Game {
 	bench_prepare     = bench_prepare,
 }
 
-// One tick: the systems in their order (games/survivor/README.md, Systems).
+// The tick's timing zones (sim.zone): the dev UI's stacked graph and `uni bench`'s zone row; also the draw groups of
+// the debug draws made in them.
+Zone :: enum u8 {
+	Players,
+	Waves,
+	Steer,
+	Weapons,
+	Barrels,
+	Pickups,
+	Physics,
+	Phase,
+}
+
+// One tick: the systems in their order (games/survivor/README.md, Systems), each group a timing zone.
 tick :: proc(t: ^Tick) {
-	update_players(t)
-	pick_upgrades(t)
-	spawn_waves(t)
-	steer_enemies(t)
-	hurt_players(t)
-	fire(t)
-	move_projectiles(t)
-	explode_barrels(t)
-	kill_enemies(t)
-	collect_gems(t)
-	level_up(t)
-	physics.step(t.world.phys)
-	read_back(t)
-	advance_phase(t)
+	{
+		sim.zone(t, Zone.Players)
+		update_players(t)
+		pick_upgrades(t)
+	}
+	{
+		sim.zone(t, Zone.Waves)
+		spawn_waves(t)
+	}
+	{
+		sim.zone(t, Zone.Steer)
+		steer_enemies(t)
+		hurt_players(t)
+	}
+	{
+		sim.zone(t, Zone.Weapons)
+		fire(t)
+		move_projectiles(t)
+	}
+	{
+		sim.zone(t, Zone.Barrels)
+		explode_barrels(t)
+		kill_enemies(t)
+	}
+	{
+		sim.zone(t, Zone.Pickups)
+		collect_gems(t)
+		level_up(t)
+	}
+	{
+		sim.zone(t, Zone.Physics)
+		physics.step(t.world.phys)
+		read_back(t)
+	}
+	{
+		sim.zone(t, Zone.Phase)
+		advance_phase(t)
+	}
+	physics.debug_draw(t.world.phys, t, {.Shapes, .Contacts, .Sleep}) // nothing unless the dev UI shows them
 }
 
 extra :: proc(world: ^World) -> sim.Extra {
