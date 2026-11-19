@@ -1,10 +1,10 @@
-extends MenuTool
-## A tour of the real game with the native session, driven by input actions:
+extends "res://game/tools/ui_walk.gd"
+## A tour of the real game with the native session, driven by input actions: the walk's start of a match (ui_walk.gd:
+## the lobby, walking out, the auto-attack, a Pick), then the rest of a whole match: kite in circles -> level-up ->
+## stand still until the match is lost -> over -> back to the lobby -> leave.
 ##   godot --path games/survivor -s res://game/tools/tour.gd -- --no-settings [--shots=<dir>] [--frames]
-## menu -> single player -> lobby -> walk out -> match (kite in circles) -> level-up -> stand still until the
-## match is lost -> over -> back to the lobby -> leave: a whole match, by hand (`uni tool survivor tour`; the
-## godot suite's walk covers the start of a match). With `--frames` it also tags the first show of each HUD panel and
-## banner size, the first hit on the player and a barrel explosion, for the first-use hitches.
+## By hand (`uni tool survivor tour`). With `--frames` it also tags the first show of each HUD panel and banner size,
+## the first hit on the player and a barrel explosion, for the first-use hitches.
 
 const HUD_PANELS: Array[NodePath] = [^"LevelUp", ^"GameOver", ^"Respawn"]
 ## The level-up keys by card (the HUD's PICKS).
@@ -33,30 +33,16 @@ func _run() -> void:
 
 	await click_menu("Single")
 	await wait_for_scene("Arena", 5.0)
-	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.LOBBY and views(EnumView.PLAYER).size() >= 1, 8.0,
-		"the lobby with the player")
-	await seconds(1.0)
-	await shot("r02_lobby")
-	step("lobby: circle %.1f m, %d views" % [Unified.constants.start_radius,
-		current_scene.get_node(^"Views").get_child_count()])
-
-	# Walk out of the circle (diagonally, between the crates).
-	Input.action_press(&"move_right")
-	Input.action_press(&"move_back")
-	await seconds(0.25)
-	await shot("r02b_leaving")  # the ring heats up near the edge
-	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.MATCH, 6.0, "walking out starts the match")
-	step("match started")
-	await seconds(0.15)
-	_release_all()
-	await shot("r03_match_start")  # shockwave + flash
-	await wait_for(func() -> bool: return Unified.data.hud.enemies_alive > 0, 8.0, "enemies spawn")
-	step("enemies: %d" % Unified.data.hud.enemies_alive)
+	if failed():
+		return
+	await _walk_play()
+	if failed():
+		return
 
 	var leveled := false
 	var shot_fight := false
 	var shot_dead := false
-	for i in 400:  # up to ~40 s
+	for i in 700:  # up to ~70 s: until a level-up (the first comes after about 30 s of kiting)
 		_release_all()
 		for a: StringName in KITE[floori(i / 4.0) % KITE.size()]:
 			Input.action_press(a)
@@ -86,6 +72,7 @@ func _run() -> void:
 			await seconds(0.25)
 			await shot("r05b_down")
 	_release_all()
+	expect(leveled, "kiting reaches a level-up")
 	await shot("r06_fight_later")
 	step("fight: wave %d, %d enemies, level %d" % [Unified.data.hud.wave, Unified.data.hud.enemies_alive,
 		_me().level if _me() != null else 0])

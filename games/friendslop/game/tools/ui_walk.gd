@@ -6,11 +6,9 @@ extends MenuTool
 ## menu -> leave -> online play (`_walk_online()`) -> host on LAN (the session panel shows the address) -> leave ->
 ## join a code that fails (the error on the menu). With `--shots=<dir>` (a window) it saves PNGs at the key moments.
 ##
-## Its play scene (`_walk_play()`), on the real session (single player), steered
-## as a player would (turning the camera rig, holding forward): the hub (the player's view, the marker views) -> walk
-## to a crate, grab it, charge and throw it (it flies at least 2 m) -> travel to the route and back with the pause
-## menu's "Back to hub" (`_walk_travel()`). The jump pad and the rest of the route: the full tour
-## (`uni tool friendslop tour`).
+## Its play scene (`_walk_play()`), on the real session (single player), steered as a player would (turning the camera
+## rig, holding forward): the hub (the player's view, the marker views) -> walk to a crate, grab it, charge and throw it (it flies at least 2 m) -> travel to the route and back with the pause menu's "Back to hub"
+## (`_walk_travel()`). The jump pad: the tour (`uni tool friendslop tour`).
 
 const Steering := preload("res://game/tools/steering.gd")
 ## The modes of a session opened to friends.
@@ -97,6 +95,7 @@ func _walk_play() -> void:
 	await hold(&"grab", 0.1)
 	await wait_for(func() -> bool: return _holding() == EnumHeldKind.ITEM, 1.0, "holding the crate")
 	await shot("02b_holding")
+	await _holding_crate()
 	step("grabbed a crate next to %s" % Steering.fmt(crate.global_position))
 
 	var before := _marker_positions()
@@ -106,6 +105,10 @@ func _walk_play() -> void:
 	await shot("02c_thrown")
 	step("threw it %.1f m" % _moved_most(before))
 
+
+## While the crate is held (the walk goes on at once; the tour checks it is drawn at the hand).
+func _holding_crate() -> void:
+	pass
 
 ## Online play through the lobby service (default: skipped; it needs EOS, or a game's stand-in session).
 func _walk_online() -> void:
