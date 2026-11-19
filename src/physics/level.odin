@@ -445,8 +445,8 @@ build_level :: proc(world: ^World, baked: ^Baked_Level) {
 	}
 }
 
-// A static body of the active level, recorded in the body table as the level's (with its generation, so
-// level_change can destroy it).
+// A static body of the active level, recorded in the body table as the level's (body_created records its generation,
+// so level_change can destroy it).
 @(private)
 level_body_create :: proc(world: ^World, pos: [3]f32, rot: [4]f32) -> box3d.BodyId {
 	body_def := transmute(Body_Def)box3d.DefaultBodyDef()
@@ -456,7 +456,6 @@ level_body_create :: proc(world: ^World, pos: [3]f32, rot: [4]f32) -> box3d.Body
 	body_created(world, id, 0)
 	entry := &world.bodies[id.index1 - 1]
 	entry.flags = {.Alive, .Level}
-	entry.generation = id.generation
 	return id
 }
 

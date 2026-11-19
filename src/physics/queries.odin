@@ -110,13 +110,15 @@ world_cast_ray_closest :: proc(
 	return ray.hit, ray.found
 }
 
-// The closest hit as the world was `rewind_s` ago, to first order: what a shot hits on the picture its shooter saw
-// (sim.seen_rewind gives the rewind). Bodies with no linear velocity (statics, sleepers, still bodies) are cast as
-// they are; every other body as if moved back by its linear velocity times `rewind_s` (its rotation as it is), so the
-// hit's point is on the body there. Sensors and the `ignore` body are skipped, and the closest wins by fraction, then
-// body and shape index. `rewind_s` 0 or less (or NaN) is world_cast_ray_closest. Its cost beside that cast: a look at
-// the velocity of every body that isn't the active level's, and a ray per shape of each moving body whose box the ray
-// crosses, so it is for a shot, not for every ray of a tick.
+// The closest hit as the world was `rewind_s` ago, to first order: what a shot hits on the picture its shooter saw a
+// few ticks before (the caller caps the rewind). Bodies with no linear velocity (statics, sleepers, still bodies, and a
+// body moved by body_set_transform) are cast as they are; a body driven by velocity (body_set_linear_velocity,
+// body_set_target_transform, the solver) as if moved back by its linear velocity times `rewind_s`, its rotation as it
+// is, so the hit's point is on the body there. Sensors and the `ignore` body are skipped. A moving body's hit wins
+// over a still one's by fraction, then body and shape index; among still shapes ties go as world_cast_ray_closest's
+// (Box3D's callback order). A `rewind_s` of 0 or less, or not finite, is world_cast_ray_closest. Its cost beside that
+// cast: a look at the velocity of every body that isn't the active level's, and a ray per shape of each moving body
+// whose box the ray crosses, so it is for a shot, not for every ray of a tick.
 world_cast_ray_closest_rewound :: proc(
 	world: ^World,
 	origin, translation: [3]f32,
@@ -127,7 +129,7 @@ world_cast_ray_closest_rewound :: proc(
 	hit: Hit,
 	ok: bool,
 ) {
-	if !(rewind_s > 0) do return world_cast_ray_closest(world, origin, translation, filter, ignore)
+	if !(rewind_s > 0 && rewind_s < max(f32)) do return world_cast_ray_closest(world, origin, translation, filter, ignore)
 	// Bodies at rest, as they are: Box3D's cast, skipping every moving body.
 	ray := Ray_Ctx {
 		ctx    = context,
@@ -146,13 +148,9 @@ world_cast_ray_closest_rewound :: proc(
 	// Each moving body, moved back: the ray moved forward by the same displacement against its shapes as they are.
 	query := query_filter(filter)
 	for entry, index in world.bodies {
-		if .Alive not_in entry.flags || .Level in entry.flags || index >= len(world.generations) do continue
-		id := box3d.BodyId {
-			index1     = i32(index + 1),
-			world0     = world.id.index1 - 1,
-			generation = world.generations[index],
-		}
-		if id.index1 == ray.ignore.index1 || !box3d.Body_IsValid(id) do continue
+		if .Alive not_in entry.flags || .Level in entry.flags do continue
+		id := body_id(world, Body_Ref{index1 = i32(index + 1), generation = entry.generation})
+		if id == ray.ignore || !box3d.Body_IsValid(id) do continue
 		velocity := transmute([3]f32)box3d.Body_GetLinearVelocity(id)
 		if velocity == {} do continue
 		displacement := velocity * rewind_s

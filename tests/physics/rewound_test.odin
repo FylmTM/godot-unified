@@ -1,6 +1,7 @@
 // The rewound ray (world_cast_ray_closest_rewound): the same answer as a plain cast on the world with every moving
-// body moved back, through the filter rules, sensors and `ignore`; its body table generations through a restore and a
-// late joiner's load. And Box3D's plane solver (solve_planes, clip_vector) on a mover's planes.
+// body moved back, through the filter rules, sensors, `ignore`, a mesh and ties; the bodies it names by the body
+// table's generations through a restore and a late joiner's load. And Box3D's plane solver (solve_planes,
+// clip_vector) on a mover's planes.
 package test_physics
 
 import "core:log"
@@ -19,6 +20,7 @@ Mover :: struct {
 		Ball, // a dynamic sphere
 		Sensor, // a kinematic sensor box: never hit
 		Picky, // a kinematic box whose shapes accept CAT_BOX queries only
+		Mesh, // a kinematic box mesh
 	},
 }
 
@@ -29,6 +31,7 @@ MOVERS := [?]Mover {
 	{{0, 2.5, 0.5}, {-4, 3, 0}, .Ball},
 	{{3, 1, 0}, {-6, 0, 0}, .Sensor},
 	{{-3.5, 1, -1}, {2, 0, 0}, .Picky},
+	{{2.5, 1, 1.5}, {-3, 0, 1}, .Mesh},
 }
 
 // The scene: a ground, a wall at z = −6 and MOVERS, each `moved_back` by its velocity times `rewind_s` and still, or
@@ -40,7 +43,9 @@ rewind_scene :: proc(
 ) -> (
 	world: ^physics.World,
 	bodies: [len(MOVERS)]physics.Body_Ref,
+	mesh: ^physics.Mesh_Data, // the caller frees it after the world
 ) {
+	mesh = physics.create_box_mesh({}, {0.4, 0.8, 0.4})
 	world = api_world({0, 0, 0})
 	box(world, {0, -0.5, 0}, {20, 0.5, 20})
 	box(world, {0, 1, -6}, {6, 1, 0.2})
@@ -64,6 +69,8 @@ rewind_scene :: proc(
 			physics.create_box_shape(world, bodies[i], shape_def, {0.5, 1, 0.5})
 		case .Picky:
 			physics.create_box_shape(world, bodies[i], physics.shape_def(CAT_BOX, CAT_BOX), {0.4, 1, 0.4})
+		case .Mesh:
+			physics.create_mesh_shape(world, bodies[i], shape_def, mesh)
 		}
 		if !moved_back do physics.body_set_linear_velocity(world, bodies[i], mover.velocity)
 	}
@@ -91,9 +98,11 @@ rewound_ray_is_the_world_moved_back :: proc(t: ^testing.T) {
 	hits_on: [len(MOVERS)]int
 	mismatches, rays := 0, 0
 	for rewind_s in ([?]f32{0.03, 0.1}) {
-		live, bodies := rewind_scene(false, rewind_s)
+		live, bodies, live_mesh := rewind_scene(false, rewind_s)
+		defer physics.destroy_mesh(live_mesh)
 		defer physics.destroy(live)
-		back, _ := rewind_scene(true, rewind_s)
+		back, _, back_mesh := rewind_scene(true, rewind_s)
+		defer physics.destroy_mesh(back_mesh)
 		defer physics.destroy(back)
 		for filter in filters {
 			for ignore in ([?]physics.Body_Link{{}, physics.link(bodies[0])}) {
@@ -139,21 +148,23 @@ rewound_ray_is_the_world_moved_back :: proc(t: ^testing.T) {
 	testing.expectf(t, mismatches == 0, "%v of %v rays differ from the world moved back", mismatches, rays)
 	testing.expectf(
 		t,
-		hits_on[0] > 0 && hits_on[1] > 0 && hits_on[2] > 0 && hits_on[4] > 0,
+		hits_on[0] > 0 && hits_on[1] > 0 && hits_on[2] > 0 && hits_on[4] > 0 && hits_on[5] > 0,
 		"every solid mover is hit: %v",
 		hits_on,
 	)
 	testing.expect_value(t, hits_on[3], 0) // the sensor
 }
 
-// No rewind (0, less, NaN) is the plain cast, and a moving body is found where it was, not where it is.
+// No rewind (0, less, not finite) is the plain cast, and a moving body is found where it was, not where it is.
 @(test)
 rewound_ray_without_rewind_and_on_a_runner :: proc(t: ^testing.T) {
-	world, bodies := rewind_scene(false, 0)
+	world, bodies, mesh := rewind_scene(false, 0)
+	defer physics.destroy_mesh(mesh)
 	defer physics.destroy(world)
 	origin, translation := [3]f32{0, 1.75, 8}, [3]f32{0, 0, -20} // at head height, through x = 0
 	plain, plain_ok := physics.world_cast_ray_closest(world, origin, translation)
-	for rewind_s in ([?]f32{0, -1, transmute(f32)u32(0x7FC0_0000)}) {
+	nan, inf := transmute(f32)u32(0x7FC0_0000), transmute(f32)u32(0x7F80_0000)
+	for rewind_s in ([?]f32{0, -1, nan, inf, -inf}) {
 		hit, ok := physics.world_cast_ray_closest_rewound(world, origin, translation, rewind_s)
 		testing.expect(t, ok == plain_ok && hit == plain, "no rewind: the plain cast")
 	}
@@ -164,8 +175,37 @@ rewound_ray_without_rewind_and_on_a_runner :: proc(t: ^testing.T) {
 	testing.expectf(t, near(hit.point, {0, 1.75, 0.2}, 1e-3), "on the head where it was: %v", hit.point)
 }
 
+// Hits at the same fraction go to the lower body index, whether moving or still: two equal boxes in one place.
+@(test)
+rewound_ray_ties_go_to_the_lower_body :: proc(t: ^testing.T) {
+	// 0.25 s at 4 m/s along +z: a moving box at z = 1 was at z = 0, exactly where the still one is.
+	Order :: enum {
+		Moving_First,
+		Still_First,
+		Both_Moving,
+	}
+	for order in Order {
+		world := api_world({0, 0, 0})
+		defer physics.destroy(world)
+		bodies: [2]physics.Body_Ref
+		for i in 0 ..< 2 {
+			moving := order == .Both_Moving || (order == .Moving_First) == (i == 0)
+			def := physics.body_def(.Kinematic, {0, 1, 1} if moving else {0, 1, 0})
+			bodies[i], _ = physics.create_box(world, def, physics.shape_def(CAT_BOX), {0.5, 0.5, 0.5}, u64(i + 1))
+			if moving do physics.body_set_linear_velocity(world, bodies[i], {0, 0, 4})
+		}
+		hit, ok := physics.world_cast_ray_closest_rewound(world, {0, 1, 5}, {0, 0, -10}, 0.25)
+		testing.expectf(t, ok && hit.body == physics.link(bodies[0]), "%v: the lower body: %v", order, hit.body)
+		testing.expectf(t, ok && hit.fraction == 0.45, "%v: at the face z = 0.5: %v", order, hit.fraction)
+	}
+}
+
 Rewind_Block :: struct {
-	movers: [3]physics.Body_Ref,
+	movers:   [3]physics.Body_Ref,
+	pooled:   physics.Body_Ref, // disabled at the save, enabled after the load
+	filtered: physics.Body_Ref, // its shape in no category until after the load
+	bare:     physics.Body_Ref, // no shape until after the load
+	shape:    physics.Shape_Ref, // filtered's
 }
 
 // The body table's generations come back with a restore (a body destroyed and its index reused after the save), and a
@@ -215,6 +255,54 @@ rewound_ray_after_a_restore_and_a_load :: proc(t: ^testing.T) {
 	testing.expect(t, late_extra.load(late_extra.data, extra.image(extra.data, 0, true)))
 	loaded, loaded_ok := ray(late)
 	testing.expect(t, loaded_ok && same_hit(loaded, before), "a loaded world rewinds its moving bodies")
+}
+
+// A late joiner names every live body as its peers do, whether a query could find it at the load or not: a disabled
+// body, one whose shape is in no category and one with no shape, each made a moving target after the load, are
+// rewound in the loaded world as in the one it came from.
+@(test)
+rewound_ray_names_bodies_a_load_cannot_see :: proc(t: ^testing.T) {
+	block: Rewind_Block
+	world := api_world({0, 0, 0})
+	defer physics.destroy(world)
+	box(world, {0, -0.5, 0}, {20, 0.5, 20})
+	extra := physics.extra(world, Rewind_Block)
+	kinematic :: proc(x: f32) -> physics.Body_Def {return physics.body_def(.Kinematic, {x, 1, 0})}
+	block.pooled, _ = physics.create_box(world, kinematic(4), physics.shape_def(CAT_BOX), {0.4, 1, 0.4}, 20)
+	physics.body_disable(world, block.pooled)
+	block.filtered, block.shape = physics.create_box(world, kinematic(6), physics.shape_def(0), {0.4, 1, 0.4}, 21)
+	block.bare = physics.create_body(world, kinematic(8), 22)
+	extra.save(extra.data, 0)
+
+	late_block := block
+	late := api_world({0, 0, 0})
+	defer physics.destroy(late)
+	box(late, {0, -0.5, 0}, {20, 0.5, 20})
+	late_extra := physics.extra(late, Rewind_Block)
+	testing.expect(t, late_extra.load(late_extra.data, extra.image(extra.data, 0, true)))
+	testing.expect_value(t, physics.check_refs(late, &late_block), "")
+
+	for target in ([?]^physics.World{world, late}) {
+		physics.body_enable(target, block.pooled)
+		physics.shape_set_filter(target, block.shape, {category = CAT_BOX, mask = max(u64)})
+		physics.create_box_shape(target, block.bare, physics.shape_def(CAT_BOX), {0.4, 1, 0.4})
+		for body in ([?]physics.Body_Ref{block.pooled, block.filtered, block.bare}) {
+			physics.body_set_linear_velocity(target, body, {0, 0, 4})
+		}
+	}
+	for x, k in ([?]f32{4, 6, 8}) {
+		// 0.25 s ago each was 1 m back, at z = -1: the ray along -z there meets its face at z = -0.6.
+		want, want_ok := physics.world_cast_ray_closest_rewound(world, {x, 1, 5}, {0, 0, -10}, 0.25)
+		got, got_ok := physics.world_cast_ray_closest_rewound(late, {x, 1, 5}, {0, 0, -10}, 0.25)
+		testing.expectf(
+			t,
+			want_ok && want.tag == u64(20 + k) && near_f32(want.fraction, 0.56, 1e-4),
+			"%v: %v",
+			x,
+			want,
+		)
+		testing.expectf(t, got_ok == want_ok && same_hit(got, want), "x = %v: loaded %v, original %v", x, got, want)
+	}
 }
 
 // Box3D's plane solver on a mover's planes: sunk into the ground and the wall, it is pushed out of both and keeps its

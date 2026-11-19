@@ -102,9 +102,9 @@ the block (`geometry.odin`'s header): a game keeps a mesh, height field or compo
   `clear` can't carry a result into another tick.
 - Casts take an origin and a translation (the whole length).
 - **A shot asks the past.** `world_cast_ray_closest_rewound` answers what a ray hit on the picture its shooter saw a
-  few ticks ago: every moving body moved back by its linear velocity times the rewind, to first order (its rotation
-  and any change of speed as they are now), statics and still bodies as they are. It looks at every body that isn't
-  the level's, so it is for a shot, not for every ray of a tick.
+  few ticks ago, from velocities alone: a body driven by velocity (or a target transform) is moved back, one placed
+  by `body_set_transform` has none and is hit where it is. So a game whose shots should lead its movers moves them by
+  velocity.
 - Events are read in the tick that stepped; a re-simulation regenerates them.
 
 ## Character

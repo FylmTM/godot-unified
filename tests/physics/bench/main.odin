@@ -6,13 +6,14 @@
 // cross the whole pile; kept awake. Every tick: a step, a save into a ring slot, the deep hash (the ticks peers
 // compare), the awake-bodies hash (the other ticks), a restore of that slot (it must give the same hash back), and a
 // batch of rays down onto the pile, then the same batch rewound REWIND_TICKS (world_cast_ray_closest_rewound: every
-// box of the awake pile moves a little, its worst case). Every IMAGE_EVERY ticks: a portable image of the slot as of a past tick (the world
-// swapped out and back) and as the live tick (no swap; the same bytes), and its load into a second world (a late
-// join; the loaded world must hash the same). Then 64 characters on a slab: their character_updates per
-// tick, apart from the step. Then the capacity against the frame budget: a smaller pile (ROLLBACK_SIDE³ boxes, sized
-// to the bench's time; the bodies that would fit the budget scale from it) steps and, every tick, rolls back as the netcode does at its prediction cap (a restore,
-// CAP steps with a save every 2nd tick, a deep hash: it must hash as the forward tick did), on 1 and 4 workers. Then a
-// large generated level (level.odin). One JSON line.
+// box of the awake pile moves a little, its worst case). Every IMAGE_EVERY ticks: a portable image of the slot as of
+// a past tick (the world swapped out and back) and as the live tick (no swap; the same bytes), and its load into a
+// second world (a late join; the loaded world must hash the same). Then 64 characters on a slab: their
+// character_updates per tick, apart from the step. Then the capacity against the frame budget: a smaller pile
+// (ROLLBACK_SIDE³ boxes, sized to the bench's time; the bodies that would fit the budget scale from it) steps and,
+// every tick, rolls back as the netcode does at its prediction cap (a restore, CAP steps with a save every 2nd tick, a
+// deep hash: it must hash as the forward tick did), on 1 and 4 workers. Then a large generated level (level.odin).
+// One JSON line.
 package physics_bench
 
 import "core:fmt"
@@ -30,7 +31,7 @@ HALF :: f32(0.25)
 SETTLE_TICKS :: 64 // not measured: the pile lands
 TICKS :: 600
 RAYS :: 64 // per tick, straight down onto the pile
-REWIND_TICKS :: 2 // the rewound rays' rewind: a shot's usual delay (sim.seen_rewind)
+REWIND_TICKS :: 2 // the rewound rays' rewind: a shot's usual delay
 RING :: 16
 IMAGE_EVERY :: 16
 CHARACTERS :: 64

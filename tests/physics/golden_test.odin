@@ -23,10 +23,10 @@ GOLDEN_EVERY :: 128
 // change is intended, update the values in the same commit (with BOX3D_GOLDEN and the
 // games' reference runs when they change too).
 GOLDEN_CHARACTERS :: [GOLDEN_TICKS / GOLDEN_EVERY]u64 {
-	0xcce700a157c5cd2f,
-	0x4416e4d52d37c953,
-	0xbd1ba180e414edf9,
-	0x3db108bf040a1062,
+	0x32f947e417397067,
+	0x2d9dc705fab02713,
+	0x8c926e4adaa3b712,
+	0xce7977c821247cd3,
 }
 
 // On 1 and on 4 workers: the same values.
@@ -100,7 +100,7 @@ character_golden :: proc(t: ^testing.T, workers: i32) {
 // checksummed on the deep-checksum ticks (the whole world, its baked geometry included): the pin that every platform
 // collides with mesh BVHs and height fields alike, which no box-only golden or shipped level covers. Update it in
 // the same commit as a change that is meant to alter it.
-GOLDEN_TERRAIN :: [4]u64{0x126fdfe35cb664a0, 0x4e51cb692363fa65, 0xe1380bfbb7e87203, 0x5d3e061d849dee69}
+GOLDEN_TERRAIN :: [4]u64{0x20c29c903b979abe, 0x8ec8692c6586b5fd, 0xd45b1bc231948c51, 0x04edeff9d99dc47f}
 
 @(test)
 terrain_golden_trace :: proc(t: ^testing.T) {
