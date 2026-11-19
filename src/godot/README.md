@@ -1,0 +1,198 @@
+# `unified:godot`: the Godot host of a game built on `unified`
+
+Everything that touches Godot for a game: the session node that runs the game's sim on its own thread (single
+player, hosting or joining, through `unified:netcode`), the views that show its state, its events and commands as
+GDScript classes, input sampling, the command line and the dev UI (`unified:devui`, reached only from `dev.odin`).
+`unified:gdext` is the raw bindings underneath. Each game has a thin extension (`games/<game>/simulation/extension`)
+that installs its sim and its glue with `godot.init`; its scenes and scripts use the classes below. The editor's help
+is the reference for every GDScript-facing class and member: each is documented where it is bound.
+
+## A game's extension
+
+The extension fills frames and samples input; its Godot calls go in GDScript or through `unified:godot` helpers, so it
+never imports `unified:gdext` (`godot` names the entry point's types). The level the session plays is the game's
+(`sim.Game.content`, embedded in the extension).
+
+**Online play** goes through the `netcode.Lobby` the game passes to `godot.init`: `unified:godot` never imports a
+platform SDK. The session opens the lobby with a `netcode.Lobby_Build` (the game's name, its build id
+`sim.compat_of(game)`, level included, the project's stamped version, the player count), so a joiner on another
+build is told before it joins.
+
+**The editor loads the extension too**, so a game with problems is reported, never a panic that stops the load
+(`install` says what it checks).
+
+### Input
+
+`Glue.sample_input` runs on the main thread **once a frame**, and every tick that samples the local player takes the
+newest sample, so one sample can feed several ticks: an `Input` is the controls' **state**, never a one-shot. The sim
+derives presses from the tick before (`sim.buttons`); a one-shot value is a command. An `Input` holds no bools and
+no floats: an axis is `dmath.axis_i8(x)`, a direction a `dmath.Dir2` / `Dir3`.
+
+**Input values** are what only scripts know (a camera rig's look direction): the plain struct `Glue.input_values`
+names, whose fields scripts set on `Unified.input` and `sample_input` reads (`input_values`). The session samples at
+process priority −1000, before any other node's `_process`, and emits `UnifiedSession.input_wanted` just before: a
+script sets its values there, whatever its node's priority, and this frame's sample takes them. Set in `_process`,
+they reach the next frame's sample.
+
+**Game input is off** while a dev UI text field has the keyboard and while `UnifiedSession.game_input` is false (a
+pause menu): the action helpers read nothing and latched taps drop; `Unified.input` still flows. When it comes back,
+and when the window gets the focus back, an action still held counts only once released (the key that closed a menu,
+the click that focused the window never fire). An unfocused window still reads input: Godot releases what was held
+when it lost the focus, and tool runs drive windows that never take it. A press on the dev UI never reaches the
+actions (`src/devui/README.md`, How it works). The game's scripted player (`sim.Game.scripted_input`) replaces the
+sample in `--scripted` runs.
+
+### View space
+
+The sim works in its own units and never converts; the views draw in Godot's (metres in 3D, pixels in 2D).
+`Glue.is_2d` and `Glue.view_scale` say how they relate. Everything up to the hand-off is in sim units: `fill_frame`,
+the event queue, the views' smoothing (whose defaults suit a sim in metres). The host maps a point once, on the main
+thread, where it makes a Godot value from it: a scene view's position, a MultiMesh instance's origin (only the
+origin: a mesh is drawn in view units), every `sim.Position` a script reads; and the inverse for one a script sets in
+a command. Rotations, directions, lengths and input values are not mapped: a script scales a sim size with
+`Unified.view_scale`. View space is `view_root`'s local space (the host warns once when `view_root` is not at the
+world origin).
+
+### Filling a frame
+
+`fill_frame` runs on the session thread for every published tick and pushes what the main thread shows: scene views
+(`push_view`, each standing for a **subject**: its identity, its key and what events reach it), MultiMesh instances
+(`push_multi_view`) and session data (`push_data`). A Frame grows to what a fill pushes.
+
+The host remembers every keyed item's pose, so a view or instance seen at tick − 1 interpolates from it and games
+never pass previous poses. After a rollback the remembered pose is the old prediction, so the host sends an estimate
+of the corrected one (`poses.odin`); a correction glides over the smoothing's `tau_s`, it never pops.
+
+### Data and classes
+
+**Session data** (values that belong to no entity: a HUD's score, the wave) are the `Data_*` structs of `Glue.data`,
+one value of each per tick. **Constants** (what `godot.init`'s `constants` proc returns, strings allowed) are copied
+once at install. **Input values** are set by scripts. Session data is set from the newest predicted tick when its
+bytes change (no interpolation), after the views and before the frame's events, and goes back to zero (one
+`changed`) when a session ends; the objects live on, so connections survive. They are freed at Godot's shutdown
+callback, while scripting still runs.
+
+The host registers a class per such type at load, plus one per **nested struct** any of them or the event and command
+unions hold (`Hud_Player` -> `DataHudPlayer`, a RefCounted value: each read is a new one, its fields settable, so a
+command can take it), and a class per enum they use. The engine singleton `Unified` holds the data, the constants,
+the input values and the session. Godot classes have no namespaces, so prefixes group them (`Data`, `Event`,
+`Command`, `Enum`); a name that clashes with an existing class is an error and is not registered.
+
+Every sim-facing field (events, commands, view and session data, constants, input values) converts by type, the same
+everywhere:
+
+- integers an `int`, f32 a `float`, bools a `bool`; an enum an `int` (its class names the members: `survivor.Phase`
+  is `EnumPhase.LOBBY`, `EnumPhase.name(value)`); a bit_set an `Array[int]`;
+- a handle and a `sim.Player` their key (an `int`, 0: none); a `sim.Entity` its index (an `int`, −1: none), the
+  number its views are keyed by;
+- a `sim.Position` a `Vector2` (`Glue.is_2d`) or `Vector3`, in view units; by shape, `[2]/[3]/[4]f32` a
+  `Vector2/3/4` and `[2]/[3]/[4]i32` a `Vector2i/3i/4i`; `godot.Color` a `Color`, `godot.Quat` a `Quaternion`;
+- other arrays and enumerated arrays a typed `Array` (an array of arrays untyped); a nested struct an object of its
+  class (a struct only view data uses has no class: a `Dictionary`); a string (constants) a `String`.
+
+`_` fields are left out. Godot's own math types are refused at install: data maps by shape, so a game never imports
+`unified:gdext`.
+
+**Events and commands** are classes too: one per kind of the event union (`extends UnifiedEvent`) and of the command
+union (`extends UnifiedCommand`), named `Event` / `Command` + the type in PascalCase without its prefix
+(`Event_Rock_Hit` -> `EventRockHit`, `Cmd_Drop` -> `CommandDrop`), with a typed property per field. The library's
+`sim.Event_Player_Joined` / `Event_Player_Left` are `EventPlayerJoined` and `EventPlayerLeft`. Handlers dispatch by
+class, never by `kind`. A script makes a command with its class and sends it with `UnifiedSession.send_command`; the
+sim gets it exactly once.
+
+## Godot side
+
+**`UnifiedSession`** is one node per app. **Whoever starts a session, the game follows it**: a session starts from a
+script (`start_single`, `host_online`, ...), from the session flags on the command line when the node enters the
+tree, or from a tool script. A game's app layer reacts to `status_changed` and `mode`, not to its own buttons, so
+`uni coop` and the flags work in every game. Nothing about the session answers once it is over. A client's LAN token
+is kept under `user://`, one per running copy of the game (`token_claim`), so a restarted copy takes its token back.
+
+The game's `View` and `MultiView` enums are the classes `EnumView` and `EnumMultiView`, whatever the game named them.
+A scene view's scene holds a **`UnifiedView`** marker as a direct child of its root, its kind set in the scene by the
+member's lowercased name (which stays right when the enum is reordered); the root's class decides how it is posed. A
+MultiMeshInstance3D / 2D holding a **`UnifiedMultiView`** marker shows one MultiView kind. Views and their data are
+set before any other node's `_process` (the session runs at priority −1000), so a view's own `_process` sees the
+frame's pose. A `view_root` that leaves the tree holds no views, so a play scene needs no teardown.
+
+## Events
+
+`install` reads the game's event union by RTTI once: each kind's player (its first `sim.Player` field) and subject
+(its first `sim.Handle(T)` or `sim.Entity` field), found by type, whatever the fields are named.
+
+- **States.** Every event is **Emitted** exactly once, the first time any simulation of its tick produces it, then
+  exactly once either **Confirmed** (its tick is verified) or **Cancelled** (a re-simulation no longer produces it).
+  One first produced at verification is Emitted and Confirmed in the same frame. Effects go on EMITTED, what must be
+  final on CONFIRMED, undoing an effect on CANCELLED. Two events are the same across re-simulations when tick, kind,
+  subject and index among the tick's events of that kind and subject match.
+- **Identity.** Each state arrives as a new object; its `id` is the same in an event's EMITTED and its CONFIRMED or
+  CANCELLED, and never repeats in the process. A re-simulation may change an event's fields but not its id. Events
+  still pending when a session ends get no final state.
+- **Where.** Each event, in each state, goes first to its subject's views: those pushed with a subject of its subject
+  field's type and the same key (a `Handle(T)` reaches only views pushed with a `Handle(T)` of that table; an
+  `Entity` the views pushed with that `Entity`, of any kind: the kinds that take Entity events share one index space,
+  a level's marker index); else (no such view, or no such field) its player's views; then to the `sim_event`
+  signal. `Glue.event_key` reroutes a game's special events.
+- **When.** An event is delivered once the Frame of its tick is shown, so an event about a view spawned at its tick
+  finds the view. A tick's events arrive in emission order; cancels and confirmations of several ticks in tick order.
+
+## The view index
+
+`uni bake <game>` scans the game's scenes for `UnifiedView` markers and writes `res://unified_index.tres` (each kind
+name to its scene's path), committed next to the game; every build of the game's library refreshes it, and the godot
+suite's `bake` step fails when the committed one is stale. Games keep their scenes wherever they like (a level scene
+outside `game/levels/` by its committed `.level`: `src/level/README.md`, Baking). At the first session the host checks
+that every `View` member has a scene and every indexed kind is a member.
+
+## How it works
+
+- **Threads.** A session (single player is a host with no remote links) runs netcode's `host_step` / `client_step`
+  on its own thread (macOS: the real-time time-constraint class; while a session runs the process opts out of
+  background throttling: the platform files). The netcode hooks run there: `sample` takes the main thread's newest
+  Input; `frame` feeds the re-simulated and new ticks' events to the tracker, calls `fill_frame` and publishes the
+  Frame; `verified` confirms or cancels events. Godot is only called from the main thread.
+- **The hand-off.** Lock-free where it is hot: a triple buffer of Frames (newest wins); an SPSC event queue (full:
+  the event is dropped, never blocking the sim, counted and warned once); a small queue of its own for what must
+  never be lost (statuses, the join code, desync reports, the result); a command queue; the input sample under a
+  short mutex.
+- **Main thread.** `UnifiedSession._process` runs before every other node: `input_wanted`, `sample_input`, take the
+  newest Frame, spawn and pose the scene views (ticks P − 1 and P pushed into each view's track, sampled at
+  alpha = (now − P's due time) / tick), write each MultiMesh's buffer and bounds in one `set_buffer`, set the session
+  data, route the events of the ticks the Frame shows, then statuses, then the dev UI. The screen runs one tick
+  behind the newest prediction and never extrapolates: an input reaches the screen after the next tick sample, the
+  input delay, and one tick of interpolation.
+- **View logic** (`handoff.odin`, `track.odin`, `view_set.odin`, `event_tracker.odin`, `poses.odin`: no Godot calls,
+  tested without Godot). A rollback that re-publishes a tick with a different pose puts the difference into an error
+  offset that decays (`Smoothing`). A key missing from a frame lingers (an exit animation, or a rollback that brings
+  it back: it is revived, not respawned). Re-simulations of ticks at or below the verified one are ignored, since
+  they are final.
+- **Data.** A view's data is set after the view entered the tree (setters may use `@onready` nodes), then only for
+  fields whose bytes changed; a root without a property for a field is an error (once per kind and field).
+- **Remote links** go through a live netsim (`netcode.netsim_live`) the dev UI's Conditions panel impairs.
+- **The dev UI** (`dev.odin`, the only file that reaches `unified:devui`) graphs the frame, the sim and the net, and
+  feeds its panels. Dev UI builds also record the session as it is verified (a portable snapshot of the first saved
+  verified tick, then every verified tick's inputs), so an F3 note carries what `uni headless <game> -- replay`
+  replays to the noted checksum.
+- **Leave, then host or join.** `leave` asks the session to end; it says goodbye on its thread, up to 3 s (a host
+  waiting for peers that don't answer). A start during the goodbye waits and starts as soon as the old session is
+  gone (the goodbye cut to 1 s); a `leave` before that cancels it.
+- **Editor.** Classes register at SCENE level and nothing runs in the editor; the class reference loads at EDITOR
+  level. `deinitialize` stops the session thread, calls the lobby's optional `shutdown`, then `gd.shutdown`
+  unregisters every class.
+- **Command-line flags** (after `--`; `parse_command_line`): the game and its tool scripts read their own flags from
+  the same command line, so other flags pass through; a bad value of one of ours, or a near miss of a name, prints an
+  error and quits (exit 2). A build without the dev UI ignores the dev flags with a warning; the session flags
+  (starting, hosting and joining, `--ticks`, `--quit-at-end`) work in every build, so `uni release` smoke-tests the
+  public build with them.
+
+## Library tooling
+
+`uni` mirrors `src/godot/tools/` into every game as `res://addons/unified/` (git-ignored there). None of it knows a
+game's menus: a game drives its own UI from its own tool scripts (`game/tools/`), which extend these.
+
+- `level_export.gd`: `uni bake`'s level exporter.
+- `tool.gd` (`UnifiedTool`): the base of every script `uni tool` runs, with its helpers `log_capture.gd` and
+  `frame_log.gd`.
+- `validate.gd` (`UnifiedValidate`): the godot suite's `validate` step; a game adds `_check_contract()` in
+  `game/tools/validate.gd`.
+- `coop.gd` (`UnifiedCoop`): `uni coop`'s host and joiner; a game adds its play in `game/tools/coop.gd`.

@@ -8,9 +8,10 @@ extends UnifiedTool
 ## properties Godot silently drops), 3. checks the game's own contract with its sim (`_check_contract()`, in a game's
 ## game/tools/validate.gd that extends this), 4. runs the main scene for N frames (default 30) to catch runtime errors.
 
-## Also: no preload() in the scripts the play scene loads (`_play_scene()`: the main scene unless a game's validate
-## says otherwise), the play scene draws every MultiMesh kind of the game (EnumMultiView) once, and the project
-## keeps GDScript strictly typed. unified's library tooling (src/godot/SPEC.md), mirrored into every game as res://addons/unified/.
+## Also: no preload() in the scripts the play scene loads (`_play_scene()`: the main scene unless a game's validate says
+## otherwise), the play scene draws every MultiMesh kind of the game (EnumMultiView) once, and the project keeps
+## GDScript strictly typed. unified's library tooling (src/godot/README.md, Library tooling), mirrored into every game
+## as res://addons/unified/.
 
 ## Left out of the walk besides hidden and .gdignore'd directories: unified's tool scripts.
 const SKIP_DIRS: Array[String] = ["res://addons/unified"]

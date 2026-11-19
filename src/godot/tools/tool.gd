@@ -5,11 +5,12 @@ extends SceneTree
 ## strictly: any engine or script error fails the run.
 ##
 ## A script overrides `_run()` (a coroutine, started on the first frame, once the autoloads exist), reports with
-## `step()`, `expect()` and `fail()`, and may `finish()` early. A failure ends the run at once: every wait returns
-## and every input helper does nothing after it. The result carries `ok`, `ms`, `steps`, `failed`, `errors` and
-## what the script adds to `result`. The run ends through the game's own quit when it has a Game autoload with
-## `quit_app(exit_code)`, else `quit()`. unified's library tooling (src/godot/SPEC.md), mirrored into every game as
-## res://addons/unified/. It knows no game's menus: a game drives its own UI from its tool scripts (game/tools/).
+## `step()`, `expect()` and `fail()`, and may `finish()` early. A failure ends the run at once: every wait returns and
+## every input helper does nothing after it. The result carries `ok`, `ms`, `steps`, `failed`, `errors` and what the
+## script adds to `result`. The run ends through the game's own quit when it has a Game autoload with
+## `quit_app(exit_code)`, else `quit()`. unified's library tooling (src/godot/README.md, Library tooling), mirrored into
+## every game as res://addons/unified/. It knows no game's menus: a game drives its own UI from its tool scripts
+## (game/tools/).
 ##
 ## Arguments come after `--`: `arg("name")` reads `--name=value` (or `--name value`), `flag("name")` `--name`. Every
 ## tool takes `--shots=<dir>` (PNGs from `shot()`, a windowed run) and `--frames` (frame times and first-use hitches,
