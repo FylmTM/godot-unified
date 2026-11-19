@@ -5,6 +5,7 @@
 package scenarios
 
 import "core:fmt"
+@(require) import "core:log" // only in reference_reproduces (generic)
 @(require) import "core:slice" // only in reference_reproduces (generic)
 import "core:testing"
 
@@ -22,6 +23,14 @@ Suite :: struct($G: typeid) {
 	players: int, // scripted players in offline runs
 	seed:    u64,
 	ticks:   u32, // length of offline runs and sessions
+}
+
+// Whether the game passes sim.game_violation (an event field named `kind`, a Setup that doesn't read as sent...): one
+// failure saying why instead of a panic in every run, and the leak report the panic leaves.
+@(private)
+game_ok :: proc(t: ^testing.T, game: ^$G) -> bool {
+	reason := sim.game_violation(game)
+	return testing.expectf(t, reason == "", "the game breaks a rule of the harness: %s", reason)
 }
 
 // A run every platform must reproduce, pinned by hashes: the game's scripted run of `ticks` ticks with `players`
@@ -43,6 +52,7 @@ Reference :: struct {
 // agrees after every restore and no NaN reaches the block (headless.run_synctest). `window` is at most
 // headless.max_window(game) (the game's ring).
 rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
+	if !game_ok(t, suite.game) do return
 	longest := headless.max_window(suite.game)
 	if !testing.expectf(
 		t,
@@ -111,6 +121,7 @@ expect_synced :: proc(t: ^testing.T, run: ^headless.Run($G), loc := #caller_loca
 // tick matches the forward run and the Extra agrees after every restore. (What the presence itself does, handles and
 // join events, is sim.Players', proven in tests/sim; a game proves what its own things do.)
 presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
+	if !game_ok(t, suite.game) do return
 	what := fmt.tprintf("presence_churn (window %d; %s)", window, params(suite))
 	if !testing.expectf(
 		t,
@@ -146,6 +157,7 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 // Two scripted runs with the same parameters compute the same ticks, alive in one process at once: the
 // second created halfway through the first, then stepped alongside it and on after it (headless.run_interleaved).
 runs_match :: proc(t: ^testing.T, suite: ^Suite($G)) {
+	if !game_ok(t, suite.game) do return
 	result := headless.run_interleaved(suite.game, suite.ticks, suite.seed, suite.players)
 	testing.expectf(
 		t,
@@ -165,6 +177,7 @@ runs_match :: proc(t: ^testing.T, suite: ^Suite($G)) {
 // input changes every tick (headless.Session_Config.churn), so every client rolls back on most of the ticks it
 // verifies, and rollbacks cross the checksum ticks (their snapshots kept for a desync report on the way).
 session_agrees :: proc(t: ^testing.T, suite: ^Suite($G), clients: int, profile: netcode.Network, churn := false) {
+	if !game_ok(t, suite.game) do return
 	what := fmt.tprintf(
 		"session_agrees (%d clients, %s network%s; %s)",
 		clients,
@@ -194,6 +207,7 @@ session_agrees :: proc(t: ^testing.T, suite: ^Suite($G), clients: int, profile: 
 // through the relay): no desyncs, the joiner's checksums match the others' from its first verified tick on, and the
 // relay's input log replays to them.
 late_join_agrees :: proc(t: ^testing.T, suite: ^Suite($G), profile: netcode.Network, slot: int, tick: u32) {
+	if !game_ok(t, suite.game) do return
 	what := fmt.tprintf(
 		"late_join_agrees (slot %d at tick %d, %s network; %s)",
 		slot,
@@ -218,9 +232,11 @@ late_join_agrees :: proc(t: ^testing.T, suite: ^Suite($G), profile: netcode.Netw
 // the input log it records encodes to the same bytes and replays to the same checksums, and the snapshot at
 // `snapshot_tick` encodes to the same bytes and resumes to the same checksums. A mismatch prints the new literal: paste
 // it only for a deliberate sim change (the sim-change skill). To find the first tick that differs between two builds,
-// run `uni headless <game> -- sim --trace FILE` on both and compare the files. A new game pins its first one with the
-// four parameters set (seed, players, ticks, snapshot_tick): the run then prints the rest.
+// run `uni headless <game> -- sim --trace FILE` on both and compare the files. A reference with only its four
+// parameters set (seed, players, ticks, snapshot_tick: a new game's, the template's) is not pinned yet: the run warns
+// with the literal to paste instead of failing, and its replay and resume checks still hold.
 reference_reproduces :: proc(t: ^testing.T, game: ^$G, reference: Reference) {
+	if !game_ok(t, game) do return
 	what := fmt.tprintf("reference_reproduces (%s)", ref_params(reference))
 	if !testing.expectf(
 		t,
@@ -246,26 +262,33 @@ reference_reproduces :: proc(t: ^testing.T, game: ^$G, reference: Reference) {
 	snapshot, _ := headless.run_snapshot(game, reference.snapshot_tick, reference.seed, reference.players)
 	defer delete(snapshot)
 	got.snapshot = sim.hash_bytes(snapshot)
-	if got != reference {
+	literal := fmt.tprintf(
+		"REFERENCE :: scenarios.Reference{{seed = %d, players = %d, ticks = %d, snapshot_tick = %d, checkpoints = " +
+		"{{0x%016x, 0x%016x, 0x%016x, 0x%016x}}, trace = 0x%016x, snapshot = 0x%016x, log = 0x%016x}}",
+		got.seed,
+		got.players,
+		got.ticks,
+		got.snapshot_tick,
+		got.checkpoints[0],
+		got.checkpoints[1],
+		got.checkpoints[2],
+		got.checkpoints[3],
+		got.trace,
+		got.snapshot,
+		got.log,
+	)
+	pinned := reference.checkpoints != {} || reference.trace != 0 || reference.snapshot != 0 || reference.log != 0
+	if !pinned {
+		// a new game's (the template's): nothing to compare with yet; the replay and resume checks below still hold
+		log.warnf("%s: no reference pinned yet; once the game's rules settle, pin this run:\n%s", what, literal)
+	} else if got != reference {
 		testing.expectf(
 			t,
 			false,
-			"%s: this platform computes another run%s. If the sim changed on purpose, the reference is now:\n" +
-			"REFERENCE :: scenarios.Reference{{seed = %d, players = %d, ticks = %d, snapshot_tick = %d, checkpoints = " +
-			"{{0x%016x, 0x%016x, 0x%016x, 0x%016x}}, trace = 0x%016x, snapshot = 0x%016x, log = 0x%016x}}",
+			"%s: this platform computes another run%s. If the sim changed on purpose, the reference is now:\n%s",
 			what,
 			first_checkpoint(reference, got),
-			got.seed,
-			got.players,
-			got.ticks,
-			got.snapshot_tick,
-			got.checkpoints[0],
-			got.checkpoints[1],
-			got.checkpoints[2],
-			got.checkpoints[3],
-			got.trace,
-			got.snapshot,
-			got.log,
+			literal,
 		)
 	}
 	// The log, decoded, replays to the run's checksums; the snapshot resumes to them.

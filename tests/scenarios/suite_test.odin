@@ -62,3 +62,19 @@ a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(t, &SUIT
 
 @(test)
 the_reference_run_reproduces :: proc(t: ^testing.T) {scenarios.reference_reproduces(t, &toy.GAME, REFERENCE)}
+
+// A script that reads the state it is given, in a session with a late joiner (whose client has no state before its
+// snapshot): the harness never hands it a nil one.
+@(test)
+a_late_joiners_script_always_gets_a_state :: proc(t: ^testing.T) {
+	game := toy.GAME
+	game.scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+		input := toy.scripted_input(seed, slot, tick, state)
+		if state.spawned > 1_000_000 do input.dx = 0 // a read of the state: a nil one faults here
+		return input
+	}
+	suite := SUITE
+	suite.game = &game
+	suite.ticks = 600
+	scenarios.late_join_agrees(t, &suite, .Wan, 3, 300)
+}

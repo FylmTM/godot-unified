@@ -75,7 +75,10 @@ bytes everywhere, so its State is what it would be without them.
 ### Levels
 
 A game ships several levels, `Game.levels`: each a name and a level file's bytes (`src/level/README.md`), embedded
-once, in the order of the game's level enum, so tick code says `Level_Id.Route` and tools say "route". Every host,
+once, in the order of the game's level enum, so tick code says `Level_Id.Route` and tools say "route". The descriptor
+is `@(rodata)` (the lint asks for it), so the list is written inline in it,
+`levels = {{"meadow", #load("../../game/levels/meadow.level")}}`: a slice kept in a variable of its own is no
+constant initializer. Every host,
 run and suite plays them, and `world_create` gets them to parse and build once. **The active level is state**: a
 `sim.Active_Level(Level_Id)` named `level` in the State, changed only by `level_enter` (`physics.level_change` for a
 physics game) at a tick, by a rule or a command. So a level change is a sim decision like any other: a rollback
@@ -326,7 +329,10 @@ Two kinds, on SplitMix64's mixing function, integer-only:
 - **A keyed roll can be peeked.** It reads no state, so anyone who can name it computes it early: a HUD shows "the next
   upgrade" with `roll_below_at` from `Frame.seed`, touching nothing. Put the roll in one proc that both the tick and
   the view call. Name the tick when it is known from state (the tick a spawn is due); name tick 0 and something stable
-  in key and index (a player's level) when the roll must not depend on when it is made.
+  in key and index (a player's level) when the roll must not depend on when it is made. Tick code calls
+  `roll_below_at` too then, with `t.seed` (`roll_below` always names the current tick):
+  `creep_kind :: proc(seed: u64, wave, index: int) -> Kind {return Kind(sim.roll_below_at(seed, 0, len(Kind), Roll.Creep, u64(wave), index))}`,
+  called as `creep_kind(t.seed, ...)` by the tick and `creep_kind(f.seed, ...)` by the view.
 - **`Rng`**, one stream, for code outside `tick` that wants "the next number". A draw added anywhere shifts every
   later one.
 

@@ -18,7 +18,9 @@ Game :: sim.Game(State, Input, sim.No_World, Event, Cmd, sim.No_Setup, sim.No_Pr
 // What every system gets: the state, the inputs and commands, the tick's player changes.
 Tick :: sim.Tick(Game)
 
-// The game: what the headless binary, the GDExtension and the tests run.
+// The game: what the headless binary, the GDExtension and the tests run. Its optional hooks are documented on
+// sim.Game's fields (`uni doc sim Game`); levels go inline (it is @(rodata)):
+// `levels = {{"meadow", #load("../../game/levels/meadow.level")}}`.
 @(rodata)
 GAME := Game {
 	name              = "minimal_3d",

@@ -8,11 +8,18 @@ import "core:slice"
 import "core:strings"
 import "core:time"
 
-// The godot suite's steps, in order; each runs when the game has what it needs: import (stale imports only), editor
-// (the headless editor loads the extension, no error line), session (a short headless session whose checksums equal
-// the offline headless binary's), bake (--check: the view index and every level current), then the tool scripts
-// validate and walk (ui_walk.gd: menus, flows and the game's own play smoke).
+// The godot suite's steps, in order; each runs when the game has what it needs (GODOT_STEP_CHECKS says what).
 GODOT_STEPS :: []string{"import", "editor", "session", "bake", "validate", "walk"}
+
+// What each of GODOT_STEPS checks, for `uni test -h`.
+GODOT_STEP_CHECKS :: []string {
+	"the project imports (stale imports only)",
+	"the headless editor loads the extension, with no error line",
+	"a short headless session (scripted input) computes the offline headless binary's checksums",
+	"the view index and every .level file are current (uni bake --check)",
+	"every script compiles with warnings as errors and every scene loads; game/tools/validate.gd adds the game's own checks",
+	"game/tools/ui_walk.gd, when the game has one: a walk through its menus and flows with real input events, then its play smoke (a game without menus has none: skipped)",
+}
 
 // The `session` step's length: 1 s of a 64 Hz game (`test --long`: 4 s).
 SESSION_TICKS :: 64

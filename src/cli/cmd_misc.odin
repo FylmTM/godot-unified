@@ -165,37 +165,43 @@ cmd_bench :: proc(args: []string) -> Result {
 			continue
 		}
 		if bench.skipped {
-			continue // no standard benchmark (Headless.bench): nothing to measure
-		}
-		bench.frame_p99_us = bench.step_us.p99 + bench.restore_us.p99 + bench.resim_us.p99 + bench.checksum_deep_us.p99
-		bench.within_target = bench.frame_p99_us <= BENCH_TARGET_US
-		summary.benchmarks[game.name] = bench
-		log(
-			"%-12s step %5.0f us + restore %3.0f us + %d-tick re-sim %5.0f us + deep checksum %3.0f us = %5.2f ms at p99 (target <= %.0f ms: %s; means %.0f + %.0f us); final ticks %.0f us; save %.0f us (%d bytes), restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes (encode %.0f us, keep %.0f us)",
-			game.name,
-			bench.step_us.p99,
-			bench.restore_us.p99,
-			bench.window,
-			bench.resim_us.p99,
-			bench.checksum_deep_us.p99,
-			bench.frame_p99_us / 1000,
-			BENCH_TARGET_US / 1000,
-			bench.within_target ? "yes" : "NO",
-			bench.step_us.mean,
-			bench.resim_us.mean,
-			bench.resim_final_us.mean,
-			bench.save_us.mean,
-			bench.save_bytes,
-			bench.restore_us.mean,
-			bench.checksum_us.mean,
-			bench.checksum_deep_us.mean,
-			bench.snapshot_bytes,
-			bench.snapshot_encode_us.mean,
-			bench.snapshot_keep_us.mean,
-		)
-		if len(bench.zones) > 0 do log("%-12s %s", "", zones_row(bench))
-		if bench.mismatches > 0 {
-			append(&failed, game.name) // a re-sim that disagrees is a bug, whatever the timing
+			// no standard benchmark: its sessions still run below
+			log(
+				"%-12s no standard benchmark (modes.run's `bench`: src/headless/README.md); its sessions only",
+				game.name,
+			)
+		} else {
+			bench.frame_p99_us =
+				bench.step_us.p99 + bench.restore_us.p99 + bench.resim_us.p99 + bench.checksum_deep_us.p99
+			bench.within_target = bench.frame_p99_us <= BENCH_TARGET_US
+			summary.benchmarks[game.name] = bench
+			log(
+				"%-12s step %5.0f us + restore %3.0f us + %d-tick re-sim %5.0f us + deep checksum %3.0f us = %5.2f ms at p99 (target <= %.0f ms: %s; means %.0f + %.0f us); final ticks %.0f us; save %.0f us (%d bytes), restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes (encode %.0f us, keep %.0f us)",
+				game.name,
+				bench.step_us.p99,
+				bench.restore_us.p99,
+				bench.window,
+				bench.resim_us.p99,
+				bench.checksum_deep_us.p99,
+				bench.frame_p99_us / 1000,
+				BENCH_TARGET_US / 1000,
+				bench.within_target ? "yes" : "NO",
+				bench.step_us.mean,
+				bench.resim_us.mean,
+				bench.resim_final_us.mean,
+				bench.save_us.mean,
+				bench.save_bytes,
+				bench.restore_us.mean,
+				bench.checksum_us.mean,
+				bench.checksum_deep_us.mean,
+				bench.snapshot_bytes,
+				bench.snapshot_encode_us.mean,
+				bench.snapshot_keep_us.mean,
+			)
+			if len(bench.zones) > 0 do log("%-12s %s", "", zones_row(bench))
+			if bench.mismatches > 0 {
+				append(&failed, game.name) // a re-sim that disagrees is a bug, whatever the timing
+			}
 		}
 		rows: Net_Rows
 		sessions := [3]struct {
@@ -289,7 +295,8 @@ cmd_bench :: proc(args: []string) -> Result {
 	return {
 		ok      = true,
 		summary = aprintf(
-			"bench: %d game(s), the sim and netcode benchmarks%s, reported in .out/bench.json",
+			"bench: %d game(s) (%d with a standard benchmark), the sim and netcode benchmarks%s, reported in .out/bench.json",
+			len(games),
 			len(summary.benchmarks),
 			len(state.config.bench) > 0 ? " and the project's own" : "",
 		),

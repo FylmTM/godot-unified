@@ -1,5 +1,5 @@
-// minimal_3d's reference run (the sim-change skill): its results, pinned. `uni init` leaves this file out of a new
-// game, which pins its own once its rules settle (suite_test.odin's header says how).
+// minimal_3d's reference run (src/headless/README.md, Reference runs): its results, pinned. `uni init` copies it
+// without them: a new game's run warns with its own literal until it is pinned, once the game's rules settle.
 package test_minimal_3d
 
 import "core:testing"
