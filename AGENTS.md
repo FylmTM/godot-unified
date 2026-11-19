@@ -55,7 +55,7 @@ example games in `examples/` prove it.
   stops being true. History lives in git.
 - **Never disturb the developer's main screen or keyboard.** Any game window an agent opens (to look at it or as a
   check) starts muted on the leftmost screen and never takes focus: `tool --window`, `coop --window` and `drive start`
-  always do; `run` takes `--mute --screen left --background`; the `godot-game` skill. The editor always takes focus:
+  always do; `run` takes `--mute --screen left --background`; the `unified-godot` skill. The editor always takes focus:
   open it only when the developer asks.
 
 ## The board
@@ -87,8 +87,9 @@ piece of work. The `board-work` skill has the statuses, the procedure and when a
 - Generated output goes to `.out/` (the root's and each game's), git-ignored and safe to delete.
 - Each fact has one home. README.md: what, why, the design and its reasons. `docs/getting-started.md`: setup. This
   file: roles, rules, workflow. Commands and options: `./uni help`. Packages and games: their `README.md` and doc
-  comments (`./uni doc`). Procedures (how to do a recurring task): `.claude/skills/<name>/SKILL.md`. Rules for one
-  kind of file: `.claude/rules/` (they load when Claude touches a matching file). No layout trees, test counts or measured times in docs: the tools print them.
+  comments (`./uni doc`). Procedures (how to do a recurring task): `.claude/skills/<name>/SKILL.md`. Agents in a game
+  repo: `docs/agent-guide.md`; the `unified-*` skills ship to game repos, so they are written for one: here, drop
+  `unified/` from their paths and name the example game. Rules for one kind of file: `.claude/rules/` (they load when Claude touches a matching file). No layout trees, test counts or measured times in docs: the tools print them.
 
 ## Commands
 

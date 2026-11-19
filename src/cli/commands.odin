@@ -55,7 +55,7 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "vet",
-			summary = "odin check with the strict flags, every target and define variant",
+			summary = "odin check with the strict flags, every target and define variant; in a game repo, also that the agent guidance is the unified submodule's (uni agents)",
 			options = option_types(Vet_Opts),
 			run     = cmd_vet,
 		},
@@ -109,6 +109,12 @@ public_commands :: proc() -> []Command {
 			summary = "a new game repo: the template game, shims, tools/main.odin, .gitignore, .gitattributes, the unified submodule (pinned to main's commit, or --ref); --in-repo: the template game inside this checkout (its tests join the test compile by themselves)",
 			options = option_types(Init_Opts),
 			run     = cmd_init,
+		},
+		{
+			name    = "agents",
+			summary = "a game repo: rewrite the agent guidance from the unified submodule (init writes it; after a bump, vet fails until this runs): AGENTS.md's marked section and unified's skills in .claude/skills/",
+			options = option_types(Agents_Opts),
+			run     = cmd_agents,
 		},
 		{
 			name    = "verify",

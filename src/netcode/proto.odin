@@ -7,7 +7,7 @@ import "core:fmt"
 import "unified:sim"
 import "unified:wire"
 
-// Bump on any wire change: a datagram, a message, the snapshots a late joiner gets (the sim-change skill). Every
+// Bump on any wire change: a datagram, a message, the snapshots a late joiner gets (the library-sim-change skill). Every
 // datagram starts with it (channel.odin), so peers on two versions never parse each other's messages.
 PROTOCOL_VERSION :: 22
 #assert(PROTOCOL_VERSION < 0x80) // the datagram's first byte: 0x80 | PROTOCOL_VERSION

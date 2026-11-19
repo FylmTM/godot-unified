@@ -80,7 +80,7 @@ platform both computes and encodes what every other does. CI runs it on every pl
 cross-platform determinism check.
 
 A mismatch prints the literal to paste: paste it only after a change that alters the simulation or the log or
-snapshot format, saying why (the `sim-change` skill). The log and snapshot carry the build's compat, so a version or
+snapshot format, saying why (the `unified-sim-change` skill). The log and snapshot carry the build's compat, so a version or
 pin bump moves their hashes while the checkpoints and the trace stay.
 
 ## Replay regressions
@@ -103,6 +103,6 @@ on real play's inputs, which no scripted player sends.
 blessed with, so a refactor or a pin bump that computes nothing differently passes, and a rules change or a re-baked
 level fails at its first tick. After a meant change, `uni test <game> --bless` writes a new expectation for each
 recording that diverges or has none (a warning names each and where it diverged), committed with the change (the
-`sim-change` skill). A new regression is a copied folder, then a bless. A recording whose Input, commands, Setup or
+`unified-sim-change` skill). A new regression is a copied folder, then a bless. A recording whose Input, commands, Setup or
 Profile changed layout (or whose snapshot no longer loads) can't be blessed: record a new one. `uni init` leaves
 minimal_3d's recordings out of a new game: a game records its own.

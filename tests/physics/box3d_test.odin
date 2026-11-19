@@ -285,7 +285,7 @@ box3d_scene_destroy :: proc(scene: ^Box3d_Scene) {
 
 // The library's cross-platform pin: the scene hashed every 60 ticks. The values must match on every platform; a
 // Box3D upgrade that changes them fails here first, then the games' reference runs. An intended change updates them in
-// the same commit (the sim-change skill).
+// the same commit (the library-sim-change skill).
 BOX3D_GOLDEN :: [4]u64{0x3125e350623f9163, 0x3f3637eb749e2a37, 0xf0d63788ca5d305b, 0xa2fd5716d15ff9f4}
 
 @(test)

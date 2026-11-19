@@ -14,7 +14,7 @@ For every upgrade:
 1. Bump the pins listed below together, in one commit. Every build stamp covers its pins, so the next command
    rebuilds or refetches what changed.
 2. `./uni verify --long` (every suite's long variant). Every game's reference run must still reproduce byte for byte: if one changes, the simulation
-   changed, and the `sim-change` skill applies. Say in the commit why it changed.
+   changed, and the `library-sim-change` skill applies. Say in the commit why it changed.
 3. `./uni selftest` (a fresh clone and a new game repo, end to end).
 4. The PR's own CI (Linux x64 and arm64, Windows x64) is the check before merging; `main`'s run after the merge
    covers macOS (AGENTS.md, Workflow).
@@ -29,7 +29,7 @@ For every upgrade:
   `tests/physics/box3d_test.odin` checks every mirror's layout and enum against them. Update `src/physics` (the
   mirrors, and a wrapper per new or changed Box3D proc) until `./uni vet` and those tests pass.
 - `BOX3D_GOLDEN` there pins the library's results. If it or a reference run changes, the simulation changed: update
-  it and regenerate the reference runs deliberately (`sim-change`).
+  it and regenerate the reference runs deliberately (`library-sim-change`).
 - `tests/physics/debug_draw_test.odin` holds Box3D's debug draw to "changes nothing": a flag in
   `physics.DEBUG_DRAW_PURE` that starts writing to the world fails `debug_draw_changes_nothing` (take it out of the
   set: it is then drawn between a snapshot save and restore); `debug_draw_joint_extras_write` failing means joint
@@ -39,7 +39,7 @@ For every upgrade:
   results are unchanged when only the `snapshot` and `log` hashes moved; a changed checkpoint or `trace` is a sim
   change.
 - CI proves each platform's library (they must agree on every golden value and reference run): the PR's own run
-  before merging, `main`'s after it for macOS (`sim-change`, CI). `verify` also runs the odin suite against the release's debug library
+  before merging, `main`'s after it for macOS (`library-sim-change`, CI). `verify` also runs the odin suite against the release's debug library
   (the `box3d-debug` suite), whose asserts catch misused ids.
 - Speed: compare `./uni bench`'s `physics` row (`.out/bench.json`'s `rows.physics`: through the plug-in, step, save,
   restore, both hashes, image and load, and rays on a pile of 512 awake boxes, plus 64 character updates;
