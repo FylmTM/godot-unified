@@ -33,6 +33,7 @@ GAME := Game {
 	init           = init,
 	tick           = tick,
 	scripted_input = scripted_input,
+	bench_prepare  = bench_prepare,
 }
 
 // The game's sim (a running session or an offline run).

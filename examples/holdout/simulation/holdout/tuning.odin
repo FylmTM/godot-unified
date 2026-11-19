@@ -109,7 +109,7 @@ BOLT_LIFE_S :: f32(3)
 
 // ---- the core and the run
 
-CORE_HP :: i32(1500)
+CORE_HP :: i32(4000)
 CORE_HALF :: f32(1.2) // the core's half width (the level's Core body: 2.4 m square)
 START_DELAY_S :: f32(5) // the countdown after a player presses Ready in the lobby
 WAVE_BREAK_S :: f32(8)

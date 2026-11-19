@@ -19,15 +19,15 @@ SIGHT_FILTER :: physics.Filter {
 	mask     = CAT_LEVEL | CAT_CORE,
 }
 
-// Makes an enemy of `kind` on the mesh at the gate `gate`: a kinematic body (a capsule with a head sphere on top, its
-// origin at its feet) tagged with its handle's key. False when the table is full.
-spawn_enemy :: proc(t: ^Tick, kind: Enemy_Kind, gate: int) -> bool {
-	poly, at := nav.nearest(&t.world.mesh, t.world.gates[gate], GOAL_REACH * 2)
+// Makes an enemy of `kind` on the mesh near `near` (a gate): a kinematic body (a capsule with a head sphere on top, its
+// origin at its feet) tagged with its handle's key. False when the table is full or no mesh is near.
+spawn_enemy :: proc(state: ^State, world: ^World, kind: Enemy_Kind, near: [3]f32) -> bool {
+	poly, at := nav.nearest(&world.mesh, near, GOAL_REACH * 2)
 	if poly == nav.NO_POLY do return false
-	enemy, handle := sim.spawn(&t.state.enemies) or_return
+	enemy, handle := sim.spawn(&state.enemies) or_return
 	spec := &ENEMY_SPECS[kind]
 	warp := enemy.warp + 1
-	facing := dmath.normalize((t.world.core - at).xz)
+	facing := dmath.normalize((world.core - at).xz)
 	enemy^ = {
 		pos    = at,
 		facing = facing,
@@ -37,13 +37,26 @@ spawn_enemy :: proc(t: ^Tick, kind: Enemy_Kind, gate: int) -> bool {
 		warp   = warp,
 	}
 	def := physics.body_def(.Kinematic, at, dmath.quat_yaw(facing))
-	enemy.body = physics.create_body(t.world.phys, def, sim.handle_key(handle))
+	enemy.body = physics.create_body(world.phys, def, sim.handle_key(handle))
 	top := spec.radius + 2 * spec.half_height
 	capsule := physics.Capsule{{0, spec.radius, 0}, {0, top - spec.radius, 0}, spec.radius}
-	physics.create_capsule_shape(t.world.phys, enemy.body, physics.shape_def(CAT_ENEMY), capsule)
+	physics.create_capsule_shape(world.phys, enemy.body, physics.shape_def(CAT_ENEMY), capsule)
 	head := physics.Sphere{{0, top + spec.head_radius * 0.7, 0}, spec.head_radius}
-	physics.create_sphere_shape(t.world.phys, enemy.body, physics.shape_def(CAT_HEAD), head)
+	physics.create_sphere_shape(world.phys, enemy.body, physics.shape_def(CAT_HEAD), head)
 	return true
+}
+
+// The standard benchmark's population (Game.bench_prepare, `uni bench`): the last wave under way with `count` enemies
+// of every kind spread over the mesh polygons that lead to the core, and a core that doesn't fall during the run.
+bench_prepare :: proc(state: ^State, world: ^World, count: int) {
+	state.phase, state.wave, state.core_hp = .Wave, WAVES, max(i32) / 2
+	field := nav.field(&world.fields, world.core_poly)
+	rng := sim.rng_seed(u64(count))
+	for i in 0 ..< count {
+		poly := int(sim.rng_below(&rng, u32(nav.poly_count(&world.mesh))))
+		if field.cost[poly] >= nav.UNREACHABLE do continue
+		spawn_enemy(state, world, Enemy_Kind(i % len(Enemy_Kind)), world.mesh.centers[poly])
+	}
 }
 
 // The point an enemy's eyes and spit leave from: the middle of its head.

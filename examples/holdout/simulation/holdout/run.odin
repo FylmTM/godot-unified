@@ -60,7 +60,8 @@ spawn_enemies :: proc(t: ^Tick) {
 		spawned := int(t.state.spawned[i])
 		if spawned >= scaled_count(burst, wave_players(t)) || t.state.enemies.count >= ENEMY_CAP do continue
 		if elapsed < burst.start_s + f32(spawned) * burst.every_s do continue
-		if spawn_enemy(t, burst.kind, int(burst.gate) % t.world.gate_count) do t.state.spawned[i] += 1
+		gate := t.world.gates[int(burst.gate) % t.world.gate_count]
+		if spawn_enemy(t.state, t.world, burst.kind, gate) do t.state.spawned[i] += 1
 	}
 }
 
