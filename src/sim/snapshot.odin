@@ -1,7 +1,9 @@
 // Portable snapshot: "UNIS", version u16, seed u64, content hash u64 (the level, 0: none), tick u32, block size u32,
 // layout hash u64 (layout_hash of the State), compat u64 (compat_of of the build that took it), payload XXH3 u64,
-// then the block bytes, then the Extra's image: its size u32 (0: the game has no Extra) and bytes. All of it is fixed-width little-endian
-// data without pointers, so a snapshot restores on another OS or CPU (late join, `resume`).
+// then the payload: the session's Setup (its size u16 and bytes), the block bytes, then the Extra's image: its size
+// u32 (0: the game has no Extra) and bytes. All of it is fixed-width little-endian data without pointers, so a
+// snapshot restores on another OS or CPU (late join, `resume`), and a late joiner builds its World from the Setup
+// everyone built theirs from.
 package sim
 
 import "base:builtin"
@@ -12,13 +14,13 @@ import "unified:wire"
 @(private)
 SNAP_MAGIC :: "UNIS"
 // Bump on any change to the format or to what an image holds.
-SNAP_VERSION :: 8
+SNAP_VERSION :: 9
 SNAP_HEADER :: 54
 
 // Why a snapshot doesn't restore (nil: it does). The library never prints; callers log the value.
 Snap_Error :: enum u8 {
 	None,
-	Bad_Header, // not a snapshot, or another format version
+	Bad_Header, // not a snapshot, another format version, or a Setup that does not read on this build
 	Layout_Differs, // another build's state: another layout or block size
 	Content_Differs, // the snapshot was taken with other content (another level)
 	Build_Differs, // another build's: the same state layout, another compat (game version, library, Box3D, ...)
@@ -34,6 +36,7 @@ Snap_Header :: struct {
 	block:   int, // block size
 	layout:  u64,
 	compat:  u64,
+	setup:   []u8, // the session's Setup's bytes (snap_read: a view into the snapshot)
 }
 
 // Encodes the ring snapshot of `tick` into a new byte slice. The ring must hold `tick` saved (asserted): state_at
@@ -57,6 +60,7 @@ snapshot_encode_into :: proc(simulation: ^Sim($G), tick: u32, out: ^[dynamic]u8)
 		block   = size_of(State),
 		layout  = simulation.layout,
 		compat  = simulation.compat,
+		setup   = bytes_of(&simulation.setup),
 	}
 	image: []u8
 	if extra := &simulation.extra; extra.image != nil {
@@ -117,6 +121,7 @@ snapshot_encode_kept :: proc(
 		block   = size_of(State),
 		layout  = simulation.layout,
 		compat  = simulation.compat,
+		setup   = bytes_of(&simulation.setup),
 	}
 	image := kept.image[:]
 	if extra := &simulation.extra; extra.image != nil && extra.keep != nil && extra.image_kept != nil {
@@ -132,7 +137,7 @@ snap_write :: proc(header: Snap_Header, block: []u8, image: []u8, out: ^[dynamic
 		buf = out^,
 	}
 	builtin.clear(&writer.buf)
-	reserve(&writer.buf, SNAP_HEADER + len(block) + 4 + len(image))
+	reserve(&writer.buf, SNAP_HEADER + 2 + len(header.setup) + len(block) + 4 + len(image))
 	snap_begin(&writer, header, block)
 	wire.w_u32(&writer, u32(len(image)))
 	wire.w_bytes(&writer, image)
@@ -141,8 +146,8 @@ snap_write :: proc(header: Snap_Header, block: []u8, image: []u8, out: ^[dynamic
 	return bytes
 }
 
-// Starts a snapshot's bytes in an empty writer: the header with a zero digest, then the state block; the caller
-// appends the Extra's image and snap_end patches the digest.
+// Starts a snapshot's bytes in an empty writer: the header with a zero digest, then the Setup and the state block;
+// the caller appends the Extra's image and snap_end patches the digest.
 @(private)
 snap_begin :: proc(writer: ^wire.Writer, header: Snap_Header, block: []u8) {
 	wire.w_bytes(writer, transmute([]u8)string(SNAP_MAGIC))
@@ -154,6 +159,8 @@ snap_begin :: proc(writer: ^wire.Writer, header: Snap_Header, block: []u8) {
 	wire.w_u64(writer, header.layout)
 	wire.w_u64(writer, header.compat)
 	wire.w_u64(writer, 0) // payload digest, patched by snap_end
+	wire.w_u16(writer, u16(len(header.setup)))
+	wire.w_bytes(writer, header.setup)
 	wire.w_bytes(writer, block)
 }
 
@@ -168,7 +175,7 @@ snap_end :: proc(writer: ^wire.Writer) -> []u8 {
 
 // Parses and verifies the header and payload digest; `reader` is left at the Extra's image. The magic and
 // version come first (Bad_Header), then this build's block size and layout (Layout_Differs), then the
-// payload digest (Checksum_Mismatch).
+// payload digest (Checksum_Mismatch); the Setup's bytes are the caller's to check.
 @(private)
 snap_read :: proc(
 	data: []u8,
@@ -205,6 +212,7 @@ snap_read :: proc(
 		err = .Checksum_Mismatch
 	}
 	if err == .None {
+		header.setup = wire.r_bytes(&reader, int(wire.r_u16(&reader)))
 		block = wire.r_bytes(&reader, header.block)
 		if !reader.ok do err = .Bad_Header // shorter than its block
 	}
@@ -218,9 +226,10 @@ snap_extra :: proc(reader: ^wire.Reader) -> (image: []u8, ok: bool) {
 	return image, reader.ok
 }
 
-// Builds a new Sim from a portable snapshot, or says why the bytes are not a valid snapshot for
-// this game build and content (the Sim is nil then): snap_read's errors, then Content_Differs, then
-// Build_Differs. `content` is borrowed like create's (nil: the game's own, Game.content).
+// Builds a new Sim from a portable snapshot, with the session's Setup it carries, or says why the bytes are not a
+// valid snapshot for this game build and content (the Sim is nil then): snap_read's errors, then Content_Differs,
+// then Build_Differs, then Bad_Header for a Setup that does not read on this build (setup_violation). `content` is
+// borrowed like create's (nil: the game's own, Game.content).
 from_snapshot :: proc(
 	game: ^$G,
 	data: []u8,
@@ -230,6 +239,7 @@ from_snapshot :: proc(
 	Snap_Error,
 ) where intrinsics.type_is_specialization_of(G, Game) {
 	State :: part(G, GAME_STATE)
+	Setup :: part(G, GAME_SETUP)
 	level := game_content(game, content)
 	layout := layout_hash(State)
 	header, block, reader, err := snap_read(data, size_of(State), layout)
@@ -242,7 +252,15 @@ from_snapshot :: proc(
 	if header.compat != compat_with(game, layout, level, {}) {
 		return nil, .Build_Differs
 	}
-	simulation := create(game, header.seed, level)
+	setup: Setup
+	if len(header.setup) != size_of(Setup) {
+		return nil, .Bad_Header
+	}
+	copy(bytes_of(&setup), header.setup)
+	if setup_violation(game, &setup) != "" {
+		return nil, .Bad_Header
+	}
+	simulation := create_with_setup(game, header.seed, setup, level)
 	intrinsics.mem_copy_non_overlapping(&simulation.state, raw_data(block), size_of(State))
 	simulation.tick = header.tick
 	image, image_ok := snap_extra(&reader)

@@ -67,6 +67,7 @@ SIM_IMPORTS :: []string {
 	"core:math/bits",
 	"core:fmt",
 	"core:strings",
+	"core:strconv", // struct_from_text: a Setup or Profile from text (never in tick code)
 	"core:hash/xxhash",
 }
 

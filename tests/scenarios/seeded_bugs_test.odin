@@ -80,7 +80,7 @@ shared_ticks: u32
 @(test)
 seeded_shared_state_is_caught_by_runs_match :: proc(t: ^testing.T) {
 	game := toy.GAME
-	game.world_create = proc(seed: u64, _: []u8, _: sim.No_Setup) -> ^toy.World {
+	game.world_create = proc(seed: u64, _: []u8, _: toy.Setup) -> ^toy.World {
 		shared_ticks = 0
 		return new(toy.World)
 	}

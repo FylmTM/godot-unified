@@ -82,6 +82,12 @@ Player_Data :: struct {
 	last_mark: Cmd_Mark,
 }
 
+// The session's Setup: things live `life_bonus` ticks longer (0, the toy's default, changes nothing).
+Setup :: struct {
+	life_bonus: u8,
+	_pad:       [3]u8,
+}
+
 State :: struct {
 	spawned: u32,
 	_pad:    u32,
@@ -113,7 +119,7 @@ Event :: union {
 	Event_Expired,
 }
 
-Game :: sim.Game(State, Input, World, Event, Cmd, sim.No_Setup, sim.No_Profile, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Cmd, Setup, sim.No_Profile, PLAYERS)
 Sim :: sim.Sim(Game)
 Inputs :: sim.Inputs(Game)
 Tick :: sim.Tick(Game)
@@ -157,7 +163,9 @@ tick :: proc(t: ^Tick) {
 		if .Spawn in sim.buttons(t, player).pressed && t.state.things.count < 32 { 	// held: one thing
 			thing, handle, _ := sim.spawn(&t.state.things)
 			thing.pos = data.pos
-			thing.life = i32(4 + sim.roll_below(t, 60, Roll.Thing_Life, sim.handle_key(handle)))
+			thing.life = i32(
+				4 + sim.roll_below(t, 60, Roll.Thing_Life, sim.handle_key(handle)) + u32(t.setup.life_bonus),
+			)
 			thing.owner = player
 			t.state.spawned += 1
 			sim.emit(t, Event_Spawned {
