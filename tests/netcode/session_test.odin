@@ -29,6 +29,9 @@ Watch :: struct {
 	in_order:      bool,
 	events:        int,
 	statuses:      [dynamic]netcode.Status,
+	// verified_state: calls, and whether every one found the sim on the newest verified tick with its saved state
+	states:        int,
+	states_wrong:  int,
 }
 
 hooks_for :: proc(watch: ^Watch) -> Hooks {
@@ -63,6 +66,14 @@ hooks_for :: proc(watch: ^Watch) -> Hooks {
 		status = proc(user: rawptr, status: netcode.Status, detail: string) {
 			watch := (^Watch)(user)
 			append(&watch.statuses, status)
+		},
+		verified_state = proc(user: rawptr, simulation: ^toy.Sim) {
+			watch := (^Watch)(user)
+			watch.states += 1
+			saved := sim.state_at(simulation, simulation.tick)
+			if simulation.tick != watch.verified_upto || (saved != nil && saved^ != simulation.state) {
+				watch.states_wrong += 1
+			}
 		},
 	}
 }
@@ -240,6 +251,16 @@ host_and_two_remote_clients :: proc(t: ^testing.T) {
 	net_run(&session, 30, all_done)
 	testing.expect(t, all_done(&session))
 	testing.expect_value(t, session.host.client.verified, 640)
+	// verified_state: the sim on the newest verified tick, every call (remote clients under wan mispredict and roll back)
+	for watch in session.watch[:3] {
+		testing.expectf(
+			t,
+			watch.states > 0 && watch.states_wrong == 0,
+			"verified_state %d, %d wrong",
+			watch.states,
+			watch.states_wrong,
+		)
+	}
 	testing.expect_value(t, len(session.host.client.checksums), 640 / 16)
 	for client in session.clients {
 		testing.expect_value(t, client.verified, 640)

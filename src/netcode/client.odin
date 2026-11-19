@@ -52,10 +52,10 @@ Frame_Info :: struct {
 // How a client talks to the host application (src/netcode/README.md, Hooks): every hook is called from client_step, on
 // its caller's thread, and gets `user` back.
 Hooks :: struct($G: typeid) {
-	user:     rawptr,
+	user:           rawptr,
 	// The local player's input for `tick` (it holds `slot`), sampled when the client's clock reaches it. `state` is
 	// the latest predicted state (nil before the sim exists).
-	sample:   proc(
+	sample:         proc(
 		user: rawptr,
 		slot: int,
 		tick: u32,
@@ -63,7 +63,7 @@ Hooks :: struct($G: typeid) {
 	) -> usim.part(G, usim.GAME_INPUT),
 	// Optional: the local player's commands for `tick`, called right after `sample` for every tick the
 	// client generates. usim.send_command(out, command) returns false once COMMAND_QUEUE commands wait.
-	commands: proc(
+	commands:       proc(
 		user: rawptr,
 		slot: int,
 		tick: u32,
@@ -72,9 +72,9 @@ Hooks :: struct($G: typeid) {
 	),
 	// After a step that computed new predicted ticks: the view reads simulation.state (frame.tick's) and
 	// usim.events_at for ticks frame.resim_from..frame.tick.
-	frame:    proc(user: rawptr, simulation: ^usim.Sim(G), frame: Frame_Info),
+	frame:          proc(user: rawptr, simulation: ^usim.Sim(G), frame: Frame_Info),
 	// Each newly verified tick, in order, with its final inputs and the events it emitted under them.
-	verified: proc(
+	verified:       proc(
 		user: rawptr,
 		simulation: ^usim.Sim(G),
 		tick: u32,
@@ -82,9 +82,14 @@ Hooks :: struct($G: typeid) {
 		events: []usim.Raw_Event,
 	),
 	// Each change of the client's status, with why ("" when there is nothing to say).
-	status:   proc(user: rawptr, status: Status, detail: string),
+	status:         proc(user: rawptr, status: Status, detail: string),
 	// Optional: the relay found the players' checksums of a tick differ (report.detail is valid during the call).
-	desync:   proc(user: rawptr, report: Desync_Report),
+	desync:         proc(user: rawptr, report: Desync_Report),
+	// Optional: the sim stands on the newest verified tick (simulation.tick; simulation.state and world are that
+	// tick's), called at most once per step: after the step's verified ticks were stepped (a rollback or a catch-up)
+	// and before predicted ticks are stepped again, or when the prediction was right up to exactly that tick. The Godot
+	// host reads which views a final tick has there (appear-on-verified).
+	verified_state: proc(user: rawptr, simulation: ^usim.Sim(G)),
 }
 
 // An own command the client holds until a verified tick carries it.
@@ -968,6 +973,7 @@ advance_verified :: proc(client: ^Client($G), now: i64) {
 			step_final(client, tick, new_verified, .Resim, now)
 			client.stats.resim_ticks += 1
 		}
+		if client.hooks.verified_state != nil do client.hooks.verified_state(client.hooks.user, client.sim)
 		if client.fin_upto > new_verified {
 			// Catching up: the ticks past this step's budget are final already and come next; predicting them again
 			// from an older tick's inputs would only be rolled back.
@@ -983,6 +989,11 @@ advance_verified :: proc(client: ^Client($G), now: i64) {
 			step_final(client, tick, new_verified, .Verified, now)
 		}
 		client.predicted = new_verified
+		if client.hooks.verified_state != nil do client.hooks.verified_state(client.hooks.user, client.sim)
+	} else if client.predicted == new_verified &&
+	   client.hooks.verified_state != nil &&
+	   client.sim.tick == new_verified {
+		client.hooks.verified_state(client.hooks.user, client.sim) // predicted right, up to exactly this tick
 	}
 	client.verified = new_verified
 	// Report the checksums of newly verified ticks (every 16th; a joiner from its join tick on).

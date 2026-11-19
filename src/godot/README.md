@@ -77,6 +77,14 @@ pose the host would have set (`Posed_By.Script`), so it can draw what the local 
 camera. A MultiMesh kind keeps a track per instance only when its policy sets a smoothing: thousands of instances
 cost nothing per instance by default.
 
+**Appear on verified** (`Appear.Verified`): a kind whose views must never show a mispredicted spawn. The session
+thread knows since which tick each key is in the current timeline: the first fill that showed it, reset when a
+rollback re-simulates that tick, and confirmed by a fill of the newest verified tick (netcode's `verified_state`)
+that has it. Without that verified fill a key would never appear under steady mispredictions, since every predicted
+fill gets re-simulated before it is verified; it costs one more `fill_frame` per step that re-stepped verified ticks,
+only while some kind asks for it. The main thread creates the view once the newest verified tick reaches that tick;
+such a view is never cancelled.
+
 ### Data and classes
 
 **Session data** (values that belong to no entity: a HUD's score, the wave) are the `Data_*` structs of `Glue.data`,

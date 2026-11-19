@@ -24,6 +24,7 @@ Pose_Entry :: struct {
 	kind:     u8,
 	has_prev: bool,
 	warp:     u8, // the item's warp epoch (View_Item.warp): a pose of another epoch is no previous pose
+	since:    u32, // the earliest tick the key is known to be in the current timeline (appear-on-verified)
 	pose:     Remembered_Pose,
 	prev:     Remembered_Pose,
 }
@@ -43,10 +44,14 @@ Pose_Table :: struct {
 
 // Every keyed item's pose at the last fill and at this one (session thread; one per session's driver).
 Pose_Memory :: struct {
-	tables:   [Pose_Domain]Pose_Table,
-	fill:     u32, // the current fill (starts at 1)
-	rollback: bool, // this fill's tick - 1 was re-simulated (a rollback landed with it)
-	alloc:    runtime.Allocator,
+	tables:        [Pose_Domain]Pose_Table,
+	fill:          u32, // the current fill (starts at 1)
+	rollback:      bool, // this fill's tick - 1 was re-simulated (a rollback landed with it)
+	resim_from:    u32, // the first tick this fill's step computed (Frame_Info.resim_from; 0: unknown)
+	// Appear-on-verified: the keys of the last fill of a verified tick (another memory, its own fills), and that tick.
+	verified:      ^Pose_Memory,
+	verified_tick: u32,
+	alloc:         runtime.Allocator,
 }
 
 // Room for `views` scene views and `multis` MultiMesh instances per fill to start with (they grow).
@@ -71,11 +76,24 @@ pose_memory_destroy :: proc(memory: ^Pose_Memory) {
 	memory^ = {}
 }
 
-// Starts a fill (before fill_frame); `rollback`: the fill's tick - 1 was re-simulated.
-pose_memory_begin :: proc(memory: ^Pose_Memory, rollback := false) {
+// Starts a fill (before fill_frame); `rollback`: the fill's tick - 1 was re-simulated; `resim_from`: the first tick
+// the step computed (a key first seen at or after it was re-simulated: its spawn may have moved).
+pose_memory_begin :: proc(memory: ^Pose_Memory, rollback := false, resim_from: u32 = 0) {
 	memory.fill += 1
 	memory.rollback = rollback
+	memory.resim_from = resim_from
 	for &table in memory.tables do table.count = 0
+}
+
+// Whether the memory's last fill pushed the key (appear-on-verified's verified fill).
+pose_seen :: proc(memory: ^Pose_Memory, domain: Pose_Domain, kind: u8, key: u64) -> bool {
+	table := &memory.tables[domain]
+	if len(table.entries[0]) == 0 do return false
+	current := table.entries[memory.fill & 1]
+	for i := pose_slot(key, kind, table.mask); current[i].stamp == memory.fill; i = (i + 1) & table.mask {
+		if current[i].key == key && current[i].kind == kind do return true
+	}
+	return false
 }
 
 // Doubles a table, rehashing the last fill's entries and this one's.
@@ -122,7 +140,9 @@ pose_slot :: proc(key: u64, kind: u8, mask: int) -> int {
 }
 
 // Records the item's pose at `tick` and returns the pose it had at tick - 1, if the host knows it. Across a change of
-// `warp` (the item's warp epoch) it knows none: no interpolation or correction estimate crosses a teleport.
+// `warp` (the item's warp epoch) it knows none: no interpolation or correction estimate crosses a teleport. `since`:
+// the earliest tick the key is known to be in the current timeline: the verified tick of a verified fill that had it,
+// else the first fill that showed it, unless a rollback re-simulated that tick since (then this fill's).
 pose_remember :: proc(
 	memory: ^Pose_Memory,
 	domain: Pose_Domain,
@@ -135,15 +155,20 @@ pose_remember :: proc(
 ) -> (
 	previous: Remembered_Pose,
 	found: bool,
+	since: u32,
 ) {
 	table := &memory.tables[domain]
 	if len(table.entries[0]) == 0 do return
 	last := table.entries[(memory.fill - 1) & 1]
 	current := table.entries[memory.fill & 1]
 	slot := pose_slot(key, kind, table.mask)
+	matched := false
+	since = tick
 	for i := slot; last[i].stamp == memory.fill - 1; i = (i + 1) & table.mask {
 		entry := &last[i]
 		if entry.key != key || entry.kind != kind do continue
+		matched = true
+		if memory.resim_from == 0 || memory.resim_from > entry.since do since = entry.since // else re-simulated: proves nothing
 		if entry.warp != warp do break // teleported since: no previous pose
 		current := Remembered_Pose{pos, rot}
 		switch {
@@ -159,6 +184,9 @@ pose_remember :: proc(
 			previous, found = entry.pose, true
 		}
 		break
+	}
+	if memory.verified != nil && pose_seen(memory.verified, domain, kind, key) {
+		since = matched ? min(since, memory.verified_tick) : memory.verified_tick
 	}
 	if 2 * (table.count + 1) > table.mask + 1 {
 		pose_table_grow(memory, table)
@@ -178,6 +206,7 @@ pose_remember :: proc(
 			kind     = kind,
 			has_prev = found,
 			warp     = warp,
+			since    = since,
 			pose     = {pos, rot},
 			prev     = previous,
 		}

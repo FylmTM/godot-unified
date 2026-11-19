@@ -69,6 +69,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 		sync.atomic_add(&seen.extracted, 1)
 	},
 	view_scale = 10, // event positions stay in sim units across the hand-off: the main thread maps them
+	view_policy = {.Dot = {appear = .Verified}}, // the driver also fills verified ticks (fill_verified)
 }
 
 @(private = "file")
@@ -486,7 +487,7 @@ pose_memory_estimates_after_rollbacks :: proc(t: ^testing.T) {
 	defer godot.pose_memory_destroy(&memory)
 	remember :: proc(memory: ^godot.Pose_Memory, tick: u32, x: f32, rollback := false) -> (f32, bool) {
 		godot.pose_memory_begin(memory, rollback)
-		previous, found := godot.pose_remember(memory, .View, 0, 7, tick, {x, 0, 0}, godot.IDENTITY)
+		previous, found, _ := godot.pose_remember(memory, .View, 0, 7, tick, {x, 0, 0}, godot.IDENTITY)
 		return previous.pos.x, found
 	}
 	_, found := remember(&memory, 10, 10)
@@ -598,7 +599,7 @@ pose_memory_grows :: proc(t: ^testing.T) {
 		godot.pose_memory_begin(&memory)
 		found_all := true
 		for key in u64(1) ..= COUNT {
-			previous, found := godot.pose_remember(
+			previous, found, _ := godot.pose_remember(
 				&memory,
 				.Multi,
 				0,

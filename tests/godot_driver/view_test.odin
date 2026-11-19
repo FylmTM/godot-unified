@@ -497,7 +497,7 @@ track_warp_against_the_shown_epoch :: proc(t: ^testing.T) {
 pose_memory_forgets_across_a_warp :: proc(t: ^testing.T) {
 	fill :: proc(memory: ^godot.Pose_Memory, domain: godot.Pose_Domain, tick: u32, x: f32, warp: u8) -> bool {
 		godot.pose_memory_begin(memory)
-		_, found := godot.pose_remember(memory, domain, 1, 7, tick, {x, 0, 0}, godot.IDENTITY, warp)
+		_, found, _ := godot.pose_remember(memory, domain, 1, 7, tick, {x, 0, 0}, godot.IDENTITY, warp)
 		return found
 	}
 	for domain in godot.Pose_Domain {
@@ -533,6 +533,41 @@ track_at_rest_across_skipped_frames :: proc(t: ^testing.T) {
 			testing.expectf(t, godot.pose_unchanged(pose, shown), "tick %d: %v vs %v", tick, pose, shown)
 		}
 	}
+}
+
+// Appear-on-verified's `since`: kept across clean fills; reset by a rollback that re-simulated it; confirmed by a
+// verified fill that has the key (also under steady rollbacks, where a reset alone would never let it appear); a key
+// a rollback handed to another thing (missing from the verified fill) waits for its own.
+@(test)
+pose_memory_since :: proc(t: ^testing.T) {
+	memory, verified: godot.Pose_Memory
+	godot.pose_memory_init(&memory, 4, 4)
+	defer godot.pose_memory_destroy(&memory)
+	godot.pose_memory_init(&verified, 4, 4)
+	defer godot.pose_memory_destroy(&verified)
+	fill :: proc(memory: ^godot.Pose_Memory, tick, resim_from: u32, key: u64 = 7) -> u32 {
+		godot.pose_memory_begin(memory, resim_from < tick, resim_from)
+		_, _, since := godot.pose_remember(memory, .View, 1, key, tick, {}, godot.IDENTITY)
+		return since
+	}
+	verified_fill :: proc(memory, verified: ^godot.Pose_Memory, tick: u32, keys: ..u64) {
+		godot.pose_memory_begin(verified)
+		for key in keys do godot.pose_remember(verified, .View, 1, key, tick, {}, godot.IDENTITY)
+		memory.verified, memory.verified_tick = verified, tick
+	}
+	testing.expect_value(t, fill(&memory, 10, 10), 10) // first shown at 10
+	testing.expect_value(t, fill(&memory, 11, 11), 10) // clean fills keep it
+	testing.expect_value(t, fill(&memory, 12, 12), 10)
+	testing.expect_value(t, fill(&memory, 14, 9), 14) // a rollback from 9 re-simulated 10: proves nothing
+	// steady rollbacks: every fill re-simulates its `since`
+	for tick in u32(15) ..< 20 do testing.expect_value(t, fill(&memory, tick, tick - 3), tick)
+	verified_fill(&memory, &verified, 12, 7)
+	testing.expect_value(t, fill(&memory, 20, 17), 12) // the verified fill at 12 had it: final at 12
+	testing.expect_value(t, fill(&memory, 21, 21), 12)
+	// another key (a handle a rollback gave another thing): not in the verified fill, counted from its fill
+	testing.expect_value(t, fill(&memory, 22, 22, 9), 22)
+	testing.expect(t, !godot.appear_now(.Verified, 22, 21) && godot.appear_now(.Verified, 22, 22))
+	testing.expect(t, godot.appear_now(.Predicted, 22, 0), "a predicted kind shows at once")
 }
 
 // A zero policy is the default; tau_s < 0 snaps; teleport_dist defaults on its own.
