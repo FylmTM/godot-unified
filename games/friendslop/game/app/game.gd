@@ -74,6 +74,7 @@ func _ready() -> void:
 	_fit_window.call_deferred()
 	session = UnifiedSession.new()
 	session.name = &"UnifiedSession"
+	session.view_root = null  # no scene views until the play scene hands over its Views node (else: under this autoload)
 	# before it enters the tree, where the command line's session flags start it: the flow follows from there
 	session.local_name = Settings.player_name
 	session.status_changed.connect(_on_status_changed)
