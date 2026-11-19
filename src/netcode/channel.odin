@@ -304,6 +304,19 @@ epoch_ended :: proc(channel: ^Channel, link: int, epoch: u32) -> bool {
 	return false
 }
 
+// Starts over with a link's peer, as a restarted program would: whatever connection to it is open ends without a word,
+// and the next channel_send opens a new one that echoes no epoch of the peer's. Returns the channel Peer (assigned
+// again when the old mapping was freed; -1 when none is free).
+channel_reopen :: proc(channel: ^Channel, link: int, link_peer: Peer) -> Peer {
+	peer := channel_peer(channel, link, link_peer)
+	if peer >= 0 {
+		conn := &channel.conns[peer]
+		conn_reset(channel, conn)
+		conn.used, conn.link, conn.lpeer = true, link, link_peer
+	}
+	return peer
+}
+
 // Ends a connection and frees its mapping, telling the link it may reuse the peer number.
 @(private)
 conn_release :: proc(channel: ^Channel, peer: Peer) {

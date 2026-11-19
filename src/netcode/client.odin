@@ -36,8 +36,14 @@ Status :: enum u8 {
 	Connecting,
 	Connected, // welcomed and simulating (a late joiner: once its snapshot is restored and checked)
 	Failed, // rejected, a protocol error, another protocol version, or the relay never answered
-	Disconnected, // left, the session ended, refused as too far behind, or the connection was lost after it worked
+	Disconnected, // left, the session ended, refused, or the connection was lost and could not be opened again
+	// The connection to the relay was lost after it worked: the client keeps its sim and asks to come back on a new
+	// connection (RECONNECT_US at most), resuming from its own verified tick while the relay still holds the ticks
+	// after it, else as a late joiner with a snapshot. Connected again once it is back at the live tick.
+	Reconnecting,
 }
+
+RECONNECT_US :: 30_000_000 // how long after losing its relay a client keeps asking to come back
 
 // What changed in a step, for the view.
 Frame_Info :: struct {
@@ -89,6 +95,10 @@ Hooks :: struct($G: typeid) {
 	// and before predicted ticks are stepped again, or when the prediction was right up to exactly that tick. The Godot
 	// host reads which views a final tick has there (appear-on-verified).
 	verified_state: proc(user: rawptr, simulation: ^usim.Sim(G)),
+	// Optional: the client's state was replaced by a snapshot of `tick` (a late joiner's first, or a snapshot that
+	// replaced the sim a reconnecting client had): what it predicted before is gone, and `verified` goes on from
+	// tick + 1, never naming the ticks it skipped. A resume does not call it (the same sim goes on).
+	restored:       proc(user: rawptr, simulation: ^usim.Sim(G), tick: u32),
 }
 
 // An own command the client holds until a verified tick carries it.
@@ -190,6 +200,8 @@ Client_Stats :: struct {
 	resim_ticks:    int,
 	delay_changes:  int,
 	desyncs:        int, // desync reports from the relay
+	reconnects:     int, // times the connection was lost and a new one asked to come back
+	resumes:        int, // ... and the relay took our own verified tick (no snapshot)
 	own_replaced:   int, // finalized ticks where the relay replaced our input (it arrived too late)
 	steps:          [Step_Kind]int, // ticks stepped, by kind
 	step_us:        [Step_Kind]i64, // time spent stepping them (saves included), µs
@@ -222,6 +234,8 @@ Client :: struct($G: typeid) {
 	status:         Status,
 	detail:         string,
 	hello_sent:     bool,
+	link_index:     int, // the relay's link in the channel (a reconnect opens a new connection on it)
+	reconnect_us:   i64, // when the connection was lost (0: not reconnecting)
 	// from Welcome
 	welcomed:       bool,
 	slot:           int, // local player 0's (-1: not seated)
@@ -312,8 +326,8 @@ client_create :: proc(game: ^$G, cfg: Client_Config(G), link: Link, hooks: Hooks
 	client.hooks = hooks
 	client.tm = timing_of(game.tick_hz, game.input_delay_min_ticks)
 	client.ch = channel_make()
-	link_index := channel_add_link(client.ch, link)
-	client.relay = channel_peer(client.ch, link_index, 0)
+	client.link_index = channel_add_link(client.ch, link)
+	client.relay = channel_peer(client.ch, client.link_index, 0)
 	client.w = wire.writer_make(MAX_DATAGRAM)
 	for &seat in client.locals {
 		seat.slot = -1
@@ -519,6 +533,26 @@ on_welcome :: proc(client: ^Client($G), reader: ^wire.Reader) {
 	if usim.setup_violation(client.game, &client.setup) != "" {
 		set_status(client, .Failed, "the host's setup does not read on this build")
 		return
+	}
+	if client.sim != nil {
+		// Back after a lost connection. Resumed: the relay streams the finalized ticks after our verified tick, which
+		// the sim goes back to (its predictions were of a session it was absent from). Else a snapshot comes, as for
+		// any joiner: the old sim and what it held go.
+		if welcome.resume_from != 0 &&
+		   welcome.resume_from == client.verified &&
+		   welcome.seed == client.seed &&
+		   restore_to(client, client.verified) {
+			client.predicted = client.verified
+			client.stats.resumes += 1
+		} else {
+			usim.destroy(client.sim)
+			client.sim = nil
+			client.kept_ticks = {}
+			client.verified, client.predicted = 0, 0
+			client.fin_tick = {}
+			client.fin_upto = 0
+			client.snap_tick = 0
+		}
 	}
 	client.welcomed = true
 	client.seed = welcome.seed
@@ -815,6 +849,7 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 				return
 			}
 			client.checking = false
+			client.reconnect_us = 0
 			if !client.leaving {
 				set_status(client, .Connected, "")
 			}
@@ -882,6 +917,9 @@ load_snapshot :: proc(client: ^Client($G), now: i64) {
 	wire.w_u64(writer, value)
 	csend(client, writer, .Reliable, now)
 	log.infof("restored snapshot of tick %d (%d bytes)", tick, len(client.snap_buf))
+	if client.hooks.restored != nil {
+		client.hooks.restored(client.hooks.user, client.sim, tick)
+	}
 	delete(client.snap_buf) // a snapshot's size, needed again only if this one fails the check
 	client.snap_buf = nil
 }
@@ -1514,6 +1552,76 @@ send_joins :: proc(client: ^Client($G), now: i64) {
 	}
 }
 
+// Says Hello: every local player asked for, who this is, and what it can resume from: its verified tick V and its
+// checksum of the checksum tick at or before V (none without a checked sim, or before tick 16).
+@(private)
+send_hello :: proc(client: ^Client($G), now: i64) {
+	hello := Hello {
+		compat  = client.cfg.compat,
+		token   = client.cfg.token,
+		sent_us = now,
+	}
+	if client.sim != nil && !client.checking && client.verified >= CHECKSUM_EVERY {
+		check_tick := client.verified - client.verified % CHECKSUM_EVERY
+		if entry := client.chk[(check_tick / CHECKSUM_EVERY) % CHK_RING]; entry.tick == check_tick {
+			hello.resume_tick, hello.resume_checksum = client.verified, entry.value
+		}
+	}
+	for &seat, local in client.locals {
+		if seat.state != .Asked do continue
+		hello.seats[hello.seat_count] = seat_ask(&seat, local)
+		hello.seat_count += 1
+		seat.asked = true
+	}
+	clear(&client.w.buf)
+	write_hello(&client.w, &hello)
+	csend(client, &client.w, .Reliable, now)
+	client.hello_sent = true
+	if client.reconnect_us == 0 {
+		set_status(client, .Connecting, "")
+	}
+}
+
+// The connection to the relay ended without a goodbye after it worked (silence, the transport said so, the relay
+// forgot us): open a new one, as a restarted program would (one that echoes the old one's epoch would be taken as the
+// peer starting over, by both sides, without end), and say Hello again, asking for every local player it had, with
+// what we can resume from. What belonged to the old seats goes: the clock, the commands the relay never finalized
+// (they went with the seats), the joiners that waited for our snapshot, a snapshot on its way. The sim, the finalized
+// ring and V stay.
+@(private)
+reconnect :: proc(client: ^Client($G), lost_us: i64) {
+	client.relay = channel_reopen(client.ch, client.link_index, 0)
+	client.stats.reconnects += 1
+	client.reconnect_us = lost_us
+	client.hello_sent = false
+	client.welcomed = false
+	client.started = false
+	client.have_offset = false
+	client.rtt_samples = 0 // the new connection's samples count from 0
+	for &seat in client.locals {
+		if seat.state == .None do continue
+		seat.state = .Asked // in the next Hello: the lowest free slot, as soon as possible, like any rejoin
+		seat.asked = false
+		seat.want_slot = -1
+		seat.join_tick = 0
+		seat.slot = -1
+		clear(&seat.own_cmds)
+		seat.cmd_seq, seat.cmd_acked = 0, 0
+	}
+	client.slot = -1
+	clear(&client.snap_reqs)
+	client.snap_total = 0
+	clear(&client.snap_buf)
+	if client.checking {
+		usim.destroy(client.sim) // a snapshot not checked yet is no state to resume from
+		client.sim = nil
+		client.checking = false
+		client.kept_ticks = {}
+		client.verified, client.predicted = 0, 0
+	}
+	set_status(client, .Reconnecting, "connection lost")
+}
+
 // One step of the client: receive, verify (rolling back if needed), advance the local clock,
 // predict, publish, send. Returns when it wants to run next (a now_us value).
 client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
@@ -1521,22 +1629,7 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 		return now + 100_000
 	}
 	if !client.hello_sent {
-		hello := Hello {
-			compat  = client.cfg.compat,
-			token   = client.cfg.token,
-			sent_us = now,
-		}
-		for &seat, local in client.locals {
-			if seat.state != .Asked do continue
-			hello.seats[hello.seat_count] = seat_ask(&seat, local)
-			hello.seat_count += 1
-			seat.asked = true
-		}
-		clear(&client.w.buf)
-		write_hello(&client.w, &hello)
-		csend(client, &client.w, .Reliable, now)
-		client.hello_sent = true
-		set_status(client, .Connecting, "")
+		send_hello(client, now)
 	}
 	work_start := time.tick_now()
 	client.received_work = false
@@ -1548,11 +1641,15 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 		case .Message:
 			handle_client_msg(client, event.data, now)
 		case .Disconnected:
-			if client.end_us == 0 {
+			lost := client.reconnect_us != 0 ? client.reconnect_us : now
+			worked := client.welcomed || client.reconnect_us != 0
+			if client.end_us == 0 && worked && now - lost < RECONNECT_US {
+				reconnect(client, lost)
+			} else if client.end_us == 0 {
 				set_status(
 					client,
-					client.welcomed ? .Disconnected : .Failed,
-					client.welcomed ? "connection lost" : "no answer from the relay",
+					worked ? .Disconnected : .Failed,
+					worked ? "connection lost" : "no answer from the relay",
 				)
 			}
 		case .Incompatible:
@@ -1563,10 +1660,21 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 	if client_finished(client) {
 		return now + 100_000
 	}
+	if !client.hello_sent {
+		send_hello(client, now) // a reconnect's, on the new connection, in the step that opened it
+	}
 	client.resim_from = 0
 	if !client.leaving {
 		if client.welcomed do send_joins(client, now)
 		advance_verified(client, now)
+		if client.reconnect_us != 0 &&
+		   client.welcomed &&
+		   client.sim != nil &&
+		   !client.checking &&
+		   !catching_up(client) {
+			client.reconnect_us = 0 // back at the live tick
+			set_status(client, .Connected, "")
+		}
 		advanced := schedule(client, now)
 		predict(client)
 		if client.resim_from != 0 || client.received_work {
@@ -1675,7 +1783,7 @@ client_json :: proc(result: Client_Result) -> string {
 		append(&zones, ..transmute([]u8)fmt.tprintf(`"%s":%.2f`, zone.name, zone.us))
 	}
 	return fmt.tprintf(
-		`{{"slot":%d,"member":%d,"final_tick":%d,"checksums":[%s],"client_step_us":{{"p99":%d,"max":%d,"count":%d}},"snapshot_bytes":%d,"snapshot_ms":%.1f,"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"desyncs":%d,"ok":%v,"net":%s,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"zones":{{%s}}}}`,
+		`{{"slot":%d,"member":%d,"final_tick":%d,"checksums":[%s],"client_step_us":{{"p99":%d,"max":%d,"count":%d}},"snapshot_bytes":%d,"snapshot_ms":%.1f,"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"desyncs":%d,"reconnects":%d,"resumes":%d,"ok":%v,"net":%s,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"zones":{{%s}}}}`,
 		result.slot,
 		result.member,
 		result.final_tick,
@@ -1695,6 +1803,8 @@ client_json :: proc(result: Client_Result) -> string {
 		result.delay_changes,
 		result.rtt_ms,
 		result.desyncs,
+		result.reconnects,
+		result.resumes,
 		result.ok,
 		channel_stats_json(result.net),
 		result.steps[.Verified],

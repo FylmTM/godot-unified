@@ -192,6 +192,7 @@ Relay :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Ga
 	// Late joiners let in unchecked: no other player's checksum of their snapshot's tick came (src/netcode/README.md,
 	// Late join and rejoin).
 	unchecked_snapshots: int,
+	resumes:             int, // Hellos that resumed from the client's own verified tick (no snapshot)
 	ending:              bool,
 	end_us:              i64,
 	finished:            bool,
@@ -402,13 +403,14 @@ ms_ticks :: proc(relay: ^Relay($G), ms: int) -> u32 {
 // Welcomes a connection: the session's seed, rate, length and Setup, and every seat it holds. `start`: a start client,
 // which builds tick 0 itself (Welcome_Flags.Start); every other gets a snapshot.
 @(private)
-send_welcome :: proc(relay: ^Relay($G), peer: Peer, start: bool, now: i64) {
+send_welcome :: proc(relay: ^Relay($G), peer: Peer, start: bool, now: i64, resume_from: u32 = 0) {
 	conn := &relay.conns[peer]
 	welcome := Welcome {
-		seed    = relay.cfg.seed,
-		tick_hz = relay.tm.tick_hz,
-		ticks   = relay.cfg.ticks,
-		setup   = sim.bytes_of(&relay.setup),
+		seed        = relay.cfg.seed,
+		tick_hz     = relay.tm.tick_hz,
+		ticks       = relay.cfg.ticks,
+		setup       = sim.bytes_of(&relay.setup),
+		resume_from = resume_from,
 	}
 	for slot in conn.locals {
 		if slot < 0 do continue
@@ -524,9 +526,20 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 		slots[i] = slot
 		taken += {slot}
 	}
+	// A client that kept its sim after a lost connection resumes from its own verified tick, with no snapshot, while the
+	// ticks after it are in the ring and its checksum of the checksum tick at or before it is the majority's (that
+	// report is seconds old: judged). Otherwise it is a late joiner like any other.
+	resumed := false
+	if relay.started &&
+	   hello.resume_tick >= CHECKSUM_EVERY &&
+	   hello.resume_tick <= relay.finalized &&
+	   relay.finalized - hello.resume_tick <= RESUME_MAX {
+		majority, judged := majority_of(relay, hello.resume_tick - hello.resume_tick % CHECKSUM_EVERY)
+		resumed = judged && majority == hello.resume_checksum
+	}
 	// A joiner starts from another player's snapshot: with nobody to send one, it can't join.
 	provider := Peer(-1)
-	if relay.started {
+	if relay.started && !resumed {
 		if provider = pick_provider(relay, peer, {}, replaced); provider < 0 {
 			reject(relay, peer, .No_Snapshot, now)
 			log.infof("a client asking for slot %d refused: nobody can send it a snapshot", slots[0])
@@ -576,6 +589,25 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 	}
 	first := relay.seats[slots[0]].active_from
 	for slot in slots[1:len(asks)] do first = min(first, relay.seats[slot].active_from)
+	if resumed {
+		// As if its snapshot had been forwarded and checked: the stream goes on from its verified tick, and it reports
+		// checksums from its first seat's join tick on.
+		conn.base_known = true
+		conn.client_ack = hello.resume_tick
+		conn.sent_upto = hello.resume_tick
+		conn.report_from = first
+		relay.resumes += 1
+		send_welcome(relay, peer, false, now, hello.resume_tick)
+		log.infof(
+			"member %d resumes in slot %d from tick %d, present from tick %d (%d seats)",
+			relay.seats[slots[0]].member,
+			slots[0],
+			hello.resume_tick,
+			first,
+			len(asks),
+		)
+		return
+	}
 	conn.snap_min = first - 1
 	send_welcome(relay, peer, false, now)
 	request_snapshot(relay, peer, provider, now)
