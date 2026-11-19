@@ -53,6 +53,37 @@ offline_modes_agree :: proc(t: ^testing.T) {
 	read_log.compat = 0
 	unknown, unknown_ok := headless.run_replay(&toy.GAME, &read_log)
 	testing.expect(t, unknown_ok && unknown.final_checksum == run.final_checksum)
+	// the checkpoints: every one agrees; one flipped is the first divergent, the one before it the last agreeing
+	testing.expectf(
+		t,
+		unknown.checkpoints == 300 / sim.DEEP_CHECKSUM_EVERY &&
+		unknown.diverged_tick == 0 &&
+		unknown.agreed_tick == 288,
+		"%v",
+		unknown,
+	)
+	read_log.checkpoints[5].checksum ~= 1
+	flipped, flipped_ok := headless.run_replay(&toy.GAME, &read_log)
+	testing.expectf(
+		t,
+		!flipped_ok &&
+		flipped.diverged_tick == read_log.checkpoints[5].tick &&
+		flipped.agreed_tick == read_log.checkpoints[4].tick,
+		"%v",
+		flipped,
+	)
+	testing.expect_value(t, flipped.final_checksum, run.final_checksum) // replayed to the end anyway
+	// another build: refused, unless any_build, then checked against its checkpoints
+	read_log.checkpoints[5].checksum ~= 1
+	read_log.compat = 1
+	_, refused_ok := headless.run_replay(&toy.GAME, &read_log)
+	testing.expect(t, !refused_ok, "another build's log is refused")
+	other, other_ok := headless.run_replay(&toy.GAME, &read_log, any_build = true)
+	testing.expect(
+		t,
+		other_ok && other.checkpoints == unknown.checkpoints,
+		"any_build replays it against its checkpoints",
+	)
 }
 
 // A game without a scripted player (Game.scripted_input is optional): its players send zero Inputs.

@@ -312,19 +312,18 @@ when DEVUI {
 		recorded := false
 		if api.installed do info, recorded = api.recording(&snapshot, &input_log)
 		Note_Json :: struct {
-			game:       string,
-			version:    string,
-			bug:        bool,
-			session:    string,
-			player:     u64,
-			tick:       u32, // the newest predicted tick shown
-			verified:   u32,
-			recording:  bool, // snapshot.unis and inputs.unil are there
-			from_tick:  u32, // the snapshot's tick
-			to_tick:    u32, // the log's last
-			check_tick: u32, // a tick the replay reaches, and the session's checksum of it (hex; check_tick 0: none)
-			checksum:   string,
-			net:        netcode.Client_Stats,
+			game:        string,
+			version:     string,
+			bug:         bool,
+			session:     string,
+			player:      u64,
+			tick:        u32, // the newest predicted tick shown
+			verified:    u32,
+			recording:   bool, // snapshot.unis and inputs.unil are there
+			from_tick:   u32, // the snapshot's tick
+			to_tick:     u32, // the log's last
+			checkpoints: int, // this machine's checksums of the checksum ticks the log holds (a replay checks them)
+			net:         netcode.Client_Stats,
 		}
 		out := Note_Json {
 			game      = api.game_name,
@@ -339,8 +338,7 @@ when DEVUI {
 			}
 		}
 		if recorded {
-			out.from_tick, out.to_tick, out.check_tick = info.from, info.to, info.check_tick
-			if info.check_tick != 0 do out.checksum = fmt.tprintf("%016x", info.check)
+			out.from_tick, out.to_tick, out.checkpoints = info.from, info.to, info.checkpoints
 			ok := os.write_entire_file(fmt.tprintf("%s/snapshot.unis", dir), snapshot[:]) == nil
 			ok &&= os.write_entire_file(fmt.tprintf("%s/inputs.unil", dir), input_log[:]) == nil
 			if !ok do gd.print_error(fmt.tprintf("unified: the recording of %s was not saved", dir))

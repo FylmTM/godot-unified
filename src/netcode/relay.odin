@@ -824,6 +824,8 @@ judge_checks :: proc(relay: ^Relay($G), now: i64) {
 				check.majority = check.values[peer]
 			}
 		}
+		// beside the inputs: a replay checks itself against it (a report is taken only for a tick already recorded)
+		if check.have != {} do sim.log_stream_checkpoint(&relay.recording, check.tick, check.majority)
 		diverged: sim.Slots
 		for peer in check.have {
 			if check.values[peer] != check.majority {

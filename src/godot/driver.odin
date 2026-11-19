@@ -220,20 +220,19 @@ Command_Note :: struct {
 // its join. The session thread appends; the main thread copies it under the lock (api.recording).
 @(private)
 Recording :: struct {
-	mu:       sync.Mutex,
-	snapshot: []u8, // nil until the first verified tick whose state was saved
-	from:     u32, // the snapshot's tick
-	last:     u32, // the newest tick in the log
-	check:    [2]u64, // (tick, checksum) of the newest tick the client checksummed after `from` (tick 0: none yet)
-	log:      [dynamic]u8,
-	stream:   sim.Log_Stream,
+	mu:          sync.Mutex,
+	snapshot:    []u8, // nil until the first verified tick whose state was saved
+	from:        u32, // the snapshot's tick
+	last:        u32, // the newest tick in the log
+	checkpoints: int, // the checksums the log holds
+	log:         [dynamic]u8,
+	stream:      sim.Log_Stream,
 }
 
 @(private)
 Recording_Info :: struct {
-	from, to:   u32, // the snapshot's tick, the log's last
-	check_tick: u32, // a tick the log reaches and its checksum, to check a replay against (0: none yet)
-	check:      u64,
+	from, to:    u32, // the snapshot's tick, the log's last
+	checkpoints: int, // the checksums of checksum ticks the log holds, to check a replay against
 }
 
 // Wraps a remote link in a live netsim the dev UI's Conditions panel impairs (ideal while it is off: datagrams go
@@ -525,7 +524,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		if recording.snapshot == nil do return
 		append(snapshot, ..recording.snapshot)
 		append(log, ..recording.log[:])
-		return {recording.from, recording.last, u32(recording.check[0]), recording.check[1]}, true
+		return {recording.from, recording.last, recording.checkpoints}, true
 	}
 }
 
@@ -548,15 +547,24 @@ record_tick :: proc(
 		recording.snapshot = sim.snapshot_encode(simulation, tick)
 		recording.from, recording.last = tick, tick
 		compat := driver_compat(driver)
-		header := sim.log_header(simulation.game, simulation.seed, &simulation.setup, simulation.content_hash, compat)
+		header := sim.log_header(
+			simulation.game,
+			simulation.seed,
+			&simulation.setup,
+			simulation.content_hash,
+			compat,
+			from = tick,
+		)
 		sim.log_stream_begin(&recording.stream, sim.log_sink_memory(&recording.log), header)
 		return
 	}
 	if tick != recording.last + 1 do return // verified ticks come in order
 	sim.log_stream_tick(&recording.stream, inputs)
 	recording.last = tick
-	if count := len(client.checksums); count > 0 && client.checksums[count - 1][0] > u64(recording.from) {
-		recording.check = client.checksums[count - 1]
+	// this machine's checksum of each checksum tick: the majority's in a healthy session, the diverged one if not
+	if value, ok := netcode.client_checksum(client, tick); ok {
+		sim.log_stream_checkpoint(&recording.stream, tick, value)
+		recording.checkpoints += 1
 	}
 }
 

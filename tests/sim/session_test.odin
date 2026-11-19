@@ -277,7 +277,7 @@ the_log_carries_the_setup_and_each_joins_profile :: proc(t: ^testing.T) {
 	_, bad_ok := sim.log_decode(bad, Pick)
 	testing.expect(t, !bad_ok, "a Setup that does not read")
 	copy(bad, data)
-	bad[sim.LOG_HEADER - 3] += 1 // the profile size
+	bad[sim.LOG_HEADER - 7] += 1 // the profile size (then the setup size u16 and from u32)
 	_, bad_ok = sim.log_decode(bad, Pick)
 	testing.expect(t, !bad_ok, "another Profile size")
 }

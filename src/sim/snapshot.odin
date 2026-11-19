@@ -228,10 +228,12 @@ snap_extra :: proc(reader: ^wire.Reader) -> (image: []u8, ok: bool) {
 
 // Builds a new Sim from a portable snapshot, with the session's Setup it carries, or says why the bytes are not a
 // valid snapshot for this game build and its levels (the Sim is nil then): snap_read's errors, then Content_Differs,
-// then Build_Differs, then Bad_Header for a Setup that does not read on this build (setup_violation).
+// then Build_Differs (unless `any_build`: a replay of another build's recording, checked against its checkpoints),
+// then Bad_Header for a Setup that does not read on this build (setup_violation).
 from_snapshot :: proc(
 	game: ^$G,
 	data: []u8,
+	any_build := false,
 ) -> (
 	^Sim(G),
 	Snap_Error,
@@ -246,7 +248,7 @@ from_snapshot :: proc(
 	if header.content != content_hash(game.levels) {
 		return nil, .Content_Differs
 	}
-	if header.compat != compat_with(game, layout, {}) {
+	if header.compat != compat_with(game, layout, {}) && !any_build {
 		return nil, .Build_Differs
 	}
 	setup: Setup

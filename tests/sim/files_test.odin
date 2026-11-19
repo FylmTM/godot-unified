@@ -35,7 +35,7 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	}
 	data := sim.log_encode(&input_log)
 	defer delete(data)
-	// an empty tick costs one byte for its command count and one for its join count; a command, 3 bytes plus its
+	// an empty tick costs one byte for its record kind, one for its command count and one for its join count; a command, 3 bytes plus its
 	// struct; a join record 3
 	command_bytes := 10 * (2 * sim.COMMAND_HEAD + size_of(toy.Cmd_Bump) + size_of(toy.Cmd_Mark))
 	tick_bytes := 10 + size_of([toy.PLAYERS]toy.Input)
@@ -44,7 +44,7 @@ input_log_round_trip :: proc(t: ^testing.T) {
 		len(data),
 		sim.LOG_HEADER +
 		size_of(toy.Setup) +
-		50 * tick_bytes +
+		50 * (1 + tick_bytes) +
 		command_bytes +
 		2 * (sim.JOIN_BYTES + size_of(toy.Profile)),
 	)
@@ -100,6 +100,72 @@ an_unended_log_with_a_cut_tail_keeps_its_whole_ticks :: proc(t: ^testing.T) {
 		)
 		sim.log_destroy(&cut)
 	}
+}
+
+// Checkpoints ride beside the ticks as tagged records: a stream and log_encode write the same bytes, a decoded log
+// encodes byte-identical (checkpoints where they were recorded, not sorted), a stream cut after any byte reads to
+// its last whole record, and a checkpoint of a tick the log doesn't hold yet is refused.
+@(test)
+log_checkpoints_round_trip :: proc(t: ^testing.T) {
+	recording: [dynamic]u8
+	defer delete(recording)
+	stream: sim.Log_Stream
+	setup := toy.Setup{}
+	sim.log_stream_begin(
+		&stream,
+		sim.log_sink_memory(&recording),
+		sim.log_header(&toy.GAME, 1, &setup, 0, 0, from = 4),
+	)
+	expected: sim.Input_Log(toy.Game)
+	defer sim.log_destroy(&expected)
+	expected.seed, expected.from = 1, 4
+	for k in 0 ..< 40 {
+		inputs: toy.Inputs
+		inputs.present = {0}
+		if k == 0 do sim.join(&inputs, 0, 1)
+		inputs.input[0] = toy.scripted_input(1, 0, u32(k + 5))
+		sim.log_stream_tick(&stream, &inputs)
+		sim.log_append(&expected, &inputs)
+		tick := u32(k + 5)
+		if tick % 16 == 0 || tick == 9 { 	// judged late and out of order: 16 after 9's tick
+			checked := tick == 16 ? u32(9) : tick == 9 ? u32(6) : tick
+			sim.log_stream_checkpoint(&stream, checked, u64(checked) * 1000)
+			sim.log_checkpoint(&expected, checked, u64(checked) * 1000)
+		}
+	}
+	testing.expect(t, sim.log_stream_end(&stream))
+	encoded := sim.log_encode(&expected)
+	defer delete(encoded)
+	testing.expect(t, string(encoded) == string(recording[:]), "a stream and log_encode write the same bytes")
+	decoded, ok := sim.log_decode(recording[:], toy.Game)
+	defer sim.log_destroy(&decoded)
+	testing.expect(t, ok && decoded.from == 4 && len(decoded.ticks) == 40 && len(decoded.checkpoints) == 3)
+	again := sim.log_encode(&decoded)
+	defer delete(again)
+	testing.expect(t, string(again) == string(recording[:]), "a decoded log encodes byte-identical")
+	// unended (count 0): cut after any byte, the whole records before the cut
+	unended := make([]u8, len(recording))
+	defer delete(unended)
+	copy(unended, recording[:])
+	unended[33], unended[34], unended[35], unended[36] = 0, 0, 0, 0
+	for cut in sim.LOG_HEADER + size_of(toy.Setup) ..< len(unended) {
+		part, part_ok := sim.log_decode(unended[:cut], toy.Game)
+		testing.expectf(t, part_ok && len(part.ticks) <= 40, "cut at %d", cut)
+		sim.log_destroy(&part)
+	}
+	// a checkpoint of a tick the log doesn't hold before it
+	early: sim.Input_Log(toy.Game)
+	defer sim.log_destroy(&early)
+	early.from = 4
+	inputs: toy.Inputs
+	sim.log_append(&early, &inputs)
+	sim.log_checkpoint(&early, 5, 1)
+	bytes := sim.log_encode(&early)
+	defer delete(bytes)
+	at := sim.LOG_HEADER + size_of(toy.Setup) + 1 + 10 + size_of([toy.PLAYERS]toy.Input) // after the tick record
+	bytes[at + 1] = 6 // the checkpoint's tick: 6, one past the log
+	_, early_ok := sim.log_decode(bytes, toy.Game)
+	testing.expect(t, !early_ok, "a checkpoint of a tick the log doesn't hold")
 }
 
 @(test)

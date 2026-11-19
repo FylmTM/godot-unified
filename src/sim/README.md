@@ -334,7 +334,10 @@ what the bytes hold. The byte layouts are in the headers of `log.odin` and `snap
 
 - **The input log** (`Input_Log`, `log_encode`; recorded as it grows through a `Log_Stream`): seed, the session's
   Setup, levels' hash and the recording build's compat, then each tick's record, a join with the Profile it brought.
-  Levels + log is the whole session.
+  Levels + log is the whole session. Beside the ticks it keeps **checkpoints**: the recorder's checksum of each tick
+  peers compare, written when it is known (a relay judges a majority up to a second after the tick was written), so a
+  replay names the first tick it computes differently, also against another build. They are tagged records, not a
+  trailer: a recording that never ended (a crash, an F3 note's copy of a growing one) keeps the ones it has.
 - **The portable snapshot** (`snapshot_encode`, `from_snapshot`): the session's Setup, the block and the Extra's image
   with the build's identity, so it restores on another OS or CPU (late join, `resume`) or says why not
   (`Snap_Error`). A late joiner needs nothing else: its World is built from the Setup everyone built theirs from, and
