@@ -145,7 +145,13 @@ Sender :: struct {
 sender_hooks :: proc(sender: ^Sender, watch: ^Watch) -> Hooks {
 	hooks := hooks_for(watch)
 	hooks.user = sender
-	hooks.commands = proc(user: rawptr, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
+	hooks.commands = proc(
+		user: rawptr,
+		local, slot: int,
+		tick: u32,
+		state: ^toy.State,
+		out: ^sim.Command_Out(toy.Cmd),
+	) {
 		sender := (^Sender)(user)
 		if sender.armed && sim.send_command(out, toy.Cmd_Bump{777}) {
 			sender.armed = false
@@ -267,7 +273,13 @@ an_empty_command_crosses_the_relay :: proc(t: ^testing.T) {
 	hooks := quiet_hooks(&session.watch[1])
 	hooks.user = &ticks_in
 	hooks.frame, hooks.verified, hooks.status = nil, nil, nil
-	hooks.commands = proc(user: rawptr, slot: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
+	hooks.commands = proc(
+		user: rawptr,
+		local, slot: int,
+		tick: u32,
+		state: ^toy.State,
+		out: ^sim.Command_Out(toy.Cmd),
+	) {
 		ticks_in := (^int)(user)
 		if state == nil || toy.in_slot(state, slot) == nil do return
 		ticks_in^ += 1

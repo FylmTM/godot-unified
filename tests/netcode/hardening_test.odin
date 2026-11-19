@@ -140,6 +140,25 @@ fake_welcome :: proc(fake: ^Fake_Relay, client: ^Client) {
 	fake_step(fake, client)
 }
 
+// A Finalized's head for local player 0 (after its type byte): the relay time, the first tick and how many follow, its
+// acks.
+write_finalized_head :: proc(
+	writer: ^wire.Writer,
+	relay_time: i64,
+	first: u32,
+	count: int,
+	input_ack: u32 = 0,
+	command_ack: u32 = 0,
+) {
+	wire.w_u64(writer, u64(relay_time))
+	wire.w_u32(writer, first)
+	wire.w_u8(writer, u8(count))
+	wire.w_u8(writer, 1) // one seat
+	wire.w_u8(writer, 0) // local player 0
+	wire.w_u32(writer, input_ack)
+	wire.w_u32(writer, command_ack)
+}
+
 // A Welcome to the toy's session (endless, no Setup) granting one seat: `slot`, `member`, present from `first`; a
 // start client (it builds tick 0) when `first` is 1.
 write_test_welcome :: proc(writer: ^wire.Writer, slot: u8, member: u16, first: u32) {
@@ -182,11 +201,7 @@ finalized_of :: proc(tick: u32, dx: i8) -> (inputs: toy.Inputs) {
 
 fake_finalized :: proc(fake: ^Fake_Relay, first: u32, ticks: []toy.Inputs) {
 	writer := fake_begin(fake, .Finalized)
-	wire.w_u64(writer, u64(fake.now)) // relay time
-	wire.w_u32(writer, 0) // input ack
-	wire.w_u32(writer, 0) // command ack
-	wire.w_u32(writer, first)
-	wire.w_u8(writer, u8(len(ticks)))
+	write_finalized_head(writer, i64(fake.now), first, len(ticks))
 	for &tick_inputs, i in ticks {
 		netcode.window_write_tick(writer, &tick_inputs, i > 0 ? &ticks[i - 1] : nil)
 	}
@@ -512,6 +527,7 @@ evil_run :: proc(
 		}
 		if evil.acking {
 			writer := evil_begin(evil, .Inputs)
+			wire.w_u8(writer, 0) // local player 0
 			wire.w_u32(writer, session.relay.finalized)
 			wire.w_u32(writer, 0)
 			wire.w_u8(writer, 0) // no inputs
@@ -675,7 +691,7 @@ refused_hello_does_not_replace_the_seated_member :: proc(t: ^testing.T) {
 	evil_seat(&evil, &session, 7, 1, TOKEN) // seat 1 is the other player's
 	defer evil_destroy(&evil)
 	reject := evil_run(&evil, &session, 1, .Reject)
-	testing.expect(t, len(reject) == 2 && netcode.Reject_Reason(reject[1]) == .Slot_Taken)
+	testing.expect(t, len(reject) == 3 && netcode.Reject_Reason(reject[1]) == .Slot_Taken)
 	testing.expect(t, session.relay.seats[0].conn >= 0)
 	testing.expect_value(t, seated.status, netcode.Status.Connected)
 }
@@ -768,6 +784,7 @@ a_reused_seat_starts_empty :: proc(t: ^testing.T) {
 	evil_run(&evil, &session, 1)
 	planted_from := session.relay.finalized + 100
 	writer := evil_begin(&evil, .Inputs)
+	wire.w_u8(writer, 0) // local player 0
 	wire.w_u32(writer, session.relay.finalized)
 	wire.w_u32(writer, planted_from)
 	wire.w_u8(writer, 32)
@@ -926,7 +943,7 @@ a_client_that_stops_acking_is_refused_as_too_far_behind :: proc(t: ^testing.T) {
 	defer evil_destroy(&evil)
 	honest := net_join(&session, 0)
 	reject := evil_run(&evil, &session, f64(netcode.RELAY_RING) / toy.HZ + 3, .Reject)
-	testing.expect(t, len(reject) == 2 && netcode.Reject_Reason(reject[1]) == .Too_Far_Behind, "a Too_Far_Behind")
+	testing.expect(t, len(reject) == 3 && netcode.Reject_Reason(reject[1]) == .Too_Far_Behind, "a Too_Far_Behind")
 	testing.expect(t, session.relay.finalized > netcode.RELAY_RING)
 	testing.expect(t, session.relay.seats[1].conn < 0)
 	net_run(&session, 1)
@@ -946,7 +963,7 @@ a_relay_time_far_off_costs_a_ring_of_inputs :: proc(t: ^testing.T) {
 	samples := 0
 	hooks := Hooks {
 		user = &samples,
-		sample = proc(user: rawptr, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+		sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
 			(^int)(user)^ += 1
 			return {}
 		},
@@ -956,11 +973,7 @@ a_relay_time_far_off_costs_a_ring_of_inputs :: proc(t: ^testing.T) {
 	fake_welcome(&fake, client)
 	far := [1]toy.Inputs{finalized_of(1, 1)}
 	writer := fake_begin(&fake, .Finalized)
-	wire.w_u64(writer, 1 << 50) // relay time: 35 years after tick 0
-	wire.w_u32(writer, 0)
-	wire.w_u32(writer, 0)
-	wire.w_u32(writer, 1)
-	wire.w_u8(writer, 1)
+	write_finalized_head(writer, 1 << 50, 1, 1) // relay time: 35 years after tick 0
 	netcode.window_write_tick(writer, &far[0], nil)
 	fake_send(&fake, .Unreliable)
 	for _ in 0 ..< 20 {

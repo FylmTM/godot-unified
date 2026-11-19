@@ -246,25 +246,25 @@ width_violation :: proc($PLAYERS: int, $B: int) -> string {
 }
 
 // The relay carries a game whose widest tick leaves TICKS_PER_MESSAGE_MIN of them per Finalized message (a tick of
-// at most 274 bytes, one player joining in it) and refuses one byte of Input wider, at each player count: 118 bytes at
-// 2 players, 78 at 3, 58 at 4, 29 at 8, 14 at 16, 7 at 32.
+// at most 267 bytes beside a full couch's acks, one player joining in it) and refuses one byte of Input wider, at each
+// player count: 114 bytes at 2 players, 76 at 3, 56 at 4, 28 at 8, 14 at 16, 6 at 32.
 @(test)
 the_relay_refuses_a_tick_too_wide_for_its_stream :: proc(t: ^testing.T) {
-	testing.expect_value(t, width_violation(2, 118), "")
-	testing.expect(t, width_violation(2, 119) != "")
-	testing.expect_value(t, width_violation(3, 78), "")
-	testing.expect(t, width_violation(3, 79) != "")
-	testing.expect_value(t, width_violation(4, 58), "")
-	testing.expect(t, width_violation(4, 59) != "")
-	testing.expect_value(t, width_violation(8, 29), "")
-	testing.expect(t, width_violation(8, 30) != "")
+	testing.expect_value(t, width_violation(2, 114), "")
+	testing.expect(t, width_violation(2, 115) != "")
+	testing.expect_value(t, width_violation(3, 76), "")
+	testing.expect(t, width_violation(3, 77) != "")
+	testing.expect_value(t, width_violation(4, 56), "")
+	testing.expect(t, width_violation(4, 57) != "")
+	testing.expect_value(t, width_violation(8, 28), "")
+	testing.expect(t, width_violation(8, 29) != "")
 	testing.expect_value(t, width_violation(16, 14), "")
 	testing.expect(t, width_violation(16, 15) != "")
-	testing.expect_value(t, width_violation(32, 7), "")
+	testing.expect_value(t, width_violation(32, 6), "")
 	testing.expect_value(
 		t,
-		width_violation(32, 8),
-		"width: a tick of 32 players with 8-byte Inputs takes up to 305 bytes, so 3 fit a message and the relay needs 4: fewer players or a narrower Input",
+		width_violation(32, 7),
+		"width: a tick of 32 players with 7-byte Inputs takes up to 273 bytes, so 3 fit a message and the relay needs 4: fewer players or a narrower Input",
 	)
 	testing.expect_value(t, netcode.game_violation(&toy.GAME), "")
 }

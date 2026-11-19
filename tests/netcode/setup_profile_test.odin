@@ -101,6 +101,6 @@ a_profile_of_another_size_is_refused :: proc(t: ^testing.T) {
 	netcode.write_hello(&evil.writer, &hello)
 	evil_send(&evil, &session)
 	reply := evil_run(&evil, &session, 0.5, .Reject)
-	testing.expect(t, len(reply) == 2 && netcode.Reject_Reason(reply[1]) == .Incompatible, "rejected as incompatible")
+	testing.expect(t, len(reply) == 3 && netcode.Reject_Reason(reply[1]) == .Incompatible, "rejected as incompatible")
 	testing.expect(t, !session.relay.started, "nobody seated")
 }

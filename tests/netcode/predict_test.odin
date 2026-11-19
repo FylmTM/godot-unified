@@ -115,7 +115,7 @@ predict_input_guesses_remote_players_only :: proc(t: ^testing.T) {
 			inputs := netcode.client_inputs(client, tick)
 			ahead := tick - client.fin_upto
 			testing.expect_value(t, inputs.input[0], toy.Input{dx = i8(ahead), dy = 100})
-			testing.expect_value(t, inputs.input[1], client.own[tick % netcode.OWN_RING])
+			testing.expect_value(t, inputs.input[1], client.locals[0].own[tick % netcode.OWN_RING])
 			checked += 1
 		}
 		session.clock.now = clamp(wake, now + 1, end)

@@ -127,11 +127,7 @@ client_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 	wire.w_u8(writer, u8(msg))
 	#partial switch msg {
 	case .Finalized:
-		wire.w_u64(writer, 5000) // relay time
-		wire.w_u32(writer, 3) // input ack
-		wire.w_u32(writer, 1) // command ack
-		wire.w_u32(writer, 5)
-		wire.w_u8(writer, 2)
+		write_finalized_head(writer, 5000, 5, 2, input_ack = 3, command_ack = 1)
 		first := finalized_of(5, 1)
 		netcode.window_write_tick(writer, &first, nil)
 		inputs := finalized_of(6, 2)
@@ -390,11 +386,7 @@ fuzz_joiner_snapshots :: proc(t: ^testing.T) {
 			batch: [8]toy.Inputs
 			for &inputs, i in batch do inputs = finalized_of(first + u32(i), 1)
 			writer = fake_begin(&fake, .Finalized)
-			wire.w_u64(writer, u64(fake.now))
-			wire.w_u32(writer, 0)
-			wire.w_u32(writer, 0)
-			wire.w_u32(writer, first)
-			wire.w_u8(writer, u8(len(batch)))
+			write_finalized_head(writer, i64(fake.now), first, len(batch))
 			for &inputs, i in batch do netcode.window_write_tick(writer, &inputs, i > 0 ? &batch[i - 1] : nil)
 		case:
 			writer = fake_begin(&fake, .Snap_Ok)

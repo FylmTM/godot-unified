@@ -38,10 +38,10 @@ hooks_for :: proc(watch: ^Watch) -> Hooks {
 	watch.in_order = true
 	return {
 		user = watch,
-		sample = proc(user: rawptr, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+		sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
 			return toy.scripted_input(SEED, slot, tick)
 		},
-		commands = proc(user: rawptr, slot: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
+		commands = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
 			toy.burst_commands(SEED, slot, tick, nil, out)
 		},
 		frame = proc(user: rawptr, simulation: ^toy.Sim, frame: netcode.Frame_Info) {
