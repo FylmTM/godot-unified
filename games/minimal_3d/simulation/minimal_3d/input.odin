@@ -8,6 +8,7 @@ Input :: struct {
 	dy: i8, // down
 }
 
+// A tick's inputs and commands, by slot.
 Inputs :: sim.Inputs(Game)
 
 THROW_SPEED_MAX :: 8 // metres per second: a faster throw is thrown at this speed
@@ -17,6 +18,7 @@ Cmd_Throw_Ball :: struct {
 	speed: u8,
 }
 
+// Every command a player can send.
 Cmd :: union {
 	Cmd_Throw_Ball,
 }

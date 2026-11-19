@@ -1,4 +1,4 @@
-// friendslop's headless binary: the modes of src/headless/SPEC.md on the game (`-- help` lists them), through
+// friendslop's headless binary: the modes of src/headless/README.md on the game (`-- help` lists them), through
 // unified:headless/modes, on the level the game embeds (GAME.content); `--level FILE` loads another.
 package main
 

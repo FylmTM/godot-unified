@@ -1,6 +1,6 @@
-// Scripted test inputs (games/survivor/SPEC.md "Scripted inputs"): per slot, a value re-drawn every 24 ticks
-// as a hash of (seed, slot, block), so any tick can be asked for in any order (netcode clients
-// sample ticks as their clock reaches them, tests jump around).
+// Scripted test inputs (games/survivor/README.md, Scripted inputs): per slot, a value re-drawn every SCRIPT_PERIOD
+// ticks as a hash of (seed, slot, block), so any tick can be asked for in any order (netcode clients sample ticks as
+// their clock reaches them, tests jump around).
 package survivor
 
 import "unified:dmath"
@@ -22,7 +22,7 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> (input
 	return
 }
 
-// The scripted commands hook: a level-up pick at the start of every 24-tick block, whether or not one is
+// The scripted commands hook: a level-up pick at the start of every SCRIPT_PERIOD-tick block, whether or not one is
 // pending (the sim ignores it then), so the script depends on (seed, slot, tick) only, like the inputs.
 scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
 	if (tick - 1) % SCRIPT_PERIOD == 0 {

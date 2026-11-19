@@ -15,7 +15,7 @@ SUITE := scenarios.Suite(g.Game) {
 	ticks   = scenarios.LONG ? 3600 : 600,
 }
 
-// The reference run (src/headless/SPEC.md, Reference runs).
+// The reference run (src/headless/README.md, Reference runs).
 REFERENCE :: scenarios.Reference {
 	seed          = 7,
 	players       = 4,

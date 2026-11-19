@@ -4,7 +4,8 @@ import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
-// Leaves and arrivals, respawns, movement and the dash.
+// Leaves and arrivals, respawns (none while the match is over), movement and the dash: the stick times the player's
+// speed, DASH_SPEEDUP times that while dashing; the fall speed is the body's own.
 update_players :: proc(t: ^Tick) {
 	for player in t.player_changes.left {
 		character_leave(t.world, sim.player_data(t, player))

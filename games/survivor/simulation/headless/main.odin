@@ -1,6 +1,6 @@
-// The survivor's headless binary: the modes of src/headless/SPEC.md (`-- help` lists them) on the survivor game with
+// The survivor's headless binary: the modes of src/headless/README.md (`-- help` lists them) on the survivor game with
 // the `stress` tuning, through unified:headless/modes; `--game survivor` runs the game as played; with EOS lobbies
-// (eos-host, eos-client: two processes over EOS, src/eos/SPEC.md).
+// (eos-host, eos-client: two processes over EOS, src/eos/README.md).
 package main
 
 import g "../survivor"

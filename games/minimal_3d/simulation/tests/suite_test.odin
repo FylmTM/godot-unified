@@ -1,6 +1,6 @@
-// minimal_3d's end-to-end suite: the standard scenarios of unified:headless/scenarios (src/headless/SPEC.md) and
+// minimal_3d's end-to-end suite: the standard scenarios of unified:headless/scenarios (src/headless/README.md) and
 // unified's determinism lint. The game's own scenarios are in the other files of this package (throw_test.odin).
-// Once the rules settle, pin a reference run (src/headless/SPEC.md, Reference runs): a constant,
+// Once the rules settle, pin a reference run (src/headless/README.md, Reference runs): a constant,
 // `REFERENCE :: scenarios.Reference{seed = 7, players = 4, ticks = 1200, snapshot_tick = 600}`, and a test calling
 // `scenarios.reference_reproduces(t, &g.GAME, REFERENCE)`; its first run prints the full literal to paste.
 package test_minimal_3d

@@ -9,7 +9,7 @@ import g "../survivor"
 
 // The frame, filled on the session thread. Keys (unique within a kind): a player's view is their sim.player_key (the
 // view lives while they are present, dead too, whatever slot they hold), an item's its index (a destroyed barrel's
-// view goes; the one respawned 10 s later is a new view).
+// view goes; the one back BARREL_RESPAWN_TICKS later is a new view).
 fill_frame :: proc(f: ^Frame) {
 	players := sim.iterate_present(&f.state.players)
 	for character, player in sim.next(&players) {

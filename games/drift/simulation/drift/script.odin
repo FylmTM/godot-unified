@@ -1,5 +1,5 @@
-// Scripted inputs for the headless modes and test sessions: per slot, a value re-drawn every 16 ticks from a
-// hash of (seed, slot, block), so any tick can be asked for in any order. The ships wander, turn toward one
+// Scripted inputs for the headless modes and test sessions: per slot, a value re-drawn every SCRIPT_PERIOD ticks from
+// a hash of (seed, slot, block), so any tick can be asked for in any order. The ships wander, turn toward one
 // of 8 directions, fire most of the time and boost now and then. Slot 0 sends `start` and `restart` on a
 // fixed beat (the sim ignores each outside its phase), so scripted runs play whole matches; commands depend only
 // on (seed, slot, tick), so a Godot session's scripted commands match the offline binary's.

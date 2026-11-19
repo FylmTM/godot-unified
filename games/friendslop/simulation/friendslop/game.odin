@@ -1,4 +1,4 @@
-// friendslop (games/friendslop/SPEC.md): a co-op physics sandbox. Up to four wobbly characters ride platforms, bounce
+// friendslop (games/friendslop/README.md): a co-op physics sandbox. Up to four wobbly characters ride platforms, bounce
 // on pads, carry and throw things and each other, and take the trophy along a route of physics puzzles.
 //
 // The files, by feature: game (this: the descriptor and the tick), tuning (every rule number), input, state, events,
@@ -34,7 +34,7 @@ GAME := Game {
 	scripted_input = scripted_input,
 }
 
-// One tick: the systems in the order the spec gives (games/friendslop/SPEC.md, Systems).
+// One tick: the systems in their order (games/friendslop/README.md, Systems).
 tick :: proc(t: ^Tick) {
 	update_presence(t)
 	use_hands(t)

@@ -150,10 +150,11 @@ init_in_repo :: proc(dir, name: string) -> Result {
 
 // What a new game is a copy of, in unified's checkout: the smallest complete game.
 TEMPLATE_GAME :: "games/minimal_3d"
-// Its files a copy leaves out: its spec (template/SPEC.md.tmpl, a draft skeleton, takes its place), the view index
-// (written below) and its pinned reference run (a new game pins its own once its rules settle). The `.uid` files are
-// copied: the scenes name their scripts by UID, so a copy without them warns on every load until Godot rewrites them.
-TEMPLATE_SKIP :: []string{"SPEC.md", "unified_index.tres", "simulation/tests/reference_test.odin"}
+// Its files a copy leaves out: its README (template/README.md.tmpl, a draft skeleton of the new game's design, takes
+// its place), the view index (written below) and its pinned reference run (a new game pins its own once its rules
+// settle). The `.uid` files are copied: the scenes name their scripts by UID, so a copy without them warns on every
+// load until Godot rewrites them.
+TEMPLATE_SKIP :: []string{"README.md", "unified_index.tres", "simulation/tests/reference_test.odin"}
 
 // Writes the game: unified's minimal_3d (at `unified`, a checkout) with `name` for minimal_3d in paths and text
 // (`repo`: and template/repo/, a game repo's own files, at its root), formats its Odin files (the name changes line
@@ -177,14 +178,21 @@ write_game :: proc(unified, dir, name: string, repo: bool) -> int {
 		write_text(path, text)
 	}
 	template := join(unified, "src", "cli", "template")
-	if skeleton, found := read_text(join(template, "SPEC.md.tmpl")); found { 	// an older unified pin has none
-		spec, _ := strings.replace_all(skeleton, "__GAME__", name)
-		spec, _ = strings.replace_all(spec, "\r\n", "\n")
-		write_text(join(dir, "SPEC.md"), spec)
-		count += 1
-	}
 	if repo {
 		count += write_repo_files(join(template, "repo"), dir, name)
+	}
+	if skeleton, found := read_text(join(template, "README.md.tmpl")); found { 	// an older unified pin has none
+		readme, _ := strings.replace_all(skeleton, "__GAME__", name)
+		readme, _ = strings.replace_all(readme, "\r\n", "\n")
+		path := join(dir, "README.md")
+		if repo {
+			// The game is the repo: its README is the repo's (written above) with the skeleton's sections after it.
+			_, _, sections := strings.partition(readme, "\n## ")
+			readme = aprintf("%s\n## %s", must_read(path), sections)
+		} else {
+			count += 1
+		}
+		write_text(path, readme)
 	}
 	odin_files: [dynamic]string
 	append(&odin_files, ..find_files(join(dir, "simulation"), ".odin"))

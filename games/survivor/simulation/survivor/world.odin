@@ -63,7 +63,7 @@ Roll :: enum u8 {
 	Spawn_Kind,
 }
 
-// The physics world with the level's static geometry (src/level/SPEC.md); the pillars and walls the enemies keep to;
+// The physics world with the level's static geometry (src/level/README.md); the pillars and walls the enemies keep to;
 // the start spots and the items from the level's markers.
 world_create :: proc(seed: u64, content: []u8) -> ^World {
 	world := new(World)

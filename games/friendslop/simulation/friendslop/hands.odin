@@ -63,7 +63,8 @@ Target :: struct {
 	distance:   f32,
 }
 
-// Grabs the target the player aims at (a ray along the aim), else the nearest grabbable in a cone in front.
+// Grabs the target the player aims at (a ray along the aim), else the nearest grabbable in a cone in front (on a tie
+// the first found: items by index, then players in slot order).
 // `only_thrown`: catching, so only things in flight.
 try_grab :: proc(t: ^Tick, player: sim.Player, only_thrown: bool) {
 	character := sim.player_data(t, player)

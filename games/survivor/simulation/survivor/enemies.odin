@@ -4,8 +4,10 @@ import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
-// A burst of enemies every `spawn_every_ticks` of the match while below the cap. Each enemy's direction, jitter and
-// kind are keyed rolls, by its place in the burst.
+// A burst of min(base + per_wave * wave, cap) * (100 + extra_player_pct * (present - 1)) / 100 enemies every
+// `spawn_every_ticks` of the match, while below `enemy_cap`: each at SPAWN_RING in one of 8 directions plus up to
+// SPAWN_JITTER along each axis, its kind from SPAWN_KINDS. The direction, jitter and kind are keyed rolls, by the
+// enemy's place in the burst.
 spawn_waves :: proc(t: ^Tick) {
 	tuning := &t.state.tuning
 	if t.state.phase != .Match || (t.number - t.state.match_tick) % tuning.spawn_every_ticks != 0 {
@@ -33,7 +35,7 @@ spawn_waves :: proc(t: ^Tick) {
 	}
 }
 
-// Spawns an enemy of a kind at a position, its HP scaled by the wave (false: the enemy table is full).
+// Spawns an enemy of a kind at a position, its HP +`hp_pct_per_wave`% per wave (false: the enemy table is full).
 spawn_enemy :: proc(state: ^State, kind: Enemy_Kind, pos: [2]f32, tick: u32) -> bool {
 	enemy, _ := sim.spawn(&state.enemies) or_return
 	stats := ENEMY_STATS[kind]
@@ -47,9 +49,10 @@ spawn_enemy :: proc(state: ^State, kind: Enemy_Kind, pos: [2]f32, tick: u32) -> 
 	return true
 }
 
-// Seek the nearest player plus separation from the enemies nearby (from the old positions), then move, pushed out of
-// the pillars and kept inside the walls. An enemy standing on a crate or barrel is slowed (a ray down, every
-// CLIMB_CHECK_TICKS, only where an item stands).
+// Seek the nearest alive player (the lowest slot on ties) plus separation from the enemies in the 3×3 grid cells
+// around (from the old positions), blended in by ENEMY_STEER and capped at ENEMY_OVERSPEED times the enemy's speed;
+// then move, pushed out of each pillar along its shallower axis and kept inside the walls. An enemy standing on a crate
+// or barrel is slowed by CLIMB_SLOWDOWN (a ray down, every CLIMB_CHECK_TICKS, only where an item stands).
 steer_enemies :: proc(t: ^Tick) {
 	scratch := &t.world.scratch
 	grid_build(&scratch.grid, &t.state.enemies)

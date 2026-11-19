@@ -1,5 +1,5 @@
 // Scripted inputs for the headless modes and test sessions: per slot, a value re-drawn every
-// 16 ticks from a hash of (seed, slot, block), so any tick can be asked for in any order. The
+// SCRIPT_PERIOD ticks from a hash of (seed, slot, block), so any tick can be asked for in any order. The
 // players wander, jump, look around, grab and drop, and charge and throw: chaos, not play.
 package friendslop
 
