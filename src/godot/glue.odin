@@ -179,6 +179,11 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	fill_frame:   proc(frame: ^Frame(G, View, MultiView)),
 	// Optional: the game's session data types, a union of `Data_` structs (Unified.<name>, push_data).
 	data:         typeid,
+	// Optional: each scene view kind's data type (push_view's `data`), `#partial {.Card = Card_View}`, declared so
+	// GDScript has the classes of what it holds at load: its enums (EnumX) and nested structs (DataX), which a type
+	// only pushed has none of, as the session data's have. A push of another type for a declared kind panics; a kind
+	// left out takes whatever its first push brings.
+	view_data:    [View]typeid,
 	// Optional: what only scripts know for sample_input (a camera's look direction), a plain struct: scripts set its
 	// fields on Unified.input, sample_input reads them with input_values(T).
 	input_values: typeid,

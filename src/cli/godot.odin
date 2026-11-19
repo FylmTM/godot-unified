@@ -285,7 +285,7 @@ Tool_Run :: struct {
 	place:   Window_Opts, // with window: sound and screen
 	shots:   string, // a name: --shots=res://.out/shots/<name>
 	timeout: f64,
-	env:     []string,
+	env:     []string, // the whole environment (nil: user_env's, the project's own user data)
 	quiet:   bool, // don't echo the script's output (it is shown on failure)
 }
 
@@ -328,7 +328,7 @@ run_tool :: proc(tool_run: Tool_Run) -> Tool_Result {
 		cmd     = tool_cmd(tool_run),
 		capture = true,
 		timeout = time.Duration(tool_run.timeout * f64(time.Second)),
-		env     = tool_run.env,
+		env     = tool_run.env if tool_run.env != nil else user_env(tool_run.dir),
 	})
 	return judge_tool(ran, !tool_run.quiet)
 }
@@ -385,6 +385,23 @@ tool_script :: proc(game: Game, name: string) -> string {
 		return aprintf("res://%s/%s.gd", TOOLS_DIR, name)
 	}
 	return ""
+}
+
+// The environment of a game run that must never touch the developer's own data (the godot suite's runs, tool
+// scripts, `drive`): Godot's user data directory, so the game's user:// (saves, settings, the LAN token), moved into
+// the project's .out/user/, kept from run to run; `extra` overrides on top. `run`, `editor` and `coop` keep the real
+// one: they are the developer's own play.
+user_env :: proc(dir: string, extra: ..string) -> []string {
+	home := join(dir, ".out", "user")
+	make_dirs(home)
+	overrides: [dynamic]string
+	when ODIN_OS == .Windows {
+		append(&overrides, aprintf("APPDATA=%s", home)) // %APPDATA%/Godot/app_userdata/<name>
+	} else {
+		append(&overrides, aprintf("XDG_DATA_HOME=%s", home)) // Godot reads it on macOS too
+	}
+	append(&overrides, ..extra)
+	return env_with(..overrides[:])
 }
 
 // The environment plus overrides (KEY=value), for a child that needs a few variables changed.

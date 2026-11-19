@@ -40,6 +40,7 @@ Api :: struct {
 	constants:       Data_Layout, // the constants' type (type nil: none)
 	constants_bytes: []u8, // the constants' value (install's)
 	input_values:    Data_Layout, // Glue.input_values (type nil: none)
+	view_data:       []typeid, // Glue.view_data, by view kind (nil: not declared)
 	setup:           Data_Layout, // the game's Setup (sim.Game's; the class UnifiedSetup, no fields for sim.No_Setup)
 	setup_default:   []u8, // Game.setup's bytes: a new UnifiedSetup's
 	profile:         Data_Layout, // the game's Profile (the class UnifiedProfile, Unified.profile)
@@ -398,6 +399,8 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		api.constants_bytes = slice.clone(([^]u8)(constants.data)[:type_info_of(constants.id).size])
 	}
 	if glue.input_values != nil do api.input_values = data_layout(type_info_of(glue.input_values))
+	api.view_data = make([]typeid, len(view_names))
+	for type, kind in glue.view_data do api.view_data[int(kind)] = type
 	api.setup = data_layout(type_info_of(Setup))
 	api.setup_default = slice.clone(sim.bytes_of(&game.setup))
 	api.profile = data_layout(type_info_of(Profile))
@@ -428,6 +431,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	for layout in api.data do append(&enum_sources, layout.type)
 	if api.constants.type != nil do append(&enum_sources, api.constants.type)
 	if api.input_values.type != nil do append(&enum_sources, api.input_values.type)
+	for type in api.view_data do if type != nil do append(&enum_sources, type_info_of(type))
 	append(&enum_sources, api.setup.type, api.profile.type)
 	enums: [dynamic]^runtime.Type_Info
 	enum_types_of(enum_sources[:], &enums)
@@ -838,15 +842,19 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 		append(&problems, strings.clone(reason))
 	}
 	data_problems(glue.data, constants, glue.input_values, &problems)
+	for type, kind in glue.view_data {
+		if type != nil do struct_problems(fmt.tprintf("Glue.view_data[.%v]", kind), type_info_of(type), true, &problems)
+	}
 	// every type GDScript reads by field names and classes
 	named := make([dynamic]^runtime.Type_Info, context.temp_allocator)
 	for variant in sim.union_variants(sim.part(G, sim.GAME_EVENT)) do append(&named, variant)
 	for variant in sim.union_variants(sim.part(G, sim.GAME_CMD)) do append(&named, variant)
 	for variant in sim.union_variants(glue.data) do append(&named, variant)
+	for type in glue.view_data do if type != nil do append(&named, type_info_of(type))
 	if constants != nil do append(&named, type_info_of(constants))
 	if glue.input_values != nil do append(&named, type_info_of(glue.input_values))
 	append(&named, type_info_of(sim.part(G, sim.GAME_SETUP)), type_info_of(sim.part(G, sim.GAME_PROFILE)))
-	generic_problems(named[:], &problems)
+	name_problems(named[:], &problems)
 	for policy, kind in glue.view_policy do policy_problems(policy, fmt.tprint(kind), false, &problems)
 	for policy, kind in glue.multi_policy do policy_problems(policy, fmt.tprint(kind), true, &problems)
 	return problems[:]
@@ -1066,6 +1074,12 @@ driver_local_requests :: proc(driver: ^Driver($G, $View, $MultiView), now: i64) 
 				slot        = -1,
 				player_name = netcode.text_string(&request.name),
 				profile     = (^Profile)(&request.profile)^,
+			}
+			if driver.req.scripted &&
+			   driver.game.scripted_profile != nil &&
+			   driver.req.mode != .Join_Online &&
+			   driver.req.mode != .Join_Direct {
+				cfg.profile = driver.game.scripted_profile(driver.req.seed, local) // a host's local k takes slot k
 			}
 			netcode.client_add_player(driver.client, local, cfg)
 		} else {
@@ -1460,6 +1474,10 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 		ticks         = request.ticks,
 	}
 	if request.has_setup do host_config.setup = (^Setup)(&request.setup)^
+	if request.scripted && game.scripted_profile != nil {
+		// the scripted player's own, as the offline run's slot 0 (a host's local player 0 holds slot 0)
+		host_config.profile = game.scripted_profile(request.seed, 0)
+	}
 	client_config := netcode.Client_Config(G) {
 		player_name = request.name,
 		profile     = (^Profile)(&request.profile)^,

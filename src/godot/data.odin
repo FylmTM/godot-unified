@@ -122,10 +122,58 @@ data_problems :: proc(data: typeid, constants: typeid, input_values: typeid, pro
 	if input_values != nil do struct_problems("Glue.input_values", type_info_of(input_values), true, problems)
 }
 
-// A problem for every generic struct (its type's name holds its parameters: `Ring($T=u8, $N=4)`) in these types and the
-// structs, arrays and collections they hold, which no GDScript class can be named after; sim's List, Queue and Bits
-// are Arrays (collections.odin), a handle an int.
-generic_problems :: proc(types: []^runtime.Type_Info, problems: ^[dynamic]string) {
+// GDScript's reserved words: a field named like one can't be read (`row.class` does not parse).
+GDSCRIPT_KEYWORDS :: []string {
+	"and",
+	"as",
+	"assert",
+	"await",
+	"break",
+	"breakpoint",
+	"class",
+	"class_name",
+	"const",
+	"continue",
+	"elif",
+	"else",
+	"enum",
+	"extends",
+	"false",
+	"for",
+	"func",
+	"if",
+	"in",
+	"is",
+	"match",
+	"namespace",
+	"not",
+	"null",
+	"or",
+	"pass",
+	"preload",
+	"return",
+	"self",
+	"signal",
+	"static",
+	"super",
+	"trait",
+	"true",
+	"var",
+	"void",
+	"when",
+	"while",
+	"yield",
+	"PI",
+	"TAU",
+	"INF",
+	"NAN",
+}
+
+// A problem for every field GDScript can't take as it is, in these types and the structs, arrays and collections they
+// hold: one named like a GDScript keyword (GDSCRIPT_KEYWORDS: `row.class` does not parse), and a generic struct (its
+// type's name holds its parameters: `Ring($T=u8, $N=4)`), which no GDScript class can be named after. sim's List, Queue
+// and Bits are Arrays (collections.odin), a handle an int.
+name_problems :: proc(types: []^runtime.Type_Info, problems: ^[dynamic]string) {
 	context.allocator = runtime.heap_allocator()
 	walk :: proc(type: ^runtime.Type_Info, seen: ^[dynamic]typeid, problems: ^[dynamic]string) {
 		if type == nil || type.id == sim.Position || type.id == sim.Player || is_handle(type) do return
@@ -142,6 +190,17 @@ generic_problems :: proc(types: []^runtime.Type_Info, problems: ^[dynamic]string
 			for known in seen do if known == type.id do return
 			append(seen, type.id)
 			for i in 0 ..< int(info.field_count) {
+				for keyword in GDSCRIPT_KEYWORDS {
+					if info.names[i] != keyword do continue
+					append(
+						problems,
+						fmt.aprintf(
+							"%v.%s: a GDScript keyword, which a script can't read: rename it",
+							type.id,
+							keyword,
+						),
+					)
+				}
 				field := info.types[i]
 				named, is_named := field.variant.(runtime.Type_Info_Named)
 				_, is_collection := collection_of(field)
@@ -244,6 +303,7 @@ register_nested_classes :: proc() {
 	for layout in api.events do append(&roots, layout.type)
 	for layout in api.commands do append(&roots, layout.type)
 	for layout in api.data do append(&roots, layout.type)
+	for type in api.view_data do if type != nil do append(&roots, type_info_of(type))
 	if api.constants.type != nil do append(&roots, api.constants.type)
 	if api.input_values.type != nil do append(&roots, api.input_values.type)
 	if api.setup.type != nil do append(&roots, api.setup.type)

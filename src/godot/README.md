@@ -77,7 +77,10 @@ and when the window gets the focus back, an action still held counts only once r
 the click that focused the window never fire). An unfocused window still reads input: Godot releases what was held
 when it lost the focus, and tool runs drive windows that never take it. A press on the dev UI never reaches the
 actions (`src/devui/README.md`, How it works). The game's scripted player (`sim.Game.scripted_input`) replaces the
-sample in `--scripted` runs.
+sample in `--scripted` runs, and a hosting or single-player process's local players join with its Profiles
+(`sim.Game.scripted_profile`, local player k as slot k) instead of `Unified.profile`, so the session computes what
+the offline binary's scripted players do; a joiner's slot is the relay's to give, so it joins with
+`Unified.profile`.
 
 ### View space
 

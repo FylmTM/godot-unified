@@ -238,6 +238,19 @@ view_kinds: [256]View_Kind_Types
 
 @(private)
 view_kind_types :: proc(kind: u8, subject, data_type: typeid, loc := #caller_location) {
+	if int(kind) < len(api.view_data) {
+		if declared := api.view_data[kind]; declared != nil && declared != data_type {
+			panic(
+				fmt.tprintf(
+					"push_view: view kind %d pushed %v, but Glue.view_data declares %v",
+					kind,
+					data_type,
+					declared,
+				),
+				loc,
+			)
+		}
+	}
 	known := &view_kinds[kind]
 	if !known.pushed {
 		known^ = {true, subject, data_type}

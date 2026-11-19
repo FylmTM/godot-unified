@@ -181,7 +181,7 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 				args    = script_step.args,
 				timeout = script_step.timeout,
 				quiet   = true,
-				env     = env_with(..SUITE_OFFLINE_ENV),
+				env     = user_env(game.dir, ..SUITE_OFFLINE_ENV),
 			})
 			ok = pass(game, script_step.step, result.ok, result.seconds) && ok
 		}
@@ -321,7 +321,7 @@ session_vs_offline :: proc(game: Game, ticks, seed: int) -> bool {
 			aprintf("%d", ticks),
 			"--seed",
 			aprintf("%d", seed),
-		}, f64(ticks) / 64 + 30)
+		}, f64(ticks) / 64 + 30, user_env(game.dir))
 	errs := godot_problems(strings.concatenate({result.stdout, result.stderr}))
 	if not_installed(errs) {
 		for line in errs do log("uni: %s session: %s", game.name, line)
@@ -632,8 +632,19 @@ clear_shader_cache :: proc(game: Game) {
 	config, _ := config_load(join(game.dir, "project.godot"))
 	name, ok := config_get(config, "application", "config/name")
 	if ok {
-		dir := join(godot_user_dir(), "app_userdata", name, "shader_cache")
-		remove_tree(dir)
+		remove_tree(join(godot_user_dir(), "app_userdata", name, "shader_cache"))
+		// a check's or a driven run's own (user_env)
+		remove_tree(
+			join(
+				game.dir,
+				".out",
+				"user",
+				"Godot" when ODIN_OS == .Windows else "godot",
+				"app_userdata",
+				name,
+				"shader_cache",
+			),
+		)
 		log("uni: cleared the shader caches of %s", game.name)
 	}
 }
