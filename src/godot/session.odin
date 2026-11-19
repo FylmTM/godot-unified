@@ -453,7 +453,7 @@ register_session_class :: proc() {
 		class,
 		"take_sync_stats",
 		take_sync_stats,
-		doc = "The view sync's cost since the last call, then counts anew. The main thread: frames, fresh (frames with a new tick), events (deliveries), and microseconds summed over the frames: scene_us, multi_build_us, multi_upload_us, delivery_us, total_us; total_max_us is the slowest frame's. The session thread: fills (published frames), fill_us summed (tracking the ticks' events, fill_frame, publishing), fill_max_us the slowest.",
+		doc = "The view sync's cost since the last call, then counts anew. The main thread: frames, fresh (frames with a new tick), events (deliveries), and microseconds summed over the frames: scene_us, multi_build_us, multi_upload_us, delivery_us, total_us; total_max_us is the slowest frame's. The session thread: fills (published frames), fill_us summed (tracking the ticks' events, fill_frame, publishing), fill_max_us the slowest; wakes (its sleeps), how late they woke (wake_p50_us, wake_p99_us, wake_max_us) and how many woke more than 1 ms late (wakes_over_ms) or a whole tick late (wakes_over_tick).",
 	)
 	gd.bind_method(
 		class,
@@ -1186,7 +1186,8 @@ route_event :: proc(session: ^Session_Node, message: Event_Message) {
 // `fresh` (frames that showed a new tick), `events` (deliveries), and in microseconds summed over the frames
 // `scene_us`, `multi_build_us`, `multi_upload_us`, `delivery_us`, `total_us`, plus the slowest frame's
 // `total_max_us`. The session thread's frame hook (its events tracked, fill_frame, the Frame published): `fills`,
-// `fill_us` summed and the slowest `fill_max_us`.
+// `fill_us` summed and the slowest `fill_max_us`; its sleeps' lateness (`wakes`, `wake_p50_us`, `wake_p99_us`,
+// `wake_max_us`, `wakes_over_ms`, `wakes_over_tick`: godot.Wake_Summary).
 @(private)
 take_sync_stats :: proc(session: ^Session_Node) -> gd.Dictionary {
 	stats := V.stats
@@ -1206,6 +1207,13 @@ take_sync_stats :: proc(session: ^Session_Node) -> gd.Dictionary {
 	gd.dict_set(&dict, "fills", i64(fill.frames))
 	gd.dict_set(&dict, "fill_us", f64(fill.total_ns) / 1000)
 	gd.dict_set(&dict, "fill_max_us", f64(fill.max_ns) / 1000)
+	wakes := api.take_wake_stats() if api.installed else {}
+	gd.dict_set(&dict, "wakes", i64(wakes.wakes))
+	gd.dict_set(&dict, "wake_p50_us", wakes.p50_us)
+	gd.dict_set(&dict, "wake_p99_us", wakes.p99_us)
+	gd.dict_set(&dict, "wake_max_us", wakes.max_us)
+	gd.dict_set(&dict, "wakes_over_ms", i64(wakes.over_ms))
+	gd.dict_set(&dict, "wakes_over_tick", i64(wakes.over_tick))
 	return dict
 }
 
