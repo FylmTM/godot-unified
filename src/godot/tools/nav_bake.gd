@@ -1,10 +1,11 @@
 extends SceneTree
 ## unified's navigation baker (src/level/README.md, Authoring), run by `uni bake --nav` before the level exporter:
 ##   godot --headless --path <project> -s res://addons/unified/nav_bake.gd -- --scene=res://... [--scene=...]
-## What the editor's Bake NavigationMesh button does, for a level scene that has a NavigationRegion3D: bakes the
-## region's NavigationMesh (its agent size and other settings as the author set them; a region without one gets
-## Godot's defaults) from the level's static colliders, the geometry the sim collides with, and saves the scene. A
-## scene without a region is left alone. The exporter never bakes: this is the authoring step it reads.
+## What the editor's Bake NavigationMesh button does, for the level scenes whose NavigationRegion3D opts in (metadata
+## `unified_nav_bake = true`; any other region, a hand-made bake among them, is left alone): bakes the region with its
+## own settings exactly as the author set them (`region.bake_navigation_mesh`), and saves the scene. A region must
+## parse static colliders (the geometry the sim walks: headless Godot has no meshes to parse) or it is an error naming
+## it, never a setting changed behind the author's back. The exporter never bakes: this is the authoring step it reads.
 ## Prints one `UNIFIED_RESULT {ok, scenes: [{scene, polygons, vertices}], errors}` line; each error names its node.
 
 var errors: Array[String] = []
@@ -25,45 +26,43 @@ func _initialize() -> void:
 	quit(0 if ok else 1)
 
 
-## Bakes the scene's one NavigationRegion3D and saves the scene: what it baked ({}: no region, or an error).
+## Bakes the scene's NavigationRegion3D when it opts in, and saves the scene: what it baked ({}: nothing to bake, or
+## an error).
 func _bake(path: String) -> Dictionary:
 	var packed := load(path) as PackedScene
 	if packed == null:
 		errors.append("%s: cannot load the scene" % path)
 		return {}
 	var scene := packed.instantiate()
-	var regions := scene.find_children("*", "NavigationRegion3D", true, false)
-	if regions.is_empty():
+	var region: NavigationRegion3D = null
+	for node in scene.find_children("*", "NavigationRegion3D", true, false):
+		if node.get_meta("unified_nav_bake", false):
+			if region != null:
+				errors.append("%s: %s: a second NavigationRegion3D (a level has one)" % [path, scene.get_path_to(node)])
+				scene.free()
+				return {}
+			region = node as NavigationRegion3D
+	if region == null:
 		scene.free()
 		return {}
-	var region := regions[0] as NavigationRegion3D
-	if regions.size() > 1:
-		errors.append("%s: %s: a second NavigationRegion3D (a level has one)" % [path, scene.get_path_to(regions[1])])
-		scene.free()
-		return {}
-	root.add_child(scene)  # transforms are global ones in the tree
-	await process_frame
+	var where := "%s: %s" % [path, scene.get_path_to(region)]
 	var mesh := region.navigation_mesh
-	if mesh == null:
-		mesh = NavigationMesh.new()
-		region.navigation_mesh = mesh
-	# the colliders, from the whole level: what the sim walks on, whatever the region's own source settings say
-	mesh.geometry_parsed_geometry_type = NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS
-	mesh.geometry_source_geometry_mode = NavigationMesh.SOURCE_GEOMETRY_ROOT_NODE_CHILDREN
-	var source := NavigationMeshSourceGeometryData3D.new()
-	NavigationServer3D.parse_source_geometry_data(mesh, source, scene)
-	NavigationServer3D.bake_from_source_geometry_data(mesh, source)
+	if mesh == null or mesh.geometry_parsed_geometry_type != NavigationMesh.PARSED_GEOMETRY_STATIC_COLLIDERS:
+		errors.append("%s: its NavigationMesh must parse Static Colliders (Geometry > Parsed Geometry Type)" % where)
+		scene.free()
+		return {}
+	root.add_child(scene)  # the bake reads global transforms
+	await process_frame
+	region.bake_navigation_mesh(false)
+	root.remove_child(scene)
 	var result := {}
 	if mesh.get_polygon_count() == 0:
-		errors.append("%s: %s: the bake found nothing to walk on" % [path, scene.get_path_to(region)])
+		errors.append("%s: the bake found nothing to walk on" % where)
 	else:
-		root.remove_child(scene)
 		var out := PackedScene.new()
 		if out.pack(scene) != OK or ResourceSaver.save(out, path) != OK:
 			errors.append("%s: cannot save the scene" % path)
 		else:
 			result = {"scene": path, "polygons": mesh.get_polygon_count(), "vertices": mesh.get_vertices().size()}
-	if scene.is_inside_tree():
-		root.remove_child(scene)
 	scene.free()
 	return result

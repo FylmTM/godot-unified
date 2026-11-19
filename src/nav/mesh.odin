@@ -45,8 +45,9 @@ Build_Error :: enum u8 {
 }
 
 // Builds a mesh from vertices and convex polygons (each a list of vertex indices, either winding): a polygon's
-// neighbours are the polygons that share an edge's two vertex indices (a level's mesh guarantees adjacent polygons
-// share indices: src/level/README.md, Authoring), its plane the one through its vertices (Newell's normal). `cell`:
+// neighbours are the polygons that share an edge's two vertices, its plane the one through its vertices (Newell's
+// normal). Vertices at exactly the same position are one vertex (welded here: a level's mesh already shares indices,
+// src/level/README.md, Authoring; a generated one need not). `cell`:
 // the XZ grid's cell size in metres; a few times a polygon's size keeps locate's buckets short. Everything is copied
 // into storage made with `allocator`, which destroy frees with the same allocator.
 build :: proc(
@@ -72,6 +73,7 @@ build :: proc(
 	mesh.cell = cell
 	mesh.vertices = make([][3]f32, len(vertices))
 	copy(mesh.vertices, vertices)
+	welded := weld(vertices)
 	mesh.first = make([]i32, len(polygons) + 1)
 	mesh.corners = make([]i32, corner_count)
 	mesh.across = make([]Poly, corner_count)
@@ -87,7 +89,7 @@ build :: proc(
 			area += area2(vertices[polygon[0]], vertices[polygon[k]], vertices[polygon[k + 1]])
 		}
 		for k in 0 ..< len(polygon) {
-			mesh.corners[at + k] = i32(polygon[k] if area > 0 else polygon[len(polygon) - 1 - k])
+			mesh.corners[at + k] = welded[polygon[k] if area > 0 else polygon[len(polygon) - 1 - k]]
 		}
 		center, newell: [3]f32
 		for k in 0 ..< len(polygon) {
@@ -189,10 +191,19 @@ height_at :: proc(mesh: ^Mesh, poly: Poly, pos: [3]f32) -> f32 {
 contains :: proc(mesh: ^Mesh, poly: Poly, pos: [3]f32) -> bool {
 	first, last := mesh.first[poly], mesh.first[poly + 1]
 	for k in first ..< last {
-		a, b := corner_edge(mesh, poly, k)
-		if area2(a, b, pos) < -0.001 * mesh.edge_len[k] do return false
+		if edge_side(mesh, poly, k, pos) < -0.001 * mesh.edge_len[k] do return false
 	}
 	return true
+}
+
+// Which side of corner k's edge `pos` is on, seen from above: positive inside `poly`, its magnitude the distance times
+// the edge's length. Computed from the edge's ends in vertex index order and negated for the polygon that has them the
+// other way, so the two polygons of a shared edge get exact opposites and a point is never beyond it from both.
+edge_side :: proc(mesh: ^Mesh, poly: Poly, k: i32, pos: [3]f32) -> f32 {
+	next := k + 1 if k + 1 < mesh.first[poly + 1] else mesh.first[poly]
+	a, b := mesh.corners[k], mesh.corners[next]
+	if a < b do return area2(mesh.vertices[a], mesh.vertices[b], pos)
+	return 0 - area2(mesh.vertices[b], mesh.vertices[a], pos)
 }
 
 // The two ends of corner k's edge (k an index into corners, in polygon `poly`): the corner's vertex and the next one.
@@ -205,6 +216,48 @@ corner_edge :: #force_inline proc(mesh: ^Mesh, poly: Poly, k: i32) -> (a, b: [3]
 // so c is left of a → b (inside a counter-clockwise polygon whose edge a → b is).
 area2 :: #force_inline proc "contextless" (a, b, c: [3]f32) -> f32 {
 	return (b.z - a.z) * (c.x - a.x) - (b.x - a.x) * (c.z - a.z)
+}
+
+// Each vertex's index, or the lowest index of a vertex at exactly its position: the indices sorted by position (a
+// bottom-up merge sort, no hashing), each run of equal positions given its first index.
+@(private)
+weld :: proc(vertices: [][3]f32) -> []i32 {
+	count := len(vertices)
+	welded := make([]i32, count, context.temp_allocator)
+	order := make([]i32, count, context.temp_allocator)
+	scratch := make([]i32, count, context.temp_allocator)
+	for i in 0 ..< count do order[i] = i32(i)
+	before :: proc(vertices: [][3]f32, a, b: i32) -> bool {
+		p, q := vertices[a], vertices[b]
+		if p.x != q.x do return p.x < q.x
+		if p.y != q.y do return p.y < q.y
+		if p.z != q.z do return p.z < q.z
+		return a < b
+	}
+	from, to := order, scratch
+	for width := 1; width < count; width *= 2 {
+		for start := 0; start < count; start += 2 * width {
+			middle, end := dmath.min(start + width, count), dmath.min(start + 2 * width, count)
+			i, j, out := start, middle, start
+			for out < end {
+				if j >= end || (i < middle && !before(vertices, from[j], from[i])) {
+					to[out] = from[i]
+					i += 1
+				} else {
+					to[out] = from[j]
+					j += 1
+				}
+				out += 1
+			}
+		}
+		from, to = to, from
+	}
+	for i in 0 ..< count {
+		index := from[i]
+		same := i > 0 && vertices[from[i - 1]] == vertices[index]
+		welded[index] = welded[from[i - 1]] if same else index
+	}
+	return welded
 }
 
 // Pairs every edge with the polygon across it, by its two vertex indices: corners bucketed by their edge's lower index

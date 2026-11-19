@@ -13,9 +13,9 @@ MOVE_STEPS :: 64
 
 // Where a walker on `poly` at `pos` heads next on its way to `goal` (a point on the field's goal polygon): the first
 // corner the shortest path through the next LOOKAHEAD portals turns at (the funnel of the portals' ends, pulled taut),
-// TURN_INSET inside its portal, or `goal` itself when nothing is in the way (a turn the walker stands on is passed). On the goal polygon: `goal`.
-// When the goal can't be reached, or without a field or a polygon: `pos` (stay). The mesh is already shrunk by the
-// bake's agent radius, so a corner is where a walker of that radius can stand.
+// TURN_INSET inside its portal, or `goal` itself when nothing is in the way (a turn the walker stands on is passed).
+// On the goal polygon: `goal`. When the goal can't be reached, or without a field or a polygon: `pos` (stay). The mesh
+// is already shrunk by the bake's agent radius, so a corner is where a walker of that radius can stand.
 steer :: proc(mesh: ^Mesh, field: ^Field, poly: Poly, pos, goal: [3]f32) -> [3]f32 {
 	if field == nil || poly == NO_POLY do return pos
 	if poly == field.goal do return goal
@@ -91,18 +91,23 @@ standing_on :: #force_inline proc "contextless" (pos, point: [3]f32) -> bool {
 
 // Moves a walker on `poly` from `from` toward `to` along the surface, seen from above: across the polygons it enters,
 // sliding along a wall it meets (a millimetre inside), at most MOVE_STEPS edges. The polygon it ends on and where, at
-// that polygon's height (`to`'s height is not read). A walker moved only by `move` stays on the mesh.
+// that polygon's height (`to`'s height is not read). A walker moved only by `move` stays on the mesh; one that
+// something else moved off its polygon (a push, a crowd's separation) starts from the point of `poly` nearest to
+// `from`.
 move :: proc(mesh: ^Mesh, poly: Poly, from, to: [3]f32) -> (Poly, [3]f32) {
 	if poly == NO_POLY do return poly, from
 	at, current, target := poly, from, to
+	if !contains(mesh, poly, from) {
+		inside := closest_xz(mesh, poly, from.xz)
+		current = {inside.x, from.y, inside.y}
+	}
 	for _ in 0 ..< MOVE_STEPS {
 		exit: i32 = -1
 		exit_t: f32 = 2
 		for k in mesh.first[at] ..< mesh.first[at + 1] {
-			a, b := corner_edge(mesh, at, k)
-			beyond := area2(a, b, target)
+			beyond := edge_side(mesh, at, k, target)
 			if beyond >= 0 do continue // the target is on the inside of this edge
-			inside := area2(a, b, current)
+			inside := edge_side(mesh, at, k, current)
 			t: f32 = 0
 			if inside > 0 do t = inside / (inside - beyond)
 			if t < exit_t do exit, exit_t = k, t

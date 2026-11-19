@@ -57,19 +57,32 @@ main :: proc() {
 		nav.field_compute(&mesh, goal, &scratch.slots[0], &scratch.heap)
 		field_us[round] = micros(started, time.tick_now())
 	}
-	// walkers from every polygon's centre toward GOALS polygons, the memo holding them all (hits, as a horde chasing
-	// the players sees), restarted when they arrive
+	// walkers from polygons' centres toward GOALS polygons, the memo holding them all (hits, as a horde chasing the
+	// players sees), restarted when they arrive; every walker on a polygon that reaches its goal (the yard has islands,
+	// crate and wall tops, where a walker would only stand still)
 	fields := nav.fields_make(&mesh, GOALS)
 	rng := sim.rng_seed(3)
 	goals: [GOALS]nav.Poly
-	for &goal in goals do goal = nav.Poly(sim.rng_below(&rng, u32(polygons)))
+	for &goal in goals {
+		for {
+			goal = nav.Poly(sim.rng_below(&rng, u32(polygons)))
+			if reachable_from(&fields, goal) > polygons / 2 do break
+		}
+	}
+	// a start on a polygon with a way to the goal
+	start :: proc(fields: ^nav.Fields, rng: ^sim.Rng, goal: nav.Poly, polygons: int) -> nav.Poly {
+		for {
+			poly := nav.Poly(sim.rng_below(rng, u32(polygons)))
+			if nav.field(fields, goal).cost[poly] < nav.UNREACHABLE do return poly
+		}
+	}
 	Walker :: struct {
 		poly: nav.Poly,
 		pos:  [3]f32,
 	}
 	walkers: [WALKERS]Walker
 	for &walker, i in walkers {
-		walker.poly = nav.Poly(i * 13 % polygons)
+		walker.poly = start(&fields, &rng, goals[i % GOALS], polygons)
 		walker.pos = mesh.centers[walker.poly]
 	}
 	tick_us := make([]f64, TICKS)
@@ -84,7 +97,7 @@ main :: proc() {
 			walker.poly, walker.pos = nav.move(&mesh, walker.poly, walker.pos, walker.pos + {step.x, 0, step.y})
 			if dmath.dist_sq3(walker.pos, goal) < 0.01 {
 				arrivals += 1
-				walker.poly = nav.Poly(sim.rng_below(&rng, u32(polygons)))
+				walker.poly = start(&fields, &rng, goal_poly, polygons)
 				walker.pos = mesh.centers[walker.poly]
 			}
 		}
@@ -100,4 +113,12 @@ main :: proc() {
 		stat_json(tick_us),
 		arrivals,
 	)
+}
+
+// How many polygons have a way to `goal` (a goal on the yard's main floor, not an island).
+reachable_from :: proc(fields: ^nav.Fields, goal: nav.Poly) -> int {
+	field := nav.field(fields, goal)
+	count := 0
+	for cost in field.cost do count += int(cost < nav.UNREACHABLE)
+	return count
 }

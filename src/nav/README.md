@@ -34,8 +34,6 @@ like any tick package.
 - **Godot bakes triangles** (Recast's detail mesh), two to three times the polygons a merged mesh would have. Fields
   and steering are cheap enough at a yard's size (`uni bench`'s nav row) that the mesh is used as baked; merging
   triangles into convex polygons at build is the step to take if a larger level's field cost asks for it.
-- **The baked mesh floats** a cell or two (the bake's cell height) above the floor it was baked from. A walker's
-  height is the mesh's; a game that wants feet on the collision floor offsets its body by that.
 - **No avoidance between walkers.** A crowd that must not overlap separates itself in the game (a neighbour pass on
   `sim.Grid`), and a walker blocked by a moving body is the game's rule; the mesh is the static floor only.
 - **No off-mesh links** (jumps, drops, ladders): a walker goes where the floor joins.

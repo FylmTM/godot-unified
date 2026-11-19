@@ -5,10 +5,12 @@
 // every platform must reproduce bit for bit.
 package test_nav
 
+import "core:fmt"
 import "core:log"
 import "core:testing"
 
 import "unified:dmath"
+import "unified:headless/scenarios"
 import "unified:level"
 import "unified:nav"
 import "unified:sim"
@@ -29,7 +31,6 @@ yard :: proc(t: ^testing.T) -> (mesh: nav.Mesh, agent: level.Nav_Agent, ok: bool
 }
 
 // Two unit squares side by side and a triangle on the second's far edge, written clockwise and counter-clockwise.
-@(private = "file")
 STRIP_VERTICES := [][3]f32{{0, 0, 0}, {1, 0, 0}, {1, 0, 1}, {0, 0, 1}, {2, 0, 0}, {2, 0, 1}, {3, 0, 0.5}}
 
 @(test)
@@ -42,7 +43,9 @@ build_links_polygons_by_shared_indices :: proc(t: ^testing.T) {
 	neighbours: [3][dynamic]nav.Poly
 	defer for list in neighbours do delete(list)
 	for p in 0 ..< 3 {
-		for k in mesh.first[p] ..< mesh.first[p + 1] do if mesh.across[k] != nav.NO_POLY do append(&neighbours[p], mesh.across[k])
+		for k in mesh.first[p] ..< mesh.first[p + 1] {
+			if mesh.across[k] != nav.NO_POLY do append(&neighbours[p], mesh.across[k])
+		}
 	}
 	testing.expect(t, len(neighbours[0]) == 1 && neighbours[0][0] == 1, "the first square meets the second")
 	testing.expect(t, len(neighbours[1]) == 2, "the second meets both")
@@ -110,10 +113,11 @@ locate_on_stacked_floors :: proc(t: ^testing.T) {
 		testing.expectf(t, poly != nav.NO_POLY, "a polygon at %v", spot.pos)
 		if poly == nav.NO_POLY do continue
 		height := nav.height_at(&mesh, poly, spot.pos)
-		// Godot's bake floats the mesh a cell or two (its cell_height, 0.25 m) above the floor
+		// on the collision floor (the exporter lowers the bake onto it); on the bridge within the step down to the
+		// walls' tops, which the bake joins to it
 		testing.expectf(
 			t,
-			height > spot.height && height - spot.height < 0.6,
+			abs(height - spot.height) < 0.05,
 			"at %v the floor is at %v, want about %v",
 			spot.pos,
 			height,
@@ -125,7 +129,7 @@ locate_on_stacked_floors :: proc(t: ^testing.T) {
 	poly, point := nav.nearest(&mesh, {2.5, 0, 2.5}, 2)
 	testing.expectf(
 		t,
-		poly != nav.NO_POLY && point.y < 0.6 && dmath.dist_sq2(point.xz, {2.5, 2.5}) < 1.5,
+		poly != nav.NO_POLY && abs(point.y) < 0.01 && dmath.dist_sq2(point.xz, {2.5, 2.5}) < 1.5,
 		"beside the pillar: %v",
 		point,
 	)
@@ -227,9 +231,9 @@ TRIPS := []Trip {
 	{{0, 0, -20}, {-8, 3.3, -10}},
 }
 
-// Every trip arrives, never changing height by more than the bake's max climb (0.3 m) in a tick (no walker falls through
-// a floor or climbs a wall), and the run's positions hash to the pinned value on every platform.
-WALK_HASH :: u64(0x2a45bb4c29108cf1)
+// Every trip arrives, never changing height by more than the bake's max climb (0.3 m) in a tick (no walker falls
+// through a floor or climbs a wall), and the run's positions hash to the pinned value on every platform.
+WALK_HASH :: [1]u64{0x98f315f8793f9907} // braced, as uni test --bless finds a pinned literal
 
 @(test)
 walkers_reach_their_goals_and_reproduce :: proc(t: ^testing.T) {
@@ -264,5 +268,15 @@ walkers_reach_their_goals_and_reproduce :: proc(t: ^testing.T) {
 	}
 	testing.expectf(t, largest_jump < 0.3, "a walker's height jumped %v in one tick", largest_jump)
 	log.infof("%v: walk %016x", ODIN_ARCH, hash)
-	testing.expectf(t, hash == WALK_HASH, "walk hash %016x, pinned %016x", hash, WALK_HASH)
+	if hash != WALK_HASH[0] && scenarios.BLESS {
+		scenarios.bless_pin(t, "WALK_HASH", fmt.tprintf("{{0x%016x}}", WALK_HASH[0]), fmt.tprintf("{{0x%016x}}", hash))
+		return
+	}
+	testing.expectf(
+		t,
+		hash == WALK_HASH[0],
+		"walk hash %016x, pinned %016x (uni test --bless re-pins it)",
+		hash,
+		WALK_HASH,
+	)
 }

@@ -9,40 +9,36 @@ import "core:slice"
 import "unified:cli"
 
 main :: proc() {
-	cli.configure(
-		{
-			tests             = "tests",
-			unoptimized_tests = "tests/tooling",
-			headless          = {{name = "toy", pkg = "tests/toy/headless"}},
-			vet               = {"tests/godot/ext", "tests/godot_views/ext"},
-			fmt               = {"src", "tests"},
-			uses_box3d        = true,
-			bench             = {
-				{name = "physics", run = physics_bench},
-				{name = "grid", run = grid_bench},
-				{name = "nav", run = nav_bench},
-				{name = "wake", run = wake_bench},
+	cli.configure({
+		tests             = "tests",
+		unoptimized_tests = "tests/tooling",
+		headless          = {{name = "toy", pkg = "tests/toy/headless"}},
+		vet               = {"tests/godot/ext", "tests/godot_views/ext"},
+		fmt               = {"src", "tests"},
+		uses_box3d        = true,
+		bench             = {
+			{name = "physics", run = physics_bench},
+			{name = "grid", run = grid_bench},
+			{name = "nav", run = nav_bench},
+			{name = "wake", run = wake_bench},
+		},
+		bake              = {
+			{
+				dir    = "tests/godot",
+				scenes = {
+					"res://levels/level_2d.tscn",
+					"res://levels/shapes_3d.tscn",
+					"res://levels/nav_yard.tscn",
+				},
 			},
-			bake              = {
-				{
-					dir        = "tests/godot",
-					scenes     = {
-						"res://levels/level_2d.tscn",
-						"res://levels/shapes_3d.tscn",
-						"res://levels/nav_yard.tscn",
-					},
-					// shapes_3d's bake is hand-written (tests/level pins it)
-					nav_scenes = {"res://levels/nav_yard.tscn"},
-				},
-				{
-					dir       = "tests/godot_views",
-					scenes    = {"res://levels/meadow.tscn", "res://levels/cave.tscn"},
-					extension = "tests/godot_views/ext",
-					library   = "views_test",
-				},
+			{
+				dir       = "tests/godot_views",
+				scenes    = {"res://levels/meadow.tscn", "res://levels/cave.tscn"},
+				extension = "tests/godot_views/ext",
+				library   = "views_test",
 			},
 		},
-	)
+	})
 	cli.add_suites(..private_suites())
 	cli.run(cli.public_commands(), private_commands())
 }

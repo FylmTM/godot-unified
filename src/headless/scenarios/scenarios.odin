@@ -11,9 +11,10 @@ import "core:fmt"
 @(require) import "core:strings" // only in reference_reproduces (generic)
 import "core:testing"
 
-import "unified:headless"
-import "unified:netcode"
-import "unified:sim"
+// only in the generic scenarios: a test package that imports this one for bless_pin alone compiles under -vet
+@(require) import "unified:headless"
+@(require) import "unified:netcode"
+@(require) import "unified:sim"
 
 // `uni test --long` builds with -define:UNIFIED_LONG_TESTS=true: a game's suite then runs every
 // standard scenario at full length (src/headless/README.md, End-to-end suites). The toy's suite always does.

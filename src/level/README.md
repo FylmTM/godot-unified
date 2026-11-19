@@ -41,17 +41,20 @@ marker's node by its index (`Unified.level_markers`).
   are in scene-tree order (depth-first, parents first); at run time `Unified.level_markers(level_root)` returns the
   nodes in that order.
 
-- **Navigation:** one `NavigationRegion3D` per 3D level, baked in the editor (or by `uni bake --nav`, which bakes it
-  from the level's static colliders as the editor's button does, and saves the scene) and saved with the scene. The
-  exporter writes its `NavigationMesh` as it was saved and never bakes it: the bytes are what the author committed,
-  the same on every platform, and a stale bake stays stale until the author bakes again (Godot's bake depends on the
-  geometry, so rebake after moving it). Vertices are written in level space, welded where exactly equal, so adjacent
-  polygons share vertex indices and a reader matches edges by index; each polygon is turned counter-clockwise seen
-  from above (Godot bakes them clockwise). The bake's agent (radius, height, max climb) is written too: one region
-  means one agent size per level, which the game sizes its walkers from rather than repeating it in code. Export
-  errors name the node: a second region, a region without a saved bake, a polygon that isn't simple and convex
-  (degenerate, a zero-length edge, a reflex vertex, a star), and an edge shared by more than two polygons. The mesh
-  the editor draws for the region is the one the sim gets.
+- **Navigation:** one `NavigationRegion3D` per 3D level, baked in the editor and saved with the scene. `uni bake
+  --nav` does the editor's Bake button without the editor, for a region that opts in (metadata `unified_nav_bake`, so
+  a hand-made bake is never overwritten) and whose NavigationMesh parses Static Colliders (the geometry the sim walks;
+  the baker never changes the author's settings). The exporter writes the NavigationMesh as it was saved and never
+  bakes it: the bytes are what the author committed, the same on every platform, and a stale bake stays stale until
+  the author bakes again (Godot's bake depends on the geometry, so rebake after moving it). Vertices are written in
+  level space, welded where exactly equal, so adjacent polygons share vertex indices and a reader matches edges by
+  index, and lowered onto the static floor under them: Godot's bake floats a few tenths of a metre above it (its
+  voxels' rounding and the detail mesh's extra cell, by surface), and the sim's floor is the one it collides with.
+  Each polygon is turned counter-clockwise seen from above (Godot bakes them clockwise). The bake's agent (radius,
+  height, max climb) is written too: one region means one agent size per level, which the game sizes its walkers
+  from rather than repeating it in code. Export errors name the node: a second region, a region without a saved
+  bake, a polygon that isn't simple and convex (degenerate, a zero-length edge, a reflex vertex, a star), and an edge
+  shared by more than two polygons. The mesh the editor draws for the region is the one the sim gets.
 
 The exporter is unified's (`src/godot/tools/level_export.gd`, mirrored into every project as `addons/unified/`);
 scenes depend on no library script.

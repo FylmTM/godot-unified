@@ -803,7 +803,7 @@ start_joiner :: proc(game: Game, script: string, args: []string, env: []string, 
 Bake_Opts :: struct {
 	game:  string `args:"pos=0" usage:"a game (default: every game, then the project's own level scenes)"`,
 	check: bool `usage:"write nothing; fail when the view index or a .level file is stale"`,
-	nav:   bool `usage:"first bake each level's NavigationRegion3D from its colliders and save the scene (the editor's Bake NavigationMesh), then export"`,
+	nav:   bool `usage:"first bake each level's NavigationRegion3D that opts in (metadata unified_nav_bake) with its own settings and save the scene (the editor's Bake NavigationMesh), then export"`,
 }
 
 @(private)
@@ -828,7 +828,7 @@ cmd_bake :: proc(args: []string) -> Result {
 			if target.extension != "" {
 				ensure_project_extension(dir, join(state.project.root, target.extension), target.library)
 			}
-			if opts.nav && len(target.nav_scenes) > 0 do ok = bake_nav(dir, target.nav_scenes) && ok
+			if opts.nav do ok = bake_nav(dir, target.scenes) && ok
 			ok = bake_project(dir, target.scenes, opts.check).ok && ok
 		}
 	}
@@ -1002,7 +1002,8 @@ bake_project :: proc(dir: string, scenes: []string, check: bool, quiet := false)
 }
 
 // Runs unified's navigation baker (src/godot/tools/nav_bake.gd) on a project's level scenes (res:// paths): each one
-// with a NavigationRegion3D is baked from its colliders and saved, as the editor's Bake NavigationMesh button does.
+// whose NavigationRegion3D opts in is baked with the region's own settings and saved, as the editor's Bake
+// NavigationMesh button does.
 bake_nav :: proc(dir: string, scenes: []string) -> bool {
 	ensure_imported(dir)
 	args: [dynamic]string

@@ -66,13 +66,12 @@ Project_Config :: struct {
 
 // Level scenes outside the games that `bake` exports (this repo: the 2D fixture tests/level reads).
 Bake_Target :: struct {
-	dir:        string, // the Godot project, relative to the project
-	scenes:     []string, // res:// paths
-	nav_scenes: []string, // those of `scenes` whose navigation `bake --nav` bakes (a hand-written bake is left out)
+	dir:       string, // the Godot project, relative to the project
+	scenes:    []string, // res:// paths
 	// The Godot project's GDExtension when the exporter needs it (the game's view_scale), relative to the project
 	// ("": none): built (dev) to <dir>/.out/bin/<library> when stale, before baking.
-	extension:  string,
-	library:    string, // the extension library's stem
+	extension: string,
+	library:   string, // the extension library's stem
 }
 
 // A headless binary that is no game's (this repo's toy).
