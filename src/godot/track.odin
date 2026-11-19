@@ -1,6 +1,8 @@
 package godot
 
 import "core:math"
+import "core:math/linalg"
+import "unified:dmath"
 
 // A position and rotation a view is shown at.
 Pose :: struct {
@@ -34,7 +36,7 @@ SMOOTHING_DEFAULT :: Smoothing {
 }
 
 // A policy's smoothing with its zero fields filled in (tau_s 0: SMOOTHING_DEFAULT's, negative: snaps; teleport_dist
-// 0: SMOOTHING_DEFAULT's), as the track procs take it.
+// 0: SMOOTHING_DEFAULT's), as the track procs take it. Public for tests.
 smoothing_of :: proc(smoothing: Smoothing) -> Smoothing {
 	filled := smoothing
 	if filled.tau_s == 0 do filled.tau_s = SMOOTHING_DEFAULT.tau_s
@@ -70,7 +72,7 @@ track_push :: proc(track: ^Track, tick: u32, pose: Pose, smoothing := SMOOTHING_
 		if sample.tick != tick do continue
 		correction := sample.pose.pos - pose.pos
 		if smoothing.tau_s > 0 && track.has_out {
-			if length(correction) > smoothing.teleport_dist {
+			if dmath.length(correction) > smoothing.teleport_dist {
 				track.err_pos, track.err_rot = {}, IDENTITY
 			} else {
 				track.err_pos += correction
@@ -95,6 +97,7 @@ track_push :: proc(track: ^Track, tick: u32, pose: Pose, smoothing := SMOOTHING_
 // Before pushing a frame's pose: a `warp` epoch other than `shown` (the one last shown) starts the track over, so the
 // view snaps to the new pose with no interpolation or correction across the teleport, and remembers it. Compared with
 // what was shown, not with the last frame the session published: a frame the main thread never took still snaps.
+// Public for tests.
 track_warp :: proc(track: ^Track, shown: ^u8, warp: u8) -> (warped: bool) {
 	if warp == shown^ do return false
 	track^ = {}
@@ -159,7 +162,7 @@ track_sample_decayed :: proc(
 	}
 	base := current
 	if prev, has_prev := track_at(track, tick - 1); has_prev && ok {
-		if length(current.pos - prev.pos) <= smoothing.teleport_dist {
+		if dmath.length(current.pos - prev.pos) <= smoothing.teleport_dist {
 			base.pos = prev.pos + (current.pos - prev.pos) * alpha
 			base.rot = nlerp(prev.rot, current.rot, alpha)
 		}
@@ -167,11 +170,11 @@ track_sample_decayed :: proc(
 	if smoothing.tau_s > 0 {
 		keep := decay
 		if smoothing.ramp_dist > 0 && track.err_pos != {} {
-			keep = ramp_decay(length(track.err_pos), dt_s, smoothing)
+			keep = ramp_decay(dmath.length(track.err_pos), dt_s, smoothing)
 		}
 		track.err_pos *= keep
 		track.err_rot = nlerp(IDENTITY, err_rot_or_identity(track), keep)
-		if length(track.err_pos) < 1e-4 do track.err_pos = {}
+		if dmath.length(track.err_pos) < 1e-4 do track.err_pos = {}
 	} else {
 		track.err_pos, track.err_rot = {}, IDENTITY
 	}
@@ -200,11 +203,6 @@ pose_unchanged :: proc(a, b: Pose) -> bool {
 
 // ---- small vector and quaternion helpers (render side)
 
-// The Euclidean length of a vector.
-length :: proc(vec: [3]f32) -> f32 {
-	return math.sqrt(vec.x * vec.x + vec.y * vec.y + vec.z * vec.z)
-}
-
 // Linear interpolation between two positions (t 0: a, 1: b).
 @(private)
 lerp3 :: #force_inline proc(a, b: [3]f32, t: f32) -> [3]f32 {
@@ -230,9 +228,8 @@ qmul :: proc(a, b: [4]f32) -> [4]f32 {
 // Scales a quaternion to unit length; a near-zero one becomes the identity (the zero rotation a game leaves unset).
 @(private)
 qnormalize :: proc(q: [4]f32) -> [4]f32 {
-	length_sq := q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w
-	if length_sq < 1e-12 do return IDENTITY
-	return q * (1 / math.sqrt(length_sq))
+	if linalg.length2(q) < 1e-12 do return IDENTITY
+	return linalg.normalize(q)
 }
 
 // Normalized lerp along the shorter arc.
@@ -241,11 +238,6 @@ nlerp :: proc(a, b: [4]f32, t: f32) -> [4]f32 {
 	b := b
 	if a.x * b.x + a.y * b.y + a.z * b.z + a.w * b.w < 0 do b = -b
 	return qnormalize(a + (b - a) * t)
-}
-
-// The yaw (radians about +Y) of a rotation.
-yaw_of :: proc(q: [4]f32) -> f32 {
-	return math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x))
 }
 
 // Rotation about +Z by `turns` (the sim's angle unit: dmath's): a 2D angle (Godot's Node2D.rotation: 0 = +x,

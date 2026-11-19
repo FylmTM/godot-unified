@@ -20,6 +20,7 @@ Clock :: struct {
 }
 
 // The State's Clock (its first field of type Clock), or nil when it holds none.
+@(private)
 clock_of :: proc(state: ^$State) -> ^Clock {
 	at := clock_offset(type_info_of(State))
 	return nil if at < 0 else (^Clock)(uintptr(state) + uintptr(at))

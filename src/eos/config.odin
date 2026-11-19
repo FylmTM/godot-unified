@@ -7,10 +7,15 @@ package eos
 
 import "core:os"
 
+@(private)
 DEF_PRODUCT_ID :: #config(UNIFIED_EOS_PRODUCT_ID, "")
+@(private)
 DEF_SANDBOX_ID :: #config(UNIFIED_EOS_SANDBOX_ID, "")
+@(private)
 DEF_DEPLOYMENT_ID :: #config(UNIFIED_EOS_DEPLOYMENT_ID, "")
+@(private)
 DEF_CLIENT_ID :: #config(UNIFIED_EOS_CLIENT_ID, "")
+@(private)
 DEF_CLIENT_SECRET :: #config(UNIFIED_EOS_CLIENT_SECRET, "")
 
 CREDENTIAL_NAMES :: [5]string {

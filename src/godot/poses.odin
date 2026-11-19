@@ -87,6 +87,7 @@ pose_memory_begin :: proc(memory: ^Pose_Memory, rollback := false, resim_from: u
 }
 
 // Whether the memory's last fill pushed the key (appear-on-verified's verified fill).
+@(private)
 pose_seen :: proc(memory: ^Pose_Memory, domain: Pose_Domain, kind: u8, key: u64) -> bool {
 	table := &memory.tables[domain]
 	if len(table.entries[0]) == 0 do return false

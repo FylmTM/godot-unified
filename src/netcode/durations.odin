@@ -6,7 +6,9 @@ import "base:intrinsics"
 
 // Under 16 µs one bucket per µs; above, 8 buckets per power of two (each 12.5% wide), up to 2^24 µs (16 s; longer
 // counts in the last).
+@(private)
 DURATION_EXACT :: 16
+@(private)
 DURATION_BUCKETS :: DURATION_EXACT + (24 - 4) * 8
 
 // A distribution of times in µs: counts in fixed buckets, the count and the maximum (durations_percentile reads it).

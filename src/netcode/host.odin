@@ -12,7 +12,6 @@ Host_Config :: struct($G: typeid) {
 	setup:         Maybe(sim.part(G, sim.GAME_SETUP)), // the session's Setup (nil: the game's, Game.setup)
 	profile:       sim.part(G, sim.GAME_PROFILE), // the host player's
 	ticks:         u32, // 0: endless
-	compat:        u64, // build/game id the relay checks (0: sim.compat_of(game))
 	player_name:   string, // the host player's display name
 	// Optional: the host player's own platform account (the Godot host asks its lobby, Lobby.account), borrowed for the
 	// host's lifetime.
@@ -58,6 +57,7 @@ host_set_account :: proc(host: ^Host($G), account: Account, now: i64) {
 
 // The steps' poll while a host has no remote links (single player): nothing arrives from outside, so a step runs at
 // its deadlines (the next tick of the relay or the client) and this is only the fallback before the clock starts.
+@(private)
 SOLO_POLL_US :: 50_000
 
 // Creates the relay (its clock starts when the host's client connects, on the first steps) and
@@ -65,7 +65,7 @@ SOLO_POLL_US :: 50_000
 host_create :: proc(game: ^$G, cfg: Host_Config(G), hooks: Hooks(G)) -> ^Host(G) {
 	host := new(Host(G))
 	host.hub = hub_create(2)
-	compat := cfg.compat if cfg.compat != 0 else sim.compat_of(game)
+	compat := sim.compat_of(game)
 	host.relay = relay_create(
 	game,
 	{
@@ -134,6 +134,7 @@ host_step :: proc(host: ^Host($G), real_now: i64) -> i64 {
 }
 
 // host_step's wake while paused: how soon a loop that sleeps until it notices a resume.
+@(private)
 PAUSE_POLL_US :: 10_000
 
 // Pauses or resumes a single-player session (`now` on the clock host_step is given): while paused host_step steps

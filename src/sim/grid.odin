@@ -34,6 +34,7 @@ grid_begin :: proc(grid: ^Grid($CELLS, $CAP), origin: [2]f32, cell_size: f32, co
 }
 
 // The cell holding `pos`: a position outside the grid counts in the edge cell nearest it.
+@(private)
 grid_cell :: #force_inline proc(grid: ^Grid($CELLS, $CAP), pos: [2]f32) -> (column, row: i32) {
 	column = dmath.to_i32_clamped((pos.x - grid.origin.x) / grid.cell_size, 0, grid.columns - 1)
 	row = dmath.to_i32_clamped((pos.y - grid.origin.y) / grid.cell_size, 0, grid.rows - 1)

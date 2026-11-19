@@ -5,6 +5,7 @@ package netcode
 
 import cnet "core:net"
 
+@(private)
 MAX_UDP_PEERS :: MAX_PEERS
 
 // A UDP link's state (udp_listen, udp_connect): its non-blocking socket and the endpoints it numbered as peers.

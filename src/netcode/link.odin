@@ -49,6 +49,7 @@ Link :: struct {
 }
 
 // The account `link` vouches for behind `peer`; ok = false when it vouches for none (LAN, direct UDP).
+@(private)
 link_account :: proc(link: ^Link, peer: Peer) -> (account: Account, ok: bool) {
 	if link.account == nil {
 		return

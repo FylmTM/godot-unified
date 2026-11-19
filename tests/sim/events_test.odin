@@ -6,9 +6,16 @@ import "core:testing"
 import "../toy"
 import "unified:sim"
 
+// The names the host binds commands and events by (sim.variant_name), by kind.
 @(test)
 names_derive_from_the_types :: proc(t: ^testing.T) {
-	commands := sim.command_names(toy.Cmd, context.temp_allocator)
+	names :: proc(type: typeid, prefix: string) -> []string {
+		variants := sim.union_variants(type)
+		out := make([]string, len(variants), context.temp_allocator)
+		for variant, i in variants do out[i] = sim.variant_name(variant, prefix)
+		return out
+	}
+	commands := names(toy.Cmd, sim.COMMAND_PREFIX)
 	testing.expect(
 		t,
 		len(commands) == 5 &&
@@ -18,13 +25,13 @@ names_derive_from_the_types :: proc(t: ^testing.T) {
 		commands[3] == "travel" &&
 		commands[4] == "pause",
 	)
-	events := sim.event_names(toy.Event, context.temp_allocator)
+	events := names(toy.Event, sim.EVENT_PREFIX)
 	testing.expect(
 		t,
 		len(events) == 4 && events[0] == "player_joined" && events[1] == "player_left" && events[3] == "expired",
 	)
 	// an event type may carry an Event_ prefix: the name leaves it out, like a command's Cmd_
-	prefixed := sim.event_names(Prefixed_Events, context.temp_allocator)
+	prefixed := names(Prefixed_Events, sim.EVENT_PREFIX)
 	testing.expect(t, len(prefixed) == 2 && prefixed[0] == "rock_hit" && prefixed[1] == "plain")
 }
 

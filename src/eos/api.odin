@@ -393,6 +393,7 @@ Lobby_Create_Lobby_Search_Options :: struct {
 
 LOBBYSEARCH_SETPARAMETER_API_LATEST :: 1
 CO_EQUAL :: 0
+@(private)
 LOBBY_SEARCH_BUCKET_ID :: "bucket"
 Lobby_Search_Set_Parameter_Options :: struct {
 	api_version:   i32,

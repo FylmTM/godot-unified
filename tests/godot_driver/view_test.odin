@@ -4,6 +4,7 @@ import "core:math"
 import "core:sync"
 import "core:testing"
 import "core:thread"
+import "unified:dmath"
 import "unified:godot"
 
 // ---- triple buffer and queue
@@ -90,7 +91,12 @@ alpha_clamps :: proc(t: ^testing.T) {
 // ---- tracks
 
 near :: proc(a, b: [3]f32, eps: f32 = 1e-4) -> bool {
-	return godot.length(a - b) <= eps
+	return dmath.length(a - b) <= eps
+}
+
+// The yaw (radians about +Y) of a rotation.
+yaw_of :: proc(q: [4]f32) -> f32 {
+	return math.atan2(2 * (q.w * q.y + q.x * q.z), 1 - 2 * (q.y * q.y + q.x * q.x))
 }
 
 at :: proc(x: f32) -> godot.Pose {
@@ -154,13 +160,13 @@ track_rotation_interpolates_and_smooths :: proc(t: ^testing.T) {
 	godot.track_push(&track, 1, {{}, quat_yaw_angle(0)}, smoothing)
 	godot.track_push(&track, 2, {{}, quat_yaw_angle(1)}, smoothing)
 	pose := godot.track_sample(&track, 2, 0.5, 0, smoothing)
-	testing.expectf(t, abs(godot.yaw_of(pose.rot) - 0.5) < 1e-3, "yaw %v", godot.yaw_of(pose.rot))
+	testing.expectf(t, abs(yaw_of(pose.rot) - 0.5) < 1e-3, "yaw %v", yaw_of(pose.rot))
 	_ = godot.track_sample(&track, 2, 1, 0, smoothing)
 	godot.track_push(&track, 2, {{}, quat_yaw_angle(0.5)}, smoothing)
 	pose = godot.track_sample(&track, 2, 1, 0, smoothing)
-	testing.expectf(t, abs(godot.yaw_of(pose.rot) - 1) < 1e-3, "no rotation jump: %v", godot.yaw_of(pose.rot))
+	testing.expectf(t, abs(yaw_of(pose.rot) - 1) < 1e-3, "no rotation jump: %v", yaw_of(pose.rot))
 	for _ in 0 ..< 120 do pose = godot.track_sample(&track, 2, 1, 1.0 / 60, smoothing)
-	testing.expectf(t, abs(godot.yaw_of(pose.rot) - 0.5) < 1e-3, "converged: %v", godot.yaw_of(pose.rot))
+	testing.expectf(t, abs(yaw_of(pose.rot) - 0.5) < 1e-3, "converged: %v", yaw_of(pose.rot))
 }
 
 // 2D angles in turns (about +Z): round trip across the circle, a quarter turn is +x to +y, interpolation through a
@@ -169,7 +175,7 @@ track_rotation_interpolates_and_smooths :: proc(t: ^testing.T) {
 angle2d_round_trips_and_interpolates :: proc(t: ^testing.T) {
 	for turns in ([]f32{0, 0.125, -0.25, 0.4, 0.49, -0.45}) {
 		testing.expectf(t, abs(godot.turns_2d_of(godot.quat_turns_2d(turns)) - turns) < 1e-5, "turns %v", turns)
-		testing.expectf(t, abs(godot.yaw_of(godot.quat_turns_2d(turns))) < 1e-5, "turns %v has no yaw", turns)
+		testing.expectf(t, abs(yaw_of(godot.quat_turns_2d(turns))) < 1e-5, "turns %v has no yaw", turns)
 	}
 	quarter := godot.quat_turns_2d(0.25)
 	testing.expectf(t, abs(quarter.z - quarter.w) < 1e-6 && quarter.z > 0, "a quarter turn: %v", quarter)

@@ -13,13 +13,17 @@ import "unified:netcode"
 import "unified:sim"
 
 // How far before a note's tick its replay starts (it plays up to the noted tick and pauses there).
+@(private)
 REPLAY_LEAD_S :: 10
 
 // The slowest and fastest replay speeds.
+@(private)
 REPLAY_SPEED_MIN :: 0.25
+@(private)
 REPLAY_SPEED_MAX :: 4
 
 // What the main thread sees of a replay (Frame_Data.replay; zero: not a replay).
+@(private)
 Replay_View :: struct {
 	active:      bool,
 	first, last: u32, // the ticks it can show: the recording's first (its snapshot's) to its last
