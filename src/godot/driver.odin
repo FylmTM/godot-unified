@@ -1126,7 +1126,22 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 				post_status(driver, .Left, "")
 				return
 			}
-			post_status(driver, Status_Kind(status), detail)
+			post_status(driver, STATUS_OF[status], detail)
+		},
+		restored = proc(user: rawptr, simulation: ^sim.Sim(G), tick: u32) {
+			driver := (^This_Driver)(user)
+			tracker_restored(&driver.tracker, tick) // what was predicted before the snapshot will never be verified
+			flush_events(driver)
+			when DEVUI {
+				// The recording's snapshot and inputs no longer lead to this state: it starts over from the next
+				// verified tick the ring saved.
+				recording := &driver.recording
+				sync.guard(&recording.mu)
+				delete(recording.snapshot)
+				recording.snapshot = nil
+				clear(&recording.log)
+				recording.checkpoints = 0
+			}
 		},
 		desync = proc(user: rawptr, report: netcode.Desync_Report) {
 			driver := (^This_Driver)(user)

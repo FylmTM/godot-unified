@@ -299,6 +299,19 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
   epoch. Over EOS the product user id keeps the Peer (not the slot) while the user stays in the lobby, and makes the
   joiner the same member; over direct UDP a restarted program has a new port and is a new peer, the same member when
   its token is (direct UDP is for LAN and tests).
+- **A lost connection** (silence past `DISCONNECT_US`, the transport said so, the relay forgot it) is not the end: the
+  client keeps its sim, finalized ring and verified tick V, opens a new connection (`channel_reopen`: one that echoes
+  the old epoch would read as "the peer started over" to both sides, back and forth without end) and says Hello again
+  with **resume** (V and its checksum of the checksum tick at or before V), asking for every local player it had. V
+  holds until the Welcome answers (the client verifies nothing meanwhile, even with finalized ticks held). The
+  relay seats them like any rejoin (one connection, every seat or none), and
+  when V is in its ring (`RESUME_MAX` back) and that checksum is the majority's, sends no snapshot: Welcome names V,
+  the stream goes on from V + 1, the client rolls back to V and catches up (a budget per step). Otherwise it is a late
+  join with a snapshot, which replaces the old sim (`Hooks.restored`). A resume the client still cannot take (the
+  state of V no longer held) would wait for a snapshot the relay never sends: the client drops its sim and says Hello
+  again on a new connection, without resume. The player is absent from the tick the relay
+  dropped them to their new join tick, as after any rejoin, and their unfinalized commands went with the old seats.
+  The client keeps asking for `RECONNECT_US` after the loss, then ends Disconnected.
 
 ## Checksums and desyncs
 
