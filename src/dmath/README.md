@@ -25,8 +25,12 @@ below where a token scan can.
 - **Float to int:** x86 and ARM convert out-of-range floats differently, so a conversion that can be out of range
   goes through `to_i32_clamped` (a convention: the lint can't see types).
 - **Transcendentals are ours** (below): never `core:math`'s, whose bits are each platform's libm.
-- **An Input holds no floats** (`sim.wire_violation`): the client quantizes with `axis_i8`, `dir2`, `dir3`, and the
-  decoders give a defined value for any bits another machine sends.
+- **An Input holds no floats** (`sim.wire_violation`): the client quantizes with `axis_i8`, `dir2`, `dir3` and `aim`,
+  and the decoders give a defined value for any bits another machine sends.
+- **A first-person look is an `Aim`, not a `Dir3`.** Yaw and pitch are what the sim uses (the body turns by the yaw,
+  a stick moves relative to it, the gun pitches), so decoding needs only `sin_cos`, never atan2, the steps are even
+  and the pitch limit is part of the encoding. It is Godot's convention in turns, so a camera rig keeps its own look
+  as floats (`rotation / TAU`: sensitivity and invert never reach the sim) and quantizes it only into the Input.
 
 ## Transcendentals
 

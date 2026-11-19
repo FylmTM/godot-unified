@@ -85,3 +85,77 @@ octa_u16 :: proc "contextless" (x: f32) -> u16 {
 sign_of :: #force_inline proc "contextless" (x: f32) -> f32 {
 	return 1 if x >= 0 else -1
 }
+
+// Where a first-person player looks, in 4 bytes: yaw and pitch in 1/65536ths of a turn (about 0.0055° a step).
+// Godot's convention, so a camera rig's `rotation` maps straight onto it: zero looks along -Z, level (a zeroed Input
+// looks forward); yaw turns about +Y, counter-clockwise seen from above (toward -X); pitch turns up. Pitch is held to
+// ±PITCH_LIMIT by the encoding and by every decode, so any bits another machine sends look somewhere defined, never
+// straight up or down. Decoding is `sin_cos` and multiplies: the sim never needs atan2 to use an aim.
+Aim :: struct {
+	yaw:   u16,
+	pitch: i16,
+}
+
+// The most an Aim pitches up or down, in turns: 63/256 (88.6°), short of vertical so the look always has a heading.
+PITCH_LIMIT :: 0.24609375
+
+// PITCH_LIMIT in Aim steps.
+@(private)
+PITCH_LIMIT_STEPS :: 16128
+
+// The Aim of a yaw and a pitch in turns (any yaw, wrapped; the pitch clamped to ±PITCH_LIMIT; a NaN or an infinity
+// reads as 0). What a client writes: keep the look as Godot floats in turns (`rotation / TAU`) and quantize only here.
+aim :: proc "contextless" (yaw_turns, pitch_turns: f32) -> Aim {
+	yaw: f32 = 0
+	if abs(yaw_turns) < WHOLE_FROM do yaw = yaw_turns - floor(yaw_turns) // [0, 1]
+	pitch: f32 = 0
+	if pitch_turns == pitch_turns do pitch = pitch_turns // clamped to the limit as steps, below
+	return {
+		yaw   = u16(to_i32_clamped(round(yaw * 65536), 0, 65536) & 0xFFFF), // a turn wraps to 0
+		pitch = i16(to_i32_clamped(round(pitch * 65536), -PITCH_LIMIT_STEPS, PITCH_LIMIT_STEPS)),
+	}
+}
+
+// The Aim looking along `dir` (any length; zero, or NaN: a zero Aim, looking forward). For scripts and bots: it uses
+// atan2, so tick code never needs it.
+aim_toward :: proc "contextless" (dir: [3]f32) -> Aim {
+	if !(length_sq(dir) > 0.000000000001) do return {}
+	return aim(atan2_turns(0 - dir.x, 0 - dir.z), atan2_turns(dir.y, length2(dir.xz)))
+}
+
+// The yaw in turns, [0, 1).
+aim_yaw :: #force_inline proc "contextless" (look: Aim) -> f32 {
+	return f32(look.yaw) / 65536
+}
+
+// The pitch in turns, within ±PITCH_LIMIT (bits past the limit read as the limit).
+aim_pitch :: #force_inline proc "contextless" (look: Aim) -> f32 {
+	steps := i32(look.pitch)
+	if steps > PITCH_LIMIT_STEPS do steps = PITCH_LIMIT_STEPS
+	if steps < -PITCH_LIMIT_STEPS do steps = -PITCH_LIMIT_STEPS
+	return f32(steps) / 65536
+}
+
+// The unit vector the aim looks along: {-sin yaw · cos pitch, sin pitch, -cos yaw · cos pitch}. Exact at every
+// eighth of a turn of yaw, zeros +0 (sin_cos's guarantee).
+aim_dir :: proc "contextless" (look: Aim) -> [3]f32 {
+	sin_yaw, cos_yaw := sin_cos(aim_yaw(look))
+	sin_pitch, cos_pitch := sin_cos(aim_pitch(look))
+	return {0 - sin_yaw * cos_pitch, sin_pitch, 0 - cos_yaw * cos_pitch}
+}
+
+// The aim's heading on the floor (XZ), unit length whatever the pitch: `forward` is where it faces, `right` 90°
+// clockwise from it seen from above. What a local stick (strafe, forward) is turned by: `right * x + forward * z`.
+aim_flat :: proc "contextless" (look: Aim) -> (forward, right: [3]f32) {
+	sin_yaw, cos_yaw := sin_cos(aim_yaw(look))
+	return {0 - sin_yaw, 0, 0 - cos_yaw}, {cos_yaw, 0, 0 - sin_yaw}
+}
+
+// The aim as a unit quaternion (x, y, z, w): the yaw about +Y, then the pitch about the turned +X (Godot's YXZ
+// Euler order with rotation (pitch, yaw, 0) in turns). It turns -Z onto `aim_dir` and +X onto `aim_flat`'s right: a
+// view's `rot` for a camera or a head.
+aim_quat :: proc "contextless" (look: Aim) -> [4]f32 {
+	sin_yaw, cos_yaw := sin_cos(aim_yaw(look) * 0.5)
+	sin_pitch, cos_pitch := sin_cos(aim_pitch(look) * 0.5)
+	return {cos_yaw * sin_pitch, sin_yaw * cos_pitch, 0 - sin_yaw * sin_pitch, cos_yaw * cos_pitch}
+}
