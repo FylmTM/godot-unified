@@ -162,6 +162,9 @@ TEMPLATE_NAME :: "minimal_3d"
 // its place) and the view index (written below). The `.uid` files are copied: the scenes name their scripts by UID, so
 // a copy without them warns on every load until Godot rewrites them.
 TEMPLATE_SKIP :: []string{"README.md", "unified_index.tres"}
+// Its folders a copy leaves out: its replay regressions are recordings of minimal_3d's play (a new game records its
+// own: src/headless/README.md, Replay regressions).
+TEMPLATE_SKIP_DIRS :: []string{"simulation/tests/replays/"}
 
 // The template's reference run, which a copy keeps unpinned: its parameters without minimal_3d's results, so a new
 // game's first `uni test` warns with its own to paste once its rules settle (scenarios.reference_reproduces).
@@ -184,6 +187,9 @@ write_game :: proc(unified, dir, name: string, repo: bool) -> int {
 	count := 0
 	for rel_path in strings.split_lines(strings.trim_space(listed.stdout)) {
 		if slice.contains(TEMPLATE_SKIP, rel_path) do continue
+		skipped := false
+		for skip in TEMPLATE_SKIP_DIRS do skipped ||= strings.has_prefix(rel_path, skip)
+		if skipped do continue
 		target, _ := strings.replace_all(rel_path, "minimal_3d", name)
 		text, _ := strings.replace_all(must_read(join(source, rel_path)), "minimal_3d", name)
 		text, _ = strings.replace_all(text, "\r\n", "\n")

@@ -334,8 +334,22 @@ Status_Kind :: enum u8 {
 	Connecting,
 	Connected,
 	Failed,
-	Disconnected, // the first five are netcode.Status's, in its order (the driver's status hook converts)
+	Disconnected,
 	Left,
+	Reconnecting, // netcode.Status's names (the driver's status hook maps them: STATUS_OF)
+	Recovering,
+}
+
+// The Godot status of each netcode.Status.
+@(private)
+STATUS_OF := [netcode.Status]Status_Kind {
+	.Idle         = .Idle,
+	.Connecting   = .Connecting,
+	.Connected    = .Connected,
+	.Failed       = .Failed,
+	.Disconnected = .Disconnected,
+	.Reconnecting = .Reconnecting,
+	.Recovering   = .Recovering,
 }
 
 @(private)
@@ -346,6 +360,8 @@ STATUS_NAMES := [Status_Kind]string {
 	.Failed       = "failed",
 	.Disconnected = "disconnected",
 	.Left         = "left",
+	.Reconnecting = "reconnecting",
+	.Recovering   = "recovering",
 }
 
 // Session thread -> main thread: an event in one of its states. Events have a queue of their own; one that finds it
@@ -367,6 +383,7 @@ Message :: struct {
 		Desync, // the relay found the players' checksums of `tick` differ; text: who and what
 		Mode, // a single-player session opened to friends (or failed to: text says why): UnifiedSession.mode
 		Local_Refused, // the relay refused local player `local`'s Join (text: why): local_player_refused
+		Link_Slow, // the link's round trip went past the game's ceiling (tick 1) or came back under it (tick 0)
 	},
 	status: Status_Kind,
 	mode:   Mode,

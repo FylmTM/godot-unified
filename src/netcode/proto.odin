@@ -9,7 +9,7 @@ import "unified:wire"
 
 // Bump on any wire change: a datagram, a message, the snapshots a late joiner gets (the sim-change skill). Every
 // datagram starts with it (channel.odin), so peers on two versions never parse each other's messages.
-PROTOCOL_VERSION :: 20
+PROTOCOL_VERSION :: 22
 #assert(PROTOCOL_VERSION < 0x80) // the datagram's first byte: 0x80 | PROTOCOL_VERSION
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 PLATFORM_MAX :: 15 // bytes of an account's platform name ("eos")
@@ -28,6 +28,11 @@ WINDOW_MAX :: 32 // finalized ticks resent per relay packet (fewer when they don
 CHECKSUM_EVERY :: sim.DEEP_CHECKSUM_EVERY // the ticks whose checksums cover every extra's whole state
 @(private)
 CATCHUP_TICKS :: 384 // unacked finalized ticks a relay streams ahead of a client (< FIN_RING - 64)
+// How far behind the relay's newest finalized tick a client may resume from its own verified tick (Hello's resume):
+// the ticks after it are in the relay's ring with CATCHUP_TICKS to spare for its first acks (26 s at 64 Hz).
+RESUME_MAX :: RELAY_RING - CATCHUP_TICKS
+RESYNCS_MAX :: 3 // times one connection is resynced (a desync, a re-anchor); needing another, it is dropped
+#assert(RESUME_MAX + CHECKSUM_EVERY <= CHECK_RING * CHECKSUM_EVERY) // the others' reports of its checksum tick are kept
 SNAP_CHUNK :: MAX_MESSAGE - 6 // a Snap_Chunk's bytes: what fits next to its type, target and offset
 RELAY_TARGET :: u8(0xFE) // a Snap_Request's or Snap_Begin's target: the relay itself (a desync report's snapshot)
 @(private)
@@ -148,13 +153,13 @@ round_trip_ceiling_us :: proc(timing: Timing) -> f64 {
 Msg :: enum u8 {
 	// c->r R: the connection's fields, then the seats it asks for (write_hello): compat u64, token [16]u8, sent at
 	// i64 (the client's clock when this Hello first went out: the relay orders one person's tries by it), resume tick
-	// u32 and checksum u64 (reserved for resuming from the client's own verified tick; 0: none), seat count u8, then
-	// per seat: local u8, slot u8 (ANY_SLOT: any), join tick u32 (0: at start), name len u8 + bytes, profile size u8 +
-	// the Profile's bytes
+	// u32 and checksum u64 (its own verified tick to resume from and its checksum of the checksum tick at or before it;
+	// 0: none), seat count u8, then per seat: local u8, slot u8 (ANY_SLOT: any), join tick u32 (0: at start), name len
+	// u8 + bytes, profile size u8 + the Profile's bytes
 	Hello = 1,
 	// r->c R: seed u64, tick_hz u16, ticks u32 (0: endless), flags u8 (Welcome_Flags), setup size u16 + the session's
-	// Setup's bytes, resume from u32 (reserved for resuming; 0: none), seat count u8, then per seat granted: local u8,
-	// slot u8, member u16, first tick u32 (write_welcome)
+	// Setup's bytes, resume from u32 (the client's verified tick its stream goes on from, no snapshot; 0: none), seat
+	// count u8, then per seat granted: local u8, slot u8, member u16, first tick u32 (write_welcome)
 	Welcome,
 	// r->c R: reason u8, local u8 (ALL_LOCALS: the Hello, the connection; else that local player's Join)
 	Reject,
@@ -184,11 +189,16 @@ Msg :: enum u8 {
 	// name len u8 + bytes, profile size u8 + bytes (a Hello's seat)
 	Join,
 	Seated, // r->c R: the answer to a Join: local u8, slot u8, member u16, first tick u32 (a Welcome's seat)
+	// r->c R: tick u32, total bytes u32, seat count u8, per seat: local u8, placed seq u32 (its newest command the tick
+	// holds). The relay replaces this playing client's state with a majority player's kept snapshot of that checksum
+	// tick (it diverged, or fell behind the ring): its Snap_Chunks follow, then the finalized ticks after it. The
+	// client keeps its seats, clock and inputs.
+	Resync,
 }
 
 // What Welcome asks of the client beyond playing.
 Welcome_Flags :: bit_set[enum u8 {
-	Keep_Images, // keep the snapshots of the last DESYNC_IMAGES checksum ticks: the relay may ask for one
+	Keep_Images, // keep the snapshots of the last DESYNC_IMAGES checksum ticks: the relay may ask for one (every client)
 	Start, // a start client: build tick 0 from the seed and the Setup (else a snapshot comes)
 };u8]
 
@@ -210,8 +220,8 @@ Hello :: struct {
 	compat:          u64,
 	token:           Token,
 	sent_us:         i64, // the client's clock when this Hello first went out
-	resume_tick:     u32, // reserved: the client's newest verified tick to resume from (0: none)
-	resume_checksum: u64,
+	resume_tick:     u32, // the client's newest verified tick, to resume from (0: none)
+	resume_checksum: u64, // its checksum of the checksum tick at or before resume_tick
 	seat_count:      int,
 	seats:           [LOCAL_MAX]Seat_Ask,
 }
@@ -232,7 +242,7 @@ Welcome :: struct {
 	ticks:       u32, // 0: endless
 	flags:       Welcome_Flags,
 	setup:       []u8, // the session's Setup's bytes (read_welcome: a view into the message)
-	resume_from: u32, // reserved: the tick a resumed connection is streamed from (0: none)
+	resume_from: u32, // a resumed connection: its verified tick, streamed on from (0: none, a snapshot comes)
 	seat_count:  int,
 	seats:       [LOCAL_MAX]Seat_Grant,
 }
@@ -338,6 +348,7 @@ Reject_Reason :: enum u8 {
 	// one is an earlier try whose Hello came late (src/netcode/README.md, Members: newest wins)
 	Newer_Connection,
 	Closed, // the session takes no new players (relay_set_open; a player who was in may come back)
+	Desynced, // the client diverged from the other players and could not be resynced, or kept diverging (RESYNCS_MAX)
 }
 
 // Short text as fixed bytes (plain data, no allocation): a player's name, an account's platform and id.

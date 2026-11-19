@@ -29,8 +29,9 @@ fit, on 1 and 4 workers (the cost per body is about flat). One worker is the def
 CPU from Godot and the netcode and help only worlds several times that size, so a physics-heavy game measures before
 it raises it.
 
-Each static level body costs every tick's save like any other body, sleeping or not: a level of hundreds of
-static bodies pays for them in every save and re-sim, so such a level merges its shapes onto fewer bodies.
+Each static body costs every tick's save like any other body, sleeping or not. A level's shapes cost one body per
+cell (Levels), so a large level pays little in every save and re-sim; `uni bench`'s physics row measures one, and a
+game's own static bodies made outside a level cost one each.
 
 Any worker count steps to the same bits, and a game proves it on its own content: its suite runs the reference run
 again on the other count (`world_set_worker_count` on the World `world_create` made), in the long tier while it ships
@@ -117,14 +118,20 @@ block and the `Path` in its level data; `drive_kinematic` makes the body follow 
 
 A game's levels are physics: `create_with_levels` parses every level and builds its geometry (hulls, meshes, height
 fields) once, in `world_create`, and finds a shape Box3D refuses in any level there, named with its level, body and
-shape, so a bad level never waits for a change mid-session. The active level is state: `level_change` (in init and
+shape, so a bad level never waits for a change mid-session. It also bakes each level's statics: the level's shapes
+are grouped by cell (cubes of `Settings.level_cell` from the level's lowest corner) and filter category, and each
+group of two or more becomes one Box3D compound on one static body. A compound's geometry is host memory, so a
+snapshot, a restore, the ring and a rollback copy one body per cell instead of one per level shape: their cost stays
+flat as a level grows. A shape alone in its cell stays a shape of its own, and a height field (which no compound holds)
+is a static body of its own. The active level is state: `level_change` (in init and
 tick) destroys the static bodies of the level now built and creates the new one's from what was built, then sets the
 block's `sim.Active_Level`. A level change is a sim decision like any other, so a rollback across it, a late join
 after it and a replay of it need nothing of their own:
 
 - **Box3D's snapshot holds static bodies**, so a restore before a change brings the old level's bodies back at their
   indices, and the re-simulation builds the new ones again at the same indices (bodies are destroyed in index order
-  and made in file order; Box3D reuses freed indices last in, first out).
+  and made in the baked order, which depends on the level file and the cell size alone; Box3D reuses freed indices
+  last in, first out).
 - **The level's bodies are owned by the body table**, flagged as the level's and rolled back, imaged and hashed with
   it, not by refs in the block: a game sizes nothing for its largest level. `check_refs` knows three owners: the
   World (made before `extra`: the anchor, a game's own bodies made in `world_create`), the active level, and the
@@ -137,9 +144,12 @@ after it and a replay of it need nothing of their own:
   stops growing once each level has been visited (Box3D shares hulls by content).
 
 Every shape carries its level surface (friction, restitution, rolling resistance, a conveyor's tangent velocity and
-the material id a ray or contact reports); a mesh's triangles may each name another. Meshes and height fields are
-kept by the physics `World` and freed after the Box3D world, since their shapes point at them; a height field takes no
-local transform, so it is a static body of its own at its level body's pose.
+the material id a ray or contact reports); a mesh's triangles may each name another. **A level shape is named by its
+material, not its body**: a ray or a contact on the level names the cell's static body, and the hit's material is the
+compound child's (or the mesh triangle's), as are a hit event's. Compounds, meshes and height fields are kept by the
+physics `World` and freed after the Box3D world, since their shapes point at them; a height field takes no local
+transform, so its body sits at the shape's pose. A late joiner's image carries the active level's compounds, as it
+carries any geometry.
 
 ## 2D
 

@@ -163,6 +163,21 @@ tracker_end_tick :: proc(tracker: ^Event_Tracker($E), tick: u32) {
 	append(list, ..tracker.scratch[:])
 }
 
+// The client's state was replaced by a snapshot of `tick` (a reconnect that came back as a joiner): every pending
+// event was of a prediction nobody will verify, so each is Cancelled, and ticks up to `tick` are final.
+tracker_restored :: proc(tracker: ^Event_Tracker($E), tick: u32) {
+	for tracker.count > 0 {
+		list := &tracker.ticks[tracker.head]
+		for pending in list do append(&tracker.out, Tracked(E){.Cancelled, pending.event, pending.serial})
+		clear(list)
+		tracker.head = (tracker.head + 1) & (len(tracker.ticks) - 1)
+		tracker.count -= 1
+	}
+	tracker.first_tick = tick + 1
+	tracker.verified = tick
+	tracker.has_verified = true
+}
+
 // Ticks up to `verified` are final: their pending events are Confirmed, in tick and emission order.
 tracker_verified :: proc(tracker: ^Event_Tracker($E), verified: u32) {
 	if tracker.has_verified && verified <= tracker.verified do return

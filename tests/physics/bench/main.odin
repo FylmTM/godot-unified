@@ -10,8 +10,8 @@
 // join; the loaded world must hash the same). Then 64 characters on a slab: their character_updates per
 // tick, apart from the step. Then the capacity against the frame budget: a smaller pile (ROLLBACK_SIDE³ boxes, sized
 // to the bench's time; the bodies that would fit the budget scale from it) steps and, every tick, rolls back as the netcode does at its prediction cap (a restore,
-// CAP steps with a save every 2nd tick, a deep hash: it must hash as the forward tick did), on 1 and 4 workers. One
-// JSON line.
+// CAP steps with a save every 2nd tick, a deep hash: it must hash as the forward tick did), on 1 and 4 workers. Then a
+// large generated level (level.odin). One JSON line.
 package physics_bench
 
 import "core:fmt"
@@ -154,9 +154,10 @@ main :: proc() {
 	characters_us := run_characters()
 	one, one_mismatches := run_rollback(1)
 	four, four_mismatches := run_rollback(4)
+	large_level := run_large_levels()
 	mismatches += one_mismatches + four_mismatches
 	fmt.printfln(
-		`{{"mode":"physics-bench","bodies":%d,"ticks":%d,"rays":%d,"characters":%d,"step_us":%s,"save_us":%s,"hash_deep_us":%s,"hash_us":%s,"restore_us":%s,"rays_us":%s,"image_us":%s,"image_live_us":%s,"load_us":%s,"characters_us":%s,"snapshot_bytes":%d,"image_bytes":%d,"ray_hits":%d,"rollback":{{"bodies":%d,"cap":%d,"workers_1":%s,"workers_4":%s}},"mismatches":%d}}`,
+		`{{"mode":"physics-bench","bodies":%d,"ticks":%d,"rays":%d,"characters":%d,"step_us":%s,"save_us":%s,"hash_deep_us":%s,"hash_us":%s,"restore_us":%s,"rays_us":%s,"image_us":%s,"image_live_us":%s,"load_us":%s,"characters_us":%s,"snapshot_bytes":%d,"image_bytes":%d,"ray_hits":%d,"rollback":{{"bodies":%d,"cap":%d,"workers_1":%s,"workers_4":%s}},"large_level":%s,"mismatches":%d}}`,
 		BODIES,
 		TICKS,
 		RAYS,
@@ -178,6 +179,7 @@ main :: proc() {
 		CAP,
 		one,
 		four,
+		large_level,
 		mismatches,
 	)
 	if mismatches > 0 do os.exit(1)

@@ -1,14 +1,16 @@
 // The channel (src/netcode/README.md, Channel): reliable and unreliable messages to peers over any number of links,
 // each (link, link peer) pair one channel Peer, the same protocol over every link. Its datagrams:
 //
-//   datagram = u8 tag (0x80 | PROTOCOL_VERSION), u32 epoch, u32 peer epoch, u32 seq, u32 ack, u32 ack_bits,
+//   datagram = u8 tag (0x80 | PROTOCOL_VERSION), u32 epoch, u32 peer epoch or opened, u32 seq, u32 ack, u32 ack_bits,
 //              u8 recent, u16 recent delay (ACK_DELAY_UNIT_US), u8 chunk count, chunks
 //   chunk    = u8 kind (0 unreliable, 1 reliable, 2 older acks), [u32 message id if reliable], u16 len, bytes
 //   older acks = up to ACK_EXT_WORDS u32: bit b of word w acks seq ack - 33 - (32 w + b)
 //   notice   = u8 tag, u32 0: "I run this protocol version", the answer to a datagram of another version
 //
-// `epoch` is the sender's connection's (a fresh value each time a side opens one), `peer epoch` echoes the receiver's
-// last one seen (0: none yet). `recent` is how far back from `ack` the datagram that arrived last is, and its delay how
+// `epoch` is the sender's connection's (a fresh value each time a side opens one; EPOCH_BIT always set), `peer epoch`
+// echoes the receiver's last one seen. Until the sender has seen one, the field is instead `opened` (EPOCH_BIT clear):
+// when the sender opened its connection, in milliseconds of its machine's clock, which orders one machine's programs
+// (accept_epoch). `recent` is how far back from `ack` the datagram that arrived last is, and its delay how
 // long it waited before this one went out (a round-trip sample). A datagram whose tag has the top bit but another
 // version is answered with a notice (a notice never is: two versions can't ping-pong); a notice from a peer is the
 // channel's Incompatible event. The notice's five bytes never change across versions.
@@ -78,6 +80,7 @@ ACK_DELAY_UNIT_US :: 16 // the ack delay's unit (a u16: up to ~1 s; longer satur
 @(private)
 CHUNK_OVERHEAD :: 7 // kind u8, id u32, len u16
 MAX_MESSAGE :: MAX_DATAGRAM - HEADER_BYTES - CHUNK_OVERHEAD // the largest message channel_send takes
+EPOCH_BIT :: u32(0x8000_0000) // set in every epoch; clear in the header's `opened` (a datagram that echoes no epoch)
 
 // Reliable and unreliable messages to channel peers over any number of links (channel_make); the relay and each
 // client own one.
@@ -140,6 +143,9 @@ Conn :: struct {
 	active:      bool,
 	epoch:       u32, // ours, sent in every datagram
 	peer_epoch:  u32, // theirs (0: none seen yet)
+	opened:      u32, // when we opened it (opened_ms), sent in place of peer_epoch until we have it
+	peer_opened: u32, // when the peer opened its side, from its first datagrams (peer_known: it sent one)
+	peer_known:  bool,
 	last_recv:   i64,
 	last_sent:   i64,
 	// send side
@@ -184,7 +190,7 @@ channel_make :: proc() -> ^Channel {
 }
 
 // The connections the process's channels have opened, counted from a base (channel_make). Each new
-// connection's epoch is the next count through mix32, a bijection: no two connections of one process ever share an
+// connection's epoch is the next count through mix31, a bijection: no two connections of one process ever share an
 // epoch, whichever channel opened them. (A per-channel seed from the clock and the channel's address repeats when a
 // channel freed and made again lands at the same address with a matching clock: the new connection then reads as the
 // old one, or as ended, and is never heard.)
@@ -304,6 +310,19 @@ epoch_ended :: proc(channel: ^Channel, link: int, epoch: u32) -> bool {
 	return false
 }
 
+// Starts over with a link's peer, as a restarted program would: whatever connection to it is open ends without a word,
+// and the next channel_send opens a new one that echoes no epoch of the peer's. Returns the channel Peer (assigned
+// again when the old mapping was freed; -1 when none is free).
+channel_reopen :: proc(channel: ^Channel, link: int, link_peer: Peer) -> Peer {
+	peer := channel_peer(channel, link, link_peer)
+	if peer >= 0 {
+		conn := &channel.conns[peer]
+		conn_reset(channel, conn)
+		conn.used, conn.link, conn.lpeer = true, link, link_peer
+	}
+	return peer
+}
+
 // Ends a connection and frees its mapping, telling the link it may reuse the peer number.
 @(private)
 conn_release :: proc(channel: ^Channel, peer: Peer) {
@@ -377,20 +396,36 @@ conn_open :: proc(channel: ^Channel, peer: Peer, now: i64) -> ^Conn {
 		conn.rel_bucket, conn.rel_fill_us = REL_BURST, now
 		conn.next_seq = 1
 		conn.srtt_us = 100_000
-		conn.epoch = max(mix32(sync.atomic_add(&epochs_opened, 1) + 1), 1)
+		conn.epoch = mix31(sync.atomic_add(&epochs_opened, 1) + 1) | EPOCH_BIT
+		conn.opened = opened_ms(now)
 		append(&channel.events, Event{kind = .Connected, peer = peer})
 	}
 	return conn
 }
 
-// A bijective 32-bit mix (murmur3's finalizer): consecutive counters give unrelated epochs.
+// A connection's opening time as a datagram carries it: milliseconds of the caller's clock (now_us: the machine's
+// monotonic clock, shared by its programs), 31 bits (it wraps after 24 days; newer_opened compares across a wrap).
 @(private)
-mix32 :: proc(x: u32) -> u32 {
-	hash := x
+opened_ms :: proc(now: i64) -> u32 {
+	return u32(now / 1000) & ~EPOCH_BIT
+}
+
+// Whether a datagram's opening time `a` is later than `b` (31-bit serial order: right while they are within 12 days of
+// each other).
+newer_opened :: proc(a, b: u32) -> bool {
+	diff := (a - b) & ~EPOCH_BIT
+	return diff != 0 && diff < EPOCH_BIT / 2
+}
+
+// A bijective mix of the low 31 bits (murmur3's finalizer, each step kept to 31 bits; the top bit is EPOCH_BIT's):
+// consecutive counters give unrelated epochs.
+@(private)
+mix31 :: proc(x: u32) -> u32 {
+	hash := x & ~EPOCH_BIT
 	hash ~= hash >> 16
-	hash *= 0x85EBCA6B
+	hash = (hash * 0x85EBCA6B) & ~EPOCH_BIT
 	hash ~= hash >> 13
-	hash *= 0xC2B2AE35
+	hash = (hash * 0xC2B2AE35) & ~EPOCH_BIT
 	hash ~= hash >> 16
 	return hash
 }
@@ -549,7 +584,8 @@ seq_acked :: proc(conn: ^Conn, seq: u32) {
 
 @(private)
 Dgram_Header :: struct {
-	epoch, echo, seq, ack, ack_bits: u32,
+	epoch, echo, seq, ack, ack_bits: u32, // echo: 0 when the datagram echoes no epoch
+	opened:                          u32, // when echo is 0: when the sender opened its connection (opened_ms)
 	recent:                          u32, // the seq that arrived last at the peer (0: none)
 	recent_us:                       i64, // how long it waited there (-1: no round-trip sample)
 	n_chunks:                        int,
@@ -564,7 +600,11 @@ read_header :: proc(bytes: []u8) -> (header: Dgram_Header, ok: bool) {
 		return
 	}
 	header.epoch = wire.r_u32(&reader)
-	header.echo = wire.r_u32(&reader)
+	if echo_or_opened := wire.r_u32(&reader); echo_or_opened & EPOCH_BIT != 0 {
+		header.echo = echo_or_opened
+	} else {
+		header.opened = echo_or_opened
+	}
 	header.seq = wire.r_u32(&reader)
 	header.ack = wire.r_u32(&reader)
 	header.ack_bits = wire.r_u32(&reader)
@@ -574,7 +614,7 @@ read_header :: proc(bytes: []u8) -> (header: Dgram_Header, ok: bool) {
 	header.recent_us = delay == max(u16) || back > 32 ? -1 : i64(delay) * ACK_DELAY_UNIT_US
 	header.n_chunks = int(wire.r_u8(&reader))
 	header.body = reader.pos
-	return header, reader.ok && header.epoch != 0
+	return header, reader.ok && header.epoch & EPOCH_BIT != 0
 }
 
 @(private)
@@ -628,6 +668,18 @@ accept_epoch :: proc(channel: ^Channel, from: Peer, header: Dgram_Header, now: i
 		conn.peer_epoch = header.epoch
 		return nil, false
 	}
+	if old.active &&
+	   old.peer_epoch != 0 &&
+	   old.peer_epoch != header.epoch &&
+	   header.echo == 0 &&
+	   old.peer_known &&
+	   !newer_opened(header.opened, old.peer_opened) {
+		// A connection opened before the open one, that never heard from us: a stale datagram of the link peer's
+		// previous program (its first Hello, delayed or duplicated), arriving after the next program's connection is
+		// live. Dropped unread while the open one lasts; it must not end it. (Two of one person's machines order by
+		// two clocks: the later machine whose clock reads earlier gets in once the open connection times out.)
+		return nil, false
+	}
 	if old.active && old.peer_epoch != 0 && old.peer_epoch != header.epoch {
 		// The peer started over: end the old connection; this datagram opens the new one. On a link that numbers a
 		// person, not a socket (EOS), the old connection's last datagrams and the new one's first can arrive in one
@@ -648,6 +700,9 @@ accept_epoch :: proc(channel: ^Channel, from: Peer, header: Dgram_Header, now: i
 	conn := conn_open(channel, from, now)
 	conn.last_recv = now
 	conn.peer_epoch = header.epoch
+	if header.echo == 0 {
+		conn.peer_opened, conn.peer_known = header.opened, true
+	}
 	return conn, true
 }
 
@@ -822,7 +877,7 @@ begin_packet :: proc(builder: ^Packet_Builder, conn: ^Conn, now: i64) {
 	}
 	wire.w_u8(&builder.w, DGRAM_TAG)
 	wire.w_u32(&builder.w, conn.epoch)
-	wire.w_u32(&builder.w, conn.peer_epoch)
+	wire.w_u32(&builder.w, conn.peer_epoch != 0 ? conn.peer_epoch : conn.opened)
 	wire.w_u32(&builder.w, conn.next_seq)
 	wire.w_u32(&builder.w, conn.have_recv ? conn.recv_max : 0)
 	wire.w_u32(&builder.w, conn.recv_bits[0])

@@ -342,11 +342,17 @@ suite_budget :: proc(suite: ^Suite, opts: Test_Options) -> f64 {
 	return opts.long && suite.long_budget > 0 ? suite.long_budget : suite.budget
 }
 
-// What CI allows the named suite (its budget, CI_BUDGET_SCALE times): a test binary still running then has hung.
+// What CI allows a suite (ci_allowance): CI_BUDGET_SCALE times its budget (`--long`: its long budget), or its CI
+// budget when that is more.
+suite_ci_budget :: proc(suite: ^Suite, opts: Test_Options) -> f64 {
+	return ci_allowance(suite_budget(suite, opts), suite.ci_budget)
+}
+
+// What CI allows the named suite (suite_ci_budget), anywhere: a test binary still running then has hung.
 suite_timeout :: proc(name: string, opts: Test_Options) -> time.Duration {
 	for &suite in state.suites {
 		if suite.name == name {
-			return time.Duration(suite_budget(&suite, opts) * CI_BUDGET_SCALE * f64(time.Second))
+			return time.Duration(suite_ci_budget(&suite, opts) * f64(time.Second))
 		}
 	}
 	return 0

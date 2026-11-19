@@ -194,6 +194,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	finished:        bool, // atomic
 	stopping:        bool,
 	stop_at:         i64,
+	slow:            bool, // the client's link was slow when last posted (Message.Link_Slow)
 	frames:          Triple(Frame_Data),
 	poses:           Pose_Memory, // every keyed item's pose at the fill before (session thread)
 	// Appear-on-verified (api.appear_verified): the keys of the last verified tick filled, and that fill's Frame
@@ -1137,7 +1138,22 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 				post_status(driver, .Left, "")
 				return
 			}
-			post_status(driver, Status_Kind(status), detail)
+			post_status(driver, STATUS_OF[status], detail)
+		},
+		restored = proc(user: rawptr, simulation: ^sim.Sim(G), tick: u32) {
+			driver := (^This_Driver)(user)
+			tracker_restored(&driver.tracker, tick) // what was predicted before the snapshot will never be verified
+			flush_events(driver)
+			when DEVUI {
+				// The recording's snapshot and inputs no longer lead to this state: it starts over from the next
+				// verified tick the ring saved.
+				recording := &driver.recording
+				sync.guard(&recording.mu)
+				delete(recording.snapshot)
+				recording.snapshot = nil
+				clear(&recording.log)
+				recording.checkpoints = 0
+			}
 		},
 		desync = proc(user: rawptr, report: netcode.Desync_Report) {
 			driver := (^This_Driver)(user)
@@ -1363,6 +1379,10 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 		}
 		sync.atomic_add(&driver.step_seq, 1)
 		if driver.host != nil ? netcode.host_finished(driver.host) : netcode.client_finished(driver.client) do break
+		if driver.client.slow != driver.slow {
+			driver.slow = driver.client.slow
+			post(driver, Message{kind = .Link_Slow, tick = u32(driver.slow)})
+		}
 		goodbye: i64 = sync.atomic_load(&driver.hurry) ? HURRY_US : GOODBYE_US
 		if driver.stopping && now - driver.stop_at > goodbye do break
 		if driver.online do wake = min(wake, now + 4_000)

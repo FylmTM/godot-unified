@@ -69,27 +69,6 @@ gated_join :: proc(
 	return client, gate
 }
 
-// The relay gives up on a client whose packets stopped arriving, while the client still hears the
-// relay: the channel times it out after 10 s (before the ticks it hasn't acked leave the relay's ring, RELAY_RING,
-// 32 s at 64 Hz: Too_Far_Behind). When its path comes back the client must learn that the relay forgot it
-// (status Disconnected), not sit in a frozen "Connected" session forever.
-@(test)
-one_way_outage_ends_the_client_session :: proc(t: ^testing.T) {
-	session: Net
-	net_make(&session, 0, 0)
-	defer net_destroy(&session)
-	client, gate := gated_join(&session, 1, netcode.PROFILES[.Wan], &session.watch[1])
-	net_run(&session, 3)
-	testing.expect_value(t, client.status, netcode.Status.Connected)
-	gate.block_out = true
-	net_run(&session, 12) // the relay times the player out after 10 s
-	testing.expect(t, session.host.relay.seats[client.slot].conn < 0)
-	gate.block_out = false
-	net_run(&session, 3)
-	testing.expect_value(t, client.status, netcode.Status.Disconnected)
-	testing.expect_value(t, client.detail, "connection lost")
-}
-
 // A client vanishes without saying goodbye (crash, killed process) and a new one comes back on the
 // same link peer before the relay's timeout (EOS numbers peers by user ID, so a rejoining player
 // gets the same peer). The relay must drop the old player and serve the new one.

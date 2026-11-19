@@ -27,8 +27,9 @@ from one CLI. It's built for fast iteration and for AI coding agents.
 - **Sync-test mode:** the headless `synctest` mode, and a scenario every game's test suite runs, roll back and
   re-simulate on every tick and compare checksums with the forward run, so state that would diverge online fails
   offline. (Single player is a host with no remote links: nothing rolls back there.)
-- **Replays and reference runs:** replays are exact regression tests within a build, and every platform has to reproduce the
-  recorded reference runs bit for bit.
+- **Replays and reference runs:** a game keeps recorded sessions as regression tests, replayed tick by tick and
+  blessed again after a meant rules change, and every platform has to reproduce the recorded reference runs bit for
+  bit.
 - **Headless everything:** N clients in one process with a network simulator, for tests, CI and agents.
 - **Godot host:** the view reads predicted frames for motion and data, and CONFIRMED events for what must be final.
   It never writes to the simulation. Dev tools live in the game.

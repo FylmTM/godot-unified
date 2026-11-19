@@ -2,8 +2,9 @@
 
 A level is authored as a Godot scene, exported to a small binary file (`uni bake`), and loaded by the sim when its
 World is created. The scene is also the view: its meshes render as they are, its markers hide themselves. It imports
-only `unified:wire`; `unified:physics` builds a level's static bodies (`physics.level_change`), and the
-Godot host finds a marker's node by its index (`Unified.level_markers`).
+only `unified:wire`; `unified:physics` builds a level's static bodies, its shapes baked into compounds by cell
+(`physics.level_change`; src/physics/README.md, Levels), and the Godot host finds a marker's node by its index
+(`Unified.level_markers`).
 
 ## Authoring
 

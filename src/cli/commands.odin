@@ -53,12 +53,13 @@ public_commands :: proc() -> []Command {
 			run       = cmd_editor,
 		},
 		{
-			name    = "test",
-			summary = "the test suites: plain `test` runs the odin suite, `--suite all` every one; --long: the long variants; quiet when it passes",
-			budget  = 6,
-			options = option_types(Test_Opts),
-			details = test_details,
-			run     = cmd_test,
+			name      = "test",
+			summary   = "the test suites: plain `test` runs the odin suite, `--suite all` every one; --long: the long variants; quiet when it passes",
+			budget    = 6,
+			ci_budget = ODIN_SUITE_CI_BUDGET,
+			options   = option_types(Test_Opts),
+			details   = test_details,
+			run       = cmd_test,
 		},
 		{
 			name    = "vet",
@@ -143,6 +144,11 @@ public_commands :: proc() -> []Command {
 	})
 }
 
+// What CI's 4-core runners allow the odin suite (Suite.ci_budget), plain `test` too: its optimised LLVM compile and
+// its tests fill every core, so 3x the budget (which a 16+ thread machine meets) doesn't cover 4. Sized from the
+// slowest runner, linux-arm64 (its compile scales worst), with a margin for a noisy one.
+ODIN_SUITE_CI_BUDGET :: 45
+
 // The test suites every project has (`odin`, `box3d-debug`, `godot`); `run` puts them before the project's own
 // (`add_suites`).
 public_suites :: proc() -> []Suite {
@@ -153,14 +159,17 @@ public_suites :: proc() -> []Suite {
 				summary     = "every Odin test package (the inner loop; a project's unoptimised test root compiles beside the optimised one); with a game named, that game's tests",
 				budget      = 6,
 				long_budget = 12,
+				ci_budget   = ODIN_SUITE_CI_BUDGET,
 				run         = suite_odin,
 			},
 			{
-				name    = "box3d-debug",
-				summary = "the odin suite's binaries again, against Box3D's debug library (its asserts trap a misused id)",
-				// its physics is unoptimised: several times the odin suite's run (CI's watchdog: 3x the budget)
-				budget  = 12,
-				run     = suite_box3d_debug,
+				name      = "box3d-debug",
+				summary   = "the odin suite's binaries again, against Box3D's debug library (its asserts trap a misused id)",
+				// its physics is unoptimised: several times the odin suite's run, which fills every core (CI runs it
+				// on linux-arm64's 4 cores; its watchdog is the CI budget)
+				budget    = 12,
+				ci_budget = 45,
+				run       = suite_box3d_debug,
 			},
 			{
 				name        = "godot",
@@ -184,6 +193,7 @@ Test_Opts :: struct {
 	suite: string `hint:"s,..." usage:"suites, comma-separated, or all (default: odin); listed below"`,
 	only:  string `hint:"name,..." usage:"tests (odin) or steps (godot), comma-separated"`,
 	long:  bool `usage:"the long variants: every standard scenario at full length (odin), 960 ticks (net), a 256-tick session (godot)"`,
+	bless: bool `usage:"odin: bless each replay regression (a game's simulation/tests/replays/) that diverges or has no expectation, after a meant sim change"`,
 }
 
 @(private)
@@ -198,12 +208,13 @@ cmd_test :: proc(args: []string) -> Result {
 		names = suite_names()
 	}
 	test_opts := Test_Options {
-		only = split_list(opts.only),
-		long = opts.long,
-		game = opts.game,
+		only  = split_list(opts.only),
+		long  = opts.long,
+		bless = opts.bless,
+		game  = opts.game,
 	}
-	// The run's budget: its suites' (each by suite_budget, --long included).
-	budget: f64
+	// The run's budget and CI allowance: its suites' (each by suite_budget and suite_ci_budget, --long included).
+	budget, ci_budget: f64
 	suites: [dynamic]^Suite
 	for name in names {
 		found := false
@@ -211,6 +222,7 @@ cmd_test :: proc(args: []string) -> Result {
 			if suite.name == name {
 				append(&suites, &suite)
 				budget += suite_budget(&suite, test_opts)
+				ci_budget += suite_ci_budget(&suite, test_opts)
 				found = true
 			}
 		}
@@ -252,6 +264,9 @@ cmd_test :: proc(args: []string) -> Result {
 			if opts.long {
 				append(&cmd, "--long")
 			}
+			if opts.bless {
+				append(&cmd, "--bless")
+			}
 			if state.verbose do log("uni: test --suite %s: beside the others", suite.name)
 			children[i] = start({
 				cmd     = cmd[:],
@@ -273,7 +288,7 @@ cmd_test :: proc(args: []string) -> Result {
 		passed := suite.run(games, test_opts)
 		results[i] = {suite.name, passed, round2(seconds_since(start))}
 		ok = ok && passed
-		allowed := suite_budget(suite, test_opts) * (in_ci() ? CI_BUDGET_SCALE : 1)
+		allowed := in_ci() ? suite_ci_budget(suite, test_opts) : suite_budget(suite, test_opts)
 		if len(suites) > 1 && alone && len(state.cold) == cold_before && results[i].seconds > allowed {
 			log(
 				"uni: OVER BUDGET: the %s suite took %.1fs, budget %.0fs: find out why (AGENTS.md, Non-negotiables)",
@@ -310,10 +325,11 @@ cmd_test :: proc(args: []string) -> Result {
 		)
 	}
 	return {
-		ok      = ok,
-		summary = aprintf("test: %s", strings.to_string(builder)),
-		data    = box(results[:]),
-		budget  = budget,
+		ok        = ok,
+		summary   = aprintf("test: %s", strings.to_string(builder)),
+		data      = box(results[:]),
+		budget    = budget,
+		ci_budget = ci_budget,
 	}
 }
 
@@ -380,6 +396,9 @@ test_details :: proc() -> string {
 		if suite.long_budget > 0 {
 			budget = aprintf("%s, --long %.0fs", budget, suite.long_budget)
 		}
+		if suite.ci_budget > suite.budget * CI_BUDGET_SCALE {
+			budget = aprintf("%s; CI %.0fs: its 4-core runners", budget, suite.ci_budget)
+		}
 		fmt.sbprintf(&builder, "  %-*s  %s (budget %s)\n", width, suite.name, suite.summary, budget)
 		if suite.name == "godot" {
 			fmt.sbprintf(
@@ -398,7 +417,8 @@ test_details :: proc() -> string {
 	strings.write_string(
 		&builder,
 		"With other suites, the ones that mostly wait (godot, and the project's own that say so) run beside them in\n" +
-		"child processes. A run's budget is its suites' sum; a suite is held to its own only when it ran alone (beside\n" +
+		"child processes. A run's budget is its suites' sum (in CI, their CI allowances': 3x the budget, or what CI's\n" +
+		"4-core runners cost a suite that fills every core); a suite is held to its own only when it ran alone (beside\n" +
 		"others, its time says how busy the machine was). A passing run prints a summary: each suite's result and\n" +
 		"the warnings it logged (a leak, OVER BUDGET); a failing one prints the whole log of what failed, and\n" +
 		"--verbose everything.",

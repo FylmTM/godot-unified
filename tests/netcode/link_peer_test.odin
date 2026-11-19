@@ -159,7 +159,7 @@ a_duplicate_hello_of_a_replaced_connection_on_one_link_peer :: proc(t: ^testing.
 		second.status == .Connected &&
 		len(session.relay.members) == members &&
 		session.relay.seats[1].member == second.member,
-		"after a duplicate of the replaced connection's Hello: the live one is %v (%s), member %d; slot 1 connected %v, member %d; %d members (were %d)",
+		"after a duplicate of the replaced connection's Hello: the live one is %v (%s), member %d; slot 1 seated %v, member %d; %d members (were %d)",
 		second.status,
 		second.detail,
 		second.member,
@@ -168,4 +168,101 @@ a_duplicate_hello_of_a_replaced_connection_on_one_link_peer :: proc(t: ^testing.
 		len(session.relay.members),
 		members,
 	)
+}
+
+// The link peer's previous program said Hello and was gone before it arrived (its datagram delayed, or duplicated on
+// the way); the next program's connection is live; then the stale Hello arrives. It echoes no epoch, like a restarted
+// program's first datagram, but it says when its connection opened, which is before the live one: it is dropped
+// unread, and the live connection, its seat and the members stay as they were.
+@(test)
+a_stale_hello_on_one_link_peer_never_ends_the_live_connection :: proc(t: ^testing.T) {
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	net_join(&session, 0, .Ideal)
+	net_run(&session, 1)
+	ENDPOINT :: 5
+	capture: Capture
+	defer capture_destroy(&capture)
+	first := netcode.client_create(&toy.GAME, {slot = -1, player_name = "Linus"}, capture_link(&capture), {})
+	defer netcode.client_destroy(first)
+	wire_from_5 := netcode.loopback_link(session.hub, ENDPOINT) // sends only
+	defer netcode.link_close(&wire_from_5)
+	netcode.client_step(first, session.clock.now) // its Hello, still on its way: the process is gone
+	second := netcode.client_create(
+		&toy.GAME,
+		{slot = -1, player_name = "Linus"},
+		netcode.loopback_link(session.hub, ENDPOINT),
+		hooks_for(&session.watch[2]),
+	)
+	append(&session.clients, second)
+	net_run(&session, 2)
+	testing.expect_value(t, second.status, netcode.Status.Connected)
+	members := len(session.relay.members)
+	for repeat in 0 ..< 3 {
+		netcode.link_send(&wire_from_5, 0, capture.sent[0])
+		net_run(&session, 1)
+		testing.expectf(
+			t,
+			second.status == .Connected &&
+			len(session.relay.members) == members &&
+			session.relay.seats[1].conn >= 0 &&
+			session.relay.seats[1].member == second.member,
+			"after the stale Hello (%d): the live one is %v (%s); slot 1 seated %v, member %d; %d members (were %d)",
+			repeat,
+			second.status,
+			second.detail,
+			session.relay.seats[1].conn >= 0,
+			session.relay.seats[1].member,
+			len(session.relay.members),
+			members,
+		)
+	}
+	expect_agree(t, &session)
+}
+
+// A newer program on the link peer (opened after the open connection: a restart while the old one's connection is
+// still open) replaces it at once: the newest connection wins on the channel as at the relay.
+@(test)
+a_newer_program_on_one_link_peer_replaces_the_live_connection :: proc(t: ^testing.T) {
+	session: Net
+	net_make_relay(&session, 1, 0)
+	defer net_destroy(&session)
+	net_join(&session, 0, .Ideal)
+	net_run(&session, 1)
+	ENDPOINT :: 5
+	old := netcode.client_create(
+		&toy.GAME,
+		{slot = -1, player_name = "Old", token = {1 = 7}},
+		netcode.loopback_link(session.hub, ENDPOINT),
+		hooks_for(&session.watch[2]),
+	)
+	append(&session.clients, old)
+	net_run(&session, 2)
+	testing.expect_value(t, old.status, netcode.Status.Connected)
+	// The old program stops reading (both share the endpoint, and what the relay sends would reach either); its
+	// connection is still open at the relay, heard from a moment ago.
+	pop(&session.clients)
+	defer netcode.client_destroy(old)
+	newer := netcode.client_create(
+		&toy.GAME,
+		{slot = -1, player_name = "New", token = {1 = 7}},
+		netcode.loopback_link(session.hub, ENDPOINT),
+		hooks_for(&session.watch[3]),
+	)
+	append(&session.clients, newer)
+	net_run(&session, 2)
+	testing.expect_value(t, newer.status, netcode.Status.Connected)
+	testing.expect_value(t, session.relay.seats[1].member, newer.member)
+	testing.expect_value(t, newer.member, old.member) // the same person, by token
+}
+
+// The opening time a datagram carries compares across its 31-bit wrap.
+@(test)
+opening_times_compare_across_the_wrap :: proc(t: ^testing.T) {
+	near_wrap := netcode.EPOCH_BIT - 5
+	testing.expect(t, netcode.newer_opened(3, near_wrap)) // 8 ms later, past the wrap
+	testing.expect(t, !netcode.newer_opened(near_wrap, 3))
+	testing.expect(t, !netcode.newer_opened(42, 42))
+	testing.expect(t, netcode.newer_opened(43, 42))
 }
