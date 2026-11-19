@@ -91,13 +91,15 @@ value_json :: proc(out: ^strings.Builder, type: ^runtime.Type_Info, data: rawptr
 		if info.signed do fmt.sbprintf(out, "%d", read_integer(data, type))
 		else do fmt.sbprintf(out, "%d", u64(read_integer(data, type)))
 	case runtime.Type_Info_Float:
-		value := f64((^f32)(data)^) if type.size == 4 else (^f64)(data)^
-		if value != value || value - value != 0 { 	// NaN or infinite
+		if type.size != 4 { 	// the State is f32 only
+			strings.write_quoted_string(out, fmt.tprint(any{data, type.id}))
+			return
+		}
+		value := (^f32)(data)^
+		if value != value || value - value != 0 { 	// NaN or infinite: no JSON number
 			strings.write_quoted_string(out, fmt.tprint(value))
 		} else {
-			buffer: [64]u8
-			text := strconv.write_float(buffer[:], value, 'g', -1, 32 if type.size == 4 else 64)
-			strings.write_string(out, strings.trim_prefix(text, "+")) // it writes a sign: JSON has none for positive numbers
+			fmt.sbprint(out, value) // the shortest text that reads back as this f32
 		}
 	case runtime.Type_Info_Boolean:
 		strings.write_string(out, bytes[0] != 0 ? "true" : "false")

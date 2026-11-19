@@ -117,12 +117,11 @@ a_paused_session_steps_exactly_and_records_the_same_log :: proc(t: ^testing.T) {
 			testing.expect_value(t, netcode.host_advance(host, 5), 0) // not paused: nothing
 			testing.expect(t, netcode.host_set_paused(host, true, clock.now))
 			for chunk in ([]u32{1, 7, 1, 30, 64}) {
-				local := host.client.local
+				predicted := host.client.predicted
 				testing.expect_value(t, netcode.host_advance(host, chunk), chunk)
-				testing.expect_value(t, host.client.local, local + chunk)
-				testing.expect_value(t, host.client.predicted, host.client.local)
+				testing.expect_value(t, host.client.predicted, predicted + chunk)
 				pause_run(host, &clock, 1) // paused: the clock stands still between steps
-				testing.expect_value(t, host.client.local, local + chunk)
+				testing.expect_value(t, host.client.predicted, predicted + chunk)
 				testing.expect(t, host.paused)
 			}
 			testing.expect(t, !netcode.host_set_paused(host, false, clock.now))

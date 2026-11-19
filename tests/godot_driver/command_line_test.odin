@@ -26,14 +26,18 @@ command_line_reads_its_flags_and_leaves_the_games :: proc(t: ^testing.T) {
 			"x",
 			"--join",
 			"a:1",
+			"--control",
+			"drive/1.port",
 		}, true)
 	defer delete(args.join)
+	defer delete(args.control)
 	testing.expect_value(t, len(problems), 0)
 	testing.expect_value(t, len(ignored), 0)
 	testing.expect(t, args.autostart)
 	testing.expect_value(t, args.ticks, 600)
 	testing.expect_value(t, args.seed, -3)
 	testing.expect_value(t, args.join, "a:1")
+	testing.expect_value(t, args.control, "drive/1.port") // the control socket's port file
 	testing.expect(t, !args.verified_players) // the verified timeline is off unless asked for
 	verified, _, _ := godot.parse_command_line({"--verified-players"}, true)
 	testing.expect(t, verified.verified_players)

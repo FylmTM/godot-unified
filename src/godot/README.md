@@ -239,6 +239,34 @@ changed in the State against the tick before, a line per leaf field (`sim.state_
 thread from the two states the session thread copies while the Inspector shows (live, after a rollback, the
 corrected tick before).
 
+## The control socket
+
+An agent plays and checks a running game the way a person does, from outside the process: `uni drive` starts the
+game with `--control <file>`, and the game (`control.odin`) listens on 127.0.0.1 at a port the OS picks, written to
+that file, so several games, and several copies of one game, run side by side. Each connection carries one request
+and its reply, a JSON line each; `uni drive -h` lists the verbs.
+
+- **Only where asked.** The socket exists in dev UI builds only (a `--no-devui` build has none) and opens only with
+  the flag. It listens on loopback with no authentication: anything on the machine may drive a game that was started
+  for it, which is the point.
+- **A driven session is a session.** Nothing here writes state. Input goes through Godot's Input singleton, which the
+  game's `sample_input` reads as it reads a player's keys, and a command goes through the session's queue as a
+  script's `send_command`, so a driven session is recorded, replays, and plays online like any other. An input still
+  reaches the sim after the session's input delay.
+- **Exact steps.** A paused single-player session steps exactly the ticks asked (netcode's `host_advance`), each
+  sampling the input held then. A press held for some ticks while paused asks for its steps one frame later, once
+  the main thread's sample holds the press. A running session moves on its own clock between requests: ticks there
+  are counted on the shown Frame.
+- **The main thread.** The socket is polled at the end of the session's `_process`, after this frame's views and
+  events, so a reply sees what the frame shows; a request that waits (a pause, a step, a timed press, a wait, a
+  screenshot of the next drawn frame, a click's three frames of mouse events) keeps its connection until it is
+  answered or times out. While the socket is open the session thread copies the newest state for every Frame (as
+  for the Inspector), so a state query never waits for one.
+- **What it reads.** State, session data and constants as JSON by RTTI (`sim.value_json`: a table by its live items,
+  a player by its key, sim units); the event states the session delivered, kept in a ring with a serial per state;
+  the visible controls with a text or a press, the dev UI's left out; a GDScript expression (Godot's `Expression`) on
+  the current scene for anything else.
+
 ## The view index
 
 `uni bake <game>` scans the game's scenes for `UnifiedView` markers and writes `res://unified_index.tres` (each kind

@@ -141,23 +141,24 @@ host_step_at :: proc(host: ^Host($G), now: i64) -> i64 {
 	return min(relay_wake, client_wake)
 }
 
-// Steps a paused single-player session by exactly `ticks` ticks of its clock and leaves it paused: the session time
-// moves on in quarter-tick steps until the host's client has scheduled `ticks` more ticks (each sampling its input as
-// a running session does, so the log is one an unpaused run with the same inputs records), and stands still again.
+// Steps a paused single-player session by exactly `ticks` ticks and leaves it paused: the session time moves on in
+// quarter-tick steps until the host's client has computed `ticks` more ticks (its predicted tick, the one it shows,
+// which the relay's finalized ticks may keep a tick ahead of its scheduler), sampling its input as a running session
+// does, so the log is one an unpaused run with the same inputs records; then the session time stands still again.
 // Returns the ticks it stepped: fewer only at the session's end, 0 when the host is not paused (a pause is single
 // player only: host_set_paused) or its clock has not started.
 host_advance :: proc(host: ^Host($G), ticks: u32) -> u32 {
 	client := host.client
 	if !host.paused || host.linked || !client.started || ticks == 0 do return 0
-	from := client.local
-	quantum := max(i64(client.tm.tick_us / 4), 1) // under a tick, so the scheduler takes at most one per step
+	from := client.predicted
+	quantum := max(i64(client.tm.tick_us / 4), 1) // under a tick: one tick at most per step
 	// the scheduler's period is within 2% of a tick: a few quanta per tick, and a backstop for a session that ended
 	for _ in 0 ..< int(ticks) * 8 + 16 {
-		if client.local - from >= ticks || at_end(client, client.local) do break
+		if client.predicted - from >= ticks || at_end(client, client.predicted) do break
 		host.paused_total -= quantum // the frozen session time moves on
 		host_step_at(host, host.paused_at - host.paused_total)
 	}
-	return client.local - from
+	return client.predicted - from
 }
 
 // host_step's wake while paused: how soon a loop that sleeps until it notices a resume.

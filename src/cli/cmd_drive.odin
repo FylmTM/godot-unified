@@ -49,7 +49,7 @@ drive_details :: proc() -> string {
 		"  list                     the instances of the game and whether each runs\n" +
 		"  status                   mode, tick, verified tick, paused, level, players, local players, scene\n" +
 		"  pause | resume           stop or restart a single-player session's clock (exact: nothing moves while paused)\n" +
-		"  step <n>                 a paused session steps exactly n ticks, each sampling the input held now\n" +
+		"  step <n>                 a paused session steps exactly n ticks, sampling the input held now (it acts after the input delay)\n" +
 		"  press <action> [n]       hold an Input Map action (--strength); with n: for n ticks, then release (paused: steps them)\n" +
 		"  release <action>         let go of it\n" +
 		"  command <name> [k=v ..]  send one of the game's commands (any, Cmd_Dev_* too) as local player 0 (sim units; a player by its key)\n" +
@@ -62,7 +62,7 @@ drive_details :: proc() -> string {
 		"  shot [file.png]          the window as a PNG (default .out/drive/<name>-<n>.png in the game)\n" +
 		"  ui                       the visible buttons and texts (path, class, text, disabled, rect)\n" +
 		"  click <text|path>        a real mouse click on a button by its text, or any control by its node path\n" +
-		"  eval <expression>        a GDScript expression on the current scene (session, tree, root, scene named): its value\n" +
+		"  eval <expression>        a GDScript expression on the current scene (session, tree, root, scene, Input, Engine): its value\n" +
 		"Input goes through the game's own sampling and commands through the session's queue, so a driven session\n" +
 		"is a session like any other: deterministic, recorded, replayable. A paused session steps exactly; a running\n" +
 		"one moves on its own clock between verbs." \
@@ -438,8 +438,9 @@ drive_check :: proc(game: Game) -> bool {
 		check(&failed, time.tick_diff(deadline, time.tick_now()) < 0, "the session never ran: %v", status)
 		time.sleep(50 * time.Millisecond)
 	}
-	call(&instance, &failed, true, "pause")
+	paused := tick(call(&instance, &failed, true, "pause"))
 	from := tick(call(&instance, &failed, true, "step", "16"))
+	check(&failed, from == paused + 16, "step 16 from the pause went from %d to %d", paused, from)
 	stepped := tick(call(&instance, &failed, true, "step", "3"))
 	check(&failed, stepped == from + 3, "step 3 went from %d to %d", from, stepped)
 	pressed := tick(call(&instance, &failed, true, "press", "ui_right", "4"))
