@@ -36,6 +36,7 @@ Session_Node :: struct {
 	has_pending: bool,
 	roster_seen: u32, // roster.changes when roster_changed was last emitted
 	mode:        Mode, // the session started last (UnifiedSession.mode; the dev UI: no netsim in single player)
+	link_slow:   bool, // UnifiedSession.link_slow
 }
 
 @(private)
@@ -180,6 +181,34 @@ register_session_class :: proc() {
 		proc(session: ^Session_Node) -> i64 {return i64(session.last_tick)},
 		doc = "The tick shown (the newest predicted one).",
 	)
+	gd.bind_property(
+		class,
+		"round_trip_ms",
+		proc(session: ^Session_Node) -> f64 {return session.frame != nil ? session.frame.net.rtt_ms : 0},
+		doc = "The round trip to the host the input delay is computed from, in milliseconds, at the shown frame (next to 0 in single player and for the host: its relay is in-process).",
+	)
+	gd.bind_property(
+		class,
+		"round_trip_ceiling_ms",
+		proc(session: ^Session_Node) -> f64 {return session.frame != nil ? session.frame.net.ceiling_ms : 0},
+		doc = "The longest round trip this game plays smoothly at, in milliseconds (from its tick rate; 0 before a session runs). Past it the player's view stalls; their inputs still count.",
+	)
+	gd.bind_property(
+		class,
+		"input_delay_ticks",
+		proc(session: ^Session_Node) -> i64 {return session.frame != nil ? i64(session.frame.net.delay) : 0},
+		doc = "The input delay in ticks (the lag the player feels: [code]input_delay_ticks * 1000 / tick_hz[/code] ms) at the shown frame; at least the game's floor.",
+	)
+	gd.bind_property(
+		class,
+		"link_slow",
+		proc(session: ^Session_Node) -> bool {return session.link_slow},
+		doc = "The round trip to the host is past [member round_trip_ceiling_ms] ([signal link_slow_changed] says when it changes): show a warning, or leave in the game's own words. Judged after a few round trips; it clears after 2 s back under the ceiling.",
+	)
+	gd.bind_property(class, "host_silent_ms", proc(session: ^Session_Node) -> f64 {
+			if session.frame == nil || session.frame.net.last_msg_us == 0 do return 0
+			return f64(netcode.now_us() - session.frame.net.last_msg_us) / 1000
+		}, doc = "How long nothing has come from the host, in milliseconds (0 before the first). The world freezes while the link is down; past a second or so, a game may say \"connection problems\".")
 	gd.bind_property(class, "local_player", proc(session: ^Session_Node) -> i64 {
 			return session.frame != nil ? i64(session.frame.local_player) : 0
 		}, doc = "The local player's key at the shown tick (0 until it joins, and once the session is over).")
@@ -300,6 +329,7 @@ register_session_class :: proc() {
 		"input_wanted",
 		doc = "Every frame, just before the session samples the local player's input (at priority -1000, before every other node's [code]_process[/code]): set [code]Unified.input[/code]'s values here, whatever your node's priority, and this frame's sample takes them.",
 	)
+	gd.bind_signal(class, "link_slow_changed", {{"slow", .BOOL, ""}}, doc = "[member link_slow] changed.")
 	gd.bind_signal(
 		class,
 		"desync",
@@ -328,6 +358,16 @@ register_session_class :: proc() {
 	}
 	for name, mode in MODE_NAMES do gd.bind_constant(class, "Mode", name, i64(mode), doc = MODE_DOCS[mode])
 	for name, state in EVENT_STATE_NAMES do gd.bind_constant(class, "EventState", name, i64(state), doc = EVENT_STATE_DOCS[state])
+}
+
+// The link's slow flag changed (Message.Link_Slow), or went with the session: link_slow_changed, and a mark in the dev
+// UI's timeline.
+@(private)
+set_link_slow :: proc(session: ^Session_Node, slow: bool) {
+	if session.link_slow == slow do return
+	session.link_slow = slow
+	if session.frame != nil do dev_note(session.frame.tick, slow ? "link slow" : "link fast again")
+	gd.emit_signal(session.obj, gd.sn("link_slow_changed"), slow)
 }
 
 @(private)
@@ -693,9 +733,12 @@ drain_messages :: proc(session: ^Session_Node) {
 			fmt.printfln("unified: desync at tick %d: %s", message.tick, text)
 			dev_note(message.tick, fmt.tprintf("desync: %s", text))
 			gd.emit_signal(session.obj, gd.sn("desync"), i64(message.tick), text)
+		case .Link_Slow:
+			set_link_slow(session, message.tick != 0)
 		case .Result:
 			fmt.printfln("unified: result %s", api.result())
 			if !session.has_pending {
+				set_link_slow(session, false)
 				data_reset()
 				set_join_code(session, "")
 				session.ended = true

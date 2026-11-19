@@ -137,6 +137,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	finished:  bool, // atomic
 	stopping:  bool,
 	stop_at:   i64,
+	slow:      bool, // the client's link was slow when last posted (Message.Link_Slow)
 	frames:    Triple(Frame_Data),
 	poses:     Pose_Memory, // every keyed item's pose at the fill before (session thread)
 	states:    Triple(sim.part(G, sim.GAME_STATE)),
@@ -816,6 +817,10 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 		} else {
 			wake = netcode.client_step(driver.client, now)
 			if netcode.client_finished(driver.client) do break
+		}
+		if driver.client.slow != driver.slow {
+			driver.slow = driver.client.slow
+			post(driver, Message{kind = .Link_Slow, tick = u32(driver.slow)})
 		}
 		goodbye: i64 = sync.atomic_load(&driver.hurry) ? HURRY_US : GOODBYE_US
 		if driver.stopping && now - driver.stop_at > goodbye do break

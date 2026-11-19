@@ -152,8 +152,10 @@ when DEVUI {
 			devui.stat("tick", "%d   verified %d   player %d", frame.tick, frame.verified, frame.local_player)
 			devui.stat(
 				"net",
-				"rtt %.0f ms   input delay %d   rollbacks %d (%d ticks)",
+				"rtt %.0f ms (ceiling %.0f%s)   input delay %d   rollbacks %d (%d ticks)",
 				frame.net.rtt_ms,
+				frame.net.ceiling_ms,
+				frame.net.slow ? ": slow" : "",
 				frame.net.delay,
 				frame.net.rollbacks,
 				frame.net.resim_ticks,

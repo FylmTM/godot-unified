@@ -266,6 +266,7 @@ Message :: struct {
 		Join_Code, // UnifiedSession.join_code
 		Result,
 		Desync, // the relay found the players' checksums of `tick` differ; text: who and what
+		Link_Slow, // the link's round trip went past the game's ceiling (tick 1) or came back under it (tick 0)
 	},
 	status: Status_Kind,
 	tick:   u32,

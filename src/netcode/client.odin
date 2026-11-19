@@ -150,8 +150,14 @@ Client_Stats :: struct {
 	snapshot_bytes: int, // a joiner: the snapshot it restored
 	snapshot_us:    i64, // ... from its Snap_Begin to its last chunk
 	last_msg_us:    i64, // when the relay's last message arrived (now_us; 0: none yet)
+	slow_changes:   int, // times `slow` changed
 	// live, filled by client_stats
 	rtt_ms:         f64, // the round trip the clock and input delay use
+	ceiling_ms:     f64, // the round trip this game plays smoothly at (round_trip_ceiling_us)
+	// The round trip's high end (RTT + 4 × its mean deviation, what the input delay is computed from) is past the
+	// ceiling: the client stalls. Judged once SLOW_SAMPLES round trips were measured; cleared after SLOW_CLEAR_US
+	// below SLOW_CLEAR of the ceiling. A game that refuses a slow player does it in its own words.
+	slow:           bool,
 	delay:          u32, // the input delay, ticks
 	net:            Channel_Stats,
 }
@@ -211,6 +217,8 @@ Client :: struct($G: typeid) {
 	rtt_us:         f64, // the round trip, averaged over the channel's samples
 	rtt_dev_us:     f64, // its mean deviation (jitter)
 	rtt_samples:    int, // the channel's samples taken in
+	slow:           bool, // Client_Stats.slow
+	fast_since_us:  i64, // a slow client's round trip has been below the clearing mark since (0: it isn't)
 	delay:          u32, // k: own inputs are sampled for tick local + delay
 	delay_eval_us:  i64,
 	next_tick_us:   f64,
@@ -339,6 +347,8 @@ client_inputs :: proc(client: ^Client($G), tick: u32) -> ^usim.Inputs(G) {
 client_stats :: proc(client: ^Client($G)) -> Client_Stats {
 	stats := client.stats
 	stats.rtt_ms = client.rtt_us / 1000
+	stats.ceiling_ms = round_trip_ceiling_us(client.tm) / 1000
+	stats.slow = client.slow
 	stats.delay = client.delay
 	stats.net = client.ch.stats
 	return stats
@@ -422,9 +432,14 @@ fin_base :: proc(client: ^Client($G)) -> u32 {
 	return client.sim != nil ? client.verified : client.snap_tick
 }
 
-// Takes the channel's new round-trip sample, if there is one, into the average and its deviation.
+SLOW_SAMPLES :: 8 // round-trip samples before a client judges its link slow (about 8 ticks after its Hello's ack)
+SLOW_CLEAR :: 0.9 // a slow link is fast again below this much of the ceiling ...
+SLOW_CLEAR_US :: 2_000_000 // ... for this long (the mark and the wait keep it from flapping at the ceiling)
+
+// Takes the channel's new round-trip sample, if there is one, into the average and its deviation, and judges whether
+// the link is past the game's round-trip ceiling (Client_Stats.slow).
 @(private)
-take_rtt :: proc(client: ^Client($G)) {
+take_rtt :: proc(client: ^Client($G), now: i64) {
 	sample, samples := channel_rtt(client.ch, client.relay)
 	if samples == client.rtt_samples {
 		return
@@ -436,6 +451,33 @@ take_rtt :: proc(client: ^Client($G)) {
 		client.rtt_us += (sample - client.rtt_us) * 0.1
 	}
 	client.rtt_samples = samples
+	high := client.rtt_us + 4 * client.rtt_dev_us
+	ceiling := round_trip_ceiling_us(client.tm)
+	slow := client.slow
+	if samples >= SLOW_SAMPLES && high > ceiling {
+		slow = true
+		client.fast_since_us = 0
+	} else if client.slow && high < SLOW_CLEAR * ceiling {
+		if client.fast_since_us == 0 {
+			client.fast_since_us = now
+		} else if now - client.fast_since_us >= SLOW_CLEAR_US {
+			slow = false
+		}
+	} else {
+		client.fast_since_us = 0
+	}
+	if slow != client.slow {
+		client.slow = slow
+		client.fast_since_us = 0
+		client.stats.slow_changes += 1
+		log.infof(
+			"link %s: round trip %.0f ms (high end %.0f), ceiling %.0f",
+			slow ? "slow" : "fast again",
+			client.rtt_us / 1000,
+			high / 1000,
+			ceiling / 1000,
+		)
+	}
 }
 
 @(private)
@@ -451,7 +493,7 @@ on_finalized :: proc(client: ^Client($G), reader: ^wire.Reader, now: i64) {
 	client.cmd_acked = max(client.cmd_acked, min(command_ack, client.cmd_seq))
 	// The channel measured the round trip from the Hello's ack on, so the first Finalized already times the clock
 	// (a late joiner's inputs for its join tick reach the relay in time).
-	take_rtt(client)
+	take_rtt(client, now)
 	if client.rtt_samples > 0 {
 		offset := f64(relay_time) + client.rtt_us / 2 - f64(now)
 		if !client.have_offset {
@@ -1397,7 +1439,7 @@ client_json :: proc(result: Client_Result) -> string {
 		append(&zones, ..transmute([]u8)fmt.tprintf(`"%s":%.2f`, zone.name, zone.us))
 	}
 	return fmt.tprintf(
-		`{{"slot":%d,"member":%d,"final_tick":%d,"checksums":[%s],"client_step_us":{{"p99":%d,"max":%d,"count":%d}},"snapshot_bytes":%d,"snapshot_ms":%.1f,"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"desyncs":%d,"ok":%v,"net":%s,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"zones":{{%s}}}}`,
+		`{{"slot":%d,"member":%d,"final_tick":%d,"checksums":[%s],"client_step_us":{{"p99":%d,"max":%d,"count":%d}},"snapshot_bytes":%d,"snapshot_ms":%.1f,"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"ceiling_ms":%.1f,"slow":%v,"slow_changes":%d,"desyncs":%d,"ok":%v,"net":%s,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"zones":{{%s}}}}`,
 		result.slot,
 		result.member,
 		result.final_tick,
@@ -1416,6 +1458,9 @@ client_json :: proc(result: Client_Result) -> string {
 		result.delay,
 		result.delay_changes,
 		result.rtt_ms,
+		result.ceiling_ms,
+		result.slow,
+		result.slow_changes,
 		result.desyncs,
 		result.ok,
 		channel_stats_json(result.net),
