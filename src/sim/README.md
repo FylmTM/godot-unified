@@ -139,7 +139,9 @@ or resume takes effect from the next tick, so no game time is run twice. On a pa
 - `buttons` compares with the slot's input of the tick before on every tick, paused or not: a press during the pause
   is pressed on that tick, and a button held through the resume is not pressed again.
 
-Time scales (slow motion) are deliberately not built.
+A pause in single player is exact from outside the sim instead (`UnifiedSession.paused`, through the netcode host):
+nobody else waits, so stopping the clocks changes nothing the sim computes. Time scales (slow motion) are deliberately
+not built.
 
 ## Players
 

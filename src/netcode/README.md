@@ -32,7 +32,10 @@ ticks are the sim's keep slots.
   checksums. It runs no game code: only the game's Input, player count and tick rate matter to it.
 - **Client**: the verified and predicted frames, rollback, the clock and input delay, snapshots for joiners.
 - **Host**: the relay plus the host's own client (slot 0) joined by loopback. Single player is a host with no remote
-  links. The host leaving ends the session: the host is the relay.
+  links. The host leaving ends the session: the host is the relay. A single-player host can pause: it runs its relay
+  and client on session time, its clock less the time spent paused, so from their side no time passed and the session
+  resumes byte for byte as if never paused; a remote link refuses the pause and ends one (online a pause is the game's
+  state, `src/sim/README.md`, Game time).
 
 ## The wire
 

@@ -147,6 +147,13 @@ register_session_class :: proc() {
 		proc(session: ^Session_Node, on: bool) {set_game_input(on)},
 		doc = "Off, the game's input helpers read nothing (a pause menu, a chat field: their keys and clicks don't reach the sim); [member Unified.input] still flows. When it is turned back on, an action still held counts only once it is released.",
 	)
+	gd.bind_property(
+		class,
+		"paused",
+		proc(session: ^Session_Node) -> bool {return sync.atomic_load(&pause_on)},
+		proc(session: ^Session_Node, paused: bool) {sync.atomic_store(&pause_want, paused)},
+		doc = "Stops a single-player session's clock: no tick is sampled or stepped until it is false again, and the session goes on as if no time had passed (exact: nobody else waits). Reads true once the session thread paused it, false while a session has other players (online a pause is the game's own state: a command) and when a session starts, so a pause menu can set it in every mode. Views hold their last pose meanwhile.",
+	)
 	gd.bind_property(class, "view_root", view_root_of, proc(session: ^Session_Node, node: gd.Node) {
 			session.view_root = node
 			session.root_id = node.ptr != nil ? gdi.object_get_instance_id(node.ptr) : 0

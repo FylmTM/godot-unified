@@ -144,7 +144,6 @@ func _walk_pad() -> void:
 	step("pad menu navigation")
 
 
-## The Esc menu opens over the play and closes; the sim keeps running under it.
 ## The level change: a travel command takes the team to the route (its scene swapped in under the arena's level root,
 ## the marker views the route's), then the pause menu's "Back to hub" brings it back.
 func _walk_travel() -> void:
@@ -166,18 +165,23 @@ func _walk_travel() -> void:
 	step("back to the hub")
 
 
+## The Esc menu opens over the play and closes; in single player it pauses the session meanwhile.
 func _walk_pause_menu() -> void:
 	var pause := find(current_scene, ^"PauseMenu") as CanvasLayer
 	if failed():
 		return
-	var tick0: int = session.tick
 	await press_action(&"menu")
 	expect(pause.visible, "Esc opens the menu")
+	await seconds(0.1)
+	expect(session.paused, "single player: the menu pauses the session")
+	var held: int = session.tick
 	await seconds(0.3)
-	expect(session.tick > tick0, "the sim keeps running under the menu")
+	expect(session.tick == held, "no tick while paused")
 	await shot("03_pause_menu")
 	await press_action(&"menu")
 	expect(not pause.visible, "Esc closes the menu")
+	await seconds(0.3)
+	expect(not session.paused and session.tick > held, "the ticks go on once it closes")
 	await press_action(&"menu")
 	step("Esc menu")
 	# open to friends: the single-player session hosts on the LAN port and keeps running
@@ -187,6 +191,9 @@ func _walk_pause_menu() -> void:
 		"the session opens to friends")
 	if failed():
 		return
+	# the menu had paused it; opening to friends ends the pause (a remote link), and the next tick comes
+	await wait_for(func() -> bool: return session.tick > tick1, 2.0, "the session goes on after opening")
+	expect(not session.paused, "opening to friends ends the single-player pause")
 	expect(session.tick > tick1 and session.status == UnifiedSession.STATUS_CONNECTED, "the session went on")
 	expect(game.mode == game.Mode.HOST_LAN, "the flow follows: hosting on LAN")
 	await press_action(&"menu")

@@ -174,19 +174,23 @@ func _walk_pad() -> void:
 	step("pad menu navigation")
 
 
-## The Esc menu opens over the play and closes; the sim keeps running under it.
+## The Esc menu opens over the play and closes; in single player it pauses the session meanwhile.
 func _walk_pause_menu() -> void:
 	var pause := find(current_scene, ^"PauseMenu") as CanvasLayer
 	if failed():
 		return
-	var tick0: int = session.tick
 	await press_action(&"menu")
 	expect(pause.visible, "Esc opens the menu")
+	await seconds(0.1)
+	expect(session.paused, "single player: the menu pauses the session")
+	var held: int = session.tick
 	await seconds(0.3)
-	expect(session.tick > tick0, "the sim keeps running under the menu")
+	expect(session.tick == held, "no tick while paused")
 	await shot("03_pause_menu")
 	await press_action(&"menu")
 	expect(not pause.visible, "Esc closes the menu")
+	await seconds(0.3)
+	expect(not session.paused and session.tick > held, "the ticks go on once it closes")
 	await press_action(&"menu")
 	step("Esc menu")
 

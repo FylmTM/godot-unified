@@ -55,6 +55,10 @@ process priority −1000, before any other node's `_process`, and emits `Unified
 script sets its values there, whatever its node's priority, and this frame's sample takes them. Set in `_process`,
 they reach the next frame's sample.
 
+**A pause menu pauses single player**: `UnifiedSession.paused` stops the session thread's host (netcode's single-player
+pause), the views hold their last pose, and the session goes on as if no time had passed. With other players it reads
+false and the menu is an overlay: a game that pauses together sends a command (`src/sim/README.md`, Game time).
+
 **Game input is off** while a dev UI text field has the keyboard and while `UnifiedSession.game_input` is false (a
 pause menu): the action helpers read nothing and latched taps drop; `Unified.input` still flows. When it comes back,
 and when the window gets the focus back, an action still held counts only once released (the key that closed a menu,

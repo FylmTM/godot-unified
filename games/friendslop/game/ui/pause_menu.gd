@@ -1,9 +1,10 @@
 extends CanvasLayer
 ## The in-game menu (the `menu` action, Esc or Start): Resume, Back to hub (friendslop's own: the team leaves the route),
 ## Invite friends (a single-player session opens to friends on the LAN port and keeps running: the join code shows on
-## the HUD's session panel; Stop inviting lets nobody new in), Settings, Leave to menu. The sim never pauses (online
-## it can't; offline the session has no pause either), so this is an overlay only, with game input off while it is
-## open (UnifiedSession.game_input: its clicks and keys don't reach the sim). A play scene instances pause_menu.tscn as
+## the HUD's session panel; Stop inviting lets nobody new in), Settings, Leave to menu. In single player it pauses the
+## session (UnifiedSession.paused; inviting friends ends the pause); with other players it is an overlay only (online
+## a pause would be the game's own state). Game input is off while it is open (UnifiedSession.game_input: its clicks
+## and keys don't reach the sim). A play scene instances pause_menu.tscn as
 ## `PauseMenu`.
 
 ## Loaded at first use, not preloaded: this scene is part of the play scene, which loads on a thread.
@@ -16,7 +17,7 @@ var _settings: SettingsPanel
 
 
 func _ready() -> void:
-	tree_exiting.connect(func() -> void: Unified.session.game_input = true)  # left to the menu while open
+	tree_exiting.connect(_release)  # left to the menu while open
 	_resume.pressed.connect(_click.bind(close))
 	(%Hub as Button).pressed.connect(_click.bind(_back_to_hub))
 	(%Invite as Button).pressed.connect(_click.bind(_invite))
@@ -39,6 +40,7 @@ func _unhandled_input(event: InputEvent) -> void:
 
 func open() -> void:
 	Unified.session.game_input = false
+	Unified.session.paused = true  # single player: the game stops; with others it is an overlay (reads back false)
 	var session := Unified.session
 	var single := session.mode == UnifiedSession.MODE_SINGLE
 	var opened := Game.invited and session.mode == UnifiedSession.MODE_HOST_DIRECT
@@ -53,7 +55,7 @@ func close() -> void:
 	if _settings != null:
 		_settings.visible = false
 	visible = false
-	Unified.session.game_input = true
+	_release()
 
 
 func _click(action: Callable) -> void:
@@ -96,3 +98,9 @@ func _close_settings() -> void:
 	_settings.visible = false
 	_panel.visible = true
 	_resume.grab_focus()
+
+
+## Input back on and the single-player pause off (closing, or leaving the play scene while open).
+func _release() -> void:
+	Unified.session.paused = false
+	Unified.session.game_input = true
