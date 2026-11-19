@@ -541,6 +541,9 @@ declaration_violation :: proc(
 	if reason := wire_violation(input, fmt.tprint(input.id)); reason != "" {
 		return fmt.tprintf("%s: the Input can't be sent between machines: %s", name, reason)
 	}
+	if reason := seen_violation(input); reason != "" {
+		return fmt.tprintf("%s: %s", name, reason)
+	}
 	if reason := union_violation(commands, 0, COMMAND_MAX, COMMAND_PREFIX); reason != "" {
 		return fmt.tprintf("%s: commands: %s", name, reason)
 	}

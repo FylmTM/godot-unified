@@ -43,6 +43,15 @@ controls' state, never a one-shot: buttons are a bit_set field named `buttons` h
 derives presses and releases against the slot's input of the tick before, which the state keeps (a predicted repeat
 never presses twice). A one-shot value is a command.
 
+**What the player saw.** Rollback already takes the network out of a shot: the shooter's input is resolved against
+the state it predicted. What remains is local: the input is for a tick a little after the picture the player acted
+on (the input delay, plus the screen interpolating a tick behind). An Input may hold a `Seen`, found by its type as
+the Clock is, which the host fills when it samples; the game never writes it. It counts whole ticks, so it changes
+only when the delay does and a still mouse doesn't make every input differ from the one before. Scripted and
+headless input carries 0 (the hosts stamp it), so a reference run doesn't depend on a screen. A shot asks the world
+as it was `seen_rewind` ago (`physics.world_cast_ray_closest_rewound`), capped by the game, since a client can claim
+any lag.
+
 A game whose players act through commands alone (a turn-based one: every decision is a one-shot) names
 `sim.No_Input`. Its ticks still carry each slot's presence, so its sessions predict, roll back, join late and replay
 like any other; only the input bytes are gone, from the wire, the log and the State.

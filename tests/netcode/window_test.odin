@@ -115,7 +115,7 @@ window_sizes :: proc(t: ^testing.T) {
 			dx      = 1,
 			dy      = 2,
 			buttons = transmute(toy.Buttons)u8(3),
-			_pad    = 4,
+			seen    = 4,
 		}
 	}
 	for player in 0 ..< toy.PLAYERS {
