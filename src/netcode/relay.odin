@@ -201,13 +201,8 @@ relay_create :: proc(game: ^$G, cfg: Relay_Config) -> ^Relay(G) {
 	for &slot in relay.slot_of {
 		slot = -1
 	}
-	header := sim.Log_Header {
-		seed       = cfg.seed,
-		content    = sim.content_hash(game.levels),
-		compat     = relay.compat,
-		players    = PLAYERS,
-		input_size = size_of(Input),
-	}
+	setup := game.setup // the session's: what every client creates its sim with
+	header := sim.log_header(game, cfg.seed, &setup, sim.content_hash(game.levels), relay.compat)
 	sim.log_stream_begin(&relay.recording, cfg.recording, header)
 	return relay
 }

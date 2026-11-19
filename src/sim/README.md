@@ -304,9 +304,13 @@ Its optional `check` is how the sync-tests catch it disagreeing with the block a
 Readers accept only the current version of each format (`LOG_VERSION`, `SNAP_VERSION`): bump it on any change to
 what the bytes hold. The byte layouts are in the headers of `log.odin` and `snapshot.odin`.
 
-- **The input log** (`Input_Log`, `log_encode`; recorded as it grows through a `Log_Stream`): seed, levels' hash and
-  the recording build's compat, then each tick's record. Seed + levels + log is the whole session.
-- **The portable snapshot** (`snapshot_encode`, `from_snapshot`): the block and the Extra's image with the build's
-  identity, so it restores on another OS or CPU (late join, `resume`) or says why not (`Snap_Error`).
+- **The input log** (`Input_Log`, `log_encode`; recorded as it grows through a `Log_Stream`): seed, the session's
+  Setup, levels' hash and the recording build's compat, then each tick's record, a join with the Profile it brought.
+  Levels + log is the whole session.
+- **The portable snapshot** (`snapshot_encode`, `from_snapshot`): the session's Setup, the block and the Extra's image
+  with the build's identity, so it restores on another OS or CPU (late join, `resume`) or says why not
+  (`Snap_Error`). A late joiner needs nothing else: its World is built from the Setup everyone built theirs from, and
+  every remembered member's Profile is in the block.
+- **Text**: `struct_from_text` reads a Setup or a Profile from `key=value` (the headless and Godot `--setup`).
 - **Desync reports**: `snapshot_diff` (two snapshots of one build, down to the leaf field), `events_diff` (two lists
   of one tick's events) and `find_nan` (no NaN may reach the block, `src/dmath/README.md`).

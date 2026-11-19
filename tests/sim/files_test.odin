@@ -39,7 +39,11 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	// struct; a join record 3
 	command_bytes := 10 * (2 * sim.COMMAND_HEAD + size_of(toy.Cmd_Bump) + size_of(toy.Cmd_Mark))
 	tick_bytes := 10 + size_of([toy.PLAYERS]toy.Input)
-	testing.expect_value(t, len(data), sim.LOG_HEADER + 50 * tick_bytes + command_bytes + 2 * sim.JOIN_BYTES)
+	testing.expect_value(
+		t,
+		len(data),
+		sim.LOG_HEADER + size_of(toy.Setup) + 50 * tick_bytes + command_bytes + 2 * sim.JOIN_BYTES,
+	)
 	back, ok := sim.log_decode(data, toy.Game)
 	defer sim.log_destroy(&back)
 	testing.expect(t, ok)
@@ -67,11 +71,8 @@ an_unended_log_with_a_cut_tail_keeps_its_whole_ticks :: proc(t: ^testing.T) {
 	recording: [dynamic]u8
 	defer delete(recording)
 	stream: sim.Log_Stream
-	sim.log_stream_begin(
-		&stream,
-		sim.log_sink_memory(&recording),
-		{seed = 1, players = toy.PLAYERS, input_size = size_of(toy.Input)},
-	)
+	setup := toy.Setup{}
+	sim.log_stream_begin(&stream, sim.log_sink_memory(&recording), sim.log_header(&toy.GAME, 1, &setup, 0, 0))
 	defer delete(stream.writer.buf)
 	for k in 0 ..< 20 {
 		inputs: toy.Inputs
