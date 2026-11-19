@@ -152,12 +152,24 @@ run :: proc(
 		on_level.levels[index].bytes = data
 		game = on_level
 	}
+	if text, has := args.opts["setup"]; has {
+		delete_key(&args.opts, "setup")
+		setup, problem := sim.struct_from_text(game.setup, text)
+		if problem == "" do problem = sim.setup_violation(game, &setup)
+		if problem != "" {
+			die("--setup %s: %s", text, problem)
+		}
+		// A copy of the game with that Setup, as --level makes one with that content: every mode plays it.
+		with_setup := new_clone(game^)
+		with_setup.setup = setup
+		game = with_setup
+	}
 	check_known(&args, mode.options)
 	os.exit(mode.run(game, &args) ? 0 : 1)
 }
 
 @(private)
-ANY_MODE :: "  any mode: [--game NAME] a variant of the game (e.g. its play tuning); [--level NAME=FILE] play the level NAME from FILE (default: the levels the game embeds)"
+ANY_MODE :: "  any mode: [--game NAME] a variant of the game (e.g. its play tuning); [--level NAME=FILE] play the level NAME from FILE (default: the levels the game embeds); [--setup key=value,...] the session's Setup (default: the game's, Game.setup)"
 
 @(private)
 print_usage :: proc(table: []Mode($G), to: ^os.File) {
