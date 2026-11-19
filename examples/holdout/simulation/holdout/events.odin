@@ -45,7 +45,7 @@ Event_Enemy_Hit :: struct {
 // An enemy died where it stood (its body is gone; the death is the view's).
 Event_Enemy_Died :: struct {
 	at:     sim.Position,
-	kind:   Enemy_Kind,
+	enemy:  Enemy_Kind, // what it was
 	_pad:   [3]u8,
 	killer: sim.Player, // {}: a blast nobody threw, or nothing
 }
@@ -117,5 +117,9 @@ Event_Core_Destroyed :: struct {
 	_pad: [3]u8,
 }
 
-// The run is over and the yard is back to the lobby.
-Event_Lobby :: struct {}
+// The run is over and the yard is back to the lobby: how far the run got.
+Event_Lobby :: struct {
+	wave: u8,
+	won:  bool,
+	_pad: [2]u8,
+}

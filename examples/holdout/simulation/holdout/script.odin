@@ -5,25 +5,35 @@ package holdout
 import "unified:dmath"
 import "unified:sim"
 
-SCRIPT_PERIOD :: 16 // ticks a scripted direction holds
-SCRIPT_THROW_EVERY :: 32 // ticks between a slot's throws
+SCRIPT_PERIOD :: 32 // ticks a scripted stick direction holds
+SCRIPT_LOOK_PERIOD :: 256 // ticks a scripted player faces one gate (each slot its own)
+SCRIPT_THROW_EVERY :: 160 // ticks between a slot's grenade presses
+SCRIPT_READY_AT :: 64 // slot 0 presses Ready this far into every SCRIPT_READY_EVERY ticks
+SCRIPT_READY_EVERY :: 1024
 
-// The player in `slot` steers one of 8 directions, drawn again every SCRIPT_PERIOD ticks.
+// The headings toward the yard's gates from the middle (yaw in turns, Aim's convention: 0 along -Z, a quarter toward
+// -X): north, east, west (game/levels/yard.tscn's gate markers).
+@(rodata)
+SCRIPT_GATE_YAWS := [3]f32{0, 0.75, 0.25}
+
+// The player in `slot` wanders (a stick drawn every SCRIPT_PERIOD ticks, at half tilt), faces one of the gates and
+// sweeps its aim across it, fires three ticks in four, throws a grenade every SCRIPT_THROW_EVERY ticks (each slot at
+// its own tick), holds Use now and then, and slot 0 presses Ready so the runs start.
 scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input {
 	bits := sim.script_bits(seed, slot, tick, SCRIPT_PERIOD)
-	move := dmath.DIR8[bits % 8]
-	return {dx = dmath.axis_i8(move.x), dy = dmath.axis_i8(move.y)}
-}
-
-SCRIPT_PAUSE_EVERY :: 512 // ticks between the scripted co-op pauses (slot 0's)
-SCRIPT_PAUSE_TICKS :: 40 // how long one lasts
-
-// The player in `slot` throws a ball every SCRIPT_THROW_EVERY ticks (each slot at its own tick), 3 to 6 metres per
-// second up; slot 0 pauses the game for SCRIPT_PAUSE_TICKS of every SCRIPT_PAUSE_EVERY (from tick 300), so the
-// standard scenarios cover the co-op pause.
-scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
-	if slot == 0 && tick % SCRIPT_PAUSE_EVERY == 300 do sim.send_command(out, Cmd_Set_Paused{true})
-	if slot == 0 && tick % SCRIPT_PAUSE_EVERY == 300 + SCRIPT_PAUSE_TICKS do sim.send_command(out, Cmd_Set_Paused{false})
-	if (tick + u32(slot) * 8) % SCRIPT_THROW_EVERY != 0 do return
-	sim.send_command(out, Cmd_Throw_Ball{speed = 3 + u8(tick / SCRIPT_THROW_EVERY % 4)})
+	move := dmath.DIR8[bits % 8] * 0.5
+	input := Input {
+		move_x = dmath.axis_i8(move.x),
+		move_z = dmath.axis_i8(move.y),
+	}
+	gate := sim.script_bits(seed, slot, tick, SCRIPT_LOOK_PERIOD) % 3
+	sweep := f32((tick + u32(slot) * 37) % 64) / 64 // a triangle wave across ±0.04 turns
+	sweep = (sweep < 0.5 ? sweep : 1 - sweep) * 0.16 - 0.04
+	input.aim = dmath.aim(SCRIPT_GATE_YAWS[gate] + sweep, -0.012)
+	if tick % 4 != 0 do input.buttons += {.Fire}
+	if (tick + u32(slot) * 40) % SCRIPT_THROW_EVERY == 0 do input.buttons += {.Grenade}
+	if (bits >> 8) % 4 == 0 do input.buttons += {.Use}
+	if (bits >> 12) % 8 == 0 do input.buttons += {.Jump}
+	if slot == 0 && tick % SCRIPT_READY_EVERY == SCRIPT_READY_AT do input.buttons += {.Ready}
+	return input
 }

@@ -35,6 +35,9 @@ GAME := Game {
 	scripted_input = scripted_input,
 }
 
+// The game's sim (a running session or an offline run).
+Sim :: sim.Sim(Game)
+
 // One tick: the systems in their order (examples/holdout/README.md, Systems). Shots, grenades and bolts are resolved
 // after the physics step, on this tick's state, which is what sim.seen_rewind measures back from.
 tick :: proc(t: ^Tick) {

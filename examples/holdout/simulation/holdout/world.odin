@@ -34,6 +34,7 @@ World :: struct {
 	gate_count:    int,
 	core:          [3]f32, // the core marker: the foot of the core's middle
 	core_poly:     nav.Poly, // the mesh polygon nearest the core, the enemies' goal when they chase no one
+	core_goal:     [3]f32, // and its point nearest the core
 	character_def: physics.Character_Def,
 	grid:          Enemy_Grid, // scratch: the alive enemies, rebuilt each tick before separation
 	overlaps:      [dynamic]physics.Overlap, // scratch
@@ -72,7 +73,7 @@ world_create :: proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^W
 		}
 	}
 	assert(spawns == PLAYERS && world.gate_count > 0, "holdout: the yard needs a spawn per slot and a gate")
-	world.core_poly, _ = nav.nearest(&world.mesh, world.core, CORE_HALF + 3)
+	world.core_poly, world.core_goal = nav.nearest(&world.mesh, world.core, CORE_HALF + 3)
 	assert(world.core_poly != nav.NO_POLY, "holdout: no navigation beside the core")
 	return world
 }

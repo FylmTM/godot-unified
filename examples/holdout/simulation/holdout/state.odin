@@ -73,9 +73,11 @@ Enemy :: struct {
 
 // A spitter's bolt: a point flying straight, swept against the level, the core and the players each tick.
 Bolt :: struct {
-	pos:  [3]f32,
-	vel:  [3]f32,
-	life: sim.Timer, // gone when it runs out
+	pos:    [3]f32,
+	vel:    [3]f32,
+	life:   sim.Timer, // gone when it runs out
+	damage: i16, // to what it strikes
+	_pad:   [2]u8,
 }
 
 // A grenade in flight: a dynamic sphere that bounces until its fuse burns down or it touches an enemy.

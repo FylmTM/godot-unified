@@ -56,44 +56,46 @@ Enemy_Spec :: struct {
 	chases:      bool, // goes for players it sees (a brute doesn't)
 }
 
+@(rodata)
 ENEMY_SPECS := [Enemy_Kind]Enemy_Spec {
 	.Runner = {
-		radius = 0.35,
+		radius      = 0.35,
 		half_height = 0.45,
 		head_radius = 0.22,
-		speed = 5.2,
-		hp = 45,
-		damage = 9,
-		attack_s = 0.7,
-		reach = 0.6,
-		chases = true,
+		speed       = 5.2,
+		hp          = 45,
+		damage      = 9,
+		attack_s    = 0.7,
+		reach       = 0.6,
+		chases      = true,
 	},
 	.Brute = {
-		radius = 0.5,
+		radius      = 0.5,
 		half_height = 0.55,
 		head_radius = 0.3,
-		speed = 2.4,
-		hp = 300,
-		damage = 30,
-		attack_s = 1.2,
-		reach = 0.8,
+		speed       = 2.4,
+		hp          = 300,
+		damage      = 30,
+		attack_s    = 1.2,
+		reach       = 0.8,
 	},
 	.Spitter = {
-		radius = 0.35,
+		radius      = 0.35,
 		half_height = 0.5,
 		head_radius = 0.24,
-		speed = 3.4,
-		hp = 70,
-		damage = 11,
-		attack_s = 1.6,
-		reach = 0.6,
-		chases = true,
+		speed       = 3.4,
+		hp          = 70,
+		damage      = 11,
+		attack_s    = 1.6,
+		reach       = 0.6,
+		chases      = true,
 	},
 }
 
 AGGRO_RADIUS :: f32(24) // a runner or spitter goes for the nearest player it can see within this
 SIGHT_EVERY_TICKS :: 16 // an enemy looks for a player this often (time-sliced: sim.due)
 SPIT_RANGE :: f32(14) // a spitter stops this far from its target and fires
+SPIT_REACH :: f32(20) // and fires at what it sees within this
 SEPARATION :: f32(1.0) // enemies closer than this push apart
 SEPARATION_SPEED :: f32(2.5) // at most, metres per second
 SAME_FLOOR :: f32(1.5) // enemies further apart in height than this don't push (stacked floors)
@@ -124,11 +126,12 @@ Burst :: struct {
 	every_s: f32,
 }
 
-MAX_BURSTS :: 6
+MAX_BURSTS :: 6 // the most bursts a wave has
 WAVES :: 8
 
-// The waves, by number: each a list of bursts (count 0: none).
-WAVE_PLANS := [WAVES][MAX_BURSTS]Burst {
+// The waves, by number: each a list of at most MAX_BURSTS bursts.
+@(rodata)
+WAVE_PLANS := [WAVES][]Burst {
 	{{0, .Runner, 6, 0, 1.2}, {1, .Runner, 4, 4, 1.5}},
 	{{0, .Runner, 6, 0, 1}, {1, .Runner, 6, 2, 1}, {2, .Spitter, 2, 6, 3}},
 	{{2, .Runner, 8, 0, 0.8}, {0, .Brute, 1, 3, 1}, {1, .Spitter, 3, 5, 2.5}},
