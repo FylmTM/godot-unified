@@ -99,7 +99,7 @@ library_follows_determinism_rules :: proc(t: ^testing.T) {
 }
 
 // Every game's simulation/ by its layout (lint.check_game): headless/, extension/, tests/ and its sim packages,
-// exactly as a game outside the repo lints itself. (Its tests are in the one test compile: uni writes
+// exactly as a game outside the repo lints itself. (Its tests are in the optimised test compile: uni writes
 // tests/games.gen.odin.)
 @(test)
 games_follow_determinism_rules :: proc(t: ^testing.T) {

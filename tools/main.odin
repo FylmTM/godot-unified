@@ -20,13 +20,14 @@ import "unified:cli"
 
 main :: proc() {
 	cli.configure({
-		tests      = "tests",
-		headless   = {{name = "toy", pkg = "tests/toy/headless"}},
-		vet        = {"tests/godot/ext", "tests/godot_views/ext"},
-		fmt        = {"src", "tests"},
-		uses_box3d = true,
-		bench      = {{name = "physics", run = physics_bench}, {name = "grid", run = grid_bench}},
-		bake       = {
+		tests             = "tests",
+		unoptimized_tests = "tests/tooling",
+		headless          = {{name = "toy", pkg = "tests/toy/headless"}},
+		vet               = {"tests/godot/ext", "tests/godot_views/ext"},
+		fmt               = {"src", "tests"},
+		uses_box3d        = true,
+		bench             = {{name = "physics", run = physics_bench}, {name = "grid", run = grid_bench}},
+		bake              = {
 			{dir = "tests/godot", scenes = {"res://levels/level_2d.tscn", "res://levels/shapes_3d.tscn"}},
 			{dir = "tests/godot_views", scenes = {"res://levels/meadow.tscn", "res://levels/cave.tscn"}},
 		},

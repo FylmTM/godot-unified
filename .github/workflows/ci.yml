@@ -2,7 +2,7 @@
 # test --suite odin,net` (the odin suite: unit tests and every end-to-end suite, reference runs included, so CI is the
 # cross-platform check of determinism; the net suite beside it: real UDP, separate processes) and `uni bench` (not
 # gated). linux-x64 also runs `uni fmt --check` and `uni vet` (every target); linux-arm64 the box3d-debug suite (the
-# odin suite's binary against Box3D's debug library). The `godot` job (linux x64) runs the godot and godot-bindings
+# odin suite's binaries against Box3D's debug library). The `godot` job (linux x64) runs the godot and godot-bindings
 # suites (every game under headless Godot) and `uni view-bench`. Together, what `./uni verify` runs locally, and the
 # benchmarks. The suites' long variants (`--long`) run only on demand. A check runs even when an earlier one failed,
 # so one red step doesn't hide the others. Each reported step's own output goes into the job summary.

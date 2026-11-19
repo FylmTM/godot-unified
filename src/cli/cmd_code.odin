@@ -377,34 +377,53 @@ uses_scenarios :: proc(root: string) -> bool {
 	return sources_import(root, `"unified:headless/scenarios"`)
 }
 
-// The odin suite's build: every test package under the project's test root in one compile (Project_Config.tests,
-// with -all-packages), or one game's simulation/tests (`test <game>`, and a game repo's). Built through its manifest
-// like every other build, so an unchanged tree skips the compile.
+// The odin suite's builds: every test package under the project's test root in one optimised compile
+// (Project_Config.tests, with -all-packages) and, when the project has one, every package under its unoptimised root
+// in another (Project_Config.unoptimized_tests: on a quarter of the cores, so it stays out of the optimised compile's
+// way); or one
+// game's simulation/tests (`test <game>`, and a game repo's). Each is built through its manifest like every other
+// build, so an unchanged tree skips the compile and a change under one root compiles only that one.
 @(private)
-test_build :: proc(opts: Test_Options) -> Build {
+test_builds :: proc(opts: Test_Options) -> []Build {
 	root := test_root(opts.game)
 	name := opts.game
 	if name == "" {
 		name = state.config.tests != "" ? "unified" : state.project.games[0].name
 	}
-	flags: [dynamic]string
+	common: [dynamic]string
 	if opts.game == "" && state.config.tests != "" {
-		append(&flags, "-all-packages") // the test root pulls in every test package; a game's tests are one
+		append(&common, "-all-packages") // the test root pulls in every test package; a game's tests are one
 	}
-	append(&flags, ..TEST_RUN_FLAGS)
+	append(&common, ..TEST_RUN_FLAGS)
+	if len(opts.only) > 0 {
+		append(&common, aprintf("-define:ODIN_TEST_NAMES=%s", strings.join(opts.only, ",")))
+	}
+	builds: [dynamic]Build
+	flags: [dynamic]string
+	append(&flags, ..common[:])
 	append(&flags, ..mode_flags(.dev))
 	if opts.long && uses_scenarios(root) {
 		append(&flags, "-define:UNIFIED_LONG_TESTS=true")
 	}
-	if len(opts.only) > 0 {
-		append(&flags, aprintf("-define:ODIN_TEST_NAMES=%s", strings.join(opts.only, ",")))
-	}
-	return {
+	append(&builds, Build {
 		pkg   = root,
 		out   = join(state.project.out, "test", aprintf("%s_tests%s", name, EXE)),
 		flags = flags[:],
 		own   = true,
+	})
+	if unoptimized := unoptimized_test_root(opts.game); unoptimized != "" {
+		unoptimized_flags: [dynamic]string
+		append(&unoptimized_flags, ..common[:])
+		append(&unoptimized_flags, ..mode_flags(.debug))
+		append(&builds, Build {
+			pkg     = unoptimized,
+			out     = join(state.project.out, "test", aprintf("%s_%s_tests%s", name, os.base(unoptimized), EXE)),
+			flags   = unoptimized_flags[:],
+			unkeyed = strs(aprintf("-thread-count:%d", max(1, os.get_processor_core_count() / 4))),
+			own     = true,
+		})
 	}
+	return builds[:]
 }
 
 // Whether the tests `test` compiles link Box3D.
@@ -413,53 +432,65 @@ tests_use_box3d :: proc(opts: Test_Options) -> bool {
 	return opts.game != "" ? game_uses_box3d(game(opts.game)) : project_uses_box3d()
 }
 
-// Makes the odin suite's test binary current, with the Box3D library beside it; false when the compile failed (the
-// compiler's errors are on the terminal).
+// Makes the odin suite's test binaries current, the stale ones compiled at once, with the Box3D library beside them;
+// false when a compile failed (the compiler's errors are on the terminal).
 @(private)
-ensure_test_binary :: proc(opts: Test_Options) -> (exe: string, ok: bool) {
+ensure_test_binaries :: proc(opts: Test_Options) -> (exes: []string, ok: bool) {
 	ensure_deps_for_headless()
 	ensure_bindings()
-	build := test_build(opts)
-	make_dirs(os.dir(build.out))
-	if tests_use_box3d(opts) {
-		stage_box3d(os.dir(build.out))
-	}
-	if stale(build) {
-		child := start_build(build)
-		if !finish_build(build, &child).ok {
-			return build.out, false
+	builds := test_builds(opts)
+	exes = make([]string, len(builds))
+	children := make([]Maybe(Proc), len(builds))
+	for build, i in builds {
+		exes[i] = build.out
+		make_dirs(os.dir(build.out))
+		if tests_use_box3d(opts) {
+			stage_box3d(os.dir(build.out))
+		}
+		if stale(build) {
+			children[i] = start_build(build)
 		}
 	}
-	return build.out, true
+	ok = true
+	for child, i in children {
+		if running, started := child.?; started {
+			ok = finish_build(builds[i], &running).ok && ok
+		}
+	}
+	return exes, ok
 }
 
-// Every test package in one compile: unit tests, the library's black-box tests, the end-to-end suites with their
-// reference-run replays, the Box3D golden trace, the determinism and import lint. With a game named, that game's
-// tests only (no import lint: it lives in the project's test root).
+// Every test package in one optimised compile and the unoptimised root's in another beside it, the binaries run at
+// once: unit tests, the library's black-box tests, the end-to-end suites with their reference-run replays, the Box3D
+// golden trace, the determinism and import lint. With a game named, that game's tests only (no import lint: it lives
+// in the project's test roots).
 @(private)
 suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
-	exe, ok := ensure_test_binary(opts)
-	return ok && run_test_binary(exe, suite_timeout("odin", opts))
+	exes, ok := ensure_test_binaries(opts)
+	return ok && run_test_binaries(exes, suite_timeout("odin", opts))
 }
 
-// The odin suite's binary again, next to Box3D's debug library in a folder of its own (the debug library has the
+// The odin suite's binaries again, next to Box3D's debug library in a folder of their own (the debug library has the
 // release one's file name and ABI: unified-box3d builds both from the same sources): its asserts trap what the
-// release library lets through (a stale id destroying another body). The same build as the odin suite's, so it only
-// copies a current binary. Its physics is unoptimised: the run takes about three times the release one's.
+// release library lets through (a stale id destroying another body). The same builds as the odin suite's, so it only
+// copies current binaries. Its physics is unoptimised: the run takes about three times the release one's.
 @(private)
 suite_box3d_debug :: proc(games: []Game, opts: Test_Options) -> bool {
 	if !tests_use_box3d(opts) {
 		if state.verbose do log("uni: box3d-debug: skipped: nothing links Box3D")
 		return true
 	}
-	exe, ok := ensure_test_binary(opts)
+	exes, ok := ensure_test_binaries(opts)
 	if !ok {
 		return false
 	}
 	dir := join(state.project.out, "test-box3d-debug")
 	make_dirs(dir)
 	stage_box3d(dir, debug = true)
-	debug_exe := join(dir, os.base(exe))
-	copy_file(debug_exe, exe)
-	return run_test_binary(debug_exe, suite_timeout("box3d-debug", opts))
+	debug_exes := make([]string, len(exes))
+	for exe, i in exes {
+		debug_exes[i] = join(dir, os.base(exe))
+		copy_file(debug_exes[i], exe)
+	}
+	return run_test_binaries(debug_exes, suite_timeout("box3d-debug", opts))
 }

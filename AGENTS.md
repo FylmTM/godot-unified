@@ -77,7 +77,7 @@ piece of work. The `board-work` skill has the statuses, the procedure and when a
 - A game is a Godot project in `games/<game>/`; its Odin code is in `simulation/`: the sim package (linted like the
   core), its headless binary, its GDExtension and its sim tests.
 - Library tests are black-box packages in `tests/<module>/`, importing `unified:<pkg>` like a game does. A game's
-  sim tests, end-to-end suite and reference run live with the game, in `simulation/tests/`. `uni test` runs them all in one compile.
+  sim tests, end-to-end suite and reference run live with the game, in `simulation/tests/`. `uni test` runs them all, from two compiles at once (`tests/tooling` unoptimised).
 - The code is the spec. Each package (`src/<pkg>/`) and game (`games/<game>/`) has a `README.md`: what it is, why,
   where it fits, how it works, and the decisions a reader could get wrong that no single declaration shows. The API
   is the code: each file's header comment and a doc comment on every public proc and type (the lint fails on one
@@ -98,7 +98,7 @@ back:
 ```
 ./uni fmt                      # odinfmt (pinned; a hook formats each .odin file Claude edits)
 ./uni vet                      # odin check, strict flags, every target
-./uni test                     # the odin suite: every test package and end-to-end suite in one compile, the lint included
+./uni test                     # the odin suite: every test package and end-to-end suite, the lint included
 ./uni test <game>              # the inner loop of game work: that game's tests only
 ./uni test --suite net         # when netcode or the headless modes changed (real UDP, separate processes)
 ./uni bench                    # when the sim, physics or rollback changed: step and re-sim times

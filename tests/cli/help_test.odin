@@ -92,4 +92,7 @@ Finished 274 tests in 1.4s. All tests were successful.
 		testing.expect(t, strings.has_prefix(shown[3], "[ERROR]"))
 		testing.expect(t, strings.has_prefix(shown[4], "Finished 274 tests"))
 	}
+	// what `test` adds up when the odin suite runs several binaries
+	testing.expect_value(t, cli.test_output_finished(output), 274)
+	testing.expect_value(t, cli.test_output_finished("No test found for the name: \"x\"\nNo tests to run.\n"), 0)
 }
