@@ -258,6 +258,10 @@ Game :: struct(
 	// headless `bench`, Godot's `-- --bench N`). Single player only: it changes the initial state, which every peer
 	// would have to share.
 	bench_prepare:         proc(state: ^State, world: ^World, count: int),
+	// Optional, never read by the tick: the game's standard benchmarks, what the headless `bench` runs without options
+	// and `uni bench` keeps a row of each (one per level or scene, say; at most one unnamed: the game's own row).
+	// game_violation checks each one, its Setup text included, so a stale benchmark fails the game's tests.
+	benches:               []Bench,
 	// Optional, never read by the sim: the least input delay a client plays this game with, in ticks (0: one tick).
 	// A slower-paced game takes 2 or 3: every input is felt that much later, and each correction reaches that much
 	// less far back (as many guesses are wrong; src/netcode/README.md, Timing). At most the netcode's delay ceiling
@@ -271,6 +275,23 @@ Game :: struct(
 	// recorded log.
 	predict_input:         proc(last: Input, ticks_ahead: u32) -> Input,
 }
+
+// One standard benchmark of a game (Game.benches; src/headless/README.md, The binary): the game on `setup`, `entities`
+// entities held (Game.bench_prepare), a `window`-tick rollback every tick, for `ticks` ticks. `what` says what it
+// measures; `name` is its row (`uni bench`, the `bench` mode's `--name`).
+Bench :: struct {
+	name:     string, // "": the game's row; else the row <game>/<name>
+	what:     string,
+	setup:    string, // the Setup it plays, as --setup's text (struct_from_text: "scene=pyramid"); "": Game.setup
+	entities: int, // 0 ..= BENCH_ENTITIES_MAX
+	window:   int, // 0: the netcode's prediction cap (ring_size(tick_hz) - 2); else 1 ..< ring_size(tick_hz)
+	ticks:    int, // 1 ..= BENCH_TICKS_MAX
+}
+
+// The most entities a benchmark holds (Bench.entities).
+BENCH_ENTITIES_MAX :: 1 << 20
+// The longest benchmark (Bench.ticks).
+BENCH_TICKS_MAX :: 1_000_000
 
 // The command union of a game that has no commands: sim.Game(State, Input, World, Event, sim.No_Commands, ...).
 No_Commands :: union {}
@@ -467,8 +488,9 @@ content_hash :: proc(levels: []Level_File) -> u64 {
 
 // Why a game can't run ("" when it can; temp-allocated): its tick rate, its State (plain data: plain_violation), its
 // Input (wire_violation), its command and event unions, its Setup and Profile (plain structs without padding, at most
-// SETUP_MAX and PROFILE_MAX bytes), its default Setup (Game.setup must read as sent: setup_violation) and its levels
-// (levels_violation). create panics with it; the Godot host reports it. What the compiler can check (the State's `players`, the library's events
+// SETUP_MAX and PROFILE_MAX bytes), its default Setup (Game.setup must read as sent: setup_violation), its levels
+// (levels_violation) and its benchmarks (Game.benches: numbers in range, names unique, a Setup text that reads and reads
+// as sent). create panics with it; the Godot host reports it. What the compiler can check (the State's `players`, the library's events
 // in the Event union) doesn't compile instead.
 game_violation :: proc(game: ^$G) -> string where intrinsics.type_is_specialization_of(G, Game) {
 	State :: part(G, GAME_STATE)
@@ -481,7 +503,52 @@ game_violation :: proc(game: ^$G) -> string where intrinsics.type_is_specializat
 	if reason != "" do return reason
 	if reason = levels_violation(game.name, type_info_of(State), game.levels); reason != "" do return reason
 	setup := game.setup
-	return choices_violation(game.name, type_info_of(Setup), type_info_of(Profile), &setup)
+	if reason = choices_violation(game.name, type_info_of(Setup), type_info_of(Profile), &setup); reason != "" {
+		return reason
+	}
+	for bench, i in game.benches {
+		if reason = bench_violation(game.name, game.tick_hz, game.benches[:i], bench); reason != "" do return reason
+		if bench.setup == "" do continue
+		bench_setup, problem := struct_from_text(game.setup, bench.setup)
+		if problem == "" do problem = setup_violation(game, &bench_setup)
+		if problem != "" do return fmt.tprintf("%s: %s: its setup %q: %s", game.name, bench_name(bench), bench.setup, problem)
+	}
+	return ""
+}
+
+// What a benchmark is called in messages: its row name, or "the game's benchmark" for the unnamed one.
+bench_name :: proc(bench: Bench) -> string {
+	return bench.name == "" ? "the game's benchmark" : fmt.tprintf("benchmark %q", bench.name)
+}
+
+// game_violation's benchmark part but the Setup (a non-generic home for its imports: -vet): `bench`'s numbers in
+// range and its name unlike `before`'s.
+@(private)
+bench_violation :: proc(name: string, tick_hz: int, before: []Bench, bench: Bench) -> string {
+	for other in before {
+		if other.name == bench.name do return fmt.tprintf("%s: two benchmarks named %q (at most one unnamed)", name, bench.name)
+	}
+	switch {
+	case bench.ticks < 1 || bench.ticks > BENCH_TICKS_MAX:
+		return fmt.tprintf("%s: %s runs %d ticks (1 to %d)", name, bench_name(bench), bench.ticks, BENCH_TICKS_MAX)
+	case bench.entities < 0 || bench.entities > BENCH_ENTITIES_MAX:
+		return fmt.tprintf(
+			"%s: %s holds %d entities (0 to %d)",
+			name,
+			bench_name(bench),
+			bench.entities,
+			BENCH_ENTITIES_MAX,
+		)
+	case bench.window < 0 || bench.window >= ring_size(tick_hz):
+		return fmt.tprintf(
+			"%s: %s rolls back %d ticks (0: the prediction cap, or 1 to %d)",
+			name,
+			bench_name(bench),
+			bench.window,
+			ring_size(tick_hz) - 1,
+		)
+	}
+	return ""
 }
 
 // Why a Setup can't be a session's ("" when it can; temp-allocated): it does not read as sent, as every peer reads

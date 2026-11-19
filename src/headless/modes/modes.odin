@@ -24,20 +24,13 @@ Mode :: struct($G: typeid) {
 	lobby:   ^netcode.Lobby, // a lobby mode's service (Args.lobby)
 }
 
-// Runs the mode named on the command line on `game` (its scripted player plays the runs, on its levels). `benches`:
-// the game's standard benchmarks, what `bench` runs without options (`uni bench`: a row each, in this order; names
-// unique, at most one unnamed); none: `bench` without options runs nothing, and `uni bench` has no row for the game.
+// Runs the mode named on the command line on `game` (its scripted player plays the runs, on its levels; `bench` its
+// Game.benches), after sim.game_violation (a broken game, a stale benchmark Setup, exits 2 at once, whatever the mode).
 // `variants`: other variants of the game (e.g. other tunings), picked with `--game NAME` (sim.Game.name) on any mode;
 // `--level NAME=FILE` on any mode plays a copy of the game with that level replaced. `lobbies`: lobby services
 // (eos.lobby) for the <name>-host and <name>-client modes; a game opts in, and links the service's SDK. `own_modes`: the game's own modes
 // (Mode: an options struct its `run` parses).
-run :: proc(
-	game: ^$G,
-	benches: []uheadless.Bench = nil,
-	variants: []^G = nil,
-	lobbies: []^netcode.Lobby = nil,
-	own_modes: []Mode(G) = nil,
-) {
+run :: proc(game: ^$G, variants: []^G = nil, lobbies: []^netcode.Lobby = nil, own_modes: []Mode(G) = nil) {
 	game := game
 	platform_init()
 	table := make([dynamic]Mode(G), context.temp_allocator)
@@ -120,10 +113,9 @@ run :: proc(
 	}
 	any_mode := take_any_mode(argv[1:])
 	args := Args {
-		mode    = mode.name,
-		argv    = any_mode.rest,
-		lobby   = mode.lobby,
-		benches = benches,
+		mode  = mode.name,
+		argv  = any_mode.rest,
+		lobby = mode.lobby,
 	}
 	if name := any_mode.game; name != "" {
 		found := game.name == name
@@ -169,6 +161,9 @@ run :: proc(
 	}
 	if text := any_mode.player_profile; text != "" {
 		game = with_player_profile(game, text)
+	}
+	if reason := sim.game_violation(game); reason != "" {
+		die("%s", reason)
 	}
 	os.exit(mode.run(game, &args) ? 0 : 1)
 }
@@ -405,24 +400,20 @@ Bench_Options :: struct {
 // The `bench` mode: prints bench_report's line for the game's standard benchmarks and the mode's options.
 @(private)
 mode_bench :: proc(game: ^$G, args: ^Args) -> bool {
-	line, ok := bench_report(game, args.benches, args.argv)
+	line, ok := bench_report(game, args.argv)
 	fmt.println(line)
 	return ok
 }
 
 // What the `bench` mode prints (`uni bench` reads it), temp-allocated, and whether every re-sim agreed: `{"mode":"bench",
 // "benches":[...]}`, a row per benchmark run, each timing step, save, restore and a re-sim at the prediction cap every
-// tick. With no options (`argv` empty), every one of `benches` (the game's standard benchmarks: run's) in turn; with
+// tick. With no options (`argv` empty), every one of the game's standard benchmarks (Game.benches) in turn; with
 // options, one: `--name`'s (or the first, or a default holding 1000 entities for a game without any), its numbers
 // replaced by the options given. A bad option exits through die.
-bench_report :: proc(game: ^$G, benches: []uheadless.Bench, argv: []string) -> (line: string, ok: bool) {
+bench_report :: proc(game: ^$G, argv: []string) -> (line: string, ok: bool) {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
-	args := &Args{mode = "bench", argv = argv, benches = benches}
-	for bench, i in benches {
-		for other in benches[:i] {
-			assert(bench.name != other.name, "modes.run: two benchmarks with one name (at most one unnamed)")
-		}
-	}
+	args := &Args{mode = "bench", argv = argv}
+	benches := game.benches
 	rows := make([dynamic]string, context.temp_allocator)
 	ok = true
 	if len(argv) == 0 {
@@ -437,7 +428,7 @@ bench_report :: proc(game: ^$G, benches: []uheadless.Bench, argv: []string) -> (
 			players = PLAYERS,
 		}
 		parse(args, &options)
-		bench := uheadless.Bench {
+		bench := sim.Bench {
 			what     = game.name,
 			entities = 1000,
 			ticks    = 600,
@@ -455,8 +446,8 @@ bench_report :: proc(game: ^$G, benches: []uheadless.Bench, argv: []string) -> (
 		if options.entities != 0 do bench.entities = options.entities
 		if options.window != 0 do bench.window = options.window
 		if options.ticks != 0 do bench.ticks = options.ticks
-		in_range(args, "entities", bench.entities, 0, 1 << 20)
-		in_range(args, "ticks", bench.ticks, 1, 1_000_000)
+		in_range(args, "entities", bench.entities, 0, sim.BENCH_ENTITIES_MAX)
+		in_range(args, "ticks", bench.ticks, 1, sim.BENCH_TICKS_MAX)
 		in_range(args, "players", options.players, 1, PLAYERS)
 		row, row_ok := bench_row(game, args, bench, options)
 		append(&rows, row)
@@ -469,13 +460,13 @@ bench_report :: proc(game: ^$G, benches: []uheadless.Bench, argv: []string) -> (
 // One benchmark run, as its JSON object (temp-allocated), and whether its re-sims agreed: `bench` on a copy of the game
 // with the benchmark's Setup (if it names one), with `options`' seed and players.
 @(private)
-bench_row :: proc(game: ^$G, args: ^Args, bench: uheadless.Bench, options: Bench_Options) -> (row: string, ok: bool) {
+bench_row :: proc(game: ^$G, args: ^Args, bench: sim.Bench, options: Bench_Options) -> (row: string, ok: bool) {
 	game := game
 	if bench.setup != "" {
 		setup, problem := sim.struct_from_text(game.setup, bench.setup)
 		if problem == "" do problem = sim.setup_violation(game, &setup)
 		if problem != "" {
-			die("benchmark %q: setup %s: %s", bench.name, bench.setup, problem)
+			die("%s: setup %s: %s", sim.bench_name(bench), bench.setup, problem)
 		}
 		with_setup := new_clone(game^, context.temp_allocator)
 		with_setup.setup = setup

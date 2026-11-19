@@ -38,6 +38,9 @@ GAME := Game {
 	tick              = tick,
 	scripted_input    = scripted_input,
 	scripted_commands = scripted_commands,
+	benches           = {
+		{what = "drift on the arena (2D physics locked to a plane: ships, splitting rocks)", ticks = 1800},
+	},
 }
 
 // One tick: the systems in their order (examples/drift/README.md, Systems).

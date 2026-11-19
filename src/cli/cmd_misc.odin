@@ -174,10 +174,7 @@ cmd_bench :: proc(args: []string) -> Result {
 		}
 		if len(run.benches) == 0 {
 			// no standard benchmark: its sessions still run below
-			log(
-				"%-12s no standard benchmark (modes.run's `benches`: src/headless/README.md); its sessions only",
-				game.name,
-			)
+			log("%-12s no standard benchmark (sim.Game.benches: src/headless/README.md); its sessions only", game.name)
 		}
 		for &bench in run.benches {
 			row := bench.name == "" ? game.name : aprintf("%s/%s", game.name, bench.name)
@@ -305,7 +302,7 @@ cmd_bench :: proc(args: []string) -> Result {
 	return {
 		ok      = true,
 		summary = aprintf(
-			"bench: %d game(s) (%d standard benchmark rows), the sim and netcode benchmarks%s, reported in .out/bench.json",
+			"bench: %d game(s) (%d standard benchmark row(s)), the sim and netcode benchmarks%s, reported in .out/bench.json",
 			len(games),
 			len(summary.benchmarks),
 			len(state.config.bench) > 0 ? " and the project's own" : "",
