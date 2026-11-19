@@ -8,7 +8,10 @@ import "core:time"
 // A child process to run. Its stdout and stderr go to our stderr (progress), or with `capture` into `Ran.stdout`
 // and `Ran.stderr`. Unless `interactive`, its stdin holds one line, `quit`, and then ends: a Godot run with -d that
 // stops at its debugger prompt (a script or parse error) quits at once. A closed stdin is not enough: Godot on Windows
-// never sees it end and waits at the prompt until the timeout.
+// never sees it end and waits at the prompt until the timeout. When the script that fails to parse is the run's own
+// `-s` script there is no main loop to quit yet, and Godot crashes leaving the prompt (signal 11, exit 139): the run
+// still ends at once, failing, with the parse error printed. `--ignore-error-breaks` would end that one cleanly, but a
+// runtime script error would then never stop the run before its timeout.
 Run :: struct {
 	cmd:         []string,
 	dir:         string, // working directory ("": ours)
