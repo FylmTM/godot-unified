@@ -594,10 +594,19 @@ cmd_tool :: proc(args: []string) -> Result {
 	})
 	summary := aprintf("%s %s: %s in %.1fs", selected.name, name, result.ok ? "ok" : "FAILED", result.seconds)
 	if own := tool_own_result(result.result); own != "" {
+		// one line: a long result is cut at a character's start; the whole of it is --json's
+		if len(own) > TOOL_RESULT_SHOWN {
+			cut := TOOL_RESULT_SHOWN
+			for cut > 0 && own[cut] & 0xC0 == 0x80 do cut -= 1
+			own = aprintf("%s… (--json for all)", own[:cut])
+		}
 		summary = aprintf("%s: %s", summary, own)
 	}
 	return {ok = result.ok, summary = summary, data = box(result.result)}
 }
+
+// How much of a script's own result `tool`'s result line shows (bytes of JSON); --json carries all of it.
+TOOL_RESULT_SHOWN :: 300
 
 // What the script added to its result (UnifiedTool.result: every key but the base's ok, ms, steps, failed and
 // errors) as one line of JSON, keys sorted; "" when it added nothing.
