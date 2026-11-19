@@ -26,8 +26,8 @@ build is told before it joins.
 `Glue.sample_input` runs on the main thread **once a frame**, and every tick that samples the local player takes the
 newest sample, so one sample can feed several ticks: an `Input` is the controls' **state**, never a one-shot. The sim
 derives presses from the tick before (`sim.buttons`); a one-shot value is a command. An `Input` holds no bools and
-no floats: an axis is `dmath.axis_i8(x)`, a direction a `dmath.Dir2` / `Dir3`. A game without an Input
-(`sim.No_Input`) has no `sample_input`: everything its players do is a command.
+no floats: an axis is `dmath.axis_i8(x)`, a direction a `dmath.Dir2` / `Dir3`, a first-person look a `dmath.Aim`. A
+game without an Input (`sim.No_Input`) has no `sample_input`: everything its players do is a command.
 
 **Local players.** `sample_input(local, input)` runs once a frame for each local player (several people on one
 machine: a couch, guests of a remote-play stream, who arrive as pads), and the action helpers read **the sampled
