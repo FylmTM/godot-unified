@@ -159,3 +159,136 @@ a_hello_for_more_seats_than_are_free_is_refused_whole :: proc(t: ^testing.T) {
 	testing.expect_value(t, couch.detail, "the session is full")
 	testing.expect_value(t, session.relay.seats[3].conn, netcode.Peer(-1))
 }
+
+// A local player's Seated reaches the client only after the finalized ticks past its join tick (the relay -> client
+// path blacked out around the Join): the client still seats it, its first inputs replaced. Before, it stayed Asked
+// while the relay seated it, and every tick then waited the full tolerance for its input.
+@(test)
+a_seated_after_its_join_tick_is_final_still_seats_the_player :: proc(t: ^testing.T) {
+	for profile in ([]netcode.Network{.Ideal, .Wan}) {
+		for outage in ([]f64{0.8, 1.2, 1.7}) {
+			session: Net
+			net_make(&session, 0, 0)
+			couch, gate := gated_join(&session, 1, netcode.PROFILES[profile], &session.watch[1])
+			net_run(&session, 3)
+			testing.expect_value(t, couch.status, netcode.Status.Connected)
+			gate.block_in = true
+			testing.expect(t, add_second(couch))
+			net_run(&session, outage)
+			gate.block_in = false
+			net_run(&session, 4)
+			second := netcode.client_local(couch, 1)
+			replaced_before := session.relay.replaced
+			net_run(&session, 1)
+			replaced := session.relay.replaced - replaced_before
+			testing.expectf(
+				t,
+				second.state == .Seated && replaced == 0,
+				"%v, outage %.1f s: local 1 is %v; %d inputs replaced in the last second",
+				profile,
+				outage,
+				second.state,
+				replaced,
+			)
+			expect_agree(t, &session)
+			net_destroy(&session)
+		}
+	}
+}
+
+// A couch joins late with two local players; its local player 0 (its lowest slot, the one the snapshot request named
+// it by) leaves while the snapshot is on its way. Local player 1 still gets in.
+@(test)
+the_lowest_seat_leaving_mid_join_keeps_the_snapshot_coming :: proc(t: ^testing.T) {
+	for profile in ([]netcode.Network{.Ideal, .Wan}) {
+		session: Net
+		net_make(&session, 0, 0)
+		net_run(&session, 2)
+		couch := net_join(&session, -1, profile)
+		testing.expect(t, add_second(couch))
+		for _ in 0 ..< 2000 {
+			net_run(&session, 0.005)
+			if couch.welcomed do break
+		}
+		testing.expect(t, couch.status != .Connected, "still joining when local 0 leaves")
+		netcode.client_remove_player(couch, 0, session.clock.now)
+		net_run(&session, 15)
+		second := netcode.client_local(couch, 1)
+		testing.expectf(
+			t,
+			couch.status == .Connected && second.state == .Seated,
+			"%v: couch %v %q, local 1 %v",
+			profile,
+			couch.status,
+			couch.detail,
+			second.state,
+		)
+		expect_agree(t, &session)
+		net_destroy(&session)
+	}
+}
+
+// ... and a new joiner takes the emptied slot while both wait for a snapshot from the same provider, whose answers
+// carry that slot: both get in.
+@(test)
+a_new_occupant_of_a_joiners_emptied_lowest_seat_gets_in_beside_it :: proc(t: ^testing.T) {
+	session: Net
+	net_make(&session, 0, 0)
+	defer net_destroy(&session)
+	net_run(&session, 2)
+	couch := net_join(&session, -1, .Ideal)
+	testing.expect(t, add_second(couch))
+	for _ in 0 ..< 2000 {
+		net_run(&session, 0.005)
+		if couch.welcomed do break
+	}
+	lowest := netcode.client_local(couch, 0).slot
+	netcode.client_remove_player(couch, 0, session.clock.now)
+	newcomer := net_join(&session, -1, .Ideal)
+	for _ in 0 ..< 2000 {
+		net_run(&session, 0.005)
+		if newcomer.welcomed do break
+	}
+	testing.expect(t, couch.status != .Connected, "the couch still joins when the newcomer is seated")
+	testing.expect_value(t, newcomer.slot, lowest)
+	net_run(&session, 15)
+	second := netcode.client_local(couch, 1)
+	testing.expectf(
+		t,
+		couch.status == .Connected && second.state == .Seated && newcomer.status == .Connected,
+		"couch %v %q (local 1 %v), newcomer %v %q",
+		couch.status,
+		couch.detail,
+		second.state,
+		newcomer.status,
+		newcomer.detail,
+	)
+	testing.expect_value(t, session.relay.desyncs, 0)
+	expect_agree(t, &session)
+}
+
+// A second local player asks for a seat the relay refuses (the host's slot: Slot_Taken) and is taken back before the
+// Reject arrives: its Leave names a local player the relay never seated. The first local player plays on.
+@(test)
+a_refused_local_player_taken_back_keeps_the_connection :: proc(t: ^testing.T) {
+	session: Net
+	net_make(&session, 0, 1)
+	defer net_destroy(&session)
+	client := session.clients[0]
+	net_run(&session, 3)
+	testing.expect_value(t, client.status, netcode.Status.Connected)
+	slot := client.slot
+	testing.expect(t, netcode.client_add_player(client, 1, {slot = 0, player_name = "Second"}))
+	netcode.client_step(client, session.clock.now) // its Join goes out
+	netcode.client_remove_player(client, 1, session.clock.now) // ... and it is taken back at once
+	net_run(&session, 3)
+	testing.expectf(
+		t,
+		client.status == .Connected && session.relay.seats[slot].conn >= 0,
+		"the first local player: status %v (%s), its seat's connection %d",
+		client.status,
+		client.detail,
+		session.relay.seats[slot].conn,
+	)
+	testing.expect_value(t, netcode.client_local(client, 1).state, netcode.Local_State.None)
+}

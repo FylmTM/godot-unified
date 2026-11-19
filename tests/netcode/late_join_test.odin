@@ -654,3 +654,30 @@ a_seat_joined_and_left_again_and_again :: proc(t: ^testing.T) {
 		net_destroy(&session)
 	}
 }
+
+// The toy with a tick that reads nothing of the seed (no roll): a sim given another seed computes the same states.
+@(private)
+GAME_SEEDLESS := toy.Game{}
+
+// Player 0 sends a snapshot of another session: its header's seed differs from the Welcome's, its state (all the
+// checksum covers) is honest. The joiner fails it on purpose, the relay asks player 1, and the joiner plays with the
+// session's seed.
+@(test)
+a_snapshot_of_another_seed_is_refused_and_another_player_sends_one :: proc(t: ^testing.T) {
+	GAME_SEEDLESS = toy.GAME
+	GAME_SEEDLESS.tick = proc(tick: ^toy.Tick) {}
+	session: Net
+	net_make_relay(&session, 3, 0)
+	defer net_destroy(&session)
+	for slot in 0 ..< 3 do net_join(&session, slot, game = &GAME_SEEDLESS)
+	net_run(&session, 2)
+	session.clients[0].sim.seed ~= 0xFF // what its snapshots' headers carry; the checksum doesn't cover it
+	joiner := net_join(&session, 3, game = &GAME_SEEDLESS)
+	net_run(&session, 1, proc(session: ^Net) -> bool {return provider_slot(session.relay, 3) >= 0})
+	testing.expect_value(t, provider_slot(session.relay, 3), 0)
+	net_run(&session, 4)
+	testing.expect_value(t, session.relay.desyncs, 0) // player 0's states are honest
+	testing.expect(t, refused_slot(session.relay, 3, 0))
+	testing.expect_value(t, joiner.status, netcode.Status.Connected)
+	testing.expect(t, joiner.sim != nil && joiner.sim.seed == SEED, "the joiner plays with the session's seed")
+}
