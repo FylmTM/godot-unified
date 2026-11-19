@@ -14,7 +14,7 @@ survivor, friendslop and drift each own a copy of the same app layer: `game/app/
 change to the app layer lands in every game in the same PR**, unless a game differs on purpose. Nothing compares
 them. A new game doesn't copy it: it stays minimal_3d-shaped (no menus or settings), plays together through the
 session's flags and `uni coop`, and opts into online lobbies with `eos.lobby({})` in `godot.init` and `lobbies` in its
-headless main (minimal_3d's SPEC, "What a new game takes from where").
+headless main (`games/minimal_3d/README.md`, What a new game takes from where).
 
 ## The loop, cheapest first
 
