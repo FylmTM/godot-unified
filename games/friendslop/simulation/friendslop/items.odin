@@ -40,7 +40,7 @@ send_item_home :: proc(t: ^Tick, index: int) {
 		if holder != {} do drop(t, holder)
 	}
 	physics.body_teleport(t.world.phys, item.body, places(t).items[index].pos, places(t).items[index].rot)
-	item.thrown_ticks = 0
+	sim.timer_stop(&item.thrown)
 	item.thrown_by = {}
 	physics.stop_ignoring(t.world.phys, &item.thrower_ignore)
 }
@@ -58,9 +58,8 @@ return_fallen_items :: proc(t: ^Tick) {
 age_throws :: proc(t: ^Tick) {
 	for i in 0 ..< places(t).item_count {
 		item := &t.state.items[i]
-		if item.thrown_ticks > 0 do item.thrown_ticks -= 1
 		if item.thrower_ignore == {} do continue
-		clear := item.thrown_ticks == 0 || !sim.player_present(t, item.thrown_by)
+		clear := !sim.timer_running(t, item.thrown) || !sim.player_present(t, item.thrown_by)
 		if !clear {
 			away := physics.body_position(t.world.phys, item.body) - player_pos(t, item.thrown_by)
 			clear = dmath.length_sq(away) > THROW_CLEAR_DIST * THROW_CLEAR_DIST

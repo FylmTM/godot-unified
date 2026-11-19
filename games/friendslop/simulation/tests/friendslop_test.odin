@@ -345,7 +345,10 @@ owners_follow_the_person :: proc(t: ^testing.T) {
 	headless.run_seat(&run, 2, 1)
 	step(&run, {})
 	testing.expect_value(t, items[crate].thrown_by, thrower)
-	testing.expect(t, items[crate].thrown_ticks > 0)
+	testing.expect(
+		t,
+		sim.timer_running(sim.game_time(&run.simulation.state, run.simulation.tick), items[crate].thrown),
+	)
 	testing.expect_value(t, headless.run_events(&run, g.Event_Spawned), 4) // two at the start, the newcomer, the return
 	expect_clean(t, &run)
 }

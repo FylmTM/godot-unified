@@ -58,7 +58,7 @@ player_pos :: proc(t: ^Tick, player: sim.Player) -> [3]f32 {
 move_players :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
-		if character.respawn > 0 || character.held_by != {} || character.stun > 0 do continue
+		if sim.timer_running(t, character.respawn) || character.held_by != {} || character.stun > 0 do continue
 		input := sim.input(t, player)
 		move := dmath.stick(input.move_x, input.move_z)
 		holding := character.held_kind != .None
@@ -118,14 +118,12 @@ recover_from_stuns :: proc(t: ^Tick) {
 respawn_fallen :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
-		if character.respawn > 0 {
-			character.respawn -= 1
-			if character.respawn == 0 {
-				pos := respawn_point(t, sim.player_slot(t, player))
-				physics.character_teleport(t.world.phys, &character.controller, pos)
-				physics.character_set_limp(t.world.phys, &character.controller, false)
-				sim.emit(t, Event_Respawned{position = sim.Position(pos), player = player})
-			}
+		if sim.timer_running(t, character.respawn) do continue
+		if sim.timer_fired(t, character.respawn) {
+			pos := respawn_point(t, sim.player_slot(t, player))
+			physics.character_teleport(t.world.phys, &character.controller, pos)
+			physics.character_set_limp(t.world.phys, &character.controller, false)
+			sim.emit(t, Event_Respawned{position = sim.Position(pos), player = player})
 			continue
 		}
 		pos := player_pos(t, player)
@@ -133,7 +131,7 @@ respawn_fallen :: proc(t: ^Tick) {
 		release_all(t, player)
 		character.stun = 0
 		character.thrown = false
-		character.respawn = RESPAWN_TICKS
+		sim.timer_start_ticks(t, &character.respawn, u32(RESPAWN_TICKS))
 		physics.character_set_limp(t.world.phys, &character.controller, true)
 		park := [3]f32{f32(sim.player_slot(t, player)) * PARK_SPACING, PARK_Y, 0}
 		physics.body_teleport(t.world.phys, character.controller.body, park)

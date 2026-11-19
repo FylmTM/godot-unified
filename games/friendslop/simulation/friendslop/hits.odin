@@ -8,7 +8,7 @@ import "unified:sim"
 bump_players :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
-		if character.stun > 0 || character.respawn > 0 || character.held_by != {} do continue
+		if character.stun > 0 || sim.timer_running(t, character.respawn) || character.held_by != {} do continue
 		pos := player_pos(t, player)
 		for &bumper in sim.slice(&places(t).bumpers) {
 			if !in_volume(bumper.volume, pos) do continue
@@ -43,7 +43,7 @@ hit_player :: proc(t: ^Tick, index: int, player: sim.Player, hit: ^physics.Conta
 	item := &t.state.items[index]
 	if !sim.player_present(t, player) || item.holders[0] == player || item.holders[1] == player do return
 	// (a thrown item can't hit its thrower before it is clear of them: their bodies don't touch, age_throws)
-	if item.thrown_ticks == 0 && hit.speed < HIT_SPEED do return
+	if !sim.timer_running(t, item.thrown) && hit.speed < HIT_SPEED do return
 	direction := dmath.normalize(physics.body_linear_velocity(t.world.phys, item.body).xz)
 	if direction == {} do direction = dmath.normalize(hit.normal.xz)
 	knock(t, player, direction, KNOCKBACK, bumper = false)
@@ -53,9 +53,9 @@ hit_player :: proc(t: ^Tick, index: int, player: sim.Player, hit: ^physics.Conta
 ring_bell :: proc(t: ^Tick, index: int, hit: ^physics.Contact_Event) {
 	def := &places(t).triggers[index]
 	trigger := &t.state.triggers[index]
-	if def.kind != .Bell || hit.speed < BELL_SPEED || trigger.cooldown > 0 do return
+	if def.kind != .Bell || hit.speed < BELL_SPEED || sim.timer_running(t, trigger.cooldown) do return
 	trigger.active = true
-	trigger.cooldown = BELL_COOLDOWN_TICKS
+	sim.timer_start_ticks(t, &trigger.cooldown, u32(BELL_COOLDOWN_TICKS))
 	sim.emit(
 		t,
 		Event_Bell_Rung{entity = sim.entity(def.marker), position = sim.Position(hit.point), speed = hit.speed},
@@ -66,7 +66,7 @@ ring_bell :: proc(t: ^Tick, index: int, hit: ^physics.Contact_Event) {
 // `bumper`: a bumper knocked them, not an item (Event_Hit says which).
 knock :: proc(t: ^Tick, player: sim.Player, direction: [2]f32, speed: f32, bumper: bool) {
 	character := sim.player_data(t, player)
-	if character.held_by != {} || character.respawn > 0 do return
+	if character.held_by != {} || sim.timer_running(t, character.respawn) do return
 	if character.held_kind != .None do drop(t, player)
 	physics.character_set_limp(t.world.phys, &character.controller, true)
 	character.stun = STUN_TICKS

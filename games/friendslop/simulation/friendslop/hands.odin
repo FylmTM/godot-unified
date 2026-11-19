@@ -11,7 +11,7 @@ use_hands :: proc(t: ^Tick) {
 	for character, player in sim.next(&players) {
 		aim := dmath.dir3_vec(sim.input(t, player).aim)
 		if aim != {} do character.aim = aim
-		if character.respawn > 0 do continue
+		if sim.timer_running(t, character.respawn) do continue
 		buttons := sim.buttons(t, player)
 		if character.held_by != {} {
 			struggle(t, character, player, .Jump in buttons.pressed)
@@ -134,7 +134,7 @@ grabbable :: proc(t: ^Tick, player: sim.Player, target: Body, chest: [3]f32, onl
 	switch target.kind {
 	case .Item:
 		item := &t.state.items[target.item]
-		if only_thrown && item.thrown_ticks == 0 do return -1
+		if only_thrown && !sim.timer_running(t, item.thrown) do return -1
 		kind := places(t).items[target.item].kind
 		spec := &ITEM_SPECS[kind]
 		best, best_distance_sq := -1, max(f32)
@@ -151,7 +151,7 @@ grabbable :: proc(t: ^Tick, player: sim.Player, target: Body, chest: [3]f32, onl
 	case .Player:
 		if target.player == player || !sim.player_present(t, target.player) do return -1
 		held := sim.player_data(t, target.player)
-		if held.respawn > 0 || held.held_by != {} || held.held_kind == .Player do return -1
+		if sim.timer_running(t, held.respawn) || held.held_by != {} || held.held_kind == .Player do return -1
 		if only_thrown && !held.thrown do return -1
 		return 0
 	case .Other:
@@ -190,7 +190,7 @@ grab :: proc(t: ^Tick, player: sim.Player, target: Target) {
 		joint_def.max_spring_force = spec.lift * spec.mass * GRAVITY
 		joint_def.max_spring_torque = spec.grab_points > 1 ? 0 : spec.mass * HOLD_TORQUE_PER_KG
 		item.holders[target.grab_point] = player
-		item.thrown_ticks = 0
+		sim.timer_stop(&item.thrown)
 		item.thrown_by = {}
 		physics.stop_ignoring(t.world.phys, &item.thrower_ignore)
 		entity = sim.entity(places(t).items[target.item].marker)
@@ -289,7 +289,7 @@ throw :: proc(t: ^Tick, player: sim.Player) {
 	if kind == .Item {
 		item := &t.state.items[index]
 		item.thrown_by = player
-		item.thrown_ticks = THROWN_TAG_TICKS
+		sim.timer_start_ticks(t, &item.thrown, u32(THROWN_TAG_TICKS))
 		physics.stop_ignoring(t.world.phys, &item.thrower_ignore) // a throw of an item still clearing its last thrower
 		item.thrower_ignore = physics.ignore_contacts(
 			t.world.phys,
