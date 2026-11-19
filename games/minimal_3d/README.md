@@ -24,7 +24,9 @@ project has no InputMap of its own.
 
 ## What a new game takes from where
 
-A new game stays this shape: no menus or settings, one scene that starts a session. The other games show the rest:
+A new game stays this shape: no menus or settings, one scene that starts a session. The other games show the rest;
+survivor's, drift's and friendslop's menus, settings and HUD panels (`game/app/`, `game/ui/`) are their own, not a
+template:
 
 - **Playing together:** the session's flags and `uni coop`. Direct (LAN) works as is; online (EOS lobbies and P2P)
   once the game passes `eos.lobby({})` to `godot.init` and `lobbies` to `modes.run` (drift's extension, survivor's
