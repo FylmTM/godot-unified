@@ -207,6 +207,11 @@ for sent in sim.commands(t, player) {               // this player's, in order, 
 - A tick's record holds them inline in `Inputs`, up to `COMMANDS_PER_SLOT` of one slot and `TICK_COMMANDS` in all,
   so a record has a fixed size and fits a datagram; a sender's surplus waits for the next tick, in order. Delivery:
   `src/netcode/README.md`, Commands.
+- **Dev commands** are a game's `Cmd_Dev_<Name>` variants (a cheat: give XP, spawn enemies): ordinary commands
+  everywhere (sent, relayed, logged, replayed, the same tick on every peer), which a build without the dev UI
+  (`DEV` false) leaves out when it decodes a tick, whoever sent them. Because that build then computes differently,
+  its identity says so (`compat_of`), and a dev build and a public build of a game with dev commands refuse each
+  other; a game without them is unaffected. The dev UI offers each as a form. No library-defined command exists.
 
 ## Bytes from another machine
 

@@ -367,7 +367,9 @@ compat_with :: proc(
 	PLAYERS :: part(G, GAME_PLAYERS)
 	Ids :: struct {
 		state, input, inputs, name, version, content, commands, events, box3d, setup: u64,
-		players, tick_hz, library, _pad:                                              u32, // no padding: hashed as bytes
+		// dev: 1 when this build applies the union's dev commands (sim.DEV and it has some): a public build and a dev
+		// build of a game with dev commands compute differently, so they refuse each other
+		players, tick_hz, library, dev:                                               u32, // no padding: hashed as bytes
 	}
 	ids := Ids {
 		state    = state_layout,
@@ -383,6 +385,7 @@ compat_with :: proc(
 		players  = u32(PLAYERS),
 		tick_hz  = u32(game.tick_hz),
 		library  = library.version != 0 ? library.version : LIBRARY_VERSION,
+		dev      = DEV && has_dev_commands(Cmd) ? 1 : 0,
 	}
 	return dmath.max(hash_bytes(([^]u8)(&ids)[:size_of(Ids)]), 1) // never 0 ("any")
 }

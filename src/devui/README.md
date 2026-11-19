@@ -15,6 +15,9 @@ playtest (F3 notes are how they report a problem); a public build turns it off. 
 - **Draw groups.** The host passes the sim's debug draw group names every frame (`draw_groups`); the overlay keeps a
   toggle per name, remembered by name while it lives, so the next session shows what the last one did, and returns
   the shown ones. What is drawn and where is the host's.
+- **Command forms.** The host describes forms (numbers, toggles, choices: a game's dev commands) and packs what a
+  Send returns (`command_forms`, `take_form`); they sit above the Commands log, which then shows the command Sent and
+  Confirmed like a script's.
 - **Timeline.** While the host plays a replay it passes the playhead's state every frame (`timeline`) and gets what
   the panel asked for (play or pause, a step, a seek on the slider, the speed); the panel opens with a replay.
 - **Size.** In points, whatever the game's stretch: the layer's scale is the HiDPI scale over the root viewport's

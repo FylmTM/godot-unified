@@ -221,7 +221,7 @@ Log_Panel :: struct {
 }
 
 @(private)
-build_log :: proc(panel: ^Log_Panel, kind: Panel_Kind, title: string, rect: [4]f32) {
+build_log :: proc(panel: ^Log_Panel, kind: Panel_Kind, title: string, rect: [4]f32, forms: ^Forms = nil) {
 	panel.tree = gd.Tree_new()
 	gd.Tree_set_columns(panel.tree, 3)
 	for column in 0 ..< 2 do gd.Tree_set_column_expand(panel.tree, column, false)
@@ -230,7 +230,18 @@ build_log :: proc(panel: ^Log_Panel, kind: Panel_Kind, title: string, rect: [4]f
 	gd.Tree_set_hide_root(panel.tree, true)
 	gd.Control_set_focus_mode(panel.tree, .FOCUS_NONE)
 	panel.root = gd.Tree_create_item(panel.tree)
-	panel_make(kind, title, rect, panel.tree)
+	if forms == nil {
+		panel_make(kind, title, rect, panel.tree)
+	} else {
+		// the command forms above the log (command_forms), hidden while there are none
+		body := gd.VBoxContainer_new()
+		forms.box = add(body, gd.VBoxContainer_new())
+		forms.sent = -1
+		gd.CanvasItem_set_visible(forms.box, false)
+		add(body, panel.tree)
+		gd.Control_set_v_size_flags(panel.tree, .SIZE_EXPAND_FILL)
+		panel_make(kind, title, rect, body)
+	}
 	// in the title bar: the count, "confirmed" and "follow"
 	bar := s.panels[kind].extras
 	panel.count_l = label(bar, "")

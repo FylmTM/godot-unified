@@ -6,6 +6,8 @@ package sim
 
 import "base:builtin"
 import "base:intrinsics"
+import "base:runtime"
+import "core:strings"
 
 COMMAND_MAX :: 64 // bytes of one command's struct
 COMMANDS_PER_SLOT :: 4 // per slot per tick: more wait for the next tick, in order
@@ -49,12 +51,33 @@ Commands :: struct($Cmd: typeid) {
 	count: int,
 }
 
-// Decodes the record's commands, leaving out any whose bytes don't decode (an unknown kind, a wrong size).
+// The prefix of a dev command's type name: a variant `Cmd_Dev_<Name>` of the game's Cmd union is a dev command, an
+// ordinary command everywhere (sent, relayed, logged, replayed) that a build without the dev UI never applies
+// (commands_decode) and the dev UI offers as a form.
+DEV_COMMAND_PREFIX :: "Cmd_Dev_"
+
+// Whether variant `kind` of a command union is a dev command (its type is named Cmd_Dev_*).
+command_is_dev :: proc(commands: typeid, kind: int) -> bool {
+	variants := union_variants(commands)
+	if kind < 0 || kind >= len(variants) do return false
+	named, is_named := variants[kind].variant.(runtime.Type_Info_Named)
+	return is_named && strings.has_prefix(named.name, DEV_COMMAND_PREFIX)
+}
+
+// Whether a command union has a dev command.
+has_dev_commands :: proc(commands: typeid) -> bool {
+	for _, kind in union_variants(commands) do if command_is_dev(commands, kind) do return true
+	return false
+}
+
+// Decodes the record's commands, leaving out any whose bytes don't decode (an unknown kind, a wrong size), and the dev
+// commands unless `dev` (a build without the dev UI never applies one, whoever sends it).
 @(private)
-commands_decode :: proc(commands: ^Commands($Cmd), inputs: ^Inputs($G)) {
+commands_decode :: proc(commands: ^Commands($Cmd), inputs: ^Inputs($G), dev := DEV) {
 	commands.count = 0
 	when intrinsics.type_union_variant_count(Cmd) > 0 { 	// sim.No_Commands: nothing to decode
 		for &raw in inputs.commands[:inputs.command_count] {
+			if !dev && command_is_dev(Cmd, int(raw.kind)) do continue
 			value := command_value(&raw, Cmd)
 			if value == nil do continue
 			commands.list[commands.count] = value

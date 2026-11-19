@@ -62,6 +62,7 @@ State :: struct {
 	commands:     Log_Panel,
 	cond:         Conditions_Panel,
 	timeline:     Timeline_Panel,
+	forms:        Forms, // the Commands panel's command forms
 	note:         Note,
 	stats:        [dynamic][2]string, // this frame's stat lines: key, value
 	ui_ms:        f32,
@@ -102,7 +103,7 @@ init :: proc(shown: bool, on_feedback: Feedback_Proc = nil) {
 	build_inspector(&s.input, .Input, "Input", {350, 190, 330, 300})
 	build_conditions()
 	build_log(&s.events, .Events, "Events", {8, 520, 480, 170})
-	build_log(&s.commands, .Commands, "Commands", {496, 520, 480, 170})
+	build_log(&s.commands, .Commands, "Commands", {496, 470, 520, 220}, &s.forms)
 	build_note()
 	build_timeline()
 	// deferred: init usually runs inside a node's _ready, while the root is busy adding children
@@ -126,6 +127,7 @@ shutdown :: proc() {
 	inspector_shutdown(&s.input)
 	log_shutdown(&s.events)
 	log_shutdown(&s.commands)
+	forms_shutdown()
 	note_shutdown()
 	// Everything else is a child of the layer (popped-out windows included); freeing it frees them. At extension
 	// shutdown the tree may already be gone.
