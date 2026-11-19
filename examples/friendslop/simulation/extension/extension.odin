@@ -25,6 +25,7 @@ GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame = fill_frame,
 	data = Data,
+	view_data = {.Player = Player_View, .Marker = Marker_View},
 	event_key = event_key,
 	input_values = Input_Values,
 	// an item the local player holds is drawn at their hand, at render rate (marker_view.gd)

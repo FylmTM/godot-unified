@@ -52,6 +52,7 @@ Frame :: godot.Frame(g.Game, View, MultiView)
 Player_View :: struct {
 	hp:      i32,
 	dashing: bool, // the dash's speed-up is on (the view's after-image trail)
+	_pad:    [3]u8,
 }
 
 // Events reach views by the host's default routing: a player's events (`player`) its player view, a barrel's
@@ -59,8 +60,9 @@ Player_View :: struct {
 // MultiMesh instances, so their events (by handle) reach no view.
 GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
-	fill_frame   = fill_frame,
-	data         = Data,
+	fill_frame = fill_frame,
+	data = Data,
+	view_data = #partial{.Player = Player_View},
 }
 
 // ---- constants for the scripts (Unified.constants, class UnifiedConstants), from the sim's own definitions

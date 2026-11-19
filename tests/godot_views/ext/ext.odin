@@ -35,7 +35,7 @@ Frame :: godot.Frame(toy.Game, View, MultiView)
 // purpose: the host reports the missing property as an error the suite expects.
 Typed2D_Data :: struct {
 	shown:     bool,
-	mode:      Mode, // an enum only view data uses: an int, with its class (EnumMode) since GLUE.view_data declares it
+	mode:      Mode, // an enum only view data uses: an int, with its class (EnumMode): GLUE.view_data declares the type
 	_pad:      [2]u8,
 	hp:        i32,
 	ticks:     u32, // the frame's tick: changes every frame
@@ -43,6 +43,7 @@ Typed2D_Data :: struct {
 	dir:       [2]f32,
 	tint:      godot.Color,
 	pad_check: f32,
+	area:      toy.Mark_Area, // a nested struct: an object of its class (DataMarkArea)
 }
 
 // The card view's data (a Control root: the host sets data, never a pose): one card per thing. `holder` is not
@@ -150,7 +151,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 	view_scale = VIEW_SCALE,
 	event_key = event_key,
 	input_values = Input_Values,
-	view_data = #partial{.Typed2D = Typed2D_Data}, // its enums and nested structs get classes at load
+	view_data = #partial{.Typed2D = Typed2D_Data, .Card = Card_Data}, // every kind with data, as Glue.data's
 	view_policy = #partial {
 		.Scripted3D = {appear = .Verified, pose = .Script},
 		.Plain3D = {smoothing = {tau_s = 0.05}},
@@ -176,7 +177,7 @@ bench_prepare :: proc(state: ^toy.State, world: ^toy.World, count: int) {
 // The benchmark's frame: the local player's typed2d view (the player's events reach it), BENCH_SCENE_VIEWS plain3d views circling, and the instances on a grid, each turning and bobbing (every value
 // changes every tick, so nothing is the same as the tick before).
 bench_frame :: proc(f: ^Frame) {
-	godot.push_view(f, f.local_players[0], {kind = .Typed2D})
+	godot.push_view(f, f.local_players[0], {kind = .Typed2D}, Typed2D_Data{})
 	seconds := f32(f.tick) / toy.HZ
 	for i in 0 ..< BENCH_SCENE_VIEWS {
 		angle := seconds + f32(i) * math.TAU / BENCH_SCENE_VIEWS
@@ -237,13 +238,14 @@ fill_frame :: proc(f: ^Frame) {
 		pos  = POS_2D / VIEW_SCALE,
 		rot  = q2,
 	}, Typed2D_Data {
-		shown  = true,
-		mode   = .Open,
-		hp     = -3,
-		ticks  = f.tick,
+		shown = true,
+		mode = .Open,
+		hp = -3,
+		ticks = f.tick,
 		charge = 0.5,
-		dir    = {0.6, -0.8},
-		tint   = {1, 0.5, 0.25, 1},
+		dir = {0.6, -0.8},
+		tint = {1, 0.5, 0.25, 1},
+		area = {corner = {1, 2}, layer = 3},
 	})
 	godot.push_view(f, sim.entity(2), {
 		kind = .Plain2D,

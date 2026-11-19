@@ -439,7 +439,7 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 		fields := data_fields(item.data_type)
 		for &field in fields {
 			property := gd.Object_get(node, field.name_sn)
-			if gd.variant_type(&property) == .NIL {
+			if gd.variant_type(&property) == .NIL && !declares_property(node, field.name) { 	// a null object var is nil too
 				report_once(
 					fmt.tprintf("prop:%s:%s", kind, field.name),
 					fmt.tprintf(
@@ -550,6 +550,24 @@ view_parent :: proc(root: gd.Node, scene_view: ^Scene_View, kind: string) -> gd.
 		),
 	)
 	return root
+}
+
+// Whether `node` declares a property `name`: a script's `var`, even one holding null (Object.get reads that as nil, as
+// it reads a property that isn't there). Walks the property list: once per kind and field, on a nil read only.
+declares_property :: proc(node: gd.Node, name: string) -> bool {
+	list := gd.Object_get_property_list(node)
+	defer gd.Array_destroy(&list)
+	key := gd.to_variant("name")
+	defer gdi.variant_destroy(&key)
+	for i in 0 ..< gd.array_len(&list) {
+		dict, _ := gd.from_variant(gd.Dictionary, gd.array_at(&list, i))
+		value := gd.Dictionary_get(&dict, key, gd.variant_nil())
+		text, _ := gd.from_variant(string, &value)
+		gdi.variant_destroy(&value)
+		gd.Dictionary_destroy(&dict)
+		if text == name do return true
+	}
+	return false
 }
 
 free_view :: proc(scene_view: ^Scene_View) {

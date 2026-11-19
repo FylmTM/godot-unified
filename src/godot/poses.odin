@@ -238,11 +238,14 @@ view_kinds: [256]View_Kind_Types
 
 @(private)
 view_kind_types :: proc(kind: u8, subject, data_type: typeid, loc := #caller_location) {
-	if int(kind) < len(api.view_data) {
-		if declared := api.view_data[kind]; declared != nil && declared != data_type {
+	known := &view_kinds[kind]
+	if !known.pushed {
+		// the first push of the kind: its data is the declared type (Glue.view_data)
+		declared := api.view_data[kind] if int(kind) < len(api.view_data) else nil
+		if declared != data_type {
 			panic(
 				fmt.tprintf(
-					"push_view: view kind %d pushed %v, but Glue.view_data declares %v",
+					"push_view: view kind %d pushed %v, but Glue.view_data declares %v (nil: none; a kind with data declares it)",
 					kind,
 					data_type,
 					declared,
@@ -250,9 +253,6 @@ view_kind_types :: proc(kind: u8, subject, data_type: typeid, loc := #caller_loc
 				loc,
 			)
 		}
-	}
-	known := &view_kinds[kind]
-	if !known.pushed {
 		known^ = {true, subject, data_type}
 		return
 	}

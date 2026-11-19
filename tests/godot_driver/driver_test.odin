@@ -20,19 +20,20 @@ import "../toy"
 
 @(private = "file")
 seen: struct {
-	dx:        i8, // what the main thread samples (atomic: the test's main thread sets it)
-	extracted: int, // frames filled (atomic)
-	bumps:     u32, // the local player's bump commands applied, in the last frame (atomic)
-	bump_fold: u32,
-	pumps:     int,
-	closes:    int,
-	hub:       ^netcode.Hub,
-	hold:      int, // atomic: 1 hold fill_frame at the local player's join tick, 2 held there, 3 let go
-	held_tick: u32,
-	build:     netcode.Lobby_Build, // what the lobby's open_host got
-	spin:      int, // atomic: 1 fill_frame spins (a frozen session thread) until 2
-	setup:     u32, // atomic: the last Frame's Setup's life_bonus + 1 (0: no Setup)
-	color:     u32, // atomic: the local player's colour (their Profile's)
+	dx:           i8, // what the main thread samples (atomic: the test's main thread sets it)
+	extracted:    int, // frames filled (atomic)
+	bumps:        u32, // the local player's bump commands applied, in the last frame (atomic)
+	bump_fold:    u32,
+	pumps:        int,
+	closes:       int,
+	hub:          ^netcode.Hub,
+	hold:         int, // atomic: 1 hold fill_frame at the local player's join tick, 2 held there, 3 let go
+	held_tick:    u32,
+	build:        netcode.Lobby_Build, // what the lobby's open_host got
+	spin:         int, // atomic: 1 fill_frame spins (a frozen session thread) until 2
+	setup:        u32, // atomic: the last Frame's Setup's life_bonus + 1 (0: no Setup)
+	color:        u32, // atomic: the local player's colour (their Profile's)
+	second_color: u32, // atomic: the colour of whoever holds slot 1
 }
 
 @(private = "file")
@@ -62,6 +63,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 			sync.atomic_store(&seen.bumps, local.bumps)
 			sync.atomic_store(&seen.bump_fold, local.bump_fold)
 			sync.atomic_store(&seen.color, local.color)
+			if second := sim.slot_data(&frame.state.players, 1); second != nil do sync.atomic_store(&seen.second_color, second.color)
 			// the join tick's events are queued, its Frame not published yet: hold here while the test looks
 			if sync.atomic_load(&seen.hold) == 1 {
 				seen.held_tick = frame.tick
@@ -369,13 +371,31 @@ driver_sessions :: proc(t: ^testing.T) {
 	// A scripted session's local player joins with the game's scripted Profile for slot 0 (the offline run's), not
 	// Unified.profile's.
 	{
-		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 8, name = "solo", scripted = true})
+		sync.atomic_store(&seen.color, 0)
+		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 8, name = "solo", scripted = true, slot = -1})
 		testing.expect(t, ok, err)
 		messages := make([dynamic]godot.Message, context.temp_allocator)
 		testing.expect(t, drain(&messages, 5000, is_result), "the scripted session ends with a result")
 		for godot.api.running() do time.sleep(time.Millisecond)
 		godot.api.wait()
 		testing.expect_value(t, sync.atomic_load(&seen.color), u32(toy.scripted_profile(7, 0).color))
+	}
+
+	// A scripted host's local player k holds slot k with slot k's scripted Profile: local 1 here. (A taken slot is
+	// refused, Slot_Taken: tests/netcode, a_refused_local_player_taken_back_keeps_the_connection.)
+	{
+		sync.atomic_store(&seen.second_color, 0)
+		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 48, name = "solo", scripted = true, slot = -1})
+		testing.expect(t, ok, err)
+		for frame, _ := godot.api.front(); frame == nil || frame.tick < 4; frame, _ = godot.api.front() {
+			time.sleep(time.Millisecond)
+		}
+		testing.expect(t, godot.api.local_player(1, true, "Second", nil))
+		messages := make([dynamic]godot.Message, context.temp_allocator)
+		testing.expect(t, drain(&messages, 5000, is_result), "the session ends with a result")
+		for godot.api.running() do time.sleep(time.Millisecond)
+		godot.api.wait()
+		testing.expect_value(t, sync.atomic_load(&seen.second_color), u32(toy.scripted_profile(7, 1).color))
 	}
 
 	// Online without a lobby service: refused before a thread starts.
@@ -820,7 +840,8 @@ Generic_Data :: union {
 
 @(private = "file")
 Data_Keyword :: struct {
-	class: u8, // `row.class` does not parse in GDScript
+	class: u8, // fine: GDScript reads `row.class` as the attribute
+	null:  u8, // `row.null` is the literal
 }
 
 @(private = "file")
@@ -828,14 +849,29 @@ Keyword_Data :: union {
 	Data_Keyword,
 }
 
-// A field named like a GDScript keyword in what GDScript reads is an install problem naming it: a script couldn't
-// read it.
+@(private = "file")
+Dot_Keyword :: struct {
+	class: u8, // a view data field is the root script's `var class`, which does not parse
+	Node:  u8, // a capital would shadow a class
+}
+
+// What GDScript can't read is an install problem naming the field: in a class (session data here) only `true`,
+// `false` and `null`; in declared view data, whose fields are the root script's own vars, any keyword, built-in
+// type name, `_` or capitalised name.
 @(test)
-a_keyword_field_is_an_install_problem :: proc(t: ^testing.T) {
+a_name_gdscript_cant_take_is_an_install_problem :: proc(t: ^testing.T) {
 	glue := GLUE
 	glue.data = Keyword_Data
+	glue.view_data = {
+		.Dot = Dot_Keyword,
+	}
 	problems := godot.install_problems(&toy.GAME, glue)
-	testing.expectf(t, len(problems) == 1 && strings.contains(problems[0], "Data_Keyword.class"), "%v", problems)
+	names := strings.join(problems, "\n", context.temp_allocator)
+	testing.expectf(t, len(problems) == 3, "%v", problems)
+	for field in ([]string{"Data_Keyword.null", "Dot_Keyword.class", "Dot_Keyword.Node"}) {
+		testing.expectf(t, strings.contains(names, field), "%s: %v", field, problems)
+	}
+	testing.expectf(t, !strings.contains(names, "Data_Keyword.class"), "a class's `class` field reads: %v", problems)
 }
 
 // A generic struct in what GDScript reads (here session data) is an install problem naming its field: no class can be

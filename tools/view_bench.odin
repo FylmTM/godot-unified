@@ -85,7 +85,9 @@ cmd_view_bench :: proc(args: []string) -> cli.Result {
 		}
 		append(&cmd, "--path", dir, "-s", "res://view_bench.gd", "--", "--bench", cli.aprintf("%d", count))
 		append(&cmd, "--seconds", VIEW_BENCH_SECONDS)
-		ran := cli.run_proc({cmd = cmd[:], capture = true, quiet = true, timeout = 60 * time.Second})
+		ran := cli.run_proc(
+			{cmd = cmd[:], capture = true, quiet = true, timeout = 60 * time.Second, env = cli.user_env(dir)},
+		)
 		out := strings.concatenate({ran.stdout, ran.stderr})
 		line, found := view_bench_line(out)
 		if !ran.ok || !found || len(cli.godot_errors(out)) > 0 {
