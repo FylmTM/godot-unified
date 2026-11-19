@@ -5,6 +5,7 @@
 // cancels them when the tick is verified. Not state: not in the block, not hashed.
 package sim
 
+import "base:builtin"
 import "base:intrinsics"
 
 EVENT_MAX :: 64 // bytes of one event's struct
@@ -60,7 +61,7 @@ emit :: proc(tick: ^Tick($G), event: $E) where intrinsics.type_is_variant_of(par
 		size = size_of(E),
 	}
 	copy(raw.data[:], ([^]u8)(&event)[:size_of(E)])
-	append(&tick.events.list, raw)
+	builtin.append(&tick.events.list, raw)
 }
 
 // The event as the game's union (nil: a kind out of range or the wrong size).

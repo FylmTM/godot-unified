@@ -61,6 +61,7 @@ PHYSICS_IMPORTS :: []string {
 SIM_IMPORTS :: []string {
 	"unified:dmath",
 	"unified:wire",
+	"base:builtin", // collections.odin shadows append and clear with Odin's verbs
 	"base:intrinsics",
 	"base:runtime",
 	"core:math/bits",

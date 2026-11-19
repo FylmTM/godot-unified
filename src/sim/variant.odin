@@ -3,6 +3,7 @@
 // the union) and its struct's bytes; these helpers go between the two by RTTI.
 package sim
 
+import "base:builtin"
 import "base:intrinsics"
 import "base:runtime"
 import "core:fmt"
@@ -282,7 +283,7 @@ wire_compile :: proc(check: ^Wire_Check, type: ^runtime.Type_Info, offset: int) 
 		for value := field.low; field.dense && value <= field.high; value += 1 {
 			field.dense = enum_declares(info, value)
 		}
-		append(&check.enums, field)
+		builtin.append(&check.enums, field)
 	case runtime.Type_Info_Bit_Set:
 		for i in 0 ..< type.size * 8 {
 			if !bit_set_holds(info, info.lower + i64(i)) do check.allowed[offset + i / 8] &~= 1 << uint(i % 8)
@@ -317,9 +318,9 @@ union_hash :: proc(type: typeid, prefix: string) -> u64 {
 	if len(variants) == 0 do return 0
 	bytes := make([dynamic]u8, 0, 64 * len(variants), context.temp_allocator)
 	for variant in variants {
-		append(&bytes, ..transmute([]u8)variant_name(variant, prefix))
+		builtin.append(&bytes, ..transmute([]u8)variant_name(variant, prefix))
 		layout := transmute([8]u8)u64le(layout_hash_of(variant))
-		append(&bytes, ..layout[:])
+		builtin.append(&bytes, ..layout[:])
 	}
 	return hash_bytes(bytes[:])
 }

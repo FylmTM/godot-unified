@@ -117,8 +117,15 @@ Table_Iterator :: struct($T: typeid, $N: int) {
 	end:   i32, // the high-water mark when the walk started
 }
 
-// Starts a walk over the table's live items; `next` yields each one with its handle.
-iterate :: #force_inline proc(table: ^Table($T, $N)) -> Table_Iterator(T, N) {
+// Starts a walk: over a table's live items in index order (`next` yields each with its handle), or a bit set's
+// indices, lowest first (collections.odin).
+iterate :: proc {
+	iterate_table,
+	iterate_bits,
+}
+
+// iterate's table form.
+iterate_table :: #force_inline proc(table: ^Table($T, $N)) -> Table_Iterator(T, N) {
 	return {table = table, end = table.high_water}
 }
 
@@ -136,8 +143,11 @@ table_next :: #force_inline proc(iterator: ^Table_Iterator($T, $N)) -> (item: ^T
 	return
 }
 
-// The next item of a table walk (iterate) or a player walk (iterate_present, iterate_known: players.odin).
+// The next item of a table walk (iterate), a player walk (iterate_present, iterate_known: players.odin), a bit-set
+// walk (iterate) or a grid's rows (grid_box: grid.odin).
 next :: proc {
 	table_next,
 	players_next,
+	bits_next,
+	grid_box_next,
 }

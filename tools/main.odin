@@ -8,6 +8,7 @@
 //	                    (tests/godot, tests/godot_views, a script error under the debugger)
 //	view_bench.odin     `view-bench`: the Godot host's view sync
 //	physics_bench.odin  `bench`'s physics row
+//	grid_bench.odin     `bench`'s grid row
 //	release.odin        `release`: playable builds (the `release` skill), and `release notes`
 //	board.odin          `board list|set`: the work board (GitHub Project 2) through gh (needs the `project` scope)
 //	selftest.odin       `selftest`: a fresh clone bootstrapped by its shim, `init` end to end, the test watchdog
@@ -24,7 +25,7 @@ main :: proc() {
 		vet        = {"tests/godot/ext", "tests/godot_views/ext"},
 		fmt        = {"src", "tests"},
 		uses_box3d = true,
-		bench      = {{name = "physics", run = physics_bench}},
+		bench      = {{name = "physics", run = physics_bench}, {name = "grid", run = grid_bench}},
 		bake       = {{dir = "tests/godot", scenes = {"res://levels/level_2d.tscn", "res://levels/shapes_3d.tscn"}}},
 	})
 	cli.add_suites(..private_suites())

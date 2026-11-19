@@ -4,6 +4,7 @@
 // data without pointers, so a snapshot restores on another OS or CPU (late join, `resume`).
 package sim
 
+import "base:builtin"
 import "base:intrinsics"
 
 import "unified:wire"
@@ -82,12 +83,12 @@ snapshot_keep :: proc(simulation: ^Sim($G), tick: u32, index: int) -> bool {
 	kept.tick = tick
 	kept.kept = true
 	kept.state = slot.state
-	clear(&kept.image)
+	builtin.clear(&kept.image)
 	if extra := &simulation.extra; extra.image != nil {
 		if extra.keep != nil && extra.image_kept != nil {
 			extra.keep(extra.data, ring_index, index)
 		} else {
-			append(&kept.image, ..extra.image(extra.data, ring_index, tick == simulation.tick))
+			builtin.append(&kept.image, ..extra.image(extra.data, ring_index, tick == simulation.tick))
 		}
 	}
 	return true
@@ -130,7 +131,7 @@ snap_write :: proc(header: Snap_Header, block: []u8, image: []u8, out: ^[dynamic
 	writer := wire.Writer {
 		buf = out^,
 	}
-	clear(&writer.buf)
+	builtin.clear(&writer.buf)
 	reserve(&writer.buf, SNAP_HEADER + len(block) + 4 + len(image))
 	snap_begin(&writer, header, block)
 	wire.w_u32(&writer, u32(len(image)))
@@ -253,7 +254,7 @@ from_snapshot :: proc(
 	for &slot in simulation.ring {
 		slot.valid = false
 		slot.saved = false
-		clear(&slot.events.list) // init's (tick 0's), which save would make the snapshot tick's when they share a slot
+		builtin.clear(&slot.events.list) // init's (tick 0's), which save would make the snapshot tick's when they share a slot
 	}
 	save(simulation)
 	return simulation, .None

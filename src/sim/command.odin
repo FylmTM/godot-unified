@@ -4,6 +4,7 @@
 // replayed, sent to late joiners with the log), never in the block. `tick` reads them with `commands`.
 package sim
 
+import "base:builtin"
 import "base:intrinsics"
 
 COMMAND_MAX :: 64 // bytes of one command's struct
@@ -165,6 +166,6 @@ push_command :: proc(out: ^Command_Out($Cmd), raw: Raw_Command) -> bool {
 	}
 	raw := raw
 	raw.slot = u8(out.slot)
-	append(&out.list, raw)
+	builtin.append(&out.list, raw)
 	return true
 }

@@ -115,10 +115,14 @@ events_diff_of :: proc(a, b: []Raw_Event, variants: []^runtime.Type_Info) -> str
 
 // Notes where two values of `type` differ: each differing leaf field (a struct's fields and an array's elements are
 // walked), "path a vs b". A sim.Table reads as its items by index (`enemies[12].pos.x`), with its slots' liveness
-// noted apart.
+// noted apart; a List, Queue or Bits by its live items (diff_collection).
 @(private)
 diff_value :: proc(diff: ^Diff, path: string, type: ^runtime.Type_Info, a, b: []u8) {
 	if string(a) == string(b) {
+		return
+	}
+	if kind := collection_kind(type); kind != .None {
+		diff_collection(diff, path, kind, type, a, b)
 		return
 	}
 	#partial switch info in runtime.type_info_base(type).variant {
@@ -172,4 +176,85 @@ diff_value :: proc(diff: ^Diff, path: string, type: ^runtime.Type_Info, a, b: []
 		return
 	}
 	diff_note(diff, "%s %v vs %v", path, any{raw_data(a), type.id}, any{raw_data(b), type.id})
+}
+
+// Which of the inline collections (collections.odin) a type is, by its RTTI name: tools read them by their live items.
+@(private)
+Collection :: enum u8 {
+	None,
+	List,
+	Queue,
+	Bits,
+}
+
+@(private)
+collection_kind :: proc(type: ^runtime.Type_Info) -> Collection {
+	named, is_named := type.variant.(runtime.Type_Info_Named)
+	if !is_named || named.pkg != "sim" do return .None
+	switch {
+	case strings.has_prefix(named.name, "List("):
+		return .List
+	case strings.has_prefix(named.name, "Queue("):
+		return .Queue
+	case strings.has_prefix(named.name, "Bits("):
+		return .Bits
+	}
+	return .None
+}
+
+// A List's or a Queue's field `name` (its count or head) as an integer, from the collection's bytes (0: no such field).
+@(private)
+collection_field :: proc(info: runtime.Type_Info_Struct, bytes: []u8, name: string) -> int {
+	for i in 0 ..< int(info.field_count) {
+		if info.names[i] != name do continue
+		value := 0
+		for k in 0 ..< info.types[i].size do value |= int(bytes[int(info.offsets[i]) + k]) << uint(8 * k)
+		return value
+	}
+	return 0
+}
+
+// A collection's differences: a List's or a Queue's count ("bag: 2 vs 3 items"), then its items, a List's by index
+// and a Queue's oldest first, up to the larger count; a Bits as the indices each holds ("open: {3, 64} vs {3}").
+@(private)
+diff_collection :: proc(diff: ^Diff, path: string, kind: Collection, type: ^runtime.Type_Info, a, b: []u8) {
+	info := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
+	last := int(info.field_count) - 1
+	items_at := int(info.offsets[last])
+	array := runtime.type_info_base(info.types[last]).variant.(runtime.Type_Info_Array)
+	if kind == .Bits {
+		diff_note(diff, "%s: %s vs %s", path, bits_text(a, array.count), bits_text(b, array.count))
+		return
+	}
+	count_a, count_b := collection_field(info, a, "count"), collection_field(info, b, "count")
+	head_a, head_b := collection_field(info, a, "head"), collection_field(info, b, "head")
+	if count_a != count_b do diff_note(diff, "%s: %d vs %d items", path, count_a, count_b)
+	size := array.elem_size
+	for k in 0 ..< dmath.max(count_a, count_b) {
+		at_a, at_b := (head_a + k) % array.count, (head_b + k) % array.count
+		item_a, item_b := a[items_at + at_a * size:][:size], b[items_at + at_b * size:][:size]
+		diff_value(diff, fmt.tprintf("%s[%d]", path, k), array.elem, item_a, item_b)
+	}
+}
+
+// A Bits' indices as "{3, 64}" from its `words` u64 words, at most 16 listed. Temp-allocated.
+@(private)
+bits_text :: proc(bytes: []u8, words: int) -> string {
+	text := strings.builder_make(context.temp_allocator)
+	strings.write_byte(&text, '{')
+	listed := 0
+	for word in 0 ..< words {
+		for bit in 0 ..< 64 {
+			if bytes[word * 8 + bit / 8] & (1 << uint(bit % 8)) == 0 do continue
+			if listed == 16 {
+				strings.write_string(&text, ", ...}")
+				return strings.to_string(text)
+			}
+			if listed > 0 do strings.write_string(&text, ", ")
+			fmt.sbprintf(&text, "%d", word * 64 + bit)
+			listed += 1
+		}
+	}
+	strings.write_byte(&text, '}')
+	return strings.to_string(text)
 }
