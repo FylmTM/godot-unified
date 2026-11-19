@@ -142,14 +142,14 @@ public_suites :: proc() -> []Suite {
 		[]Suite {
 			{
 				name        = "odin",
-				summary     = "every Odin test package in one compile (the inner loop); with a game named, that game's tests",
+				summary     = "every Odin test package (the inner loop; a project's unoptimised test root compiles beside the optimised one); with a game named, that game's tests",
 				budget      = 6,
 				long_budget = 12,
 				run         = suite_odin,
 			},
 			{
 				name    = "box3d-debug",
-				summary = "the odin suite's binary again, against Box3D's debug library (its asserts trap a misused id)",
+				summary = "the odin suite's binaries again, against Box3D's debug library (its asserts trap a misused id)",
 				// its physics is unoptimised: several times the odin suite's run (CI's watchdog: 3x the budget)
 				budget  = 12,
 				run     = suite_box3d_debug,

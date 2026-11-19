@@ -5,6 +5,7 @@
 package cli
 
 import "core:os"
+import "core:strconv"
 import "core:strings"
 import "core:time"
 
@@ -62,125 +63,218 @@ test_watch_drop :: proc(watch: ^Test_Watch, name: string) {
 	}
 }
 
-// Runs a test binary to the end under the watchdog, its output kept whole in <exe>.log. A passing run prints only the
-// runner's warnings (a leak, a test's log.warn: test_output_warnings) and its last line, "Finished N tests"; a
-// failing one prints the whole output (state changes aside), and --verbose echoes it as it comes. A run killed after
-// a crash or at its timeout also says which tests crashed and which were still running.
-run_test_binary :: proc(exe: string, timeout: time.Duration) -> bool {
-	log_path := aprintf("%s.log", exe)
-	log_file, err := os.open(log_path, {.Write, .Create, .Trunc, .Inheritable})
-	if err != nil {
-		fatal("cannot create %s", log_path)
-	}
-	if state.verbose do log("+ %s", exe)
+// One test binary run_test_binaries runs: its process, its log, and what the watchdog read from it.
+@(private)
+Test_Run :: struct {
+	exe:      string,
+	log_path: string,
+	log_file: ^os.File,
+	reader:   ^os.File,
+	process:  os.Process,
+	watch:    Test_Watch,
+	output:   [dynamic]u8, // what the terminal gets: every line but the state changes
+	pending:  [dynamic]u8, // the start of a line not ended yet
+	crash_at: Maybe(time.Tick),
+	exited:   Maybe(os.Process_State),
+	done:     bool, // exited, and everything it wrote read
+	killed:   string, // why the watchdog killed it ("": it ended by itself)
+	passed:   bool,
+	seconds:  f64,
+}
+
+// Runs test binaries to the end, all at once, each under the watchdog, its output kept whole in <exe>.log. A passing
+// run prints only the runners' warnings (a leak, a test's log.warn: test_output_warnings) and one last line,
+// "Finished N tests" (with several binaries, their tests added up); a failing binary prints its whole output (state
+// changes aside), and --verbose echoes every binary's as it comes. A binary killed after a crash or at the timeout
+// also says which tests crashed and which were still running.
+run_test_binaries :: proc(exes: []string, timeout: time.Duration) -> bool {
+	runs := make([]Test_Run, len(exes))
 	start := time.tick_now()
-	process, start_err := os.process_start({
-		command = strs(exe),
-		stdout  = log_file,
-		stderr  = log_file,
-	})
-	if start_err != nil {
-		fatal("cannot start %s: %v", exe, start_err)
+	for exe, i in exes {
+		run := &runs[i]
+		run.exe = exe
+		run.log_path = aprintf("%s.log", exe)
+		log_file, err := os.open(run.log_path, {.Write, .Create, .Trunc, .Inheritable})
+		if err != nil {
+			fatal("cannot create %s", run.log_path)
+		}
+		run.log_file = log_file
+		if state.verbose do log("+ %s", exe)
+		process, start_err := os.process_start({
+			command = strs(exe),
+			stdout  = log_file,
+			stderr  = log_file,
+		})
+		if start_err != nil {
+			fatal("cannot start %s: %v", exe, start_err)
+		}
+		run.process = process
+		reader, open_err := os.open(run.log_path)
+		if open_err != nil {
+			fatal("cannot read %s", run.log_path)
+		}
+		run.reader = reader
 	}
-	reader, open_err := os.open(log_path)
-	if open_err != nil {
-		fatal("cannot read %s", log_path)
-	}
-	watch: Test_Watch
-	output: [dynamic]u8 // what the terminal gets: every line but the state changes
-	pending: [dynamic]u8
 	buf: [16 * 1024]u8
-	crash_at: Maybe(time.Tick)
-	exited: Maybe(os.Process_State)
-	killed := ""
 	for {
-		if exit_state, wait_err := os.process_wait(process, 0); wait_err == nil && exit_state.exited {
-			exited = exit_state
-		}
-		// Drain what the binary wrote (all of it once it has exited).
-		for {
-			count, _ := os.read(reader, buf[:])
-			if count <= 0 {
-				break
+		running := 0
+		for &run in runs {
+			if run.done do continue
+			if run.exited == nil {
+				if exit_state, wait_err := os.process_wait(run.process, 0); wait_err == nil && exit_state.exited {
+					run.exited = exit_state
+				}
 			}
-			append(&pending, ..buf[:count])
-			for {
-				newline := -1
-				for byte, k in pending {
-					if byte == '\n' {
-						newline = k
-						break
-					}
-				}
-				if newline < 0 {
-					break
-				}
-				line := string(pending[:newline + 1])
-				had := len(watch.crashed)
-				if !test_watch_line(&watch, line) {
-					append(&output, ..transmute([]u8)line)
-					if state.verbose {
-						os.write_string(os.stderr, line)
-					}
-				}
-				if len(watch.crashed) > had && crash_at == nil {
-					crash_at = time.tick_now()
-				}
-				remove_range(&pending, 0, newline + 1)
+			test_run_drain(&run, buf[:])
+			if run.exited != nil {
+				run.done = true
+				run.seconds = time.duration_seconds(time.tick_since(start))
+				continue
+			}
+			running += 1
+			if crashed_at, ok := run.crash_at.?; ok && time.tick_since(crashed_at) > CRASH_GRACE {
+				run.killed = aprintf("it did not end within %.0fs of the crash", time.duration_seconds(CRASH_GRACE))
+			} else if timeout > 0 && time.tick_since(start) > timeout {
+				run.killed = aprintf("it ran past its timeout, %.0fs", time.duration_seconds(timeout))
+			}
+			if run.killed != "" {
+				_ = os.process_kill(run.process)
+				exit_state, _ := os.process_wait(run.process)
+				run.exited = exit_state // the next pass collects what it wrote before it died
 			}
 		}
-		if exited != nil {
+		if running == 0 {
 			break
-		}
-		if crashed_at, ok := crash_at.?; ok && time.tick_since(crashed_at) > CRASH_GRACE {
-			killed = aprintf("it did not end within %.0fs of the crash", time.duration_seconds(CRASH_GRACE))
-		} else if timeout > 0 && time.tick_since(start) > timeout {
-			killed = aprintf("it ran past its timeout, %.0fs", time.duration_seconds(timeout))
-		}
-		if killed != "" {
-			_ = os.process_kill(process)
-			exit_state, _ := os.process_wait(process)
-			exited = exit_state
-			// one more pass collects what it wrote before it died
-			continue
 		}
 		time.sleep(10 * time.Millisecond)
 	}
-	if len(pending) > 0 {
-		append(&output, ..pending[:])
-		append(&output, '\n')
-		if state.verbose {
-			os.write_string(os.stderr, string(pending[:]))
-			os.write_string(os.stderr, "\n")
+	passed := true
+	finished := 0 // the tests the binaries ran, when they all passed
+	seconds: f64
+	for &run in runs {
+		if len(run.pending) > 0 {
+			append(&run.output, ..run.pending[:])
+			append(&run.output, '\n')
+			if state.verbose {
+				os.write_string(os.stderr, string(run.pending[:]))
+				os.write_string(os.stderr, "\n")
+			}
 		}
+		os.close(run.reader)
+		os.close(run.log_file)
+		exit_state := run.exited.?
+		run.passed = run.killed == "" && exit_state.exited && exit_state.exit_code == 0
+		passed = passed && run.passed
+		finished += test_output_finished(string(run.output[:]))
+		seconds = max(seconds, run.seconds)
 	}
-	os.close(reader)
-	os.close(log_file)
-	exit_state := exited.?
-	seconds := time.duration_seconds(time.tick_since(start))
-	passed := killed == "" && exit_state.exited && exit_state.exit_code == 0
+	several := len(runs) > 1
 	if !state.verbose {
-		if passed {
-			for line in test_output_warnings(string(output[:])) {
+		for run in runs {
+			if !run.passed {
+				os.write_string(os.stderr, test_run_terminal_output(runs, run))
+				continue
+			}
+			for line in test_output_warnings(string(run.output[:])) {
+				if several && strings.has_prefix(line, "Finished ") do continue // added up below
 				log("%s", line)
 			}
-		} else {
-			os.write_string(os.stderr, string(output[:]))
+		}
+		if several && passed {
+			log(
+				"Finished %d test%s in %v. All tests were successful.",
+				finished,
+				finished == 1 ? "" : "s",
+				time.Duration(seconds * f64(time.Second)),
+			)
 		}
 	}
-	if killed != "" {
-		log("uni: %s killed after %.1fs: %s", os.base(exe), seconds, killed)
-		if len(watch.crashed) > 0 {
-			log("  crashed: %s", strings.join(watch.crashed[:], ", "))
+	for run in runs {
+		if run.killed == "" do continue
+		log("uni: %s killed after %.1fs: %s", os.base(run.exe), run.seconds, run.killed)
+		if len(run.watch.crashed) > 0 {
+			log("  crashed: %s", strings.join(run.watch.crashed[:], ", "))
 			log("  (a crashed test can leave a lock held that other tests wait for)")
 		}
-		if len(watch.running) > 0 {
-			log("  still running: %s", strings.join(watch.running[:], ", "))
+		if len(run.watch.running) > 0 {
+			log("  still running: %s", strings.join(run.watch.running[:], ", "))
 		}
-		log("  the whole output: %s", rel(log_path))
-		return false
+		log("  the whole output: %s", rel(run.log_path))
 	}
 	return passed
+}
+
+// Reads what a test binary wrote since the last call, a whole line at a time: the watchdog reads each, the terminal
+// output keeps all but the state changes (--verbose echoes them as they come).
+@(private)
+test_run_drain :: proc(run: ^Test_Run, buf: []u8) {
+	for {
+		count, _ := os.read(run.reader, buf)
+		if count <= 0 {
+			return
+		}
+		append(&run.pending, ..buf[:count])
+		for {
+			newline := -1
+			for byte, k in run.pending {
+				if byte == '\n' {
+					newline = k
+					break
+				}
+			}
+			if newline < 0 {
+				break
+			}
+			line := string(run.pending[:newline + 1])
+			had := len(run.watch.crashed)
+			if !test_watch_line(&run.watch, line) {
+				append(&run.output, ..transmute([]u8)line)
+				if state.verbose {
+					os.write_string(os.stderr, line)
+				}
+			}
+			if len(run.watch.crashed) > had && run.crash_at == nil {
+				run.crash_at = time.tick_now()
+			}
+			remove_range(&run.pending, 0, newline + 1)
+		}
+	}
+}
+
+// A failing binary's output for the terminal. With several binaries, a test `--only` names that another binary has
+// is no failure of this one: its "No test found" line is dropped unless no binary has the test.
+@(private)
+test_run_terminal_output :: proc(runs: []Test_Run, run: Test_Run) -> string {
+	if len(runs) == 1 {
+		return string(run.output[:])
+	}
+	builder := strings.builder_make()
+	text := string(run.output[:])
+	for line in strings.split_lines_after_iterator(&text) {
+		if strings.has_prefix(line, "No test found for the name: ") {
+			everywhere := true
+			for other in runs {
+				everywhere = everywhere && strings.contains(string(other.output[:]), strings.trim_right(line, "\r\n"))
+			}
+			if !everywhere do continue
+		}
+		strings.write_string(&builder, line)
+	}
+	return strings.to_string(builder)
+}
+
+// The number of tests a runner's output says it ran ("Finished N tests"; 0 when it ran none).
+test_output_finished :: proc(output: string) -> int {
+	text := output
+	for line in strings.split_lines_iterator(&text) {
+		if !strings.has_prefix(line, "Finished ") do continue
+		words := strings.fields(line[len("Finished "):], context.temp_allocator)
+		if len(words) > 0 {
+			count, _ := strconv.parse_int(words[0])
+			return count
+		}
+	}
+	return 0
 }
 
 // The lines of a passing test run worth showing: each warning or error the runner logged ("[WARN ]", "[ERROR]": a

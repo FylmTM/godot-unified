@@ -130,11 +130,14 @@ and reports its budget in its `Result`, so a `test` that `verify` nests keeps it
 current what it shares with them. Suites are quiet on success: a passing one prints only warnings, and a passing
 child's log is cut to its warnings (`child_log`).
 
-- `odin`: every test package in one compile, or the named game's tests only (the inner loop of game work), built
-  through its manifest so an unchanged tree only runs (`suite_odin`). The binary never runs bare: Odin's runner
-  freezes a crashed test's thread, so a lock it held stays held and the run never ends; a watchdog kills it shortly
-  after a crash or at the suite's CI allowance, and names the crashed and still-running tests (`run_test_binary`).
-- `box3d-debug`: the odin suite's binary again, against Box3D's debug library, whose asserts trap what the release
+- `odin`: every test package, or the named game's tests only (the inner loop of game work), built through their
+  manifests so an unchanged tree only runs (`suite_odin`). The test root compiles optimised: the sim tests need it.
+  A project's unoptimised root (`Project_Config.unoptimized_tests`: this repo's tooling tests) compiles beside it on
+  a quarter of the cores, since its tests run as fast without optimisation and optimising them would be a third of
+  the optimised compile; both binaries then run at once. A binary never runs bare: Odin's runner freezes a crashed
+  test's thread, so a lock it held stays held and the run never ends; a watchdog kills it shortly after a crash or
+  at the suite's CI allowance, and names the crashed and still-running tests (`run_test_binaries`).
+- `box3d-debug`: the odin suite's binaries again, against Box3D's debug library, whose asserts trap what the release
   library lets through.
 - `godot`: each game under headless Godot, the games in parallel (`suite_godot`, `GODOT_STEPS`), without the EOS
   SDK, as on CI. A headless editor run (an import, the `editor` step) has the project's own editor settings and

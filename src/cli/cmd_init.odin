@@ -21,7 +21,7 @@ Init_Opts :: struct {
 // against.
 //
 // `--in-repo`: a game inside this unified checkout, at games/<name>: the game's files only (not template/repo/). Its
-// tests join the one test compile through tests/games.gen.odin, which uni writes.
+// tests join the optimised test compile through tests/games.gen.odin, which uni writes.
 @(private)
 cmd_init :: proc(args: []string) -> Result {
 	opts: Init_Opts
