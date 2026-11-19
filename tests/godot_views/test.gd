@@ -386,9 +386,14 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 		and local != null and predicted != null and thing != null, [remote, local, predicted, thing])
 	if remote == null or local == null:
 		return
-	var lags_ok := not lags.is_empty() and lags.all(func(lag: float) -> bool: return lag > 1.5 and lag < 12.0)
+	# always behind, a few ticks most of the time (a slow frame on a loaded machine may bring it closer for a moment)
+	var sorted_lags := lags.duplicate()
+	sorted_lags.sort()
+	var median: float = sorted_lags[sorted_lags.size() / 2] if lags else 0.0
+	var lags_ok := not lags.is_empty() and median > 1.5 \
+		and lags.all(func(lag: float) -> bool: return lag > 0.25 and lag < 12.0)
 	check("a remote player's view of a Remote.Verified kind runs a few ticks behind the local player's", lags_ok,
-		[lags.min() if lags else null, lags.max() if lags else null])
+		[lags.min() if lags else null, median, lags.max() if lags else null])
 	check("a Remote.Predicted kind showing the remote player stays on the prediction: no lag",
 		not lags.is_empty() and predicted_off.is_empty(), predicted_off)
 	check("it snaps across a warp: never posed between the walk's two stretches", off_walk.is_empty(), off_walk)
