@@ -70,7 +70,7 @@ end-to-end suite and the bench run (`GAME_STRESS`), `bench` an endless match hol
    (`CLIMB_SLOWDOWN`).
 5. `hurt_players`: an enemy touching an alive player deals its damage, then waits `CONTACT_COOLDOWN_TICKS`.
 6. `fire`: each alive player, every fire interval (`FIRE_INTERVAL_TICKS`, down to `FIRE_INTERVAL_MIN_TICKS`), shoots
-   at the nearest enemy within `FIRE_RANGE`.
+   at the nearest enemy within `FIRE_RANGE` (the interval runs on while the player is dead).
 7. `move_projectiles`: a projectile hits an enemy, else the level or an item (a barrel takes the damage), else moves
    on; it expires after `PROJECTILE_LIFE_TICKS`.
 8. `explode_barrels`: due barrels come back; a barrel at HP ≤ 0 explodes (`barrel_exploded`): an impulse within

@@ -8,14 +8,8 @@ import "unified:sim"
 fire :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for character in sim.next(&players) {
-		if !character.alive {
+		if !character.alive || sim.timer_running(t, character.fire_cooldown) {
 			continue
-		}
-		if character.fire_cooldown > 0 {
-			character.fire_cooldown -= 1
-			if character.fire_cooldown > 0 {
-				continue
-			}
 		}
 		target: ^Enemy
 		best_distance_sq: f32 = FIRE_RANGE * FIRE_RANGE
@@ -37,7 +31,7 @@ fire :: proc(t: ^Tick) {
 		projectile.vel = {aim.x * PROJECTILE_SPEED, 0, aim.y * PROJECTILE_SPEED}
 		projectile.life = PROJECTILE_LIFE_TICKS
 		projectile.damage = PROJECTILE_DAMAGE + character.damage_bonus
-		character.fire_cooldown = character.fire_interval
+		sim.timer_start_ticks(t, &character.fire_cooldown, u32(character.fire_interval))
 	}
 }
 

@@ -34,10 +34,10 @@ Character :: struct {
 	body:             physics.Body_Ref,
 	pos:              [3]f32, // the body's centre, read back after each physics step
 	hp:               i32,
-	respawn:          i32, // ticks until a dead player respawns
-	dash_ticks:       i32,
-	dash_cooldown:    i32,
-	fire_cooldown:    i32,
+	respawn:          sim.Timer, // a dead player respawns when it runs out (PLAYER_RESPAWN_TICKS)
+	dash:             sim.Timer, // dashing while it runs (DASH_TICKS)
+	dash_cooldown:    sim.Timer, // no dash while it runs (DASH_COOLDOWN_TICKS)
+	fire_cooldown:    sim.Timer, // no shot while it runs (fire_interval)
 	fire_interval:    i32,
 	damage_bonus:     i32,
 	speed:            f32,
