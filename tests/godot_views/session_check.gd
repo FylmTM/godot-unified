@@ -5,6 +5,8 @@
 # 2. host on a LAN port, leave, host on the same port at once: the old socket is closed before the new one opens.
 # 3. leave, host at once, leave again before the old session is gone: the waiting start is dropped ("left").
 # 4. a session that ends on its own (its ticks ran out) stops answering from its last frame: no local player.
+# 5. a session's Setup (start_single(setup), session.setup, the default again) and a second local player.
+# 6. open to friends: a running single-player session hosts on a port and closes; a failed open leaves it running.
 # (The LAN token's claim, each copy of a game a slot and a token of its own, is tested in tests/godot_driver.)
 #   godot --path tests/godot_views --headless -s res://session_check.gd -- [--idle-end S]
 # --idle-end S: stay S seconds with no session before quitting (to see the power activity released).
@@ -134,6 +136,35 @@ func _run() -> void:
 	check("its Setup is the default", s.setup.life_bonus == 0, s.setup.life_bonus)
 	s.leave()
 	await _wait_for(func() -> bool: return not s.running, 5.0, "the default session ends")
+
+	# 6. open to friends: a running single-player session hosts on a port, closes, and a taken port leaves it single
+	var modes: Array[String] = []
+	s.mode_changed.connect(func(mode: UnifiedSession.Mode, detail: String) -> void:
+		modes.append("%d:%s" % [mode, detail]))
+	check("start single player to open", s.start_single())
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.tick > 30, 5.0, "single player runs to open"):
+		return _finish()
+	var ticked: int = s.tick
+	check("open_direct", s.open_direct(PORT + 1))
+	if not await _wait_for(func() -> bool: return s.mode == UnifiedSession.MODE_HOST_DIRECT and s.join_code != "", 5.0, "the session hosts on the port"):
+		return _finish()
+	check("the session went on, its ticks kept", s.tick > ticked, [ticked, s.tick])
+	check("mode_changed said so", modes.has("%d:" % UnifiedSession.MODE_HOST_DIRECT), modes)
+	check("close_online", s.close_online())
+	check("closing clears the join code", s.join_code == "", s.join_code)
+	s.leave()
+	if not await _wait_for(func() -> bool: return not s.running, 5.0, "the opened session ends"):
+		return _finish()
+	check("start single player again", s.start_single())
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.tick > 10, 5.0, "single player runs again"):
+		return _finish()
+	modes.clear()
+	check("open_online without a lobby service is asked", s.open_online())
+	if not await _wait_for(func() -> bool: return modes.size() > 0, 5.0, "the failed open is told"):
+		return _finish()
+	check("a failed open leaves it single player, running", s.mode == UnifiedSession.MODE_SINGLE and s.status == UnifiedSession.STATUS_CONNECTED and modes[0].begins_with("%d:" % UnifiedSession.MODE_SINGLE), modes)
+	s.leave()
+	await _wait_for(func() -> bool: return not s.running, 5.0, "the session ends")
 
 	if idle_end > 0.0:
 		print("session_check: idle with no session for %.1f s" % idle_end)

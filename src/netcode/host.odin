@@ -29,6 +29,26 @@ Host :: struct($G: typeid) {
 	client:  ^Client(G),
 	hub:     ^Hub,
 	waiting: [dynamic]Link, // remote links added before the host's player is in (host_add_link)
+	linked:  bool, // a remote link was added (host_solo)
+}
+
+// Whether the host never had a remote link: single player as it started (a pause that stops the clock is legal only
+// then; opening the session to friends adds the first link).
+host_solo :: proc(host: ^Host($G)) -> bool {
+	return !host.linked
+}
+
+// Opens or closes the hosted session to new players (relay_set_open): open_online / close_online.
+host_set_open :: proc(host: ^Host($G), open: bool) {
+	relay_set_open(host.relay, open)
+}
+
+// Gives the host's own player its platform account once the lobby knows it (a single-player session opened to a
+// lobby later: host_create had none), and tells every client (relay_set_account).
+host_set_account :: proc(host: ^Host($G), account: Account, now: i64) {
+	for &seat in host.client.locals {
+		if seat.state == .Seated do relay_set_account(host.relay, seat.member, account, now)
+	}
 }
 
 // The steps' poll while a host has no remote links (single player): nothing arrives from outside, so a step runs at
@@ -72,6 +92,7 @@ host_create :: proc(game: ^$G, cfg: Host_Config(G), hooks: Hooks(G)) -> ^Host(G)
 // own player is in (its clock started), so a remote Hello already waiting on the link (a player who connected
 // while the host waited for them) joins as a remote player instead of taking the host's player 0.
 host_add_link :: proc(host: ^Host($G), link: Link) {
+	host.linked = true
 	host.relay.poll_us = POLL_US // datagrams from outside: poll for them
 	if host.relay.started {
 		relay_add_link(host.relay, link)

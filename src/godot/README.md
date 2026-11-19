@@ -43,6 +43,12 @@ command's: a host passes a `UnifiedSetup` to `start_single`, `host_online` or `h
 `session.setup` reads the running session's (a joiner's is the host's), and `Unified.profile` is what the local player
 joins with. A game's saved progress is its own file, which the host turns into the next session's Setup.
 
+**Open to friends.** A running single-player session becomes a hosted one (`UnifiedSession.open_online`,
+`open_direct`): the session thread opens the lobby or the socket and adds it to the running host
+(`src/netcode/README.md`, Relay: open and closed), and `mode` and `join_code` change (`mode_changed`). `close_online`
+lets nobody new in; the players in stay. A lobby that fails after opening closes again and the session plays on as
+single player: only a session hosted from the start ends with its lobby.
+
 **Input values** are what only scripts know (a camera rig's look direction): the plain struct `Glue.input_values`
 names, whose fields scripts set on `Unified.input` and `sample_input` reads (`input_values`). The session samples at
 process priority −1000, before any other node's `_process`, and emits `UnifiedSession.input_wanted` just before: a

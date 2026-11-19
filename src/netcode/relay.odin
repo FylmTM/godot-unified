@@ -189,6 +189,29 @@ Relay :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Ga
 	ending:              bool,
 	end_us:              i64,
 	finished:            bool,
+	// New players are let in (relay_set_open). Closed, a Hello or Join of a person the session does not know is
+	// refused (Closed); one who was in (dropped, left) comes back as always.
+	open:                bool,
+}
+
+// Opens or closes the session to new players (it starts open): closed, nobody new gets in, while the players in stay
+// and one who drops may come back. The one gate that works for a UDP socket and a lobby alike, keeping every link.
+relay_set_open :: proc(relay: ^Relay($G), open: bool) {
+	relay.open = open
+}
+
+// Gives member `member` (a relay's member id) the platform account its link vouches for once it is known (a host
+// that opened its single-player session to a lobby): it is recognized by it from now on, and every client gets its
+// roster entry again.
+relay_set_account :: proc(relay: ^Relay($G), member: u16, account: Account, now: i64) {
+	index := int(member) - 1
+	if index < 0 || index >= len(relay.members) || account.id == "" do return
+	record := &relay.members[index]
+	delete(record.key)
+	record.key = strings.clone(fmt.tprintf("%s:%s", account.platform, account.id))
+	record.entry.platform = text_of(PLATFORM_MAX, account.platform)
+	record.entry.account = text_of(ACCOUNT_MAX, account.id)
+	send_roster_entry(relay, index, now)
 }
 
 // Creates a relay for `game` with no links yet (relay_add_link), starting its recording if cfg has one. The clock
@@ -206,6 +229,7 @@ relay_create :: proc(game: ^$G, cfg: Relay_Config(G)) -> ^Relay(G) {
 	assert(cfg.start_players >= 1 && cfg.start_players <= PLAYERS)
 	relay := new(Relay(G))
 	relay.cfg = cfg
+	relay.open = true
 	relay.setup = cfg.setup.? or_else game.setup
 	if reason := sim.setup_violation(game, &relay.setup); reason != "" {
 		panic(fmt.tprintf("%s: the session's Setup %s", game.name, reason))
@@ -461,6 +485,10 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 	for &ask, i in asks {
 		known[i] = find_member(relay, member_key(base, ask.local))
 		if known[i] < 0 {
+			if !relay.open {
+				reject(relay, peer, .Closed, now)
+				return
+			}
 			new_members += 1
 			continue
 		}
@@ -694,6 +722,10 @@ on_join :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) {
 		return
 	}
 	key := member_key(client_key(relay, peer, conn.token), ask.local)
+	if !relay.open && find_member(relay, key) < 0 {
+		reject(relay, peer, .Closed, now, ask.local)
+		return
+	}
 	if known := find_member(relay, key); known >= 0 && relay.members[known].entry.connected {
 		// The same person seated on another connection: the newest wins, that seat empties.
 		other := int(relay.members[known].entry.slot)
