@@ -599,11 +599,12 @@ godot_user_dir :: proc() -> string {
 
 @(private)
 Coop_Opts :: struct {
-	game:   string `args:"pos=0" usage:"the game (default: the only one)"`,
-	window: bool `usage:"the host in a window (muted, on the leftmost screen, never taking focus), with screenshots"`,
-	rejoin: bool `usage:"the joiner leaves mid-match and joins again"`,
-	crash:  bool `usage:"the joiner's process dies mid-match (no goodbye) and the same player joins again (by its EOS account, or its LAN token with --lan): timed"`,
-	lan:    bool `usage:"direct UDP on 127.0.0.1 instead of EOS"`,
+	game:     string `args:"pos=0" usage:"the game (default: the only one)"`,
+	window:   bool `usage:"the host in a window (muted, on the leftmost screen, never taking focus), with screenshots"`,
+	rejoin:   bool `usage:"the joiner leaves mid-match and joins again"`,
+	crash:    bool `usage:"the joiner's process dies mid-match (no goodbye) and the same player joins again (by its EOS account, or its LAN token with --lan): timed"`,
+	lan:      bool `usage:"direct UDP on 127.0.0.1 instead of EOS"`,
+	overflow: [dynamic]string `hint:"[-- args]" usage:"after --: game arguments for both processes (dev flags such as --lag, --verified-players)"`,
 }
 
 // A host (windowed with --window, else headless) and a headless joiner, as two Godot processes running the coop tool
@@ -631,6 +632,7 @@ cmd_coop :: proc(args: []string) -> Result {
 	append(&common, "--code-file=res://.out/coop_code.txt")
 	if opts.rejoin do append(&common, "--rejoin")
 	if opts.crash do append(&common, "--crash")
+	append(&common, ..opts.overflow[:])
 	// --lan: a free port, so two runs at once (parallel agents) never meet in each other's lobby
 	port := opts.lan ? free_udp_port() : 0
 	host_args: [dynamic]string

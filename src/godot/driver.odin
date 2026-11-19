@@ -86,6 +86,8 @@ Api :: struct {
 	// its .level file names, "": none), in Game.levels' order.
 	level_offset:    int,
 	level_scenes:    []string,
+	// The verified-timeline option's sampler of the session (dev UI builds; nil: none): verified_players.odin.
+	sampler:         proc() -> ^Verified_Sampler,
 }
 
 api: Api
@@ -225,6 +227,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	replay:          ^Replay(G),
 	replay_controls: Queue(Replay_Control, 16),
 	epoch:           u32,
+	sampler:         ^Verified_Sampler, // other players on the verified timeline (dev UI builds; verified_players.odin)
 }
 
 // The Inspector's state and the tick before it (the op log), copied while the dev UI shows them.
@@ -463,6 +466,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 			pose_memory_init(&driver.verified_poses, FRAME_VIEWS, FRAME_MULTIS)
 			driver.verified_out.alloc = context.allocator
 		}
+		when DEVUI do driver.sampler = verified_sampler_new()
 		input_sample_reset()
 		triple_init(&driver.states)
 		triple_init(&driver.inputs)
@@ -507,6 +511,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		delete(driver.verified_out.views, driver.verified_out.alloc)
 		delete(driver.verified_out.multis, driver.verified_out.alloc)
 		delete(driver.verified_out.data, driver.verified_out.alloc)
+		verified_sampler_free(driver.sampler)
 		delete(driver.scratch)
 		delete(driver.req.arg)
 		delete(driver.req.name)
@@ -604,6 +609,9 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		driver := (^This_Driver)(g_driver)
 		inputs, _ := triple_front(&driver.inputs)
 		return inputs^
+	}
+	api.sampler = proc() -> ^Verified_Sampler {
+		return g_driver != nil ? (^This_Driver)(g_driver).sampler : nil
 	}
 	api.next_confirmed = proc() -> (Command_Note, bool) {
 		if g_driver == nil do return {}, false
@@ -1106,6 +1114,7 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 					_ = queue_push(&driver.confirmed, Command_Note{tick, command})
 				}
 				record_tick(driver, simulation, tick, inputs)
+				verified_sampler_tick(driver, simulation, tick)
 			}
 		},
 		status = proc(user: rawptr, status: netcode.Status, detail: string) {
@@ -1206,7 +1215,10 @@ publish_frame :: proc(
 	sync.atomic_store(&driver.in_fill, true)
 	driver.glue.fill_frame(&frame)
 	sync.atomic_store(&driver.in_fill, false)
-	when DEVUI do dev_publish(driver, out, simulation, info.tick)
+	when DEVUI {
+		dev_publish(driver, out, simulation, info.tick)
+		if client != nil && driver.sampler != nil do verified_sampler_fill(driver.sampler, out, info)
+	}
 	triple_publish(&driver.frames)
 	fill_stats_add(&driver.fill, time.tick_since(started))
 	if sync.atomic_load(&want_state) {
