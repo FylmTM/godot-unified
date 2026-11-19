@@ -40,11 +40,11 @@ Phase :: enum u8 {
 // back).
 Ship :: struct {
 	body:           physics.Body_Ref,
-	fire_cooldown:  u16, // ticks until the next shot
-	boost_cooldown: u16,
-	gate_cooldown:  u16, // ticks before this ship may warp again
+	fire_cooldown:  sim.Timer, // no shot while it runs (FIRE_EVERY_TICKS)
+	boost_cooldown: sim.Timer, // no boost while it runs (BOOST_COOLDOWN_TICKS)
+	gate_cooldown:  sim.Timer, // no warp while it runs (GATE_CHARGE_TICKS)
 	thrust:         bool, // thrusting this tick (the view's flame)
-	_pad:           u8,
+	_pad:           [3]u8,
 	shots:          u32,
 	gems:           u32,
 }
@@ -82,5 +82,5 @@ Gem :: struct {
 
 // A gate's state (its place and pair are the level's: World.gates).
 Gate :: struct {
-	charge: u16, // ticks until it can warp again (0: ready)
+	charge: sim.Timer, // no warp from it while it runs (GATE_CHARGE_TICKS)
 }

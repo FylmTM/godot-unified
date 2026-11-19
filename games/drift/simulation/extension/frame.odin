@@ -76,7 +76,7 @@ fill_frame :: proc(f: ^Frame) {
 			kind = .Ship,
 			pos  = sim.position_2d(physics.body_position_2d(f.world.phys, ship.body)),
 			rot  = physics.quat_2d(physics.body_rotation_2d(f.world.phys, ship.body)),
-		}, Ship_View{boost_ready = 1 - f32(ship.boost_cooldown) / f32(g.BOOST_COOLDOWN_TICKS), thrust = ship.thrust})
+		}, Ship_View{boost_ready = sim.timer_fraction(f.time, ship.boost_cooldown), thrust = ship.thrust})
 	}
 	godot.push_view(f, {
 		kind = .Station,
@@ -87,7 +87,7 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_view(f, sim.entity(gate), {
 			kind = .Gate,
 			pos  = sim.position_2d(gate_def.pos),
-		}, Gate_View{charge = f32(f.state.gates[gate].charge) / f32(g.GATE_CHARGE_TICKS)})
+		}, Gate_View{charge = 1 - sim.timer_fraction(f.time, f.state.gates[gate].charge)})
 	}
 	// rocks: rotation from the body, scaled per axis by the radius (squashed for a moment when hit)
 	rocks := sim.iterate(&f.state.rocks)
