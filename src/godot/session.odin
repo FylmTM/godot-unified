@@ -63,6 +63,7 @@ Args :: struct {
 	replay:           string, // replay this folder at once
 	no_watchdog:      bool, // no session-thread watchdog (watchdog.odin)
 	verified_players: bool, // other players start on the verified timeline (a dev option, verified_players.odin)
+	control:          string, // open the control socket and write its port to this file (control.odin)
 }
 
 @(private)
@@ -651,6 +652,10 @@ session_ready :: proc(session: ^Session_Node) {
 				return
 			}
 		}
+		if session.args.control != "" && !control_open(session.args.control) {
+			gd.SceneTree_quit(gd.Node_get_tree(node_of(session)), 2) // an agent asked for it: nothing to drive without it
+			return
+		}
 		read_app_version()
 	}
 	dev_init(
@@ -1028,8 +1033,9 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 		V.stats.total += took
 		V.stats.total_max = max(V.stats.total_max, took)
 	}
-	sync.atomic_store(&want_state, dev_wants_state())
+	sync.atomic_store(&want_state, dev_wants_state() || control_listening())
 	dev_frame(session, dt)
+	control_poll(session) // last: a reply sees this frame's views and events
 }
 
 // Delivers the queued events of the ticks the shown Frame covers (tick <= its tick), in order; newer ones wait for the
@@ -1117,6 +1123,7 @@ route_event :: proc(session: ^Session_Node, message: Event_Message) {
 	views_event(layout, &raw, state, held)
 	gd.emit_signal(session.obj, NAMES.sim_event, held, state)
 	dev_event(message.tick, message.id, message.action, layout, raw.data[:raw.size])
+	control_event(message.tick, message.id, message.action, int(raw.kind), layout, raw.data[:raw.size])
 }
 
 // The view sync's cost since the last call, and starts counting anew. The main thread's (Sync_Stats): `frames` and
@@ -1208,6 +1215,7 @@ FLAGS := [?]Flag {
 	{"--replay", true, .Text, offset_of(Args, replay), 0, 0, ""},
 	{"--no-watchdog", true, .Switch, offset_of(Args, no_watchdog), 0, 0, ""},
 	{"--verified-players", true, .Switch, offset_of(Args, verified_players), 0, 0, ""},
+	{"--control", true, .Text, offset_of(Args, control), 0, 0, "a file for the port"},
 	{"--setup", false, .Text, offset_of(Args, setup), 0, 0, "key=value[,key=value]"},
 	{"--profile", false, .Text, offset_of(Args, profile), 0, 0, "key=value[,key=value]"},
 }

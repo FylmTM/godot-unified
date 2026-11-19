@@ -136,6 +136,7 @@ on_deinitialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	// Hot reload or exit: the session thread runs code from this library, so it must be gone first.
 	session_shutdown_all()
+	control_close()
 	delete(app_version)
 	app_version = ""
 	if lobby != nil && lobby.shutdown != nil do lobby.shutdown()

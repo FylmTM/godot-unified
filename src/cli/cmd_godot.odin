@@ -9,7 +9,7 @@ import "core:strings"
 import "core:time"
 
 // The godot suite's steps, in order; each runs when the game has what it needs (GODOT_STEP_CHECKS says what).
-GODOT_STEPS :: []string{"import", "editor", "session", "bake", "validate", "walk"}
+GODOT_STEPS :: []string{"import", "editor", "session", "bake", "validate", "walk", "drive"}
 
 // What each of GODOT_STEPS checks, for `uni test -h`.
 GODOT_STEP_CHECKS :: []string {
@@ -19,6 +19,7 @@ GODOT_STEP_CHECKS :: []string {
 	"the view index and every .level file are current (uni bake --check)",
 	"every script compiles with warnings as errors and every scene loads; game/tools/validate.gd adds the game's own checks",
 	"game/tools/ui_walk.gd, when the game has one: a walk through its menus and flows with real input events, then its play smoke (a game without menus has none: skipped)",
+	"the game headless under uni drive, as an agent drives it: status, pause, exact steps, a timed press, state, input, events, ui, eval, a stop with a clean log (games with an extension)",
 }
 
 // The `session` step's length: 1 s of a 64 Hz game (`test --long`: 4 s).
@@ -159,6 +160,14 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 				env     = env_with(..SUITE_OFFLINE_ENV),
 			})
 			ok = pass(game, script_step.step, result.ok, result.seconds) && ok
+		}
+		if want(only, "drive") && !halted(game, ok, "drive") {
+			if has_extension(game) {
+				start := time.tick_now()
+				ok = pass(game, "drive", drive_check(game), seconds_since(start)) && ok
+			} else {
+				skip(game, "drive", "no extension")
+			}
 		}
 		if running, apart_lane := lane.?; apart_lane {
 			ran := wait(&running)

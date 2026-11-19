@@ -256,7 +256,7 @@ when DEVUI {
 				session.sync_us,
 				api.events_dropped(),
 			)
-			if state := api.state(); state != nil do devui.inspect("predicted state (read-only)", state)
+			if state, _ := api.state(); state != nil do devui.inspect("predicted state (read-only)", state)
 			if devui.wants_state() do dev_changes(frame.tick)
 			if inputs := api.inputs(); inputs != nil do devui.inputs("inputs", inputs)
 		} else if devui.visible {
