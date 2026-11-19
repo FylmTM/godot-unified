@@ -60,7 +60,7 @@ THROW_SPEED_ADD :: 10.0 // at full charge
 THROW_LIFT :: 1.5 // m/s up on top of the aim
 THROW_CHARGE_TICKS :: u16(0.5 * TICK_HZ)
 THROWN_TAG_TICKS :: u16(1.0 * TICK_HZ) // a thrown item counts as "thrown by P" this long
-THROWER_IGNORE_TICKS :: u16(0.25 * TICK_HZ) // and can't hit its thrower for this long
+THROW_CLEAR_DIST :: 2.0 // m: a thrown item passes through its thrower until this far from them (or its tag ends)
 THROWN_MAX_TICKS :: u16(1.0 * TICK_HZ) // a thrown or dropped player is limp until they land, at most this long
 THROWN_MIN_TICKS :: u16(0.25 * TICK_HZ) // and at least this long
 

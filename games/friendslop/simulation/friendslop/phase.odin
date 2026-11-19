@@ -27,7 +27,7 @@ advance_phase :: proc(t: ^Tick) {
 		for character, player in sim.next(&players) {
 			if character.respawn > 0 do continue
 			pos := player_pos(t, player)
-			for &checkpoint in t.world.checkpoints[:t.world.checkpoint_count] {
+			for &checkpoint in sim.slice(&t.world.checkpoints) {
 				if checkpoint.index <= int(t.state.checkpoint) || !in_volume(checkpoint.volume, pos) do continue
 				t.state.checkpoint = i32(checkpoint.index)
 				sim.emit(t, Event_Checkpoint {

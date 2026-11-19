@@ -192,6 +192,7 @@ grab :: proc(t: ^Tick, player: sim.Player, target: Target) {
 		item.holders[target.grab_point] = player
 		item.thrown_ticks = 0
 		item.thrown_by = {}
+		physics.stop_ignoring(t.world.phys, &item.thrower_ignore)
 		entity = sim.entity(t.world.items[target.item].marker)
 	case .Player:
 		held_kind = .Player
@@ -289,6 +290,12 @@ throw :: proc(t: ^Tick, player: sim.Player) {
 		item := &t.state.items[index]
 		item.thrown_by = player
 		item.thrown_ticks = THROWN_TAG_TICKS
+		physics.stop_ignoring(t.world.phys, &item.thrower_ignore) // a throw of an item still clearing its last thrower
+		item.thrower_ignore = physics.ignore_contacts(
+			t.world.phys,
+			physics.link(character.controller.body),
+			physics.link(item.body),
+		)
 		body = item.body
 		entity = sim.entity(t.world.items[index].marker)
 	} else {

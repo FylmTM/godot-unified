@@ -11,7 +11,7 @@ launch_from_pads :: proc(t: ^Tick) {
 		if character.pad_cooldown > 0 do character.pad_cooldown -= 1
 		if character.respawn > 0 || character.held_by != {} || character.pad_cooldown > 0 do continue
 		feet := player_pos(t, player) - {0, FEET - PAD_PROBE_UP, 0}
-		for &pad in t.world.pads[:t.world.pad_count] {
+		for &pad in sim.slice(&t.world.pads) {
 			if !in_volume(pad.volume, feet) do continue
 			launch(t.world, &pad, character.controller.body)
 			physics.character_launch(t.world.phys, &character.controller)
@@ -27,7 +27,7 @@ launch_from_pads :: proc(t: ^Tick) {
 		bottom :=
 			physics.body_position(t.world.phys, item.body) -
 			{0, ITEM_SPECS[t.world.items[i].kind].radius * PAD_ITEM_PROBE, 0}
-		for &pad in t.world.pads[:t.world.pad_count] {
+		for &pad in sim.slice(&t.world.pads) {
 			if !in_volume(pad.volume, bottom) do continue
 			launch(t.world, &pad, item.body)
 			item.pad_cooldown = PAD_COOLDOWN_TICKS

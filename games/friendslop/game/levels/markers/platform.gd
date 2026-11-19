@@ -13,7 +13,9 @@ const UNIFIED_KIND := "platform"
 @export var seconds := 2.0  ## per leg
 @export var wait := 0.5  ## at each point
 @export_enum("ping_pong", "loop", "once", "follow") var mode := "ping_pong"
-@export var smooth := true
+@export var smooth := true  ## smoothstep on every leg (an `easing` curve replaces it)
+## Optional: how far along each leg (0..1) the platform is through the leg's time (0..1); unset: `smooth` decides.
+@export var easing: Curve
 @export var trigger: NodePath
 @export var color := Greybox.PLATFORM
 
