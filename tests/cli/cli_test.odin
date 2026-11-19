@@ -344,4 +344,19 @@ godot_problems_name_game_warnings_and_leaks :: proc(t: ^testing.T) {
 		testing.expect(t, strings.has_prefix(problems[2], "error line: ERROR: something broke"), problems[2])
 	}
 	testing.expect_value(t, len(cli.godot_problems("WARNING: an engine warning\n     at: f (a.cpp:1)\n")), 0)
+	// an extension that did not install: only why, not the script errors that follow from it
+	not_installed := cli.godot_problems(
+		"ERROR: unified: the game toy is not installed: data type Data_Hud: Data_Hud has 1 bytes of implicit padding\n" +
+		"   at: register_classes (views.odin:172)\n" +
+		"SCRIPT ERROR: Parse Error: Identifier \"EnumPhase\" not declared in the current scope.\n",
+	)
+	testing.expect_value(t, len(not_installed), 1)
+	testing.expect(t, cli.not_installed(not_installed), "not installed")
+	if len(not_installed) == 1 {
+		testing.expect_value(
+			t,
+			not_installed[0],
+			"the extension is not installed: data type Data_Hud: Data_Hud has 1 bytes of implicit padding",
+		)
+	}
 }
