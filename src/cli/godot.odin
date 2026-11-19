@@ -175,7 +175,7 @@ ensure_imported :: proc(dir: string) -> []string {
 		return exts
 	}
 	start := time.tick_now()
-	result := run_godot({"--headless", "--path", dir, "--import"}, 300)
+	result := run_godot({"--headless", "--path", dir, "--import"}, 300, editor_env(dir))
 	if !result.ok {
 		log("%s", tail(strings.concatenate({result.stdout, result.stderr}), 4000))
 		fatal("the Godot import of %s failed (exit %d)", rel(dir), result.exit_code)
@@ -211,6 +211,27 @@ run_godot :: proc(args: []string, timeout_s: f64, env: []string = nil) -> Ran {
 		timeout = time.Duration(timeout_s * f64(time.Second)),
 		env     = env,
 	})
+}
+
+// The environment of a headless editor run on a project (`--import`, the godot suite's `editor` step): Godot's
+// per-user config and cache directories (editor_settings-<version>.tres, and the doc cache, which each project's
+// extension changes) moved into the project's .out/godot-editor/, so editors running at once on different projects
+// (the godot suite's games in parallel, other checkouts) never read a file another is writing. Exports (`release`)
+// run with the real directories, where the export templates are, and `uni editor` too: it is the developer's
+// editor, with their settings.
+editor_env :: proc(dir: string) -> []string {
+	home := join(dir, ".out", "godot-editor")
+	make_dirs(home)
+	when ODIN_OS == .Windows {
+		// Godot's config and data directory (%APPDATA%) and its cache (%LOCALAPPDATA%)
+		return env_with(aprintf("APPDATA=%s", join(home, "config")), aprintf("LOCALAPPDATA=%s", join(home, "cache")))
+	} else {
+		// Godot reads the XDG variables on macOS too
+		return env_with(
+			aprintf("XDG_CONFIG_HOME=%s", join(home, "config")),
+			aprintf("XDG_CACHE_HOME=%s", join(home, "cache")),
+		)
+	}
 }
 
 // --- tool scripts -----------------------------------------------------------------------------------------------

@@ -117,8 +117,27 @@ func check_devui_click() -> void:
 	if target != null:
 		var on_ui := layer.transform * target.get_global_rect().get_center()
 		check("dev UI: a click on it doesn't reach the game", not press_fires(on_ui), on_ui)
-		check("dev UI: a click elsewhere does", press_fires(Vector2(4, root.size.y - 4)), root.size)
+		var elsewhere: Variant = uncovered_point(layer)
+		check("dev UI: a point of the window outside it", elsewhere != null, root.size)
+		if elsewhere != null:
+			check("dev UI: a click elsewhere does", press_fires(elsewhere), elsewhere)
 	InputMap.erase_action(&"test_fire")
+
+
+## A point of the (64x64 headless) window outside every dev UI control, or null. Not a fixed point: the overlay's
+## controls take the size of their text, which changes every frame (frame times), and spill over most of the window.
+func uncovered_point(layer: CanvasLayer) -> Variant:
+	var size := Vector2(root.size)
+	for point: Vector2 in [Vector2(size.x - 1, size.y - 1), Vector2(1, size.y - 1), Vector2(size.x - 1, 1), Vector2(1, 1)]:
+		var covered := false
+		for node: Node in layer.find_children("*", "Control", true, false):
+			var control := node as Control
+			if control.is_visible_in_tree() and (layer.transform * control.get_global_rect()).has_point(point):
+				covered = true
+				break
+		if not covered:
+			return point
+	return null
 
 
 ## The Inspector's rows of a list whose live element changes every frame are reused: the dev UI's count stays flat.
