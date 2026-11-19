@@ -59,6 +59,7 @@ Args :: struct {
 	draw:        string, // the debug draw groups shown (UnifiedSession.debug_draw)
 	setup:       string, // --setup key=value,...: the Setup of sessions this process hosts (the game's default with them)
 	profile:     string, // --profile key=value,...: set on Unified.profile at the start
+	replay:      string, // replay this folder at once
 	no_watchdog: bool, // no session-thread watchdog (watchdog.odin)
 }
 
@@ -147,13 +148,13 @@ register_session_class :: proc() {
 		proc(session: ^Session_Node, on: bool) {set_game_input(on)},
 		doc = "Off, the game's input helpers read nothing (a pause menu, a chat field: their keys and clicks don't reach the sim); [member Unified.input] still flows. When it is turned back on, an action still held counts only once it is released.",
 	)
-	gd.bind_property(
-		class,
-		"paused",
-		proc(session: ^Session_Node) -> bool {return sync.atomic_load(&pause_on)},
-		proc(session: ^Session_Node, paused: bool) {sync.atomic_store(&pause_want, paused)},
-		doc = "Stops a single-player session's clock: no tick is sampled or stepped until it is false again, and the session goes on as if no time had passed (exact: nobody else waits). Reads true once the session thread paused it, false while a session has other players (online a pause is the game's own state: a command) and when a session starts, so a pause menu can set it in every mode. Views hold their last pose meanwhile.",
-	)
+	gd.bind_property(class, "paused", proc(session: ^Session_Node) -> bool {
+			if session.mode == .Replay do return session.frame != nil && session.frame.replay.paused
+			return sync.atomic_load(&pause_on)
+		}, proc(session: ^Session_Node, paused: bool) {
+			if session.mode == .Replay do replay_control({kind = paused ? .Pause : .Play})
+			else do sync.atomic_store(&pause_want, paused)
+		}, doc = "Stops a single-player session's clock: no tick is sampled or stepped until it is false again, and the session goes on as if no time had passed (exact: nobody else waits). Reads true once the session thread paused it, false while a session has other players (online a pause is the game's own state: a command) and when a session starts, so a pause menu can set it in every mode. Views hold their last pose meanwhile. A replay's playhead stops the same way (playing again from its last tick starts over).")
 	gd.bind_property(class, "view_root", view_root_of, proc(session: ^Session_Node, node: gd.Node) {
 			session.view_root = node
 			session.root_id = node.ptr != nil ? gdi.object_get_instance_id(node.ptr) : 0
@@ -333,6 +334,64 @@ register_session_class :: proc() {
 	gd.bind_method(class, "join_direct", proc(session: ^Session_Node, address: string) -> bool {
 			return session_start(session, {mode = .Join_Direct, arg = address})
 		}, {"address"}, doc = "Joins a directly hosted session at [code]host:port[/code].")
+	// replays
+	gd.bind_method(class, "replay", proc(session: ^Session_Node, folder: string) -> bool {
+			return session_start(session, {mode = .Replay, arg = globalize(folder)})
+		}, {
+			"folder",
+		}, doc = "Replays a recording: an F3 note's folder, a session's under [code]user://recordings[/code], or a freeze's (its [code]inputs.unil[/code], and the [code]snapshot.unis[/code] it continues, if any). The game's views, events and session data work as live; every tick is final (events arrive EVENT_EMITTED and EVENT_CONFIRMED together); [member local_player] is [member replay_player]. A note starts some seconds before its noted tick and pauses on it; a recording of another build plays, checked against its checkpoints. False, with a failed status, when the folder holds no recording of this game.")
+	gd.bind_property(
+		class,
+		"replay_speed",
+		proc(session: ^Session_Node) -> f64 {return session.frame != nil ? f64(session.frame.replay.speed) : 1},
+		proc(session: ^Session_Node, speed: f64) {replay_control({kind = .Speed, speed = f32(speed)})},
+		doc = "A replay's speed, 0.25 to 4 (1: real time).",
+	)
+	gd.bind_property(
+		class,
+		"replay_player",
+		proc(session: ^Session_Node) -> i64 {return session.frame != nil ? i64(session.frame.replay.follow) : 0},
+		proc(session: ^Session_Node, player: i64) {replay_control({kind = .Follow, value = player})},
+		doc = "The player a replay follows ([member local_player]: the game's camera and \"my view\" code follow them); at first whoever recorded it.",
+	)
+	gd.bind_property(
+		class,
+		"replay_first_tick",
+		proc(session: ^Session_Node) -> i64 {return session.frame != nil ? i64(session.frame.replay.first) : 0},
+		doc = "The first tick a replay can show (its snapshot's).",
+	)
+	gd.bind_property(
+		class,
+		"replay_last_tick",
+		proc(session: ^Session_Node) -> i64 {return session.frame != nil ? i64(session.frame.replay.last) : 0},
+		doc = "The last tick a replay can show.",
+	)
+	gd.bind_property(
+		class,
+		"replay_agreed_tick",
+		proc(session: ^Session_Node) -> i64 {return session.frame != nil ? i64(session.frame.replay.agreed) : 0},
+		doc = "The last of the recording's checkpoints this build computed the same so far (0: none yet).",
+	)
+	gd.bind_property(
+		class,
+		"replay_diverged_tick",
+		proc(session: ^Session_Node) -> i64 {return session.frame != nil ? i64(session.frame.replay.diverged) : 0},
+		doc = "The first of the recording's checkpoints this build computed differently (0: none): the bug is between it and [member replay_agreed_tick].",
+	)
+	gd.bind_method(class, "replay_step", proc(session: ^Session_Node, ticks: i64) {
+			replay_control({kind = .Step, value = ticks})
+		}, {"ticks"}, doc = "Steps a replay [param ticks] ticks forward (negative: back) and pauses it.")
+	gd.bind_method(class, "replay_seek", proc(session: ^Session_Node, tick: i64) {
+			replay_control({kind = .Seek, value = tick})
+		}, {
+			"tick",
+		}, doc = "Moves a replay to [param tick] (clamped to its ticks); the views snap, the ticks between show nothing.")
+	gd.bind_method(class, "replay_loop", proc(session: ^Session_Node, from: i64, to: i64) {
+			replay_control({kind = .Loop, value = from, other = to})
+		}, {
+			"from",
+			"to",
+		}, doc = "Plays the ticks [param from] to [param to] over and over; [code]replay_loop(0, 0)[/code] stops looping.")
 	gd.bind_method(
 		class,
 		"leave",
@@ -456,6 +515,12 @@ STATUS_DOCS := [Status_Kind]string {
 	.Left         = "This player ended the session ([method leave]), from the menus, a tool or the dev UI.",
 }
 
+// A path as the session thread reads files: user:// and res:// made absolute (main thread; temp-allocated).
+@(private)
+globalize :: proc(path: string) -> string {
+	return gd.ProjectSettings_globalize_path(gd.ProjectSettings_singleton(), path)
+}
+
 @(private)
 MODE_NAMES := [Mode]string {
 	.Single      = "MODE_SINGLE",
@@ -463,6 +528,7 @@ MODE_NAMES := [Mode]string {
 	.Host_Direct = "MODE_HOST_DIRECT",
 	.Join_Online = "MODE_JOIN_ONLINE",
 	.Join_Direct = "MODE_JOIN_DIRECT",
+	.Replay      = "MODE_REPLAY",
 }
 
 @(private)
@@ -472,6 +538,7 @@ MODE_DOCS := [Mode]string {
 	.Host_Direct = "Hosting on a UDP port ([method host_direct], [code]--host-port[/code]): [member join_code] is this machine's address and the port.",
 	.Join_Online = "Joining by a lobby code ([method join_online], [code]--join-code[/code]).",
 	.Join_Direct = "Joining a host:port ([method join_direct], [code]--join[/code]).",
+	.Replay      = "Replaying a recording ([method replay], [code]--replay[/code]).",
 }
 
 // The name a player goes by: theirs, else "P<slot + 1>" while they hold a slot ("" for one the session doesn't know).
@@ -599,6 +666,8 @@ session_ready :: proc(session: ^Session_Node) {
 		})
 	case session.args.online:
 		session_start(session, {mode = .Host_Online, scripted = session.args.scripted})
+	case session.args.replay != "":
+		session_start(session, {mode = .Replay, arg = globalize(session.args.replay)})
 	case session.args.join_code != "":
 		session_start(session, {
 			mode     = .Join_Online,
@@ -608,6 +677,8 @@ session_ready :: proc(session: ^Session_Node) {
 	}
 	delete(session.args.join) // session_start keeps its own copy
 	delete(session.args.join_code)
+	delete(session.args.replay)
+	session.args.replay = ""
 	session.args.autostart, session.args.host_port, session.args.join, session.args.online, session.args.join_code =
 		false, 0, "", false, ""
 }
@@ -787,6 +858,7 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 			return false
 		}
 	}
+	request.quit = session.quit_at_end
 	when DEVUI {
 		request.watchdog = !session.args.no_watchdog
 		request.dumps = fmt.tprintf("%s/feedback", gd.OS_get_user_data_dir(gd.OS_singleton()))
@@ -890,7 +962,7 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 	if session.frame != nil {
 		frame := session.frame
 		session.last_tick = frame.tick
-		tick_us := i64(1_000_000 / max(frame.tick_hz, 1))
+		tick_us := frame.tick_us != 0 ? frame.tick_us : i64(1_000_000 / max(frame.tick_hz, 1))
 		alpha := alpha(now._nsec / 1000, frame.due_us, tick_us)
 		root := effective_root(session)
 		root_id := root.ptr != nil ? gdi.object_get_instance_id(root.ptr) : 0
@@ -973,6 +1045,7 @@ drain_messages :: proc(session: ^Session_Node) {
 			gd.emit_signal(session.obj, gd.sn("mode_changed"), i64(message.mode), text)
 		case .Result:
 			fmt.printfln("unified: result %s", api.result())
+			dev_save_recording(session)
 			if !session.has_pending {
 				data_reset()
 				set_join_code(session, "")
@@ -1072,6 +1145,7 @@ FLAGS := [?]struct {
 	{"--lag", true, true},
 	{"--bench", true, true},
 	{"--draw", true, true},
+	{"--replay", true, true},
 	{"--no-watchdog", false, true},
 	{"--setup", true, false},
 	{"--profile", true, false},
@@ -1147,6 +1221,8 @@ parse_command_line :: proc(
 			args.bench = int(number(&found_problems, flag.name, value, 0, 1 << 31 - 1))
 		case "--no-watchdog":
 			args.no_watchdog = true
+		case "--replay":
+			args.replay = strings.clone(value)
 		case "--draw":
 			args.draw = value
 		case "--lag":

@@ -202,6 +202,22 @@ mispredicted change never shows and a rollback across a change costs the view no
 - **When.** An event is delivered once the Frame of its tick is shown, so an event about a view spawned at its tick
   finds the view. A tick's events arrive in emission order; cancels and confirmations of several ticks in tick order.
 
+## Replays
+
+A replay is a session kind (`UnifiedSession.replay(folder)`, `--replay`), so a game follows it like any other: the
+game's own views, HUD and dev UI show a recording, an F3 note or a freeze folder, with pause, step, speed, seek and
+loop. It feeds the sim from the recording instead of the network: no input, no commands, every tick final, so events
+arrive Emitted and Confirmed together, and the recording's checkpoints are checked as it passes them (a recording of
+another build plays and says where it first computes differently). `local_player` is the player it follows,
+whoever recorded it at first, so a camera that tracks the local player's view follows them. It shows the verified
+timeline: what a client predicted is not in a recording.
+
+Every live session of a dev UI build is written to `<user data>/recordings/<local time>/` when it ends (the newest
+ten kept). A step back inside the sim's ring is a restore; further back, or forward past what was played, the replay
+loads the nearest portable snapshot it kept of a tick it passed (at most 64) and steps to the target without showing
+the ticks between. Such a jump starts a new epoch in the Frame: every view snaps, and the events of ticks entered
+again going forward arrive again. A note starts some seconds before its tick and pauses on it.
+
 ## The view index
 
 `uni bake <game>` scans the game's scenes for `UnifiedView` markers and writes `res://unified_index.tres` (each kind

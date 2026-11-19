@@ -22,6 +22,8 @@ package godot
 import "core:encoding/json"
 import "core:fmt"
 import "core:os"
+import "core:slice"
+import "core:strings"
 import "core:time"
 import "unified:devui"
 import gd "unified:gdext"
@@ -302,6 +304,58 @@ when DEVUI {
 		devui.stack("sim", "zones ms", parts[:shown], names[:shown])
 	}
 
+	// The session recordings kept under <user data>/recordings (the oldest beyond go when one is written).
+	RECORDINGS_KEPT :: 10
+
+	// Main thread, a live session's Result: its recording goes to <user data>/recordings/<local time>/
+	// (snapshot.unis, inputs.unil, session.json: what UnifiedSession.replay opens), keeping the newest
+	// RECORDINGS_KEPT.
+	dev_save_recording :: proc(session: ^Session_Node) {
+		snapshot, input_log: [dynamic]u8
+		defer delete(snapshot)
+		defer delete(input_log)
+		if !api.installed || session.mode == .Replay do return
+		info, recorded := api.recording(&snapshot, &input_log)
+		if !recorded do return
+		root := fmt.tprintf("%s/recordings", gd.OS_get_user_data_dir(gd.OS_singleton()))
+		stamp, _ := strings.replace_all(
+			gd.Time_get_datetime_string_from_system(gd.Time_singleton()),
+			":",
+			"",
+			context.temp_allocator,
+		)
+		stamp, _ = strings.replace_all(stamp, "T", "_", context.temp_allocator)
+		dir := fmt.tprintf("%s/%s", root, stamp)
+		for n := 2; os.exists(dir); n += 1 do dir = fmt.tprintf("%s/%s-%d", root, stamp, n)
+		if os.make_directory_all(dir) != nil do return
+		Session_Json :: struct {
+			game:        string,
+			version:     string,
+			player:      u64, // who recorded it (the replay follows them)
+			from_tick:   u32,
+			to_tick:     u32,
+			checkpoints: int,
+		}
+		about := Session_Json {
+			game        = api.game_name,
+			version     = app_version,
+			player      = session.frame != nil ? session.frame.local_player : 0,
+			from_tick   = info.from,
+			to_tick     = info.to,
+			checkpoints = info.checkpoints,
+		}
+		_ = os.write_entire_file(fmt.tprintf("%s/snapshot.unis", dir), snapshot[:])
+		_ = os.write_entire_file(fmt.tprintf("%s/inputs.unil", dir), input_log[:])
+		if text, err := json.marshal(about, {pretty = true}, context.temp_allocator); err == nil {
+			_ = os.write_entire_file(fmt.tprintf("%s/session.json", dir), text)
+		}
+		entries, _ := os.read_all_directory_by_path(root, context.temp_allocator)
+		names := make([dynamic]string, context.temp_allocator)
+		for entry in entries do if entry.type == .Directory do append(&names, entry.fullpath)
+		slice.sort(names[:]) // the local time sorts by name
+		for path in names[:max(len(names) - RECORDINGS_KEPT, 0)] do _ = os.remove_all(path)
+	}
+
 	// devui's on_feedback (main thread, a note was just written to `dir`): the session's recording, so the note
 	// replays (`uni headless <game> -- replay --snapshot snapshot.unis --log inputs.unil`), and note.json.
 	dev_feedback :: proc(dir: string, tag_bug: bool) {
@@ -354,6 +408,8 @@ when DEVUI {
 	_ :: json
 	_ :: os
 	_ :: fmt
+	_ :: slice
+	_ :: strings
 
 	dev_init :: proc(visible: bool, lag: Netsim_Settings) {}
 	dev_shutdown :: proc() {}
@@ -368,4 +424,5 @@ when DEVUI {
 	dev_begin :: proc() {}
 	dev_frame :: proc(session: ^Session_Node, dt: f64) {}
 	dev_draw_toggles :: proc(names: []string) -> u64 {return 0}
+	dev_save_recording :: proc(session: ^Session_Node) {}
 }

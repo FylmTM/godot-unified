@@ -77,6 +77,7 @@ Api :: struct {
 	local_player:    proc(local: int, add: bool, name: string, profile: []u8) -> bool,
 	// Ask a running single-player session to open to friends (Host_Online, Host_Direct on `port`) or to close (Single).
 	open:            proc(mode: Mode, port: int) -> bool,
+	replay_control:  proc(control: Replay_Control) -> bool, // queue a control for a running replay (false: full)
 	// The State's `level` field (a sim.Active_Level): its byte offset (-1: none), and each level's scene (the res:// path
 	// its .level file names, "": none), in Game.levels' order.
 	level_offset:    int,
@@ -163,59 +164,63 @@ netsim_profile :: proc(enabled: bool, direction: Netsim_Dir) -> netcode.Profile 
 
 @(private)
 Driver :: struct($G: typeid, $View, $MultiView: typeid) {
-	game:           ^G,
-	glue:           ^Glue(G, View, MultiView),
-	req:            Start,
-	host:           ^netcode.Host(G),
-	client:         ^netcode.Client(G), // the local player's client (the host's own in host modes)
-	online:         bool, // the session uses the lobby
-	thread:         ^thread.Thread,
-	stop_req:       bool, // atomic
-	failed:         bool, // the lobby failed and its reason was posted (session thread)
-	code_sent:      bool, // the lobby's code was posted
-	hurry:          bool, // atomic
-	finished:       bool, // atomic
-	stopping:       bool,
-	stop_at:        i64,
-	frames:         Triple(Frame_Data),
-	poses:          Pose_Memory, // every keyed item's pose at the fill before (session thread)
+	game:            ^G,
+	glue:            ^Glue(G, View, MultiView),
+	req:             Start,
+	host:            ^netcode.Host(G),
+	client:          ^netcode.Client(G), // the local player's client (the host's own in host modes)
+	online:          bool, // the session uses the lobby
+	thread:          ^thread.Thread,
+	stop_req:        bool, // atomic
+	failed:          bool, // the lobby failed and its reason was posted (session thread)
+	code_sent:       bool, // the lobby's code was posted
+	hurry:           bool, // atomic
+	finished:        bool, // atomic
+	stopping:        bool,
+	stop_at:         i64,
+	frames:          Triple(Frame_Data),
+	poses:           Pose_Memory, // every keyed item's pose at the fill before (session thread)
 	// Appear-on-verified (api.appear_verified): the keys of the last verified tick filled, and that fill's Frame
-	verified_poses: Pose_Memory,
-	verified_out:   Frame_Data,
-	states:         Triple(sim.part(G, sim.GAME_STATE)),
-	queue:          Queue(Message, 64), // statuses, the join code, desync reports, the result: never full in practice
-	events:         Queue(Event_Message, 4096), // full: dropped and counted
-	dropped:        int, // atomic: events that found `events` full
-	fill:           Fill_Stats, // the frame hook's cost (atomic: the main thread takes it)
-	commands:       [LOCAL_MAX]Queue(sim.Raw_Command, netcode.COMMAND_QUEUE), // main thread -> hooks.commands, per local
-	tracker:        Event_Tracker(Tick_Event),
-	published:      u64,
-	scratch:        [dynamic]Tick_Event,
-	result:         string,
-	bench:          G, // the game with Game.bench_prepare after init (req.bench > 0)
-	alloc:          runtime.Allocator, // the starter's allocator: the session thread allocates what wait frees
-	nets:           [dynamic]^netcode.Net_Sim, // the remote links' live netsims (owned by the channel)
-	net_gen:        u32,
-	local_mu:       sync.Mutex, // guards local_reqs
-	local_reqs:     [LOCAL_MAX]Local_Request, // main thread -> session thread: add or remove a local player
-	local_seen:     [LOCAL_MAX]u64, // the request generation the session thread applied last
-	open_req:       Open_Request, // main thread -> session thread: open to friends, or close (guarded by local_mu)
-	open_seen:      u64,
-	opened:         Mode, // what a single-player session opened to (Single: not opened)
-	open_code:      string, // the direct join code it opened with (opening again posts it again)
-	roster:         u32, // the client's roster_changes last copied for the main thread
-	account:        [2]string, // the host player's platform account (Lobby.account): platform, id
-	inputs:         Triple(Inputs_View(G)), // for the dev UI's Input panel (while want_state)
-	confirmed:      Queue(Command_Note, 256), // commands of verified ticks, for the dev UI (full: dropped)
-	recording:      Recording, // the session so far, for F3 notes (dev UI builds)
-	group_seq:      u32, // the sim's draw group names last copied (dev_publish)
-	verified_level: Level_Stamp, // the newest verified tick's level the frame hook found (session thread)
+	verified_poses:  Pose_Memory,
+	verified_out:    Frame_Data,
+	states:          Triple(sim.part(G, sim.GAME_STATE)),
+	queue:           Queue(Message, 64), // statuses, the join code, desync reports, the result: never full in practice
+	events:          Queue(Event_Message, 4096), // full: dropped and counted
+	dropped:         int, // atomic: events that found `events` full
+	fill:            Fill_Stats, // the frame hook's cost (atomic: the main thread takes it)
+	commands:        [LOCAL_MAX]Queue(sim.Raw_Command, netcode.COMMAND_QUEUE), // main thread -> hooks.commands, per local
+	tracker:         Event_Tracker(Tick_Event),
+	published:       u64,
+	scratch:         [dynamic]Tick_Event,
+	result:          string,
+	bench:           G, // the game with Game.bench_prepare after init (req.bench > 0)
+	alloc:           runtime.Allocator, // the starter's allocator: the session thread allocates what wait frees
+	nets:            [dynamic]^netcode.Net_Sim, // the remote links' live netsims (owned by the channel)
+	net_gen:         u32,
+	local_mu:        sync.Mutex, // guards local_reqs
+	local_reqs:      [LOCAL_MAX]Local_Request, // main thread -> session thread: add or remove a local player
+	local_seen:      [LOCAL_MAX]u64, // the request generation the session thread applied last
+	open_req:        Open_Request, // main thread -> session thread: open to friends, or close (guarded by local_mu)
+	open_seen:       u64,
+	opened:          Mode, // what a single-player session opened to (Single: not opened)
+	open_code:       string, // the direct join code it opened with (opening again posts it again)
+	roster:          u32, // the client's roster_changes last copied for the main thread
+	account:         [2]string, // the host player's platform account (Lobby.account): platform, id
+	inputs:          Triple(Inputs_View(G)), // for the dev UI's Input panel (while want_state)
+	confirmed:       Queue(Command_Note, 256), // commands of verified ticks, for the dev UI (full: dropped)
+	recording:       Recording, // the session so far, for F3 notes (dev UI builds)
+	group_seq:       u32, // the sim's draw group names last copied (dev_publish)
+	verified_level:  Level_Stamp, // the newest verified tick's level the frame hook found (session thread)
 	// The watchdog (watchdog.odin): steps begun and ended (atomic; odd: a step in progress), fill_frame running
 	// (atomic), its thread.
-	step_seq:       u64,
-	in_fill:        bool,
-	watchdog:       ^Watchdog_Thread,
-	watchdog_stop:  bool,
+	step_seq:        u64,
+	in_fill:         bool,
+	watchdog:        ^Watchdog_Thread,
+	watchdog_stop:   bool,
+	// A replay session (Mode.Replay; replay.odin): its state, its controls from the main thread, the timeline's epoch
+	replay:          ^Replay(G),
+	replay_controls: Queue(Replay_Control, 16),
+	epoch:           u32,
 }
 
 // What the dev UI's Input panel shows: the local player's newest input and the newest verified tick's.
@@ -551,6 +556,11 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 			total_ns = sync.atomic_exchange(&fill.total_ns, 0),
 			max_ns   = sync.atomic_exchange(&fill.max_ns, 0),
 		}
+	}
+	api.replay_control = proc(control: Replay_Control) -> bool {
+		if g_driver == nil do return false
+		driver := (^This_Driver)(g_driver)
+		return driver.req.mode == .Replay && queue_push(&driver.replay_controls, control)
 	}
 	api.send = proc(command: sim.Raw_Command, local: int) -> bool {
 		if g_driver == nil || local < 0 || local >= LOCAL_MAX do return false
@@ -978,66 +988,21 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 		},
 		frame = proc(user: rawptr, simulation: ^sim.Sim(G), info: netcode.Frame_Info) {
 			driver := (^This_Driver)(user)
-			started := time.tick_now()
 			for tick in info.resim_from ..= info.tick do track_tick(driver, tick, sim.events_at(simulation, tick))
 			flush_events(driver)
+			client := driver.client
 			current := sim.state_at(simulation, info.tick)
 			if current == nil do current = &simulation.state
-			out := triple_back(&driver.frames)
-			out.n_views, out.n_multis, out.n_data, out.n_datas, out.data_pushed = 0, 0, 0, 0, 0
-			client := driver.client
-			driver.published += 1
-			out.published = driver.published
-			out.tick = info.tick
-			out.verified = info.verified
-			out.level = level_stamp(current)
-			if verified := sim.state_at(simulation, info.verified); verified != nil {
-				driver.verified_level = level_stamp(verified)
-			}
-			out.verified_level = driver.verified_level
-			out.tick_hz = u32(driver.game.tick_hz)
-			copy(out.setup[:], sim.bytes_of(&simulation.setup))
-			out.due_us = i64(client.next_tick_us - client.tm.tick_us) // session time ...
-			if driver.host != nil do out.due_us += driver.host.paused_total // ... back on the real clock, for alpha
-			slots := current.players.slots
-			local := client.slot >= 0 ? slots[client.slot] : {}
-			out.local_player = sim.player_key(local)
 			local_players := frame_local_players(client, current.players.slots[:], info.tick)
-			for player, index in local_players do out.local_players[index] = sim.player_key(player)
-			out.slots = {}
-			for holder, slot in slots do out.slots[slot] = sim.player_key(holder)
-			out.n_members = 0
-			for member, index in current.players.members {
-				if member.id != 0 && out.n_members < len(out.members) {
-					out.members[out.n_members] = sim.player_key({u16(index), member.id})
-					out.n_members += 1
-				}
-			}
-			roster_copy(client.roster[:], &driver.roster, client.roster_changes)
-			out.net = netcode.client_stats(client)
-			pose_memory_begin(&driver.poses, info.resim_from < info.tick, info.resim_from)
-			frame := Frame(G, View, MultiView) {
-				state         = current,
-				world         = simulation.world,
-				tick          = info.tick,
-				local_players = local_players,
-				seed          = simulation.seed,
-				time          = sim.game_time(current, info.tick),
-				out           = out,
-				poses         = &driver.poses,
-			}
-			sync.atomic_store(&driver.in_fill, true)
-			driver.glue.fill_frame(&frame)
-			sync.atomic_store(&driver.in_fill, false)
-			when DEVUI do dev_publish(driver, out, simulation, info.tick)
-			triple_publish(&driver.frames)
-			fill_stats_add(&driver.fill, time.tick_since(started))
-			if sync.atomic_load(&want_state) {
-				triple_back(&driver.states)^ = current^
-				triple_publish(&driver.states)
-				fill_inputs_view(triple_back(&driver.inputs), client, info, slots[:])
-				triple_publish(&driver.inputs)
-			}
+			publish_frame(
+				driver,
+				simulation,
+				info,
+				// session time, back on the real clock (a paused single player's), for alpha
+				i64(client.next_tick_us - client.tm.tick_us) + (driver.host != nil ? driver.host.paused_total : 0),
+				local_players,
+				client,
+			)
 		},
 		verified = proc(
 			user: rawptr,
@@ -1091,6 +1056,80 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 			)}
 	}
 	return hooks
+}
+
+// Session thread: fills and publishes the Frame of `info.tick` (the netcode's frame hook; a replay's playhead), seen
+// by `local_players` (by local index; [0] the first); `due_us`: when that tick was due on the session clock.
+// `client`: the live session's (nil: a replay, which has no roster, net stats or input panel).
+@(private)
+publish_frame :: proc(
+	driver: ^Driver($G, $View, $MultiView),
+	simulation: ^sim.Sim(G),
+	info: netcode.Frame_Info,
+	due_us: i64,
+	local_players: [LOCAL_MAX]sim.Player,
+	client: ^netcode.Client(G),
+) {
+	started := time.tick_now()
+	current := sim.state_at(simulation, info.tick)
+	if current == nil do current = &simulation.state
+	out := triple_back(&driver.frames)
+	out.n_views, out.n_multis, out.n_data, out.n_datas, out.data_pushed = 0, 0, 0, 0, 0
+	driver.published += 1
+	out.published = driver.published
+	out.tick = info.tick
+	out.verified = info.verified
+	out.level = level_stamp(current)
+	if verified := sim.state_at(simulation, info.verified); verified != nil {
+		driver.verified_level = level_stamp(verified)
+	}
+	out.verified_level = driver.verified_level
+	out.tick_hz = u32(driver.game.tick_hz)
+	copy(out.setup[:], sim.bytes_of(&simulation.setup))
+	out.due_us = due_us
+	out.tick_us, out.epoch = 0, driver.epoch
+	if replay := driver.replay; replay != nil do replay_view(replay, out)
+	slots := current.players.slots
+	out.local_player = sim.player_key(local_players[0])
+	for player, index in local_players do out.local_players[index] = sim.player_key(player)
+	out.slots = {}
+	for holder, slot in slots do out.slots[slot] = sim.player_key(holder)
+	out.n_members = 0
+	for member, index in current.players.members {
+		if member.id != 0 && out.n_members < len(out.members) {
+			out.members[out.n_members] = sim.player_key({u16(index), member.id})
+			out.n_members += 1
+		}
+	}
+	if client != nil {
+		roster_copy(client.roster[:], &driver.roster, client.roster_changes)
+		out.net = netcode.client_stats(client)
+	}
+	pose_memory_begin(&driver.poses, info.resim_from < info.tick, info.resim_from)
+	frame := Frame(G, View, MultiView) {
+		state         = current,
+		world         = simulation.world,
+		tick          = info.tick,
+		local_players = local_players,
+		seed          = simulation.seed,
+		time          = sim.game_time(current, info.tick),
+		out           = out,
+		poses         = &driver.poses,
+	}
+	sync.atomic_store(&driver.in_fill, true)
+	driver.glue.fill_frame(&frame)
+	sync.atomic_store(&driver.in_fill, false)
+	when DEVUI do dev_publish(driver, out, simulation, info.tick)
+	triple_publish(&driver.frames)
+	fill_stats_add(&driver.fill, time.tick_since(started))
+	if sync.atomic_load(&want_state) {
+		triple_back(&driver.states)^ = current^
+		triple_publish(&driver.states)
+		if client != nil {
+			fill_inputs_view(triple_back(&driver.inputs), client, info, slots[:])
+			triple_publish(&driver.inputs)
+		}
+	}
 }
 
 // Who the client's local players are at `tick`, from who holds each slot, by local index ({}: not in).
@@ -1167,6 +1206,15 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 			if driver.client != nil && driver.client.sim != nil {
 				sim.dev_enable(driver.client.sim, sync.atomic_load(&draw_mask))
 			}
+			if driver.replay != nil do sim.dev_enable(driver.replay.simulation, sync.atomic_load(&draw_mask))
+		}
+		if driver.replay != nil {
+			if sync.atomic_load(&driver.stop_req) || driver.replay.done do break // a replay says goodbye to nobody
+			sync.atomic_add(&driver.step_seq, 1)
+			wake := replay_step(driver, now)
+			sync.atomic_add(&driver.step_seq, 1)
+			netcode.sleep_until(min(wake, now + 16_000))
+			continue
 		}
 		if sync.atomic_load(&driver.stop_req) && !driver.stopping {
 			driver.stopping = true
@@ -1195,7 +1243,22 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 		if driver.online do wake = min(wake, now + 4_000)
 		netcode.sleep_until(wake)
 	}
-	driver.result = strings.clone(netcode.client_json(netcode.client_result(driver.client, context.temp_allocator)))
+	if replay := driver.replay; replay != nil {
+		driver.result = fmt.aprintf(
+			`{{"mode":"replay","tick":%d,"first":%d,"last":%d,"checkpoints":%d,"agreed_tick":%d,"diverged_tick":%d,"ok":%v}}`,
+			replay.simulation.tick,
+			replay.view.first,
+			replay.view.last,
+			replay.view.checkpoints,
+			replay.view.agreed,
+			replay.view.diverged,
+			replay.view.diverged == 0,
+		)
+	} else {
+		driver.result = strings.clone(
+			netcode.client_json(netcode.client_result(driver.client, context.temp_allocator)),
+		)
+	}
 	post(driver, Message{kind = .Result})
 	watchdog_end(driver)
 	driver_close(driver)
@@ -1284,6 +1347,8 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 			return false
 		}
 		driver.client = netcode.client_create(game, client_config, wrap_link(driver, link), hooks)
+	case .Replay:
+		return replay_open(driver)
 	case .Join_Online:
 		driver.online = true
 		link, ok := lobby.open_join(lobby_build(driver), request.arg)
@@ -1353,6 +1418,7 @@ lobby_failed :: proc(driver: ^Driver($G, $View, $MultiView), reason, fallback: s
 driver_close :: proc(driver: ^Driver($G, $View, $MultiView)) {
 	sync.atomic_store(&pause_on, false)
 	sync.atomic_store(&pause_want, false)
+	replay_close(driver)
 	if driver.host != nil {
 		netcode.host_destroy(driver.host)
 	} else if driver.client != nil {

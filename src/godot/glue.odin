@@ -156,6 +156,9 @@ Frame_Data :: struct {
 	n_draw_text:    int,
 	zone_ns:        [sim.ZONES_MAX + 1]i64,
 	zone_count:     int,
+	tick_us:        i64, // how long a tick lasts on screen (0: 1e6 / tick_hz; a replay at another speed)
+	epoch:          u32, // bumped when the shown timeline jumps (a replay's seek): every view snaps
+	replay:         Replay_View, // a replay session's state (active false: not one)
 	alloc:          runtime.Allocator, // the views', multis' and data's (they grow on the session thread)
 }
 
@@ -263,6 +266,7 @@ Mode :: enum u8 {
 	Host_Direct, // UDP on a port (LAN/dev)
 	Join_Online,
 	Join_Direct, // UDP to host:port
+	Replay, // a recording, from the folder in Start.arg (replay.odin)
 }
 
 @(private)
@@ -284,6 +288,7 @@ Start :: struct {
 	// Dev UI builds: watch the session thread for a freeze (watchdog.odin), dumping into `dumps` (<user data>/feedback)
 	watchdog:  bool,
 	dumps:     string,
+	quit:      bool, // Replay: the session ends at the recording's last tick (--quit-at-end) instead of pausing there
 }
 
 @(private)
