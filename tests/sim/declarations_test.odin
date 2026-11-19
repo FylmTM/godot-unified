@@ -293,7 +293,7 @@ declarations_are_checked :: proc(t: ^testing.T) {
 
 // compat_of of a toy with these unions, Input and State (the toy's name, version and tick rate).
 compat_with :: proc($State, $Input, $Event, $Cmd: typeid, content: []u8 = nil) -> u64 {
-	game := sim.Game(State, Input, toy.World, Event, Cmd, sim.No_Setup, sim.No_Profile, toy.PLAYERS) {
+	game := sim.Game(State, Input, toy.World, Event, Cmd, toy.Setup, sim.No_Profile, toy.PLAYERS) {
 		name    = toy.GAME.name,
 		version = toy.GAME.version,
 		tick_hz = toy.GAME.tick_hz,
