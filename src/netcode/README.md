@@ -105,6 +105,11 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
   the client's last one, or `ALL_LOCALS`, ends the connection. Each seat sends its own Inputs (so each keeps the whole
   window of loss cover) and each Finalized carries every seat's input and command acks; the widths budget for a full
   couch's (`FINALIZED_HEAD_MAX`).
+- **Open and closed.** A relay starts open; closed (`relay_set_open`), a Hello or Join of a person it does not know is
+  refused (`Closed`) while the players in stay and one who drops comes back: the gate that works for a UDP socket and
+  a lobby alike, keeping every link. Single player is a host with no remote links (`host_solo`), so opening it to
+  friends is `host_add_link` on the running host: its relay polls from then on, the first joiner is an ordinary late
+  joiner, no timer starts over.
 - **Hello** asks for a slot or any free one (slots go lowest-free). The relay checks `compat` (`sim.compat_of`), finds
   who it is (Members) and, once the session runs, someone who can send the joiner a snapshot; `Reject_Reason` names
   each refusal. A Hello while the session ends gets End, not silence.

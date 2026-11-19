@@ -75,6 +75,8 @@ Api :: struct {
 	send:            proc(command: sim.Raw_Command, local: int) -> bool, // queue local player `local`'s command (false: full)
 	// Ask the session to add local player `local` (1 ..< LOCAL_MAX) with this name and Profile's bytes, or to remove it.
 	local_player:    proc(local: int, add: bool, name: string, profile: []u8) -> bool,
+	// Ask a running single-player session to open to friends (Host_Online, Host_Direct on `port`) or to close (Single).
+	open:            proc(mode: Mode, port: int) -> bool,
 	// The State's `level` field (a sim.Active_Level): its byte offset (-1: none), and each level's scene (the res:// path
 	// its .level file names, "": none), in Game.levels' order.
 	level_offset:    int,
@@ -190,6 +192,10 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	local_mu:       sync.Mutex, // guards local_reqs
 	local_reqs:     [LOCAL_MAX]Local_Request, // main thread -> session thread: add or remove a local player
 	local_seen:     [LOCAL_MAX]u64, // the request generation the session thread applied last
+	open_req:       Open_Request, // main thread -> session thread: open to friends, or close (guarded by local_mu)
+	open_seen:      u64,
+	opened:         Mode, // what a single-player session opened to (Single: not opened)
+	open_code:      string, // the direct join code it opened with (opening again posts it again)
 	roster:         u32, // the client's roster_changes last copied for the main thread
 	account:        [2]string, // the host player's platform account (Lobby.account): platform, id
 	inputs:         Triple(Inputs_View(G)), // for the dev UI's Input panel (while want_state)
@@ -543,6 +549,17 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		if g_driver == nil || local < 0 || local >= LOCAL_MAX do return false
 		return queue_push(&(^This_Driver)(g_driver).commands[local], command)
 	}
+	api.open = proc(mode: Mode, port: int) -> bool {
+		if g_driver == nil do return false
+		driver := (^This_Driver)(g_driver)
+		sync.guard(&driver.local_mu)
+		driver.open_req = {
+			gen  = driver.open_req.gen + 1,
+			mode = mode,
+			port = port,
+		}
+		return true
+	}
 	api.local_player = proc(local: int, add: bool, name: string, profile: []u8) -> bool {
 		if g_driver == nil || local <= 0 || local >= LOCAL_MAX do return false
 		driver := (^This_Driver)(g_driver)
@@ -801,6 +818,90 @@ track_tick :: proc(driver: ^Driver($G, $View, $MultiView), tick: u32, events: []
 	tracker_end_tick(&driver.tracker, tick)
 }
 
+// A main thread request to open a running single-player session to friends (UnifiedSession.open_online, open_direct)
+// or close it again (close_online: mode Single).
+@(private)
+Open_Request :: struct {
+	gen:  u64,
+	mode: Mode,
+	port: int,
+}
+
+// Session thread: the open or close the main thread asked for since the last look. Opening adds a link to the running
+// host (netcode.host_add_link: its relay polls from then on, its client keeps its in-process link) and posts the join
+// code and the new mode; a failure posts the mode it stays in (single player) with the reason. Closing lets nobody new
+// in while the players in stay (netcode.host_set_open). Opening again reopens what it opened.
+@(private)
+driver_open_requests :: proc(driver: ^Driver($G, $View, $MultiView), now: i64) {
+	request: Open_Request
+	{
+		sync.guard(&driver.local_mu)
+		if driver.open_req.gen == driver.open_seen do return
+		driver.open_seen = driver.open_req.gen
+		request = driver.open_req
+	}
+	host := driver.host
+	if host == nil || driver.req.mode != .Single do return
+	switch {
+	case request.mode == .Single:
+		netcode.host_set_open(host, false)
+		post_text(driver, .Join_Code, "")
+	case driver.opened != .Single && request.mode == driver.opened:
+		netcode.host_set_open(host, true)
+		if driver.opened == .Host_Direct do post_text(driver, .Join_Code, driver.open_code)
+		if driver.opened == .Host_Online do driver.code_sent = false // lobby_pump posts it again
+	case driver.opened != .Single:
+		post_mode(driver, driver.opened, "this session opened another way before")
+	case request.mode == .Host_Direct:
+		link, ok := netcode.udp_listen(request.port, driver.req.local ? .Local : .Lan)
+		if !ok {
+			post_mode(driver, .Single, fmt.tprintf("cannot listen on UDP port %d", request.port))
+			return
+		}
+		driver.open_code = strings.clone(direct_join_code(netcode.udp_bound_port(&link), driver.req.local))
+		netcode.host_add_link(host, wrap_link(driver, link))
+		netcode.host_set_open(host, true)
+		driver.opened = .Host_Direct
+		post_text(driver, .Join_Code, driver.open_code)
+		post_mode(driver, .Host_Direct, "")
+	case request.mode == .Host_Online:
+		if lobby == nil {
+			post_mode(driver, .Single, "online play is not available in this build")
+			return
+		}
+		driver.online = true
+		link, ok := lobby.open_host(lobby_build(driver))
+		if !ok {
+			detail := lobby.pump().detail
+			lobby.close()
+			driver.online = false
+			post_mode(driver, .Single, detail != "" ? detail : fmt.tprintf("%s: cannot host", lobby.name))
+			return
+		}
+		if lobby.account != nil {
+			if account, has := lobby.account(); has {
+				driver.account = {strings.clone(account.platform), strings.clone(account.id)}
+				netcode.host_set_account(host, {driver.account[0], driver.account[1]}, now)
+			}
+		}
+		netcode.host_add_link(host, wrap_link(driver, link))
+		netcode.host_set_open(host, true)
+		driver.opened = .Host_Online
+		post_mode(driver, .Host_Online, "")
+	}
+}
+
+// Posts the session's mode (a single-player session opened to friends, or what it stays) and why.
+@(private)
+post_mode :: proc(driver: ^Driver($G, $View, $MultiView), mode: Mode, detail: string) {
+	message := Message {
+		kind = .Mode,
+		mode = mode,
+	}
+	message.len = u8(copy(message.text[:], detail))
+	post(driver, message)
+}
+
 // A main thread request about a local player (UnifiedSession.add_local_player, remove_local_player).
 @(private)
 Local_Request :: struct {
@@ -1045,6 +1146,7 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 		now := netcode.now_us()
 		if driver.online do lobby_pump(driver)
 		driver_local_requests(driver, now)
+		driver_open_requests(driver, now)
 		if len(driver.nets) > 0 && sync.atomic_load(&netsim_req.gen) != driver.net_gen {
 			sync.mutex_lock(&netsim_req.mu)
 			for netsim in driver.nets do netsim_apply(netsim, netsim_req.set)
@@ -1210,9 +1312,21 @@ lobby_pump :: proc(driver: ^Driver($G, $View, $MultiView)) {
 	}
 }
 
-// The lobby failed (to open, or later): its reason (else `fallback`) is the session's last status.
+// The lobby failed (to open, or later): its reason (else `fallback`) is the session's last status. A single-player
+// session that opened to friends plays on instead: the lobby closes, nobody new gets in, the mode is single player
+// again (the reason with it).
 @(private)
 lobby_failed :: proc(driver: ^Driver($G, $View, $MultiView), reason, fallback: string) {
+	if driver.req.mode == .Single && driver.opened == .Host_Online {
+		lobby.close()
+		driver.online = false
+		driver.opened = .Single
+		driver.code_sent = false
+		netcode.host_set_open(driver.host, false)
+		post_text(driver, .Join_Code, "")
+		post_mode(driver, .Single, reason != "" ? reason : fallback)
+		return
+	}
 	post_status(driver, .Failed, reason != "" ? reason : fallback)
 	driver.failed = true
 	sync.atomic_store(&driver.stop_req, true)
@@ -1227,6 +1341,8 @@ driver_close :: proc(driver: ^Driver($G, $View, $MultiView)) {
 	}
 	driver.host, driver.client = nil, nil
 	if driver.online do lobby.close()
+	delete(driver.open_code)
+	driver.open_code = ""
 }
 
 @(private)

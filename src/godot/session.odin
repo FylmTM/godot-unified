@@ -345,6 +345,7 @@ register_session_class :: proc() {
 			return gd.to_variant(send_command(command, int(local)))
 		}, nil, {{"command", .OBJECT, "UnifiedCommand"}, {"local", .INT, ""}}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Sends one of the game's commands from local player [param local] (make one with its class, e.g. [code]CommandDrop.new()[/code]); the sim gets it exactly once, from that player. False, with an error naming why, when it can't be sent: not one of the game's commands, a property set to a wrong value, no running session, or a full queue.", defaults = {gd.to_variant(i64(0))})
 	bind_local_players(class)
+	bind_open_to_friends(class)
 	gd.bind_method(
 		class,
 		"take_sync_stats",
@@ -602,6 +603,48 @@ session_ready :: proc(session: ^Session_Node) {
 	delete(session.args.join_code)
 	session.args.autostart, session.args.host_port, session.args.join, session.args.online, session.args.join_code =
 		false, 0, "", false, ""
+}
+
+// UnifiedSession's open to friends: a running single-player session becomes a hosted one, nobody waits and no timer
+// starts over (single player is a host with no remote links: netcode.host_add_link).
+@(private)
+bind_open_to_friends :: proc(class: ^gd.Class) {
+	open :: proc(session: ^Session_Node, mode: Mode, port: int, method: string) -> bool {
+		reason := ""
+		switch {
+		case !api.installed || !api.running() || session.status != .Connected:
+			reason = "no single-player session is running"
+		case session.mode != .Single && session.mode != mode:
+			reason = "this session is not single player"
+		case session.args.bench > 0:
+			reason = "a --bench session's state is this process's alone"
+		}
+		if reason != "" {
+			gd.print_error(fmt.tprintf("unified: %s: %s", method, reason))
+			return false
+		}
+		return api.open(mode, port)
+	}
+	gd.bind_method(class, "open_online", proc(session: ^Session_Node) -> bool {
+			return open(session, .Host_Online, 0, "open_online")
+		}, doc = "Opens the running single-player session to friends through the game's lobby service: [member mode] becomes [constant MODE_HOST_ONLINE] and [member join_code] the code ([signal mode_changed], [signal join_code_changed]); the session goes on, nobody waits. False, with an error, when it isn't a running single-player session. A lobby that fails later closes again and the session plays on as single player ([signal mode_changed] says why).")
+	gd.bind_method(class, "open_direct", proc(session: ^Session_Node, port: i64) -> bool {
+			return open(session, .Host_Direct, int(port), "open_direct")
+		}, {
+			"port",
+		}, doc = "Opens the running single-player session to friends on a UDP port (LAN): [member mode] becomes [constant MODE_HOST_DIRECT] and [member join_code] this machine's address and the port. A port that can't be opened leaves it single player ([signal mode_changed] says why).")
+	gd.bind_method(class, "close_online", proc(session: ^Session_Node) -> bool {
+			if !api.installed || !api.running() || session.mode == .Single do return false
+			if session.mode != .Host_Online && session.mode != .Host_Direct do return false
+			set_join_code(session, "")
+			return api.open(.Single, 0)
+		}, doc = "Lets nobody new into a session opened to friends: the players in stay, and one who drops may come back; [member join_code] becomes \"\". Opening again ([method open_online], [method open_direct]) lets new players in once more.")
+	gd.bind_signal(
+		class,
+		"mode_changed",
+		{{"mode", .INT, "UnifiedSession.Mode"}, {"detail", .STRING, ""}},
+		doc = "[member mode] changed while the session ran (a single-player session opened to friends), or an open failed and it stays as it was: [param detail] says why.",
+	)
 }
 
 // UnifiedSession's local players: several people on one machine (a couch, guests of a remote-play stream), each
@@ -917,6 +960,10 @@ drain_messages :: proc(session: ^Session_Node) {
 			fmt.printfln("unified: desync at tick %d: %s", message.tick, text)
 			dev_note(message.tick, fmt.tprintf("desync: %s", text))
 			gd.emit_signal(session.obj, gd.sn("desync"), i64(message.tick), text)
+		case .Mode:
+			if text != "" do fmt.printfln("unified: %s", text)
+			session.mode = message.mode
+			gd.emit_signal(session.obj, gd.sn("mode_changed"), i64(message.mode), text)
 		case .Result:
 			fmt.printfln("unified: result %s", api.result())
 			if !session.has_pending {

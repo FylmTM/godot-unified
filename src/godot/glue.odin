@@ -323,8 +323,10 @@ Message :: struct {
 		Join_Code, // UnifiedSession.join_code
 		Result,
 		Desync, // the relay found the players' checksums of `tick` differ; text: who and what
+		Mode, // a single-player session opened to friends (or failed to: text says why): UnifiedSession.mode
 	},
 	status: Status_Kind,
+	mode:   Mode,
 	tick:   u32,
 	text:   [128]u8,
 	len:    u8,

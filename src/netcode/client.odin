@@ -743,6 +743,8 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 			detail = "the snapshot differed from the other players' and nobody else could send one"
 		case .Too_Far_Behind:
 			detail = "fell too far behind the session"
+		case .Closed:
+			detail = "the session takes no new players"
 		case .Newer_Connection:
 			detail = "this player is in the session on a newer connection"
 		}
