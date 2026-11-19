@@ -229,7 +229,9 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
   clamps W to finalized + `INPUT_RING`, so a bogus far tick can't hold back the sender's later commands. Finalizing T,
   it puts in each present slot's waiting commands with W ≤ T: at most `sim.COMMANDS_PER_SLOT` per slot and
   `sim.TICK_COMMANDS` per tick, within the bytes that keep a tick alone inside one datagram, round-robin; the rest
-  wait for T + 1. A left player's waiting commands go with it. A placement T ≠ W is a misprediction like any other.
+  wait for T + 1. A left player's waiting commands go with it; a joiner's wait until its snapshot passed the check
+  (placed earlier, one could land in a tick the snapshot already holds, which the joiner never verifies). A placement
+  T ≠ W is a misprediction like any other.
 
 ## Late join and rejoin
 

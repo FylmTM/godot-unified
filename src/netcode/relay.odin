@@ -950,7 +950,9 @@ finalize :: proc(relay: ^Relay($G)) {
 
 // Puts the waiting commands that are due into `tick`: each present slot's in seq order, those sent for
 // it or earlier, at most COMMANDS_PER_SLOT each and TICK_COMMANDS in all, within the bytes a tick may
-// carry (round-robin over the slots, so one can't crowd the others out). The rest wait for the next tick.
+// carry (round-robin over the slots, so one can't crowd the others out). The rest wait for the next tick. A joiner's
+// wait until its snapshot passed the check (held): placed before that, one could land in a tick its snapshot already
+// holds, which it never verifies, and it would predict the command again forever.
 @(private)
 take_commands :: proc(relay: ^Relay($G), tick: u32, tick_inputs: ^sim.Inputs(G)) {
 	Input :: sim.part(G, sim.GAME_INPUT)
@@ -961,7 +963,11 @@ take_commands :: proc(relay: ^Relay($G), tick: u32, tick_inputs: ^sim.Inputs(G))
 	for k in 0 ..< sim.COMMANDS_PER_SLOT {
 		for &seat, slot in relay.seats {
 			waiting := &seat.cmd_wait
-			if taken[slot] != k || k >= len(waiting) || !active(&seat, tick) || waiting[k].want > tick {
+			if taken[slot] != k ||
+			   k >= len(waiting) ||
+			   !active(&seat, tick) ||
+			   commands_held(&seat) ||
+			   waiting[k].want > tick {
 				continue
 			}
 			size := sim.COMMAND_HEAD + int(waiting[k].cmd.size)
@@ -983,6 +989,13 @@ take_commands :: proc(relay: ^Relay($G), tick: u32, tick_inputs: ^sim.Inputs(G))
 		}
 		remove_range(&seat.cmd_wait, 0, taken[slot])
 	}
+}
+
+// Whether a seat's commands wait: its client has no checked state yet (a joiner whose snapshot is on its way or
+// waits for its check), so it holds no tick a command could safely land in.
+@(private)
+commands_held :: #force_inline proc(seat: ^Seat($Input)) -> bool {
+	return seat.provider >= 0 || seat.checking || !seat.base_known
 }
 
 @(private)

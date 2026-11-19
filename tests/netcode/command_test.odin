@@ -328,3 +328,49 @@ the_fifth_command_of_a_tick_waits_for_the_next :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, burst >= 2) // the burst's 5th and 6th
 }
+
+// A joiner that sends a command on each of its first ticks: the relay holds them until the joiner's snapshot passed
+// the check, so none lands in a tick the snapshot already holds (which the joiner never verifies, and would predict
+// the command again forever). Each lands once, after the snapshot's tick, and the joiner predicts none of them any
+// more once it verified past them.
+@(test)
+a_joiners_first_commands_land_after_its_snapshot :: proc(t: ^testing.T) {
+	Early :: struct {
+		watch: Watch,
+		sent:  int,
+	}
+	session: Net
+	net_make(&session, 0, 0)
+	defer net_destroy(&session)
+	net_run(&session, 1)
+	early: Early
+	hooks := hooks_for(&early.watch)
+	hooks.user = &early
+	hooks.commands = proc(user: rawptr, player: int, tick: u32, state: ^toy.State, out: ^sim.Command_Out(toy.Cmd)) {
+		early := (^Early)(user)
+		if early.sent < 20 && sim.send_command(out, toy.Cmd_Bump{i32(tick)}) do early.sent += 1
+	}
+	hooks.frame, hooks.verified, hooks.status = nil, nil, nil
+	link := netcode.netsim_wrap(netcode.loopback_link(session.hub, 1), netcode.PROFILES[.Wan], 7919, &session.clock)
+	joiner := netcode.client_create(&toy.GAME, {slot = -1, player_name = "Linus"}, link, hooks)
+	append(&session.clients, joiner)
+	net_run(&session, 4)
+	testing.expect_value(t, joiner.status, netcode.Status.Connected)
+	testing.expect_value(t, early.sent, 20)
+	commands, ticks := logged_commands(net_log(&session), joiner.slot)
+	defer delete(commands)
+	defer delete(ticks)
+	testing.expect_value(t, len(commands), 20)
+	for tick, i in ticks {
+		testing.expectf(
+			t,
+			tick > joiner.snap_tick,
+			"command %d landed at tick %d, in the snapshot of tick %d",
+			i,
+			tick,
+			joiner.snap_tick,
+		)
+	}
+	testing.expect_value(t, len(joiner.own_cmds), 0)
+	expect_agree(t, &session)
+}
