@@ -104,7 +104,7 @@ Suite :: struct {
 Test_Options :: struct {
 	only:  []string, // tests (odin) or steps (godot)
 	long:  bool, // `--long`: the suites' long variants (README.md, Test suites)
-	bless: bool, // `--bless`: the odin suite writes the expectation of each replay regression that diverges or has none
+	bless: bool, // `--bless`: the odin suite re-pins what moved (src/headless/README.md, Re-pinning)
 	game:  string, // the game `test` names ("": every game): the odin suite compiles that game's tests only
 }
 

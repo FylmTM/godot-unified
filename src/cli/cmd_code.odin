@@ -378,7 +378,7 @@ fmt_hook :: proc() -> ! {
 // --- the odin test suite ----------------------------------------------------------------------------------------
 
 // Whether the tests under `root` build unified:headless/scenarios, which declares UNIFIED_LONG_TESTS and
-// UNIFIED_BLESS (odin rejects a -define nothing declares).
+// UNIFIED_BLESS (odin rejects a -define nothing declares; without it nothing is pinned to re-pin).
 @(private)
 uses_scenarios :: proc(root: string) -> bool {
 	return sources_import(root, `"unified:headless/scenarios"`)
@@ -471,11 +471,29 @@ ensure_test_binaries :: proc(opts: Test_Options) -> (exes: []string, ok: bool) {
 // Every test package in one optimised compile and the unoptimised root's in another beside it, the binaries run at
 // once: unit tests, the library's black-box tests, the end-to-end suites with their reference-run replays, the Box3D
 // golden trace, the determinism and import lint. With a game named, that game's tests only (no import lint: it lives
-// in the project's test roots).
+// in the project's test roots). A `--bless` run that re-pinned a literal in a source (src/headless/README.md,
+// Re-pinning) is followed by a plain run, whose result counts with it: checks that share a pin (a golden on 1 and 4
+// workers) compare with the value they were compiled with, so one re-pinning it would hide the other's disagreement.
 @(private)
 suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 	exes, ok := ensure_test_binaries(opts)
-	return ok && run_test_binaries(exes)
+	if !ok do return false
+	passed := run_test_binaries(exes)
+	if !opts.bless {
+		return passed
+	}
+	repinned := false
+	for build in test_builds(opts) {
+		repinned ||= stale(build) // built current just before the run: a source of it changed during the run
+	}
+	if !repinned {
+		return passed
+	}
+	log("uni: test: --bless re-pinned sources; the suite again without it, so every check sees the new pins")
+	plain := opts
+	plain.bless = false
+	plain_exes, plain_ok := ensure_test_binaries(plain)
+	return plain_ok && run_test_binaries(plain_exes) && passed
 }
 
 // The odin suite's binaries again, next to Box3D's debug library in a folder of their own (the debug library has the

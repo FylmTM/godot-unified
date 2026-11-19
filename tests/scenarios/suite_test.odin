@@ -27,6 +27,7 @@ REFERENCE :: scenarios.Reference {
 	trace         = 0x0c10fd0e9a3d2ec7,
 	snapshot      = 0x12c4af87de59275c,
 	log           = 0x3c45234fbc9dbbdb,
+	compat        = 0x936f9c2a93a9a2ce,
 }
 
 @(test)

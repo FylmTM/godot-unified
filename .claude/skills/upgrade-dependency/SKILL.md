@@ -28,16 +28,16 @@ For every upgrade:
 - The bindings come with the release: `src/physics/box3d_types.odin` mirrors their structs, and
   `tests/physics/box3d_test.odin` checks every mirror's layout and enum against them. Update `src/physics` (the
   mirrors, and a wrapper per new or changed Box3D proc) until `./uni vet` and those tests pass.
-- `BOX3D_GOLDEN` there pins the library's results. If it or a reference run changes, the simulation changed: update
-  it and regenerate the reference runs deliberately (`library-sim-change`).
+- `BOX3D_GOLDEN` there pins the library's results. If it or a reference run changes, the simulation changed:
+  `./uni test --bless` re-pins them with the new pin, deliberately (`library-sim-change`).
 - `tests/physics/debug_draw_test.odin` holds Box3D's debug draw to "changes nothing": a flag in
   `physics.DEBUG_DRAW_PURE` that starts writing to the world fails `debug_draw_changes_nothing` (take it out of the
   set: it is then drawn between a snapshot save and restore); `debug_draw_joint_extras_write` failing means joint
   extras stopped writing (move `.Joint_Extras` into the set).
 - The `tag` is part of `sim.compat_of` (builds on other releases refuse each other), so every reference run's log and
-  snapshot carry a new compat: paste each suite's new `REFERENCE` literal (the games' and the toy's), with the bump. The
-  results are unchanged when only the `snapshot` and `log` hashes moved; a changed checkpoint or `trace` is a sim
-  change.
+  snapshot carry a new compat: `./uni test --bless` re-pins every `REFERENCE` (the games' and the toy's) and
+  `GOLDEN_LIBRARY`, with the bump; what moved says whether the results did (`unified/src/headless/README.md`,
+  Re-pinning).
 - CI proves each platform's library (they must agree on every golden value and reference run): the PR's own run
   before merging, `main`'s after it for macOS (`library-sim-change`, CI). `verify` also runs the odin suite against the release's debug library
   (the `box3d-debug` suite), whose asserts catch misused ids.
@@ -72,7 +72,9 @@ For every upgrade:
 - Pins in `[odin]`: `tag`, `commit` (the CLI refuses any other Odin) and the release assets' hashes:
   `gh api repos/odin-lang/Odin/releases/tags/<tag> --jq '.assets[] | [.name, .digest]'` and
   `gh api repos/odin-lang/Odin/git/ref/tags/<tag> --jq .object.sha`. Install the same release locally.
-- Odin's own changes can move float results: the reference runs are the check. Look at the release notes for
+- Odin's own changes can move float results: the reference runs and golden traces are the check. Odin isn't in
+  `sim.compat_of`, so a moved one means bump `sim.LIBRARY_VERSION`, then `./uni test --bless` (`library-sim-change`).
+  Look at the release notes for
   changes to `core:` packages we use (`core:hash/xxhash`, `core:net`, `core:encoding`, `core:os`, `core:flags`,
   `core:compress`) and to `-vet` rules.
 - odinfmt is built with Odin: it rebuilds on the next `./uni fmt`.

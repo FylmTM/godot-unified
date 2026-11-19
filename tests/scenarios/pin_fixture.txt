@@ -1,0 +1,45 @@
+// A test file's pins, as scenarios.pin_rewrite finds them (pin_test.odin). Not compiled: a .txt.
+package fixture
+
+import "unified:headless/scenarios"
+import "unified:sim"
+
+// The reference run { a brace in a comment }.
+REFERENCE :: scenarios.Reference {
+	seed          = 7,
+	players       = 4,
+	ticks         = 1200,
+	snapshot_tick = 600,
+	checkpoints   = {0x0dd67e932863c420, 0xce2c95c490e0f7e2, 0xbd9943fe8ed36c51, 0x55ec1c1e97ca8a5c},
+	trace         = 0xb7b8f72e7b76d55d,
+	snapshot      = 0x8a0e92def67cf112,
+	log           = 0x8d3c49c4f33a0a11,
+	compat        = 0x00000000000000ff,
+}
+
+// Another run: the same parameters, other values.
+OTHER :: scenarios.Reference {
+	seed          = 7,
+	players       = 4,
+	ticks         = 1200,
+	snapshot_tick = 600,
+	checkpoints   = {0x1111111111111111, 0x2222222222222222, 0x3333333333333333, 0x4444444444444444},
+	trace         = 0x5555555555555555,
+	snapshot      = 0x6666666666666666,
+	log           = 0x7777777777777777,
+	compat        = 0x8888888888888888,
+}
+
+GOLDEN :: [4]u64{0x3125e350623f9163, 0x3f3637eb749e2a37, 0xf0d63788ca5d305b, 0xa2fd5716d15ff9f4}
+
+GOLDEN_ROWS :: [GOLDEN_TICKS / GOLDEN_EVERY]u64 {
+	0xcce700a157c5cd2f, // the first
+	0x4416e4d52d37c953,
+	0xbd1ba180e414edf9,
+	0x3db108bf040a1062,
+}
+
+LIBRARY :: sim.Library {
+	version = 9,
+	box3d   = "3362633-r5",
+}

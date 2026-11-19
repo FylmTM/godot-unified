@@ -12,10 +12,11 @@ the benchmark; it holds here for every example game. This is what only this repo
 
 `./uni test` also runs the toy's reference run (`REFERENCE` in `tests/scenarios/suite_test.odin`) and checks the
 golden traces in `tests/physics` (`BOX3D_GOLDEN`, Box3D alone; `GOLDEN_CHARACTERS`, `GOLDEN_FIELD` and
-`GOLDEN_TERRAIN`). A mismatch means the library computes differently: the same questions as a game's (`unified-sim-change`),
-and after a meant change the printed literals are pasted in the same commit, `BOX3D_GOLDEN` in
-`tests/physics/box3d_test.odin` for a Box3D change. A library change moves every example's reference run too: re-pin
-each one it moves.
+`GOLDEN_TERRAIN`), pinned on `GOLDEN_LIBRARY`. A mismatch means the library computes differently: the same questions
+as a game's (`unified-sim-change`). After a meant change, bump `sim.LIBRARY_VERSION` (or the unified-box3d pin, the
+`upgrade-dependency` skill), then `./uni test --bless` re-pins in one go every golden, reference run and replay
+regression it moved, the examples' included, and `GOLDEN_LIBRARY`; review the diff it printed and commit it with the
+change. A golden or a result that moved without the bump is refused (`unified/src/headless/README.md`, Re-pinning).
 
 ## CI
 
@@ -39,13 +40,14 @@ hello, and a replay or snapshot of another build is refused.
 
 | Constant | Guards | Bump when |
 |---|---|---|
-| `sim.LIBRARY_VERSION` (`src/sim/sim.odin`) | the library's results | `src/sim`, `src/dmath` or `src/physics` make a reference run or golden trace compute differently (not a refactor that reproduces them) |
+| `sim.LIBRARY_VERSION` (`src/sim/sim.odin`) | the library's results | `src/sim`, `src/dmath`, `src/physics`, Odin or the build flags make a reference run or golden trace compute differently (not a refactor that reproduces them; Odin and the flags aren't in `sim.compat_of`) |
 | `netcode.PROTOCOL_VERSION` (`src/netcode/proto.odin`) | the wire | anything a datagram, message, snapshot transfer or EOS packet carries changes; every datagram carries it, and an EOS lobby's build attribute too |
 | `sim.SNAP_VERSION` (`src/sim/snapshot.odin`) | the snapshot's bytes | the snapshot format changes |
 | `sim.LOG_VERSION` (`src/sim/log.odin`) | the input log's bytes | the log format changes |
 | `level.VERSION` (`src/level/level.odin`) | a `.level` file's bytes | the level format changes |
 
-A bump of `LIBRARY_VERSION`, or of the snapshot or log format, moves every reference run's hashes: regenerate them.
+A bump of `LIBRARY_VERSION`, or of the snapshot or log format, moves every reference run's hashes: `./uni test
+--bless`.
 A protocol change updates the layout where the code states it (`netcode.Msg`, the `channel.odin` and `window.odin`
 headers) in the same diff.
 

@@ -29,6 +29,7 @@ REFERENCE :: scenarios.Reference {
 	trace         = 0xe8d39a04c1333845,
 	snapshot      = 0xcf0b53b7d1f6b975,
 	log           = 0xe35358923a8f328c,
+	compat        = 0x8ab961afcdc8b985,
 }
 
 // By default the minimal set, each scenario proving something about this game (the toy's suite proves the
