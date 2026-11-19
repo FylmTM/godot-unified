@@ -544,6 +544,7 @@ marker_update :: proc(scene_view: ^Scene_View) {
 // Frees every scene view and MultiMesh binding and forgets the loaded scenes and the view index (main thread),
 // when the session node leaves the tree or the extension unloads; the next sync starts from nothing.
 views_clear :: proc() {
+	debug_draw_clear()
 	for _, entry in V.set.entries do free_view(entry.view)
 	set_destroy(&V.set)
 	V.set = {}
@@ -684,8 +685,10 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 		pose := track_sample_decayed(&scene_view.track, frame.tick, alpha, decay^, dt, smoothing) // sim units
 		pose.pos = to_view(pose.pos)
 		// before every other node's _process (priority -1000): a view's script reads it. An unchanged pose (a crate at
-		// rest, a level marker) isn't set again: each set dirties the root's whole subtree.
-		if scene_view.posed && pose == scene_view.shown do continue
+		// rest, a level marker) isn't set again: each set dirties the root's whole subtree. Unchanged within float noise: a
+		// glide started from the last shown pose (frames the main thread skipped) leaves a correction of a few ulps that
+		// decays over several frames, which no one can see.
+		if scene_view.posed && pose_unchanged(pose, scene_view.shown) do continue
 		pose_view(scene_view, pose)
 		scene_view.shown, scene_view.posed = pose, true
 	}

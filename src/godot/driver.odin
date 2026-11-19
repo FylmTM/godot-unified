@@ -91,6 +91,19 @@ lobby: ^netcode.Lobby // the game's lobby service (godot.init; online play); nil
 @(private)
 want_state: bool
 
+// The debug draw groups the main thread shows (dev UI builds; atomic): applied to the session's sim before each step
+// (sim.dev_enable), so the following ticks keep those groups' draws.
+@(private)
+draw_mask: u64
+
+// The session sim's draw group names (sim.Dev.groups) for the main thread: copied when they change (dev UI builds).
+@(private)
+draw_groups: struct {
+	mu:    sync.Mutex,
+	names: [sim.DEBUG_GROUPS]string, // heap-allocated, kept between sessions
+	seq:   u32, // atomic: bumped on every copy
+}
+
 // Network impairment for remote links (the dev UI's Conditions panel, --lag): the main thread publishes settings
 // (set_netsim), the session thread applies them to every wrapped link.
 @(private)
@@ -158,6 +171,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	inputs:    Triple(Inputs_View(G)), // for the dev UI's Input panel (while want_state)
 	confirmed: Queue(Command_Note, 256), // commands of verified ticks, for the dev UI (full: dropped)
 	recording: Recording, // the session so far, for F3 notes (dev UI builds)
+	group_seq: u32, // the sim's draw group names last copied (dev_publish)
 }
 
 // What the dev UI's Input panel shows: the local player's newest input and the newest verified tick's.
@@ -394,6 +408,8 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 			delete(frame.multis, frame.alloc)
 			delete(frame.data, frame.alloc)
 			delete(frame.members)
+			delete(frame.draws, frame.alloc)
+			delete(frame.draw_text, frame.alloc)
 		}
 		for text in driver.account do delete(text)
 		sim.log_stream_end(&driver.recording.stream)
@@ -508,6 +524,33 @@ record_tick :: proc(
 	recording.last = tick
 	if count := len(client.checksums); count > 0 && client.checksums[count - 1][0] > u64(recording.from) {
 		recording.check = client.checksums[count - 1]
+	}
+}
+
+// Session thread (dev UI builds), in the frame hook: the shown tick's draws (while a group is shown), the zones'
+// totals, and the group names when they changed.
+@(private)
+dev_publish :: proc(driver: ^Driver($G, $View, $MultiView), out: ^Frame_Data, simulation: ^sim.Sim(G), tick: u32) {
+	out.n_draws, out.n_draw_text, out.zone_count = 0, 0, 0
+	dev := simulation.dev
+	if dev == nil do return
+	if draws := sim.debug_draws(simulation, tick); draws != nil && dev.enabled != 0 {
+		room(&out.draws, len(draws.shapes), sim.DEBUG_DRAWS_LIMIT, out.alloc)
+		room(&out.draw_text, len(draws.text), FRAME_DATA_LIMIT, out.alloc)
+		copy(out.draws, draws.shapes[:])
+		copy(out.draw_text, draws.text[:])
+		out.n_draws, out.n_draw_text = len(draws.shapes), len(draws.text)
+	}
+	out.zone_ns, out.zone_count = dev.zone_ns, dev.zone_count
+	if dev.group_seq != driver.group_seq {
+		driver.group_seq = dev.group_seq
+		sync.guard(&draw_groups.mu)
+		for &name, i in draw_groups.names {
+			if name == dev.groups[i] do continue
+			delete(name, runtime.heap_allocator())
+			name = strings.clone(dev.groups[i], runtime.heap_allocator())
+		}
+		sync.atomic_add(&draw_groups.seq, 1)
 	}
 }
 
@@ -724,6 +767,7 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 				poses        = &driver.poses,
 			}
 			driver.glue.fill_frame(&frame)
+			when DEVUI do dev_publish(driver, out, simulation, info.tick)
 			triple_publish(&driver.frames)
 			fill_stats_add(&driver.fill, time.tick_since(started))
 			if sync.atomic_load(&want_state) {
@@ -808,6 +852,11 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 			driver.net_gen = netsim_req.gen
 			sync.mutex_unlock(&netsim_req.mu)
 		}
+		when DEVUI {
+			if driver.client != nil && driver.client.sim != nil {
+				sim.dev_enable(driver.client.sim, sync.atomic_load(&draw_mask))
+			}
+		}
 		if sync.atomic_load(&driver.stop_req) && !driver.stopping {
 			driver.stopping = true
 			driver.stop_at = now
@@ -841,6 +890,7 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 	hooks := driver_hooks(driver)
 	host_config := netcode.Host_Config {
 		desync_detail = DEVUI, // typed desync reports where the dev UI is (every build for now)
+		dev           = DEVUI, // debug draws and zones (dev UI builds)
 		player_name   = request.name,
 		seed          = request.seed,
 		ticks         = request.ticks,
@@ -849,6 +899,7 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 		player_name = request.name,
 		slot        = -1,
 		token       = request.token,
+		dev         = DEVUI,
 	}
 	switch request.mode {
 	case .Single:

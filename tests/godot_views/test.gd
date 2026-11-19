@@ -226,6 +226,7 @@ func _initialize() -> void:
 	var bounds2d := typed_multi.custom_aabb
 	check("2D bounds hold every instance", bounds2d.has_surface() and bounds2d.grow(0.001).has_point(Vector3(30, 40, 0)) 		and bounds2d.grow(0.001).has_point(Vector3(-5, 7.5, 0)) and bounds2d.size.x > 35 + 2 * sqrt(0.5) * 3 - 0.01, bounds2d)
 	check("a game's own custom_aabb is kept", plain_multi.custom_aabb == GAME_BOUNDS, plain_multi.custom_aabb)
+	await check_debug_draws(session)
 	await check_game_input(session, toy)
 	var input: UnifiedInput = Unified.input
 	var wanted := [0]
@@ -251,6 +252,21 @@ func _initialize() -> void:
 	await check_unnamed()
 	print("VIEWS TESTS: %d failed" % failed)
 	quit(failed)
+
+
+# The sim's debug draws (ext/ext.odin's drawn_tick: a line and a text a tick): none until a group is shown, then the
+# shown tick's two, none again once hidden.
+func check_debug_draws(session: UnifiedSession) -> void:
+	check("no debug draws until a group is shown", session.debug_draw_count == 0, session.debug_draw_count)
+	session.debug_draw = "other"
+	for i in 10:
+		await create_timer(0.02).timeout
+	check("debug_draw shows a group: the shown tick's draws", session.debug_draw == "other" \
+		and session.debug_draw_count == 2, session.debug_draw_count)
+	session.debug_draw = ""
+	for i in 10:
+		await create_timer(0.02).timeout
+	check("hidden again: none", session.debug_draw_count == 0, session.debug_draw_count)
 
 
 # The constants (Unified.constants: Data_Constants in ext/ext.odin) and an enum class, before any session.

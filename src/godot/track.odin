@@ -190,6 +190,14 @@ ramp_decay :: proc(err, dt_s: f32, smoothing: Smoothing) -> f32 {
 	return math.exp(-max(dt_s, 0) * rate)
 }
 
+// Whether two shown poses are the same within float noise (1e-6 in each position component, in view units, and in
+// each quaternion component): a view at rest is not posed again for a correction of a few ulps.
+pose_unchanged :: proc(a, b: Pose) -> bool {
+	for axis in 0 ..< 3 do if abs(a.pos[axis] - b.pos[axis]) > 1e-6 * max(1, abs(b.pos[axis])) do return false
+	for k in 0 ..< 4 do if abs(a.rot[k] - b.rot[k]) > 1e-6 do return false
+	return true
+}
+
 // ---- small vector and quaternion helpers (render side)
 
 // The Euclidean length of a vector.

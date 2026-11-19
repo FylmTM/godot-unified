@@ -12,6 +12,9 @@ playtest (F3 notes are how they report a problem); a public build turns it off. 
   While hidden the layer is hidden, and graph samples and log rows are still recorded, so showing it shows the
   recent past. The overlay and its graphs are `overlay.odin`'s header, the Inspector and Input trees
   `inspector.odin`'s, the theme (complete and its own, whatever a game does to Godot's default one) `theme.odin`'s.
+- **Draw groups.** The host passes the sim's debug draw group names every frame (`draw_groups`); the overlay keeps a
+  toggle per name, remembered by name while it lives, so the next session shows what the last one did, and returns
+  the shown ones. What is drawn and where is the host's.
 - **Size.** In points, whatever the game's stretch: the layer's scale is the HiDPI scale over the root viewport's
   canvas stretch, so a game's `canvas_items` stretch doesn't grow the dev UI.
 - **Panels** are our own floating controls, closed until toggled, not Godot `Window`s: an embedded window draws in

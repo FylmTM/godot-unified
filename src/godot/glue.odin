@@ -125,6 +125,14 @@ Frame_Data :: struct {
 	n_multis:     int,
 	n_data:       int,
 	n_datas:      int,
+	// Dev UI builds: the shown tick's debug draws while any draw group is shown (sim.debug_draws), and the zones'
+	// cumulative self times (sim.zone_totals: the zones by enum value, [sim.ZONES_MAX] "other"; zone_count 0: none).
+	draws:        []sim.Debug_Shape, // draws[:n_draws]
+	draw_text:    []u8, // their texts' bytes: draw_text[:n_draw_text]
+	n_draws:      int,
+	n_draw_text:  int,
+	zone_ns:      [sim.ZONES_MAX + 1]i64,
+	zone_count:   int,
 	alloc:        runtime.Allocator, // the views', multis' and data's (they grow on the session thread)
 }
 

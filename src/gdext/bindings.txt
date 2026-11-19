@@ -21,6 +21,8 @@ Node3D
 MultiMeshInstance2D
 MultiMeshInstance3D
 MultiMesh
+World3D
+Label3D
 Mesh
 ResourceLoader
 PackedScene
@@ -64,4 +66,5 @@ PackedInt32Array
 PackedFloat32Array
 PackedStringArray
 PackedVector2Array
+PackedVector3Array
 PackedColorArray
