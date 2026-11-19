@@ -200,50 +200,55 @@ Game :: struct(
 	Input,
 	part(intrinsics.type_field_type(State, "players"), 3) ==
 	PLAYERS {
-	name:              string,
+	name:                  string,
 	// The simulation's version: bump it when `tick` changes behaviour in a way the state and input
 	// layouts don't show (a rule, a constant). Part of compat_of, so builds that differ refuse to
 	// play together instead of desyncing.
-	version:           string,
-	tick_hz:           int, // a power of two, 32..128; dt = 1 / tick_hz exactly
+	version:               string,
+	tick_hz:               int, // a power of two, 32..128; dt = 1 / tick_hz exactly
 	// Optional: the content the game ships with, its level file's bytes (src/level/README.md), embedded once in the
 	// sim package (`content = #load("../../game/levels/arena.level")`). create, compat_of and from_snapshot use it
 	// when given no content, so every host, run and suite plays it unless given other bytes (a test's own level,
 	// the headless `--level FILE`).
-	content:           []u8,
+	content:               []u8,
 	// The Setup of a session started without one, the way `content` is the default level: create, the netcode's
 	// hosts and the headless runs play it unless given another (a menu's, the headless `--setup`). Zero unless set; a
 	// variant of the game is a copy of the descriptor with another Setup. It must read as sent (game_violation).
-	setup:             Setup,
+	setup:                 Setup,
 
 	// Optional: the World for a session with this seed, content (the level file's bytes, src/level/README.md; empty
 	// when the game has none) and Setup: physics world, static geometry, scratch buffers. The bytes outlive the World
 	// (the caller of create owns them). nil: a zeroed World (a game without one names sim.No_World).
-	world_create:      proc(seed: u64, content: []u8, setup: Setup) -> ^World,
+	world_create:          proc(seed: u64, content: []u8, setup: Setup) -> ^World,
 	// Optional: frees what world_create made (nil: free(world)).
-	world_destroy:     proc(world: ^World),
+	world_destroy:         proc(world: ^World),
 	// The World's rollback state (nil: none), asked for right after world_create, so bodies made there are the
 	// World's: a physics game returns physics.extra(world.phys, State).
-	extra:             proc(world: ^World) -> Extra,
+	extra:                 proc(world: ^World) -> Extra,
 	// Optional: fills the tick-0 state (the block is zeroed before): t.number is 0, no player is present. May emit,
 	// roll and create physics bodies.
-	init:              proc(t: ^Tick(Game(State, Input, World, Event, Cmd, Setup, Profile, PLAYERS))),
+	init:                  proc(t: ^Tick(Game(State, Input, World, Event, Cmd, Setup, Profile, PLAYERS))),
 	// Advances the state from tick.number - 1 to tick.number.
-	tick:              proc(tick: ^Tick(Game(State, Input, World, Event, Cmd, Setup, Profile, PLAYERS))),
+	tick:                  proc(tick: ^Tick(Game(State, Input, World, Event, Cmd, Setup, Profile, PLAYERS))),
 	// Optional: a scripted player, for tests, benchmarks, headless checks and Godot's `--scripted` sessions (never
 	// called by the sim; without one they play zero Inputs): the input of the player in `slot` for `tick`, and right
 	// after it that player's commands (sim.send_command(out, command)).
 	// `state` is the caller's current state; a script that answers from (seed, slot, tick) alone (sim.script_bits)
 	// gives every client of a session and every offline run the same player.
-	scripted_input:    proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
-	scripted_commands: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^Command_Out(Cmd)),
+	scripted_input:        proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
+	scripted_commands:     proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^Command_Out(Cmd)),
 	// Optional, never called by the sim: the Profile a scripted player in `slot` joins with (without one: the zero
 	// Profile). A script that answers from (seed, slot) alone gives every client and offline run the same players.
-	scripted_profile:  proc(seed: u64, slot: int) -> Profile,
+	scripted_profile:      proc(seed: u64, slot: int) -> Profile,
 	// Optional, never called by the sim: fill the initial state with `count` entities and hold that population (the
 	// headless `bench`, Godot's `-- --bench N`). Single player only: it changes the initial state, which every peer
 	// would have to share.
-	bench_prepare:     proc(state: ^State, world: ^World, count: int),
+	bench_prepare:         proc(state: ^State, world: ^World, count: int),
+	// Optional, never read by the sim: the least input delay a client plays this game with, in ticks (0: one tick).
+	// A slower-paced game takes 2 or 3: every input is felt that much later, and each correction reaches that much
+	// less far back (as many guesses are wrong; src/netcode/README.md, Timing). At most the netcode's delay ceiling
+	// (netcode.game_violation). Not part of compat_of: it changes when a client samples, never what a tick computes.
+	input_delay_min_ticks: int,
 }
 
 // The command union of a game that has no commands: sim.Game(State, Input, World, Event, sim.No_Commands, ...).

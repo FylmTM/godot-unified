@@ -210,6 +210,55 @@ a_slow_stepping_client_sends_bounded_bursts :: proc(t: ^testing.T) {
 	bounded_bursts(t, 100, true)
 }
 
+// Past the round-trip ceiling (2 x 116 B at 128 Hz, a lossless 700 ms round trip: the stamp lead is longer than the
+// window and the delay ceiling together) a client stepped every 60 ms generates more inputs per step than its main
+// message carries. The burst still sends each one while it can count, so the relay replaces none of them.
+@(test)
+a_burst_past_the_ceiling_still_counts :: proc(t: ^testing.T) {
+	net := new(Sweep_Net(Plain_2x116))
+	defer free(net)
+	sweep_make(net, 0, 128, 2)
+	defer sweep_destroy(net)
+	near := netcode.Profile {
+		name    = "20 ms",
+		latency = 10_000,
+	}
+	far := netcode.Profile {
+		name    = "700 ms",
+		latency = 350_000,
+	}
+	tapped_join(net, 0, near, near)
+	client, _ := tapped_join(net, 1, far, far)
+	timing := netcode.timing_of(128)
+	testing.expect(t, 700_000 > netcode.round_trip_ceiling_us(timing))
+	sweep_run(net, 2)
+	from := net.relay.finalized + 1
+	end := net.clock.now + 3_000_000
+	next_step := net.clock.now
+	for net.clock.now < end {
+		now := net.clock.now
+		wake := netcode.relay_step(net.relay, now)
+		wake = min(wake, netcode.client_step(net.clients[0], now))
+		if now >= next_step {
+			netcode.client_step(client, now)
+			next_step = now + 60_000
+		}
+		net.clock.now = clamp(min(wake, next_step), now + 1, end)
+	}
+	stamp := netcode.stamp_ahead(client.rtt_us, timing)
+	testing.expectf(
+		t,
+		stamp > 7 - 1 + timing.max_delay, // 2 x 116 B: a window of 7
+		"the stamp lead (%d) is past the window and the delay ceiling",
+		stamp,
+	)
+	replaced := 0
+	for tick in from ..= net.relay.finalized {
+		if inputs := netcode.relay_tick(net.relay, tick); inputs != nil && 1 in inputs.replaced do replaced += 1
+	}
+	testing.expectf(t, replaced == 0, "%d of slot 1's inputs replaced from tick %d", replaced, from)
+}
+
 // The ticks of slot `slot` the relay replaced among its first `upto` ticks.
 replaced_among :: proc(net: ^Sweep_Net($G), slot: int, upto: u32) -> (count: int, list: string) {
 	out := strings.builder_make(context.temp_allocator)

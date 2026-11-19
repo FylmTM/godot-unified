@@ -76,7 +76,8 @@ Timing :: struct {
 	tick_hz:        int,
 	tick_us:        f64,
 	tolerance:      u32, // ticks
-	max_delay:      u32, // ticks
+	min_delay:      u32, // ticks: the input delay's floor (sim.Game.input_delay_min_ticks, at least 1)
+	max_delay:      u32, // ticks: the input delay's ceiling (MAX_DELAY_MS)
 	// How far a client may predict past its verified tick: sim.ring_size(tick_hz) - 2, the most the ring
 	// allows (a rollback target is always in it): 250 ms at 32 Hz (the ring's floor), 218 ms at 64, 234 ms at
 	// 128. A client runs about one round trip plus its input delay ahead of what it has verified, so this
@@ -98,12 +99,14 @@ ceil_ticks :: proc(us: f64, tick_us: f64) -> u32 {
 	return whole
 }
 
-// Derives a game's tick timing (tick length, tolerance, delay ceiling, prediction cap) from its tick rate;
-// the relay and each client compute it once at creation.
-timing_of :: proc(tick_hz: int) -> Timing {
+// Derives a game's tick timing (tick length, tolerance, delay floor and ceiling, prediction cap) from its tick rate
+// and its least input delay (sim.Game.input_delay_min_ticks; 0: one tick); the relay and each client compute it once
+// at creation.
+timing_of :: proc(tick_hz: int, input_delay_min_ticks := 0) -> Timing {
 	timing := Timing {
-		tick_hz = tick_hz,
-		tick_us = 1_000_000 / f64(tick_hz),
+		tick_hz   = tick_hz,
+		tick_us   = 1_000_000 / f64(tick_hz),
+		min_delay = u32(max(input_delay_min_ticks, 1)),
 	}
 	timing.tolerance = max(ceil_ticks(TOLERANCE_MS * 1000, timing.tick_us), 2)
 	timing.max_delay = max(ceil_ticks(MAX_DELAY_MS * 1000, timing.tick_us), 1)
@@ -118,12 +121,20 @@ stamp_ahead :: proc(rtt_us: f64, timing: Timing) -> u32 {
 }
 
 // The input delay k in ticks (the lag a player feels) for a round trip: the least that keeps the prediction depth
-// (about RTT + ½ − k ticks) inside the cap, never below `min_delay` (the client's is 1) or above max_delay. clamp(ceil((rtt + 8 ms) / tick) + 1 − cap, min_delay, max_delay). The client passes the round
-// trip's high end (RTT + 4 × its mean deviation), so jitter doesn't push the prediction past the cap.
+// (about RTT + ½ − k ticks) inside the cap, never below `min_delay` (the client's: Timing.min_delay) or above
+// max_delay. clamp(ceil((rtt + 8 ms) / tick) + 1 − cap, min_delay, max_delay). The client passes the round trip's high
+// end (RTT + 4 × its mean deviation), so jitter doesn't push the prediction past the cap.
 want_delay :: proc(rtt_us: f64, timing: Timing, min_delay: u32 = 1) -> u32 {
 	needed := i64(ceil_ticks(rtt_us + DELAY_MARGIN_US, timing.tick_us)) + 1 - i64(timing.prediction_cap)
 	floor := max(min_delay, 1)
 	return u32(clamp(needed, i64(floor), i64(max(timing.max_delay, floor))))
+}
+
+// The longest round trip a game plays smoothly at, in microseconds: the largest high end (RTT + 4 × its mean
+// deviation, what want_delay takes) whose delay stays at the ceiling, so the prediction stays inside the cap.
+// (cap + max_delay − 1) ticks − the margin. Past it the client stalls a tick at a time (its inputs still count).
+round_trip_ceiling_us :: proc(timing: Timing) -> f64 {
+	return f64(timing.prediction_cap + timing.max_delay - 1) * timing.tick_us - DELAY_MARGIN_US
 }
 
 // A relay <-> client message's type byte. Each value says its direction (c->r, r->c), its delivery (R reliable, U
@@ -277,13 +288,35 @@ COMMAND_SEND_HEAD :: 6 // wanted tick u32, kind u8, size u8
 // network stall on most ticks.
 TICKS_PER_MESSAGE_MIN :: 4
 
-// Why the relay can't carry a game's ticks ("" when it can; temp-allocated): fewer than TICKS_PER_MESSAGE_MIN of its
-// widest ticks fit a Finalized message (its players times its Input's bytes is too wide). relay_create panics with
-// it; the Godot host reports it with sim.game_violation's.
+// Why the netcode can't play a game ("" when it can; temp-allocated): fewer than TICKS_PER_MESSAGE_MIN of its widest
+// ticks fit a Finalized message (its players times its Input's bytes is too wide), or its least input delay is below
+// zero or past the delay ceiling. relay_create panics with it; the Godot host reports it with sim.game_violation's.
 game_violation :: proc(game: ^$G) -> string {
 	Input :: sim.part(G, sim.GAME_INPUT)
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
+	if reason := delay_violation(game.name, game.tick_hz, game.input_delay_min_ticks); reason != "" {
+		return reason
+	}
 	return width_violation(game.name, PLAYERS, size_of(Input), window_tick_max_bytes(Input, PLAYERS, nil))
+}
+
+// Why a game's least input delay can't be played ("" when it can): below zero, or past the delay ceiling
+// (MAX_DELAY_MS in ticks), which the round-trip ceiling and the stamp lead's neighbours are sized against
+// (src/netcode/README.md, Timing).
+@(private)
+delay_violation :: proc(name: string, tick_hz, input_delay_min_ticks: int) -> string {
+	ceiling := int(timing_of(tick_hz).max_delay)
+	if input_delay_min_ticks >= 0 && input_delay_min_ticks <= ceiling {
+		return ""
+	}
+	return fmt.tprintf(
+		"%s: input_delay_min_ticks is %d: it is 0 (one tick) to %d ticks (the %d ms delay ceiling at %d Hz)",
+		name,
+		input_delay_min_ticks,
+		ceiling,
+		MAX_DELAY_MS,
+		tick_hz,
+	)
 }
 
 // game_violation's body (a non-generic home for its import: -vet).
