@@ -11,7 +11,7 @@ State :: struct {
 	over_tick:   u32, // the tick it ended (0: not over)
 	wave:        u32, // 0-based wave of the current match
 	tuning:      Tuning, // the match's pace: a preset (init), lowered by the bench
-	players:     sim.Players(Character, Input, PLAYERS),
+	players:     sim.Players(Character, sim.No_Profile, Input, PLAYERS),
 	items:       [MAX_ITEMS]Item, // the level's items by index (World.items: item_count of them)
 	enemies:     sim.Table(Enemy, MAX_ENEMIES),
 	projectiles: sim.Table(Projectile, MAX_PROJECTILES),

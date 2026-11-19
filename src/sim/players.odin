@@ -24,17 +24,26 @@ Member :: struct {
 	since: u32, // the tick of the member's last join or leave
 }
 
-// Who is in the session: the State's field `players` (sim.Game's where clause checks it). The session remembers
-// 2 x PLAYERS people (MEMBERS_PER_SLOT): a newcomer to a full table takes the entry of the longest-absent member,
-// whose handles go stale and who is new if they come back. `before` is each slot's Input of the tick before
-// (input_before: presses are the difference), kept in the state so a rollback, a snapshot and a replay carry it. The
-// pads keep `before` and `data` 8-aligned.
-Players :: struct($T: typeid, $Input: typeid, $PLAYERS: int) where PLAYERS >= 1 && PLAYERS <= MAX_PLAYERS {
+// Who is in the session: the State's field `players` (sim.Game's where clause checks it), `sim.Players(T, Profile,
+// Input, PLAYERS)`. The session remembers 2 x PLAYERS people (MEMBERS_PER_SLOT): a newcomer to a full table takes the
+// entry of the longest-absent member, whose handles go stale and who is new if they come back. `before` is each slot's
+// Input of the tick before (input_before: presses are the difference), kept in the state so a rollback, a snapshot and
+// a replay carry it. `profile` is each member's Profile, the one its last join brought (player_profile; zero bytes for
+// sim.No_Profile). The pads keep `before`, `profile` and `data` 8-aligned.
+Players :: struct(
+	$T: typeid,
+	$Profile: typeid,
+	$Input: typeid,
+	$PLAYERS: int,
+) where PLAYERS >= 1 &&
+	PLAYERS <= MAX_PLAYERS {
 	members: [PLAYERS * MEMBERS_PER_SLOT]Member,
 	slots:   [PLAYERS]Player, // who holds each slot (Player{}: nobody)
 	_pad:    [PLAYERS % 2 * 4]u8,
 	before:  [PLAYERS]Input, // each slot's input of the tick before (zero on its holder's first tick; while absent)
 	_pad2:   [(8 - PLAYERS * size_of(Input) % 8) % 8]u8,
+	profile: [PLAYERS * MEMBERS_PER_SLOT]Profile, // by member index: what its last join brought
+	_pad3:   [(8 - PLAYERS * MEMBERS_PER_SLOT * size_of(Profile) % 8) % 8]u8,
 	data:    [PLAYERS * MEMBERS_PER_SLOT]T, // the game's per-player struct, by member index: zeroed for a new member
 }
 
@@ -81,11 +90,11 @@ player_data :: proc {
 	player_data_of_sim,
 }
 
-player_data_of_players :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> ^T {
+player_data_of_players :: proc(players: ^Players($T, $Profile, $Input, $PLAYERS), player: Player) -> ^T {
 	return &players.data[player.index] if player_known(players, player) else nil
 }
 
-// The result is the T of the State's `players: sim.Players(T, Input, PLAYERS)`.
+// The result is the T of the State's `players: sim.Players(T, Profile, Input, PLAYERS)`.
 player_data_of_tick :: proc(
 	tick: ^Tick($G),
 	player: Player,
@@ -100,6 +109,28 @@ player_data_of_sim :: proc(
 	return player_data_of_players(&simulation.state.players, player)
 }
 
+// The Profile the player's last join brought (the zero Profile when the handle is nobody, stale or forgotten); valid
+// while the player is absent. A returning member brings a Profile again (they may have picked another character): a
+// game that keeps the first one copies it into its T on `joined`. Of the tick being computed, a State's Players or a
+// simulation's current state.
+player_profile :: proc {
+	player_profile_of_players,
+	player_profile_of_tick,
+	player_profile_of_sim,
+}
+
+player_profile_of_players :: proc(players: ^Players($T, $Profile, $Input, $PLAYERS), player: Player) -> Profile {
+	return players.profile[player.index] if player_known(players, player) else {}
+}
+
+player_profile_of_tick :: proc(tick: ^Tick($G), player: Player) -> part(G, GAME_PROFILE) {
+	return player_profile_of_players(&tick.state.players, player)
+}
+
+player_profile_of_sim :: proc(simulation: ^Sim($G), player: Player) -> part(G, GAME_PROFILE) {
+	return player_profile_of_players(&simulation.state.players, player)
+}
+
 // Whether the handle names a member the table still remembers (present or absent).
 player_known :: proc {
 	player_known_of_players,
@@ -107,7 +138,7 @@ player_known :: proc {
 	player_known_of_sim,
 }
 
-player_known_of_players :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> bool {
+player_known_of_players :: proc(players: ^Players($T, $Profile, $Input, $PLAYERS), player: Player) -> bool {
 	return player.id != 0 && int(player.index) < len(players.members) && players.members[player.index].id == player.id
 }
 
@@ -127,7 +158,7 @@ player_slot :: proc {
 }
 
 player_slot_of_players :: proc(
-	players: ^Players($T, $Input, $PLAYERS),
+	players: ^Players($T, $Profile, $Input, $PLAYERS),
 	player: Player,
 ) -> (
 	slot: int,
@@ -154,7 +185,7 @@ player_present :: proc {
 	player_present_of_sim,
 }
 
-player_present_of_players :: proc(players: ^Players($T, $Input, $PLAYERS), player: Player) -> bool {
+player_present_of_players :: proc(players: ^Players($T, $Profile, $Input, $PLAYERS), player: Player) -> bool {
 	_, present := player_slot_of_players(players, player)
 	return present
 }
@@ -175,7 +206,7 @@ player_in_slot :: proc {
 	player_in_slot_of_sim,
 }
 
-player_in_slot_of_players :: proc(players: ^Players($T, $Input, $PLAYERS), slot: int) -> Player {
+player_in_slot_of_players :: proc(players: ^Players($T, $Profile, $Input, $PLAYERS), slot: int) -> Player {
 	return players.slots[slot] if slot >= 0 && slot < PLAYERS else {}
 }
 
@@ -195,11 +226,11 @@ slot_data :: proc {
 	slot_data_of_sim,
 }
 
-slot_data_of_players :: proc(players: ^Players($T, $Input, $PLAYERS), slot: int) -> ^T {
+slot_data_of_players :: proc(players: ^Players($T, $Profile, $Input, $PLAYERS), slot: int) -> ^T {
 	return player_data_of_players(players, player_in_slot_of_players(players, slot))
 }
 
-// The result is the T of the State's `players: sim.Players(T, Input, PLAYERS)`.
+// The result is the T of the State's `players: sim.Players(T, Profile, Input, PLAYERS)`.
 slot_data_of_tick :: proc(
 	tick: ^Tick($G),
 	slot: int,
@@ -221,7 +252,7 @@ present_count :: proc {
 	present_count_of_sim,
 }
 
-present_count_of_players :: proc(players: ^Players($T, $Input, $PLAYERS)) -> (count: int) {
+present_count_of_players :: proc(players: ^Players($T, $Profile, $Input, $PLAYERS)) -> (count: int) {
 	for holder in players.slots {
 		if holder.id != 0 do count += 1
 	}
@@ -240,8 +271,8 @@ present_count_of_sim :: proc(simulation: ^Sim($G)) -> int {
 //
 //   players := sim.iterate_present(t)
 //   for data, player in sim.next(&players) { ... }
-Players_Iterator :: struct($T: typeid, $Input: typeid, $PLAYERS: int) {
-	players: ^Players(T, Input, PLAYERS),
+Players_Iterator :: struct($T: typeid, $Profile: typeid, $Input: typeid, $PLAYERS: int) {
+	players: ^Players(T, Profile, Input, PLAYERS),
 	index:   int, // the next slot (present) or member (known) to look at
 	known:   bool,
 }
@@ -263,8 +294,8 @@ iterate_known :: proc {
 }
 
 iterate_present_of_players :: #force_inline proc(
-	players: ^Players($T, $Input, $PLAYERS),
-) -> Players_Iterator(T, Input, PLAYERS) {
+	players: ^Players($T, $Profile, $Input, $PLAYERS),
+) -> Players_Iterator(T, Profile, Input, PLAYERS) {
 	return {players = players}
 }
 
@@ -274,6 +305,7 @@ iterate_present_of_tick :: #force_inline proc(
 	tick: ^Tick($G),
 ) -> Players_Iterator(
 		part(intrinsics.type_field_type(part(G, GAME_STATE), "players"), 0),
+		part(G, GAME_PROFILE),
 		part(G, GAME_INPUT),
 		part(G, GAME_PLAYERS),
 	) {
@@ -282,8 +314,8 @@ iterate_present_of_tick :: #force_inline proc(
 // odinfmt: enable
 
 iterate_known_of_players :: #force_inline proc(
-	players: ^Players($T, $Input, $PLAYERS),
-) -> Players_Iterator(T, Input, PLAYERS) {
+	players: ^Players($T, $Profile, $Input, $PLAYERS),
+) -> Players_Iterator(T, Profile, Input, PLAYERS) {
 	return {players = players, known = true}
 }
 
@@ -292,6 +324,7 @@ iterate_known_of_tick :: #force_inline proc(
 	tick: ^Tick($G),
 ) -> Players_Iterator(
 		part(intrinsics.type_field_type(part(G, GAME_STATE), "players"), 0),
+		part(G, GAME_PROFILE),
 		part(G, GAME_INPUT),
 		part(G, GAME_PLAYERS),
 	) {
@@ -302,6 +335,7 @@ iterate_present_of_sim :: #force_inline proc(
 	simulation: ^Sim($G),
 ) -> Players_Iterator(
 		part(intrinsics.type_field_type(part(G, GAME_STATE), "players"), 0),
+		part(G, GAME_PROFILE),
 		part(G, GAME_INPUT),
 		part(G, GAME_PLAYERS),
 	) {
@@ -312,6 +346,7 @@ iterate_known_of_sim :: #force_inline proc(
 	simulation: ^Sim($G),
 ) -> Players_Iterator(
 		part(intrinsics.type_field_type(part(G, GAME_STATE), "players"), 0),
+		part(G, GAME_PROFILE),
 		part(G, GAME_INPUT),
 		part(G, GAME_PLAYERS),
 	) {
@@ -320,7 +355,7 @@ iterate_known_of_sim :: #force_inline proc(
 // odinfmt: enable
 
 players_next :: #force_inline proc(
-	iterator: ^Players_Iterator($T, $Input, $PLAYERS),
+	iterator: ^Players_Iterator($T, $Profile, $Input, $PLAYERS),
 ) -> (
 	data: ^T,
 	player: Player,
@@ -373,25 +408,55 @@ commands :: proc(tick: ^Tick($G), player: Player) -> []part(G, GAME_CMD) {
 	return commands_of_slot(tick.commands, slot) if slot >= 0 else nil
 }
 
-// A join record for a test or a script: `member` (the relay's id, >= 1) becomes present in `slot` this tick.
-join :: proc(inputs: ^Inputs($G), slot: int, member: int) {
+// A join record for a test or a script: `member` (the relay's id, >= 1) becomes present in `slot` this tick, bringing
+// `profile` (the zero Profile when left out; sim.join(&inputs, 0, 1, Profile{character = .Tank})).
+join :: proc {
+	join_plain,
+	join_with_profile,
+}
+
+// join with the zero Profile.
+join_plain :: proc(inputs: ^Inputs($G), slot: int, member: int) {
+	join_with_profile(inputs, slot, member, part(G, GAME_PROFILE){})
+}
+
+// join bringing `profile`.
+join_with_profile :: proc(inputs: ^Inputs($G), slot: int, member: int, profile: $P) where P == part(G, GAME_PROFILE) {
 	assert(slot >= 0 && slot < part(G, GAME_PLAYERS) && member >= 1 && member <= 0xFFFF)
 	inputs.present += {slot}
 	inputs.joins[slot] = u16(member)
+	inputs.profiles[slot] = profile
 }
 
 // `member` holds `slot` in the tick `inputs` is for (tests, tools and bots that keep members seated tick after tick):
-// the slot is present, with a join record only when someone else holds it in the state the tick steps from (a
-// simulation's current one, or a State's Players). Present without a join record, a slot nobody holds stays empty:
-// seat is the way that can't happen.
+// the slot is present, with a join record (bringing `profile`) only when someone else holds it in the state the tick
+// steps from (a simulation's current one, or a State's Players). Present without a join record, a slot nobody holds
+// stays empty: seat is the way that can't happen.
 seat :: proc {
 	seat_of_players,
+	seat_of_players_with_profile,
 	seat_of_sim,
+	seat_of_sim_with_profile,
 }
 
-seat_of_players :: proc(inputs: ^Inputs($G), players: ^Players($T, $Input, $PLAYERS), slot: int, member: int) {
+seat_of_players :: proc(
+	inputs: ^Inputs($G),
+	players: ^Players($T, $Profile, $Input, $PLAYERS),
+	slot: int,
+	member: int,
+) {
+	seat_of_players_with_profile(inputs, players, slot, member, Profile{})
+}
+
+seat_of_players_with_profile :: proc(
+	inputs: ^Inputs($G),
+	players: ^Players($T, $Profile, $Input, $PLAYERS),
+	slot: int,
+	member: int,
+	profile: Profile,
+) {
 	if int(player_in_slot_of_players(players, slot).id) != member {
-		join(inputs, slot, member)
+		join_with_profile(inputs, slot, member, profile)
 	} else {
 		inputs.present += {slot}
 	}
@@ -399,6 +464,10 @@ seat_of_players :: proc(inputs: ^Inputs($G), players: ^Players($T, $Input, $PLAY
 
 seat_of_sim :: proc(inputs: ^Inputs($G), simulation: ^Sim(G), slot: int, member: int) {
 	seat_of_players(inputs, &simulation.state.players, slot, member)
+}
+
+seat_of_sim_with_profile :: proc(inputs: ^Inputs($G), simulation: ^Sim(G), slot: int, member: int, profile: $P) {
+	seat_of_players_with_profile(inputs, &simulation.state.players, slot, member, profile)
 }
 
 // The changes of a tick's presence, for Tick.player_changes.
@@ -410,7 +479,8 @@ Changes_Buffer :: struct($PLAYERS: int) {
 
 // Applies a tick's presence and join records to the State's Players before the game's `tick` (the harness, step):
 // leaves first (a slot no longer present, or present with another member's join record), then joins in slot order
-// (a slot that becomes present with a join record; without one it stays absent). Emits the join and leave events.
+// (a slot that becomes present with a join record; without one it stays absent), each writing the Profile its join
+// brought as every peer reads it (profile_as_read). Emits the join and leave events.
 @(private)
 players_update :: proc(tick: ^Tick($G), changes: ^Changes_Buffer($PLAYERS)) {
 	players := &tick.state.players
@@ -455,6 +525,7 @@ players_update :: proc(tick: ^Tick($G), changes: ^Changes_Buffer($PLAYERS)) {
 			}
 			players.data[index] = {}
 		}
+		players.profile[index] = profile_as_read(inputs.profiles[slot])
 		member := &players.members[index]
 		member.slot = u8(slot)
 		member.since = tick.number
@@ -471,9 +542,26 @@ players_update :: proc(tick: ^Tick($G), changes: ^Changes_Buffer($PLAYERS)) {
 	}
 }
 
+// A join's Profile as every peer reads it, since it comes from another machine: a bool reads 0 or 1, a bit_set loses
+// the bits of no element, and an enum outside its declared values or a float that is not finite makes it the zero
+// Profile (a command's rule, src/sim/README.md: Bytes from another machine). The relay, a prediction, a replay and a
+// test read it alike, because the sim reads it, here.
+@(private)
+profile_as_read :: proc(profile: $Profile) -> Profile {
+	when size_of(Profile) == 0 {
+		return {}
+	} else {
+		read := profile
+		if _, rejected := wire_fix(&read, type_info_of(Profile), .Command, apply = true); rejected {
+			return {}
+		}
+		return read
+	}
+}
+
 // After `tick`: each slot's input becomes its `before` for the next tick (zero for a slot nobody holds).
 @(private)
-players_remember :: proc(players: ^Players($T, $Input, $PLAYERS), inputs: ^Inputs($G)) {
+players_remember :: proc(players: ^Players($T, $Profile, $Input, $PLAYERS), inputs: ^Inputs($G)) {
 	for slot in 0 ..< PLAYERS {
 		players.before[slot] = inputs.input[slot] if players.slots[slot].id != 0 else {}
 	}
@@ -498,7 +586,7 @@ players_leave :: proc(tick: ^Tick($G), slot: int, changes: ^Changes_Buffer($PLAY
 // was free on the tick before, so the members present then and the free or longer-absent entries always cover the
 // joins.)
 @(private)
-players_entry :: proc(players: ^Players($T, $Input, $PLAYERS), number: u32) -> int {
+players_entry :: proc(players: ^Players($T, $Profile, $Input, $PLAYERS), number: u32) -> int {
 	oldest := -1
 	for member, i in players.members {
 		if member.id == 0 {

@@ -13,7 +13,16 @@ import "unified:netcode"
 import "unified:sim"
 
 // The widest Input at 3 players (a packet carries 12).
-Plain_3x76 :: sim.Game(Plain_State(76, 3), Plain_Input(76), sim.No_World, Wide_Event, sim.No_Commands, 3)
+Plain_3x76 :: sim.Game(
+	Plain_State(76, 3),
+	Plain_Input(76),
+	sim.No_World,
+	Wide_Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	3,
+)
 
 // A link that counts what a client sends: per own tick, how many Inputs messages carried it; the most Inputs
 // messages sent at one clock value (one client step); the bytes.

@@ -66,7 +66,7 @@ Moded_Data :: struct {
 }
 
 Moded_State :: struct {
-	players: sim.Players(Moded_Data, Moded_Input, 2),
+	players: sim.Players(Moded_Data, sim.No_Profile, Moded_Input, 2),
 	seen:    [8]Mode, // slot 0's mode on the last tick, then its buttons' bits
 }
 
@@ -75,7 +75,16 @@ Moded_Event :: union {
 	sim.Event_Player_Left,
 }
 
-Moded :: sim.Game(Moded_State, Moded_Input, sim.No_World, Moded_Event, sim.No_Commands, 2)
+Moded :: sim.Game(
+	Moded_State,
+	Moded_Input,
+	sim.No_World,
+	Moded_Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	2,
+)
 
 MODED := Moded {
 	name = "moded",
@@ -148,7 +157,7 @@ Mixed_Data :: struct {
 }
 
 Mixed_State :: struct {
-	players: sim.Players(Mixed_Data, Mixed_Input, 2),
+	players: sim.Players(Mixed_Data, sim.No_Profile, Mixed_Input, 2),
 }
 
 Mixed_Event :: union {
@@ -156,7 +165,16 @@ Mixed_Event :: union {
 	sim.Event_Player_Left,
 }
 
-Mixed :: sim.Game(Mixed_State, Mixed_Input, sim.No_World, Mixed_Event, sim.No_Commands, 2)
+Mixed :: sim.Game(
+	Mixed_State,
+	Mixed_Input,
+	sim.No_World,
+	Mixed_Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	2,
+)
 
 MIXED := Mixed {
 	name = "mixed",
@@ -241,7 +259,7 @@ an_input_enum_needs_a_zero_member :: proc(t: ^testing.T) {
 		unused: u32,
 	}
 	Stance_State :: struct {
-		players: sim.Players(Stance_Data, Stance_Input, 2),
+		players: sim.Players(Stance_Data, sim.No_Profile, Stance_Input, 2),
 		last:    Stance,
 		_pad:    [3]u8,
 	}
@@ -249,7 +267,16 @@ an_input_enum_needs_a_zero_member :: proc(t: ^testing.T) {
 		sim.Event_Player_Joined,
 		sim.Event_Player_Left,
 	}
-	Stance_Game :: sim.Game(Stance_State, Stance_Input, sim.No_World, Stance_Event, sim.No_Commands, 2)
+	Stance_Game :: sim.Game(
+		Stance_State,
+		Stance_Input,
+		sim.No_World,
+		Stance_Event,
+		sim.No_Commands,
+		sim.No_Setup,
+		sim.No_Profile,
+		2,
+	)
 	game := Stance_Game {
 		name = "stance",
 		version = "1",

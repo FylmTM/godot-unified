@@ -52,7 +52,7 @@ Roll :: enum u8 {
 // The physics world with the level's static geometry (src/level/README.md, 2D levels), then its markers: a `spawn` per
 // slot, the `station`, `gate`s (`pair`: the other gate) and `rock_spawn`s (`dir`: the drift direction). The bodies the
 // block owns (the station, ships, rocks) are made by init and the tick.
-world_create :: proc(seed: u64, content: []u8) -> ^World {
+world_create :: proc(seed: u64, content: []u8, _: sim.No_Setup) -> ^World {
 	world := new(World)
 	problem: string
 	world.phys, world.level, problem = physics.create_with_level(

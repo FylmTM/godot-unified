@@ -17,7 +17,7 @@ PLAYERS :: 4 // input slots: the most players in the game at once
 // tick computes without changing the State or Input layout.
 VERSION :: "4"
 
-Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Cmd, sim.No_Setup, sim.No_Profile, PLAYERS)
 Tick :: sim.Tick(Game)
 
 @(rodata)

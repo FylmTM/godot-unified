@@ -18,7 +18,7 @@ Dot :: struct {
 }
 
 Swarm_State :: struct {
-	players: sim.Players(toy.Player_Data, toy.Input, toy.PLAYERS),
+	players: sim.Players(toy.Player_Data, sim.No_Profile, toy.Input, toy.PLAYERS),
 	dots:    [SWARM_DOTS]Dot,
 	bag:     sim.List(toy.Thing, 5),
 	queue:   sim.Queue(u8, 3),
@@ -30,7 +30,16 @@ Swarm_World :: struct {
 	grid: sim.Grid(SWARM_CELLS * SWARM_CELLS, SWARM_DOTS),
 }
 
-Swarm_Game :: sim.Game(Swarm_State, toy.Input, Swarm_World, toy.Event, toy.Cmd, toy.PLAYERS)
+Swarm_Game :: sim.Game(
+	Swarm_State,
+	toy.Input,
+	Swarm_World,
+	toy.Event,
+	toy.Cmd,
+	sim.No_Setup,
+	sim.No_Profile,
+	toy.PLAYERS,
+)
 
 SWARM := Swarm_Game {
 	name = "swarm",

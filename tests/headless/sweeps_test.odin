@@ -13,8 +13,26 @@ import "unified:sim"
 
 // The widest Input netcode.game_violation accepts at each player count (a tick of at most 274 bytes); 2 and 32 players
 // are Plain_2x116 and Plain_32x4, 8 is Plain_8x26.
-Plain_4x56 :: sim.Game(Plain_State(56, 4), Plain_Input(56), sim.No_World, Wide_Event, sim.No_Commands, 4)
-Plain_16x11 :: sim.Game(Plain_State(11, 16), Plain_Input(11), sim.No_World, Wide_Event, sim.No_Commands, 16)
+Plain_4x56 :: sim.Game(
+	Plain_State(56, 4),
+	Plain_Input(56),
+	sim.No_World,
+	Wide_Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	4,
+)
+Plain_16x11 :: sim.Game(
+	Plain_State(11, 16),
+	Plain_Input(11),
+	sim.No_World,
+	Wide_Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	16,
+)
 
 // A relay and clients of a plain game on the virtual clock that join and leave when the test says.
 Sweep_Net :: struct($G: typeid) {

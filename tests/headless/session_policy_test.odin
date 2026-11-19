@@ -60,7 +60,7 @@ Wide_Data :: struct {
 }
 
 Wide_State :: struct {
-	players: sim.Players(Wide_Data, Wide_Input, 4),
+	players: sim.Players(Wide_Data, sim.No_Profile, Wide_Input, 4),
 }
 
 Wide_Event :: union {
@@ -68,7 +68,16 @@ Wide_Event :: union {
 	sim.Event_Player_Left,
 }
 
-Wide_Game :: sim.Game(Wide_State, Wide_Input, sim.No_World, Wide_Event, sim.No_Commands, 4)
+Wide_Game :: sim.Game(
+	Wide_State,
+	Wide_Input,
+	sim.No_World,
+	Wide_Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	4,
+)
 
 WIDE_GAME := Wide_Game {
 	name = "wide",

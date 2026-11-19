@@ -23,13 +23,49 @@ Plain_Data :: struct {
 }
 
 Plain_State :: struct($B: int, $PLAYERS: int) {
-	players: sim.Players(Plain_Data, Plain_Input(B), PLAYERS),
+	players: sim.Players(Plain_Data, sim.No_Profile, Plain_Input(B), PLAYERS),
 }
 
-Plain_2x8 :: sim.Game(Plain_State(8, 2), Plain_Input(8), sim.No_World, Wide_Event, sim.No_Commands, 2)
-Plain_2x64 :: sim.Game(Plain_State(64, 2), Plain_Input(64), sim.No_World, Wide_Event, sim.No_Commands, 2)
-Plain_4x8 :: sim.Game(Plain_State(8, 4), Plain_Input(8), sim.No_World, Wide_Event, sim.No_Commands, 4)
-Plain_2x116 :: sim.Game(Plain_State(116, 2), Plain_Input(116), sim.No_World, Wide_Event, sim.No_Commands, 2)
+Plain_2x8 :: sim.Game(
+	Plain_State(8, 2),
+	Plain_Input(8),
+	sim.No_World,
+	Wide_Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	2,
+)
+Plain_2x64 :: sim.Game(
+	Plain_State(64, 2),
+	Plain_Input(64),
+	sim.No_World,
+	Wide_Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	2,
+)
+Plain_4x8 :: sim.Game(
+	Plain_State(8, 4),
+	Plain_Input(8),
+	sim.No_World,
+	Wide_Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	4,
+)
+Plain_2x116 :: sim.Game(
+	Plain_State(116, 2),
+	Plain_Input(116),
+	sim.No_World,
+	Wide_Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	2,
+)
 
 plain_game :: proc($G: typeid, $CHANGING: int, tick_hz: int) -> G {
 	return G {
@@ -225,8 +261,26 @@ sessions_play_at_32_64_and_128_hz :: proc(t: ^testing.T) {
 	}
 }
 
-Plain_8x26 :: sim.Game(Plain_State(26, 8), Plain_Input(26), sim.No_World, Wide_Event, sim.No_Commands, 8)
-Plain_32x4 :: sim.Game(Plain_State(4, 32), Plain_Input(4), sim.No_World, Wide_Event, sim.No_Commands, 32)
+Plain_8x26 :: sim.Game(
+	Plain_State(26, 8),
+	Plain_Input(26),
+	sim.No_World,
+	Wide_Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	8,
+)
+Plain_32x4 :: sim.Game(
+	Plain_State(4, 32),
+	Plain_Input(4),
+	sim.No_World,
+	Wide_Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	32,
+)
 
 // The widest ticks the relay accepts (netcode.game_violation: TICKS_PER_MESSAGE_MIN of them per message), every Input
 // byte changing every tick, on `bad`: everyone verifies every tick, and stalls stay a small share of the ticks.

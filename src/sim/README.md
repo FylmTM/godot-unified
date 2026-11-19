@@ -12,12 +12,13 @@ plugs Box3D in as rollback state (the Extra, `src/physics/README.md`); `netcode`
 
 ## The game type
 
-A game names its six types once, `Game :: sim.Game(State, Input, World, Event, Cmd, PLAYERS)`, and fills one value
-of it, the descriptor: name, version, tick rate, `tick` and the optional hooks, each documented on its field.
+A game names its eight types once, `Game :: sim.Game(State, Input, World, Event, Cmd, Setup, Profile, PLAYERS)`, and
+fills one value of it, the descriptor: name, version, tick rate, `tick` and the optional hooks, each documented on its field.
 Everything generic over a game takes that one type (`Sim(G)`, `Tick(G)`, `Inputs(G)`, the netcode's client, the
 headless runs, `godot.Glue`) and names a part of it with `part`.
 
-What the compiler can check does not compile: a State without `players` (or one for another Input or PLAYERS), an
+What the compiler can check does not compile: a State without `players` (or one for another Profile, Input or
+PLAYERS), a Setup or Profile of another type where the game's is taken (`create`, `join`), an
 Event union without the library's join and leave events, an `emit` or `send_command` of a type outside the union. The
 rest (the tick rate, the plain-data rules below) `game_violation` checks once at run time: `create` panics with its
 reason, the Godot host reports it.
@@ -47,6 +48,28 @@ never presses twice). A one-shot value is a command.
 holds only what `world_create` builds and what the Extra rolls back**: anything else in it that affects `tick`
 diverges after a rollback, unhashed. The sync-tests (`scenarios.rollback_every_tick`, `headless.Run`) fail on the
 tick such state shows.
+
+### Setup and Profile
+
+Two kinds of choice reach the sim before it runs, recorded like inputs, never as commands after the fact (a player
+spawning as a default and swapping a tick later is a visible change and a misprediction):
+
+- **Setup**: what differs between two sessions of one build (a mode, a difficulty, saved progress). It is fixed when
+  the session starts and lives **beside the seed**, outside the block: `Sim.setup`, never rolled back or hashed (a
+  session has one). `world_create` gets it, and every tick (`init` too) gets a copy in `t.setup`, so a write there
+  reaches nothing and read-only needs no rule. `Game.setup` is the Setup of a session started without one, the way
+  `Game.content` is the default level, so a variant of the game is a copy of the descriptor with another Setup.
+  Progress a game saves is its own small file, which the host turns into the next session's Setup; a snapshot is
+  never a save, since it stops loading after every `compat` change.
+- **Profile**: what a player chose before joining (a character, a colour). It rides beside the player's join record
+  (`Inputs.profiles`) and the harness writes it into the State's Players by member on that tick, before the join
+  event and `tick`: the player spawns as chosen on their first tick, the predicted one too. It is state: a rollback
+  restores it, a snapshot carries it, the checksum covers it. A returning member brings a new one (they may have
+  picked another character in the menu) and keeps its data; a game that wants the first keeps it in its `T`.
+
+Both are plain structs without padding, checked like commands (`game_violation`), at most `SETUP_MAX` and
+`PROFILE_MAX` bytes. A game without them names `sim.No_Setup` and `sim.No_Profile`, as it names `sim.No_World`: zero
+bytes everywhere, so its State is what it would be without them.
 
 ### Content
 
@@ -87,7 +110,7 @@ An **account** (an EOS id, a LAN token) is host-side only, never in State, Input
 (`src/netcode/README.md`, Members).
 
 ```odin
-State :: struct {..., players: sim.Players(Player_Data, Input, PLAYERS), ...}
+State :: struct {..., players: sim.Players(Player_Data, Profile, Input, PLAYERS), ...}
 Event :: union {sim.Event_Player_Joined, sim.Event_Player_Left, ...}
 
 tick :: proc(t: ^Tick) {
@@ -155,6 +178,10 @@ them the same way, so a bad value can neither crash `tick` (an index out of boun
 - **A command**: each bool reads as 0 or 1 and each bit_set without the bits of no element; one whose enum field holds
   an undeclared value or whose float is not finite is left out on every peer alike, like one of an unknown kind or the
   wrong size.
+- **A Profile** is read like a command, inside the step, so the relay, a prediction, a replay and a test read it
+  alike: one that a command would leave out is the zero Profile.
+- **A Setup** that does not read as sent is refused (`setup_violation`), never zeroed: a zeroed Setup would play
+  another session than the host's.
 
 ## Events
 

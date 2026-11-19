@@ -61,9 +61,9 @@ a_tick_takes_four_commands_per_player :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(sim.slot_commands(&inputs, 3)), 1)
 	// At most TICK_COMMANDS in all.
 	Big_State :: struct {
-		players: sim.Players(u8, toy.Input, 8),
+		players: sim.Players(u8, sim.No_Profile, toy.Input, 8),
 	}
-	big: sim.Inputs(sim.Game(Big_State, toy.Input, toy.World, toy.Event, toy.Cmd, 8))
+	big: sim.Inputs(sim.Game(Big_State, toy.Input, toy.World, toy.Event, toy.Cmd, sim.No_Setup, sim.No_Profile, 8))
 	for k in 0 ..< 32 {
 		sim.add_command(&big, bump(k % 8, i32(k)))
 	}
