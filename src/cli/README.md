@@ -78,7 +78,11 @@ or one JSON object (`Result`). The command lines it runs are echoed only when ve
 
 **Budgets.** Every command has a budget, the seconds a warm run may take (`test`'s: its suites' sum), or says why it
 has none (interactive, networked, the mode decides). A warm run over its budget prints `OVER BUDGET`: not a failure
-(machines vary; CI allows `CI_BUDGET_SCALE` times), but a bug to find (AGENTS.md, Non-negotiables). A cold run is
+(machines vary), but a bug to find (AGENTS.md, Non-negotiables). CI allows `CI_BUDGET_SCALE` times the budget, or a
+command's or suite's own `ci_budget` when that is more (`ci_allowance`): a budget is set on a developer's 16+ thread
+machine, and work that fills every core (the odin suite's optimised compile and its tests) costs more than 3x that on
+CI's 4-core runners. A CI budget is sized from the slowest runner's warm cost with a small margin, so a regression
+still trips it. A cold run is
 exempt and says so: it fetched a dependency, generated the Godot bindings, imported a project, or built something it
 needed first (`cold`; the command's own product, such as `test`'s binary, counts against the budget: `Build.own`).
 Work the CLI runs beside other work it started (a suite beside the others, the godot suite's games and lanes) is
