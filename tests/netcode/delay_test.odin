@@ -6,7 +6,7 @@ import "core:testing"
 import "unified:netcode"
 
 // netcode.want_delay and stamp_ahead compute their ceilings by hand (netcode stays off core:math); they must
-// equal the formulas of src/netcode/SPEC.md (Timing) everywhere, with the game's floor k_min. The test itself may
+// equal the formulas of src/netcode/README.md (Timing) everywhere, with the game's floor k_min. The test itself may
 // use core:math: it is not simulation code.
 @(test)
 want_delay_matches_formula :: proc(t: ^testing.T) {

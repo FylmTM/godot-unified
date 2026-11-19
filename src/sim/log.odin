@@ -31,6 +31,8 @@ Log_Tick :: struct($G: typeid) {
 	command_count: u32,
 }
 
+// A recorded session's inputs in memory, tick by tick (log_append, log_inputs; log_encode and log_decode go to and
+// from the file's bytes). With the seed and the content it is the whole session.
 Input_Log :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	seed:     u64,
 	content:  u64, // content_hash of the session's content (0: none)
@@ -309,7 +311,7 @@ log_decode :: proc(data: []u8, $G: typeid) -> (input_log: Input_Log(G), ok: bool
 	return input_log, true
 }
 
-// Where a log goes as it grows (a relay's recording, src/netcode/SPEC.md): `write` puts bytes at an offset (the
+// Where a log goes as it grows (a relay's recording, src/netcode/README.md): `write` puts bytes at an offset (the
 // end, to append; the header's tick count, when it ends), `close` (optional) ends it. log_sink_memory here,
 // headless.log_sink_file for a file.
 Log_Sink :: struct {
@@ -395,6 +397,7 @@ log_stream_end :: proc(stream: ^Log_Stream) -> bool {
 	return ok
 }
 
+// What an input log's header says (log_stream_begin writes one; its `ticks` is ignored there).
 Log_Header :: struct {
 	seed:       u64,
 	content:    u64,

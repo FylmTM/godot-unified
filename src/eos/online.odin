@@ -23,19 +23,21 @@ import "core:time"
 
 import "unified:netcode"
 
+// Which side of a session this process is on.
 Role :: enum u8 {
 	None,
 	Host,
 	Join,
 }
 
+// Where the session stands (Status.stage; pump maps it onto netcode.Lobby_Stage).
 Stage :: enum u8 {
 	Off, // not initialized (or the SDK failed to load)
 	Idle, // initialized, no session
 	Login, // device-ID login in flight
 	Lobby, // creating, searching or joining the lobby
 	Ready, // host: lobby open, code set; joiner: in the lobby, host known
-	Failed, // see detail; `leave` returns to Idle
+	Failed, // see detail; `close` returns to Idle
 }
 
 MAX_REMOTES :: netcode.MAX_PEERS // a host's peers 1.. (a joiner's peer 0 is its host)
@@ -49,6 +51,7 @@ SEARCH_RETRY_US :: 1_200_000
 CONNECT_WAIT_US :: 5_000_000
 CONNECT_TRIES :: 4
 
+// A P2P peer of the session: the host's joiners at 1.., a joiner's host at 0.
 Remote :: struct {
 	used:      bool,
 	id:        Product_User_Id,
@@ -86,6 +89,7 @@ User :: struct {
 
 HELD_REQUESTS :: 8 // connection requests from users not (yet) seen in the lobby; the oldest is dropped
 
+// How init starts EOS. A game passes these through Lobby_Config (eos.lobby); tests call init with a fake SDK.
 Init_Options :: struct {
 	lib_dirs:            []string, // where to look for the SDK library; empty = default_lib_dirs()
 	product_name:        string,
@@ -103,6 +107,8 @@ Init_Options :: struct {
 	connect_wait_us:     i64,
 }
 
+// The process-wide session's state (one per process, as the EOS platform is): every field is read and written
+// under `mu`. Callers go through the procs, never through this.
 Online :: struct {
 	mu:             sync.Mutex,
 	api:            Api,
@@ -327,6 +333,7 @@ join :: proc(build: Build, code: string) -> bool {
 	return begin(.Join, build, game_code)
 }
 
+// A copy of where the session stands, for a game's UI and the tools (status).
 Status :: struct {
 	stage:   Stage,
 	role:    Role,
@@ -339,7 +346,7 @@ Status :: struct {
 	lib:     string,
 }
 
-// A snapshot of the session; strings are allocated with `allocator`.
+// A snapshot of the session, safe from any thread; strings are allocated with `allocator`.
 status :: proc(allocator := context.temp_allocator) -> (snapshot: Status) {
 	online := &session
 	sync.guard(&online.mu)
@@ -389,7 +396,7 @@ link :: proc() -> (net_link: netcode.Link, ok: bool) {
 }
 
 // The account behind a peer: the remote's product user id, which EOS authenticated (what the relay knows a person
-// by, src/netcode/SPEC.md).
+// by, src/netcode/README.md, Members).
 @(private)
 link_account :: proc(data: rawptr, peer: netcode.Peer) -> (account: netcode.Account, ok: bool) {
 	online := (^Online)(data)
@@ -426,7 +433,8 @@ open_host :: proc(build: Build) -> (net_link: netcode.Link, ok: bool) {
 	return link()
 }
 
-// Starts joining `code` and returns the link at once; a bad code fails here.
+// Starts joining `code` and returns the link at once: login, a search by code, a build check, the join (pump says
+// how it goes). A code that doesn't parse fails here.
 open_join :: proc(build: Build, code: string) -> (net_link: netcode.Link, ok: bool) {
 	if !join(build, code) {
 		return
@@ -461,7 +469,8 @@ pump :: proc() -> (result: netcode.Lobby_Status) {
 	}
 }
 
-// Ends the session (same as leave).
+// Ends the session: destroys (host) or leaves (joiner) the lobby, ticking EOS until the request went out, and
+// closes P2P. The login stays.
 close :: proc() {
 	leave()
 }

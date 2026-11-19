@@ -1,4 +1,4 @@
-# unified's tool scripts, mirrored from src/godot/tools by uni (src/cli/SPEC.md)
+# unified's tool scripts, mirrored from src/godot/tools by uni (src/cli/README.md)
 /addons/unified/
 # the UIDs Godot writes when uni imports this project (nothing here refers to a script by UID)
 *.uid

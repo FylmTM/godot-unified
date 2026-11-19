@@ -1,16 +1,16 @@
-// The host's memory of every keyed item's pose (session thread), so fill_frame never passes previous poses: an
-// item seen at tick - 1 interpolates from that pose. After a rollback the tick - 1 pose it remembers is the old
-// prediction, so it sends an estimate of the corrected one instead (#284, measured under --lag): a tick re-filled
-// (the same tick again) moves its tick - 1 pose by the same correction; a rollback with a new tick, or a fill after
-// skipped ticks, takes the new pose minus the last known one-tick motion. The main thread feeds it into the view's
-// error term (track_push_prev), so a correction glides instead of popping. Two open-addressed tables, the last
-// fill's and this one's, told apart by a stamp, so nothing is cleared per tick; both grow (rehashed) when a fill
-// would make its own more than half full.
+// The host's memory of every keyed item's pose (session thread), so fill_frame never passes previous poses: an item
+// seen at tick - 1 interpolates from that pose. After a rollback the tick - 1 pose it remembers is the old prediction,
+// so it sends an estimate of the corrected one instead: a tick re-filled (the same tick again) moves its tick - 1 pose
+// by the same correction; a rollback with a new tick, or a fill after skipped ticks, takes the new pose minus the last
+// known one-tick motion. The main thread feeds it into the view's error term (track_push_prev), so a correction glides
+// instead of popping. Two open-addressed tables, the last fill's and this one's, told apart by a stamp, so nothing is
+// cleared per tick; both grow (rehashed) when a fill would make its own more than half full.
 package godot
 
 import "base:runtime"
 import "core:fmt"
 
+// Which items a pose belongs to: scene views and MultiMesh instances are remembered apart.
 Pose_Domain :: enum u8 {
 	View, // keys are unique within a scene view kind (the hash takes the kind)
 	Multi, // keys are unique within a MultiMesh kind
@@ -27,6 +27,7 @@ Pose_Entry :: struct {
 	prev:     Remembered_Pose,
 }
 
+// An item's pose as the host remembers it, in sim units.
 Remembered_Pose :: struct {
 	pos: [3]f32,
 	rot: [4]f32, // a unit quaternion
@@ -39,6 +40,7 @@ Pose_Table :: struct {
 	count:   int, // entries this fill wrote
 }
 
+// Every keyed item's pose at the last fill and at this one (session thread; one per session's driver).
 Pose_Memory :: struct {
 	tables:   [Pose_Domain]Pose_Table,
 	fill:     u32, // the current fill (starts at 1)

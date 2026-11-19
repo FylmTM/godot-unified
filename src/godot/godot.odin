@@ -1,4 +1,4 @@
-// unified:godot: everything that touches Godot for a game built on unified (src/godot/SPEC.md). A game's GDExtension
+// unified:godot: everything that touches Godot for a game built on unified (src/godot/README.md). A game's GDExtension
 // entry calls `init` with its sim.Game and a Glue (how Godot's input becomes its Input, and its State views), which
 // registers:
 //
@@ -7,11 +7,11 @@
 //   UnifiedView (Node)          the marker of a scene view's scene (a direct child of its root).
 //   UnifiedMultiView (Node)     the marker under a MultiMeshInstance3D / 2D the host fills.
 //   UnifiedEvent, UnifiedCommand (RefCounted) and a class per kind of the game's event and command unions.
-//   Unified (the engine singleton), UnifiedData, UnifiedConstants, a class per session data type and per enum.
+//   Unified (the engine singleton), UnifiedData, UnifiedConstants, UnifiedInput, a class per session data type,
+//   nested struct and enum.
 //
-// Threads: the session thread (macOS: the real-time thread class) is the only one that touches the sim; it
-// publishes Frames through a triple buffer and events/status through SPSC queues. Godot is called only from the
-// main thread. Nothing runs in the editor (extension classes run there like @tool scripts).
+// The session thread is the only one that touches the sim; Godot is called only from the main thread; nothing runs in
+// the editor. Threads, the hand-off and the main thread's frame: src/godot/README.md, How it works.
 package godot
 
 import "base:runtime"
@@ -33,8 +33,9 @@ Init_Result :: gdi.Bool
 
 // A game's GDExtension entry point in one call (it sets the context itself): installs the game and its Glue, takes
 // its lobby service for online play (nil: LAN and single player only; eos.lobby links the EOS SDK) and its constants
-// (Unified.constants: a proc init calls once, returning the plain `Data_` struct), and hands Godot the extension's
-// callbacks.
+// (Unified.constants: the proc itself, which init calls once it has set the context, so it may format strings or
+// compute shapes; its plain `Data_` struct is copied), and hands Godot the extension's callbacks: install, the lobby,
+// then entry, in their one valid order.
 //
 //   @(export, link_name = "survivor_init")
 //   survivor_init :: proc "c" (gpa: godot.Get_Proc_Address, lib: godot.Class_Library, init: ^godot.Initialization) -> godot.Init_Result {

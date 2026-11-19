@@ -1,4 +1,4 @@
-// The client (src/netcode/SPEC.md, Client), generic over the game: the verified and predicted frames, rollback, the
+// The client (src/netcode/README.md, Client), generic over the game: the verified and predicted frames, rollback, the
 // clock and input delay, snapshots for joiners. Driven by client_step from the host's loop; talks to the host
 // application through Hooks (all called from client_step).
 package netcode
@@ -13,23 +13,25 @@ package netcode
 import usim "unified:sim" // the field Client.sim shadows the package name
 import "unified:wire"
 
+// What a client asks the relay for and who it says it is (client_create).
 Client_Config :: struct {
 	slot:        int, // the slot to ask for; -1: any free one
 	join_tick:   u32, // the earliest tick to become present (0: as soon as possible)
 	compat:      u64, // build/game id the relay checks (0: sim.compat_of(game, content))
-	content:     []u8, // the level (src/level/SPEC.md; nil: the game's own, sim.Game.content); borrowed for the client's lifetime
+	content:     []u8, // the level (src/level/README.md; nil: the game's own, sim.Game.content); borrowed for the client's lifetime
 	player_name: string, // the player's display name (sent to the relay, shared with everyone)
 	// On a link that vouches for no account (LAN, direct UDP): what the relay recognizes this person by when they
 	// come back (the same member, in any free slot). All zero: none (a new member every time).
 	token:       Token,
 }
 
+// Where a client stands (Client.status), reported through Hooks.status.
 Status :: enum u8 {
 	Idle,
 	Connecting,
 	Connected, // welcomed and simulating (a late joiner: once its snapshot is restored and checked)
 	Failed, // rejected, a protocol error, another protocol version, or the relay never answered
-	Disconnected, // left, the session ended, or the connection was lost after it worked
+	Disconnected, // left, the session ended, refused as too far behind, or the connection was lost after it worked
 }
 
 // What changed in a step, for the view.
@@ -39,6 +41,8 @@ Frame_Info :: struct {
 	resim_from: u32, // ticks resim_from..tick were computed in this step: their events are new
 }
 
+// How a client talks to the host application (src/netcode/README.md, Hooks): every hook is called from client_step, on
+// its caller's thread, and gets `user` back.
 Hooks :: struct($G: typeid) {
 	user:     rawptr,
 	// The local player's input for `tick` (it holds `slot`), sampled when the client's clock reaches it. `state` is
@@ -69,6 +73,7 @@ Hooks :: struct($G: typeid) {
 		inputs: ^usim.Inputs(G),
 		events: []usim.Raw_Event,
 	),
+	// Each change of the client's status, with why ("" when there is nothing to say).
 	status:   proc(user: rawptr, status: Status, detail: string),
 	// Optional: the relay found the players' checksums of a tick differ (report.detail is valid during the call).
 	desync:   proc(user: rawptr, report: Desync_Report),
@@ -144,6 +149,8 @@ Client_Stats :: struct {
 	net:            Channel_Stats,
 }
 
+// A client of one session (client_create): its sim's verified and predicted frames, its clock, its own inputs and
+// commands, the snapshots it sends joiners, and the roster. Driven by client_step.
 Client :: struct($G: typeid) {
 	game:           ^G,
 	cfg:            Client_Config,
@@ -1272,7 +1279,7 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 	return
 }
 
-// What a client reports about its session: the headless CLI's client object (src/headless/SPEC.md), the Godot host's
+// What a client reports about its session: the headless CLI's client object (src/headless/README.md), the Godot host's
 // result line, and the end-to-end scenarios' checks.
 Client_Result :: struct {
 	slot:        int,

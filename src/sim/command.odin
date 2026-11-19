@@ -1,4 +1,4 @@
-// Commands (src/sim/SPEC.md "Commands"): one-shot actions a player sends, delivered exactly once, in order.
+// Commands (src/sim/README.md, Commands): one-shot actions a player sends, delivered exactly once, in order.
 // The game declares one plain struct per command and a union of them (sim.Game's Cmd; kind = variant
 // index). A command is input, not state: part of the tick's input record (Inputs.commands; logged,
 // replayed, sent to late joiners with the log), never in the block. `tick` reads them with `commands`.

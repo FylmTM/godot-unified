@@ -1,3 +1,6 @@
+// Zip archives (README.md, Dependencies): reading the Godot editor, export templates (straight from the 1.3 GB
+// archive over HTTP byte ranges), writing Windows release zips. The reader takes stored and deflated members, Zip64
+// sizes, Unix modes and symlinks; the writer deflates every member and writes no Zip64 (Zip_Writer).
 package cli
 
 import "core:compress/deflate"
@@ -6,10 +9,7 @@ import "core:hash"
 import "core:os"
 import "core:strings"
 
-// Zip archives (SPEC.md, Dependencies): reading the Godot editor, export templates (straight from the 1.3 GB
-// archive over HTTP byte ranges), writing Windows release zips. Stored
-// and deflated members, Zip64 sizes, Unix modes and symlinks.
-
+// A member of an archive, from its central directory (zip_entries); zip_read reads its content.
 Zip_Entry :: struct {
 	name:         string,
 	method:       u16, // 0 stored, 8 deflated
@@ -264,6 +264,8 @@ zip_extract_all :: proc(reader: ^Zip_Reader, dest: string, strip_top := false) {
 
 // --- writing ----------------------------------------------------------------------------------------------------
 
+// An archive built in memory: zip_add packs each member, zip_finish appends the central directory. Every member is
+// deflated; no Zip64, so an archive over 4 GB or 65,534 members stops the command.
 Zip_Writer :: struct {
 	buf:     [dynamic]byte,
 	central: [dynamic]byte,

@@ -1,12 +1,6 @@
-// Input: the game's Glue.sample_input fills the local player's Input on the main thread once a frame, through the
-// action helpers below (they read Godot's Input singleton); the host keeps the newest sample and the session
-// thread takes it for every tick that samples the local player (several ticks may take one sample). Buttons are
-// state: `action_down` is held, or tapped since a tick last took the input (latched, so a tap shorter than a
-// frame is never lost); the sim derives presses from the tick before (sim.buttons). Game input is off while a dev
-// UI text field has the keyboard and while UnifiedSession.game_input is false; when it comes back, and when the
-// window gets the focus back, an action still held counts only once it is released (the key that closed a menu, the
-// click that focused the window never fire). An unfocused window still reads input (Godot releases what was held
-// when it lost the focus; tool runs drive windows that never take it).
+// The action helpers Glue.sample_input fills the local player's Input with (main thread, once a frame; they read
+// Godot's Input singleton), and the host's newest sample the session thread takes. The rules a game's input follows
+// (state, never a one-shot; input values and input_wanted; when game input is off): src/godot/README.md, Input.
 package godot
 
 import "core:fmt"

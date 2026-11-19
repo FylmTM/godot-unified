@@ -1,13 +1,12 @@
+// Odin's test runner stops a crashed test by freezing its thread: a lock that test held (a mutex shared between
+// tests, the heap) stays held, every test that waits for it waits forever, and the runner never ends. So a test
+// binary never runs bare: uni builds it (-build-mode:test, TEST_RUN_FLAGS) and runs it under a watchdog that kills
+// it CRASH_GRACE after a crash or at its timeout, and names the test that crashed and the tests still running.
 package cli
 
 import "core:os"
 import "core:strings"
 import "core:time"
-
-// Odin's test runner stops a crashed test by freezing its thread: a lock that test held (a mutex shared between
-// tests, the heap) stays held, every test that waits for it waits forever, and the runner never ends. So a test
-// binary never runs bare: uni builds it (-build-mode:test, TEST_RUN_FLAGS) and runs it under a watchdog that kills
-// it CRASH_GRACE after a crash or at its timeout, and names the test that crashed and the tests still running.
 
 // The runner logs each test's state changes; the watchdog reads them (and doesn't echo them).
 TEST_RUN_FLAGS :: []string{"-build-mode:test", "-define:ODIN_TEST_LOG_STATE_CHANGES=true"}

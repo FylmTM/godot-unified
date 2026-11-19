@@ -239,10 +239,11 @@ g_driver: rawptr
 g_bench_count: int
 
 // Installs the game: call once, before godot.entry. `constants`: the game's fixed values for its scripts
-// (Unified.constants, a plain `Data_` struct, strings allowed), copied here (nil: none). It never stops the load: a
-// game with problems (a bad Glue, a sim that fails the game checks, a data type that clashes) is reported with
-// print_error when the extension loads and nothing of it is registered, so the editor still opens and a session fails
-// with the reason.
+// (Unified.constants, a plain `Data_` struct, strings allowed), copied here (nil: none). It never stops the load (the
+// editor loads the extension too): it collects every problem (no sample_input or fill_frame, a bad view_scale, a View
+// or MultiView enum that doesn't count up from 0, sim.game_violation, netcode.game_violation, a Glue.data, constants
+// or input values type that isn't a struct, isn't plain or holds one of Godot's own types) and registers nothing of
+// the game; they are printed when the extension loads, and starting a session fails with the first one.
 install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = nil) {
 	State :: sim.part(G, sim.GAME_STATE)
 	Input :: sim.part(G, sim.GAME_INPUT)

@@ -1,4 +1,4 @@
-// Shapes (src/physics/SPEC.md, What physics covers): created on a Body_Ref, referred to by a Shape_Ref; Box3D's shape
+// Shapes (src/physics/README.md, What physics covers): created on a Body_Ref, referred to by a Shape_Ref; Box3D's shape
 // procs named by its names without `get_`. A shape is destroyed with its body (or by destroy_shape).
 package physics
 

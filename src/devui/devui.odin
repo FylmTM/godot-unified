@@ -1,12 +1,9 @@
 // The dev UI, built from Godot's own controls, game-agnostic. F1 shows/hides it, F3 opens/closes the feedback note.
+// The host feeds it every frame (inspect, plot, stat, log...), then calls frame(). How it fits, and its decisions
+// (retained controls, sizes in points, its own theme, input routing, F3 notes): src/devui/README.md.
 //
-// Its API is src/devui/SPEC.md's. Graphs share the frame graph's time axis (overlay.odin). Retained: the controls are built once, frame() updates values (text at 10 Hz, graphs every frame). Sizes are in
-// screen points whatever the game's stretch: the layer undoes the root viewport's canvas stretch. Godot routes the
-// input: a click on a panel stops there, the overlay lets clicks through, a focused text field takes the keyboard
-// (wants_keyboard tells the host, whose game input is polled).
-//
-// Files: panel.odin (the floating panel), overlay.odin (top right: toggles, stats, graphs), inspector.odin (the
-// Inspector and Input panels' RTTI trees), panels.odin (conditions, the logs, the note), theme.odin.
+// Files: panel.odin (the floating panel), overlay.odin (toggles, stats, graphs), inspector.odin (the Inspector and
+// Input panels' RTTI trees), panels.odin (conditions, the logs, the note), theme.odin.
 package devui
 
 import "core:fmt"
@@ -27,13 +24,16 @@ Netsim_Dir :: struct {
 	loss_pct:   f32,
 }
 
+// The Conditions panel's network simulation: off, or latency, jitter and loss each way.
 Netsim :: struct {
 	enabled: bool,
 	up:      Netsim_Dir, // to the relay
 	down:    Netsim_Dir, // from it
 }
 
+// The dev UI is shown: F1 toggles it, the host may set it.
 visible: bool
+// The Conditions panel's settings; the host applies them to its remote links.
 netsim: Netsim
 netsim_changed: bool // set by the Conditions panel; the host clears it after applying
 netsim_applies := true // false: the session has no remote links (single player); the panel greys its network part

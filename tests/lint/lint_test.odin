@@ -1,5 +1,5 @@
 // Determinism lint (AGENTS.md "Deterministic simulation") over unified's packages and its games, through
-// unified:lint (src/lint/SPEC.md), the way a game outside the repo lints its own. Every package of src/ has a
+// unified:lint (src/lint/README.md), the way a game outside the repo lints its own. Every package of src/ has a
 // rule here (the import graph); each game's simulation/ is linted by its layout (lint.check_game).
 package test_lint
 
@@ -98,7 +98,7 @@ games_follow_determinism_rules :: proc(t: ^testing.T) {
 	}
 }
 
-// Box3D is physics' implementation (src/physics/SPEC.md, The boundary): only src/physics and tests/physics import its
+// Box3D is physics' implementation (src/physics/README.md, The boundary): only src/physics and tests/physics import its
 // bindings (box3d:), across the library, its tests and the games.
 @(test)
 only_physics_imports_box3d :: proc(t: ^testing.T) {

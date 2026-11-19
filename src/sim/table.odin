@@ -1,4 +1,4 @@
-// Fixed-capacity entity tables with generational handles (src/sim/SPEC.md "Tables and handles"): the game
+// Fixed-capacity entity tables with generational handles (src/sim/README.md, Tables and handles): the game
 // owns typed tables inside its State; tooling reads them like the rest of the block, by RTTI.
 package sim
 
@@ -24,7 +24,7 @@ Table :: struct($T: typeid, $N: int) where N > 0 && N <= 1 << 30 {
 	items:      [N]T,
 	slots:      [N]Slot,
 	free_head:  i32, // index + 1 of the first free slot below high_water (0: none)
-	high_water: i32, // one past the highest slot ever used; never goes down
+	high_water: i32, // one past the highest slot used since the table was last empty by despawn_all or zeroing
 	count:      i32,
 	_pad:       i32,
 }
@@ -68,7 +68,8 @@ despawn :: proc(table: ^Table($T, $N), handle: Handle(T)) -> bool {
 }
 
 // Despawns every live item, keeping each slot's generation: the next spawns start again from slot 0, and a handle
-// (or handle_key) from before the clear never names a new item. What a reset does to a table.
+// (or handle_key) from before the clear never names a new item. What a reset does to a table: zeroing the table
+// instead resets the generations, so handles and keys repeat.
 despawn_all :: proc(table: ^Table($T, $N)) {
 	for &slot, index in table.slots[:table.high_water] {
 		if slot.alive do table.items[index] = {}

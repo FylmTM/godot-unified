@@ -1,4 +1,4 @@
-// The Geometry group (src/physics/SPEC.md, What physics covers): hulls, meshes, height fields, compounds and their
+// The Geometry group (src/physics/README.md, What physics covers): hulls, meshes, height fields, compounds and their
 // mass and bounds, through physics; and the mesh, height field and compound shapes, whose geometry a portable image
 // carries into a second world.
 package test_physics

@@ -9,8 +9,10 @@ games in `games/` prove it.
 
 - **The developer is the architect and stakeholder.** Every design decision goes through them. Never settle an open
   design question on your own: explain the options, recommend one, and ask.
-- **Every module gets a concise spec**: its intended API and a short overview of how it works. The developer signs it
-  off **before** the module is built or substantially changed. Keep specs short; don't bloat the repo with prose.
+- **Design is decided in the issue first.** A new module or a substantial change starts with its design (the API it
+  offers, how it works, the decisions in it) agreed with the developer and written in its issue, **before** it is
+  built. After that the code is the spec: the package's README says how it works, its doc comments what each public
+  declaration does, its tests prove it.
 - How the developer likes to be engaged, in order of preference:
   1. Explain in chat, then ask questions interactively to reach a decision.
   2. A one-off, self-contained `.html` page that goes deep on a topic (e.g. a module's architecture). Make one when
@@ -33,7 +35,7 @@ games in `games/` prove it.
   snapshotted through unified-box3d (our Odin port).
 - **Minimal third-party code.** The ideal number of dependencies is zero. Every dependency needs a reason and tests.
 - **Narrow, purpose-built tooling.** No random scripts in random languages: one CLI, `uni`, in Odin
-  (`src/cli/SPEC.md`). Agents must know exactly how to operate everything: keep `uni help` and each command's `-h`
+  (`src/cli/README.md`). Agents must know exactly how to operate everything: keep `uni help` and each command's `-h`
   current.
 - **Don't name products we take ideas from, or the developer's other games, in repo files** (the one line above
   aside). Describe designs on their own terms. Dependencies we use (Godot, Box3D, EOS, ...) are named normally.
@@ -76,16 +78,16 @@ piece of work. The `board-work` skill has the statuses, the procedure and when a
   core), its headless binary, its GDExtension and its sim tests.
 - Library tests are black-box packages in `tests/<module>/`, importing `unified:<pkg>` like a game does. A game's
   sim tests, end-to-end suite and reference run live with the game, in `simulation/tests/`. `uni test` runs them all in one compile.
-- Specs live next to what they specify: `src/<pkg>/SPEC.md` per module, `games/<game>/SPEC.md` per game. A spec
-  holds the API a consumer calls, how it works, and the decisions a reader could get wrong. No history (issue
-  numbers, dates, what it replaced), no measurements, no test lists, no command options, nothing unbuilt: byte
-  layouts live in the code's headers, numbers come from `uni bench`, options from `uni help`. The line under the
-  title is the one place a spec names an issue: `Status: signed off YYYY-MM-DD (#N)` or `Status: draft, pending #N`.
+- The code is the spec. Each package (`src/<pkg>/`) and game (`games/<game>/`) has a `README.md`: what it is, why,
+  where it fits, how it works, and the decisions a reader could get wrong that no single declaration shows. The API
+  is the code: each file's header comment and a doc comment on every public proc and type (the lint fails on one
+  without), printed by `uni doc <pkg>`. A fact about one declaration lives on it. No API listings, history,
+  measurements, test lists, options or anything unbuilt in a README (`.claude/rules/readme.md`).
 - Generated output goes to `.out/` (the root's and each game's), git-ignored and safe to delete.
 - Each fact has one home. README.md: what, why, requirements, setup. This file: roles, rules, workflow. Commands and
-  options: `./uni help`. Packages: their `SPEC.md`. Procedures (how to do a recurring task):
-  `.claude/skills/<name>/SKILL.md`. Rules for one kind of file: `.claude/rules/` (they load when Claude touches a
-  matching file). No layout trees, test counts or measured times in docs: the tools print them.
+  options: `./uni help`. Packages and games: their `README.md` and doc comments (`./uni doc`). Procedures (how to do
+  a recurring task): `.claude/skills/<name>/SKILL.md`. Rules for one kind of file: `.claude/rules/` (they load when
+  Claude touches a matching file). No layout trees, test counts or measured times in docs: the tools print them.
 
 ## Commands
 
@@ -107,7 +109,8 @@ back:
 
 ## Where things are
 
-- The board (above): current and upcoming work; decisions live in the specs.
+- The board (above): current and upcoming work; decided designs live in the code, its READMEs and doc comments.
 - `README.md`: what `unified` is, why, the developer's requirements, the toolchain and first commands.
-- `SPEC.md` next to each module and game; `src/README.md`: how the core works inside; `tools/main.odin`: this repo's CLI.
+- `README.md` in each package and game, `./uni doc <pkg>` for its API; `src/README.md`: how the core works inside;
+  `tools/main.odin`: this repo's CLI.
 - `docs/EOS.md`: online setup.

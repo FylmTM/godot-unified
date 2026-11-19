@@ -1,3 +1,5 @@
+// Building Odin code: the strict flags, the build modes, build manifests (an output rebuilds when stale), and the
+// packages each command covers, by convention (README.md, Layout).
 package cli
 
 import "core:fmt"
@@ -6,12 +8,10 @@ import "core:slice"
 import "core:strings"
 import "core:time"
 
-// Building Odin code: the strict flags, the build modes, build manifests (an output rebuilds when stale), and the
-// packages each command covers, by convention (SPEC.md, Layout).
-
 VET :: []string{"-vet", "-strict-style", "-vet-tabs", "-warnings-as-errors"}
 VET_TARGETS :: []string{"darwin_arm64", "linux_amd64", "linux_arm64", "windows_amd64"}
 
+// A build mode (`--mode`); its odin flags are mode_flags'.
 Mode :: enum {
 	dev, // optimized, the fastest to build: the everyday build, and the tests' (the sim tests take milliseconds)
 	release, // one LLVM module: the fastest binary
@@ -217,6 +217,8 @@ fmt_dirs :: proc(root := "") -> []string {
 
 // --- builds with manifests --------------------------------------------------------------------------------------
 
+// One Odin build: the package, its output and flags, and where its manifest goes (`stale` reads it, finish_build
+// writes it).
 Build :: struct {
 	pkg:      string,
 	out:      string,
@@ -312,11 +314,13 @@ build_headless :: proc(mode: Mode, force := false) -> (built: int) {
 	return finish_headless(&builds)
 }
 
+// The headless builds start_headless started, for finish_headless to wait for.
 Headless_Builds :: struct {
 	running: [dynamic]Headless_Build,
 	current: int, // how many were current, not started
 }
 
+// One headless binary's build that start_headless started.
 Headless_Build :: struct {
 	headless: Headless,
 	build:    Build,

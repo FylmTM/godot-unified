@@ -17,7 +17,7 @@ or not, how far to take it) is said in chat. No labels steer agents.
 | Status | Meaning | Who moves it here |
 |---|---|---|
 | Backlog | Anything, unsorted | anyone |
-| Design | Needs a decision or spec first: ends in a spec PR or a decision written in the issue | developer |
+| Design | Needs a decision first: ends in the design (the API, how it works, the decisions) written in the issue | developer |
 | Todo | Ready; the top of the column goes first | developer |
 | In progress | A session owns it; the issue names the session and branch in a comment | the agent taking it |
 | Review | A PR is open and waits for the developer | the agent |
@@ -32,7 +32,7 @@ your own; an item in another column may get a comment with questions or findings
 
 ## Taking an issue
 
-1. Read the issue and all its comments; follow its links (spec, parent issue, review notes).
+1. Read the issue and all its comments; follow its links (parent issue, review notes).
 2. Move it to In progress and comment which session works on it and on which branch.
 3. Branch from `main` (`claude/<short-name>`). Every change is a PR from its own branch.
 

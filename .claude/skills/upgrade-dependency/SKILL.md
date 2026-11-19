@@ -5,7 +5,7 @@ description: Upgrading a pinned dependency of unified - Box3D (the unified-box3d
 
 # Upgrading a dependency
 
-Every pin is in `pins.cfg` (`src/cli/SPEC.md`, Pins): a commit or a SHA-256 for every download that ends up in a
+Every pin is in `pins.cfg` (`src/cli/README.md`, Pins): a commit or a SHA-256 for every download that ends up in a
 toolchain or a shipped build. An upgrade is safe when the tests say so: every dependency has tests covering what we
 use (AGENTS.md).
 
@@ -44,8 +44,8 @@ For every upgrade:
   machine (`git worktree add --detach .out/old-pin origin/main` for the old one), and each game's step, save and
   re-sim. A slower operation is found and explained before the bump merges.
 - Before a release exists: `UNIFIED_BOX3D=<unified-box3d checkout>` in `.env`, and `./uni setup` builds the library
-  there (`src/cli/SPEC.md`, Dependencies). Pin the release before merging.
-- What we use: `src/physics/SPEC.md`; how the port differs from upstream: unified-box3d's README and SPEC.md.
+  there (`src/cli/README.md`, Dependencies). Pin the release before merging.
+- What we use: `src/physics/README.md`; how the port differs from upstream: unified-box3d's README and SPEC.md.
 
 ## Godot
 
@@ -88,5 +88,5 @@ For every upgrade:
 - Download the new C SDK from Epic's portal on each developer machine (`docs/EOS.md`, step 3), point
   `UNIFIED_EOS_SDK` at it (`.env`); `uni setup` checks its `eos_version.h` against the pin.
 - CI has no SDK, so the checks are local: the header layouts and library load in `tests/eos` (on each OS you can),
-  then two processes through EOS and a crossplay run (`src/eos/SPEC.md`,
-  Testing and Crossplay).
+  then two processes through EOS and a crossplay run (`docs/EOS.md`,
+  Testing over real EOS).

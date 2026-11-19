@@ -1,4 +1,4 @@
-// `bench` (src/headless/SPEC.md, CLI): the cost of a forward step, a save, a checksum, a restore and a
+// `bench` (src/headless/README.md, The binary): the cost of a forward step, a save, a checksum, a restore and a
 // re-sim, every tick, for `uni bench`.
 package modes
 
@@ -15,7 +15,7 @@ Stat :: struct {
 	p99:  f64,
 }
 
-// A Stat as the modes print it: {"mean":..,"p99":..} (temp-allocated).
+// A Stat as the modes print every timing: {"mean":..,"p99":..}, in µs (temp-allocated).
 @(private)
 stat_json :: proc(stat: Stat) -> string {
 	return fmt.tprintf(`{{"mean":%.2f,"p99":%.2f}}`, stat.mean, stat.p99)

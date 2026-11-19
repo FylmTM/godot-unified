@@ -1,4 +1,4 @@
-// The World group (src/physics/SPEC.md, What physics covers): every world proc once, through physics. A setter is
+// The World group (src/physics/README.md, What physics covers): every world proc once, through physics. A setter is
 // covered only if it rolls back: set a value, save a ring slot through physics.extra, change it, restore, read it
 // back. Contact tuning, which Box3D has no getter for, is read back by behaviour. (World_EnableSpeculative is left
 // out: no getter, and this Box3D stores the flag without reading it, so nothing shows it.)

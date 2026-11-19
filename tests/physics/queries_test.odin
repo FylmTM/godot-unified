@@ -1,4 +1,4 @@
-// The mover queries, the per-body and per-shape queries, contact data, body and joint events (src/physics/SPEC.md,
+// The mover queries, the per-body and per-shape queries, contact data, body and joint events (src/physics/README.md,
 // What physics covers) through physics; entity tags in every kind of result and through save/restore and a portable
 // image; check_refs' orphans and broken refs; despawn and destroy_refs.
 package test_physics

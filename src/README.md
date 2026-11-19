@@ -1,8 +1,8 @@
 # src: how the code works
 
-The `unified` collection, one package per directory. Each package's API is in its spec (`src/<package>/SPEC.md`);
-this file is how the deterministic core works across packages. The games built on it are in `games/`. Toolchain:
-[`../README.md`](../README.md); commands: `uni help`.
+The `unified` collection, one package per directory. Each package's README (`src/<package>/README.md`) says how it
+works and `uni doc <package>` prints its API; this file is how the deterministic core works across packages. The games
+built on it are in `games/`. Toolchain: [`../README.md`](../README.md); commands: `uni help`.
 
 ## Packages
 
@@ -18,7 +18,7 @@ this file is how the deterministic core works across packages. The games built o
 A package exists only where determinism rules differ, a consumer needs one piece without another, or third-party code
 lives; everything else merges. Imports point one way, always through the collection (`unified:<pkg>`), and never from
 a deterministic package to a real-time or host one: `tests/lint` holds the graph (an import allowlist per package,
-`src/lint/SPEC.md`). A game's sim is linted like the core's tick packages.
+`src/lint/README.md`). A game's sim is linted like the core's tick packages.
 
 ## State block and pointer-freedom
 
@@ -37,14 +37,14 @@ a player's input travels and is logged as its bytes (a command as its struct's b
 "is POD" trait, so this is a startup check.
 
 Determinism: scalar f32 `+ − × ÷` and `intrinsics.sqrt` only, no `matrix` types, no `core:math` in tick code
-(`src/dmath/SPEC.md` has the rest). Host code (`godot`, `devui`) may use it: nothing there feeds the sim.
+(`src/dmath/README.md` has the rest). Host code (`godot`, `devui`) may use it: nothing there feeds the sim.
 Float→int casts only see clamped values.
 
 ## Box3D
 
 Box3D is the unified-box3d shared library (Box3D ported to Odin; upstream's C API plus our snapshots and canonical
 images), pinned in `pins.cfg` and unpacked by `uni` into `.out/unified-box3d/`, whose Odin bindings are the
-`box3d:` collection. Only `unified:physics` imports them (`src/physics/SPEC.md`, The boundary): Odin names,
+`box3d:` collection. Only `unified:physics` imports them (`src/physics/README.md`, The boundary): Odin names,
 `[3]f32`/`[4]f32`, mirrored defs, one wrapper per Box3D proc. Shape data a game sets (filter categories, user material ids) lives
 in Box3D's shape structs, so it survives save/restore.
 
@@ -55,15 +55,15 @@ in Box3D's shape structs, so it survives save/restore.
   0). Restore = copy back + the Extra's restore.
 - **Portable snapshot** (`sim.snapshot_encode` / `sim.from_snapshot`, late join): the block bytes and the Extra's image (physics: Box3D's
   canonical image with its geometry, the same bytes on every platform), with what proves they fit (format in
-  `src/sim/SPEC.md`). The receiver builds the same initial world, saves tick 0, then loads the image.
+  `src/sim/README.md`). The receiver builds the same initial world, saves tick 0, then loads the image.
 - **Checksum:** XXH3-64 over the tick, the block bytes, then the Extra's hash (physics: Box3D's whole-world hash on
-  the ticks peers compare, the awake bodies' otherwise; `src/physics/SPEC.md`).
+  the ticks peers compare, the awake bodies' otherwise; `src/physics/README.md`).
 
 ## Netcode
 
-The step API (`src/netcode/SPEC.md`): no package-level threads; the host application calls `*_step(now_us)` from
+The step API (`src/netcode/README.md`): no package-level threads; the host application calls `*_step(now_us)` from
 its own loop and sleeps to the wake time it returns. Time-dependent code takes `now` as a parameter, so tests run
 whole sessions on a virtual clock in milliseconds. `headless.session_run` steps a relay and its clients on one thread
 on the virtual clock (the end-to-end suites, the `session` mode); the `relay` and `client` modes run on the real
-clock in processes of their own, and the Godot host runs a session thread of its own (`src/godot/SPEC.md`). Box3D world creation and destruction touch Box3D globals, so `physics.create/destroy`
+clock in processes of their own, and the Godot host runs a session thread of its own (`src/godot/README.md`). Box3D world creation and destruction touch Box3D globals, so `physics.create/destroy`
 are serialised by a mutex.

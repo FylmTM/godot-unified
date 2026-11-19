@@ -1,3 +1,4 @@
+// The godot suite and the commands that run a game in Godot: run, editor, tool, coop, bake.
 package cli
 
 import "core:encoding/json"
@@ -7,9 +8,10 @@ import "core:slice"
 import "core:strings"
 import "core:time"
 
-// The godot suite and the commands that run a game in Godot: run, editor, tool, coop, bake.
-
-// The godot suite's steps, in order; each runs when the game has what it needs.
+// The godot suite's steps, in order; each runs when the game has what it needs: import (stale imports only), editor
+// (the headless editor loads the extension, no error line), session (a short headless session whose checksums equal
+// the offline headless binary's), bake (--check: the view index and every level current), then the tool scripts
+// validate and walk (ui_walk.gd: menus, flows and the game's own play smoke).
 GODOT_STEPS :: []string{"import", "editor", "session", "bake", "validate", "walk"}
 
 // The `session` step's length: 1 s of a 64 Hz game (`test --long`: 4 s).
@@ -29,7 +31,7 @@ GODOT_LANE_APART :: []string{"editor", "bake"}
 // processes (no gain measured on CI's 4-core runners; a quarter of the suite's time on 28 threads).
 GODOT_LANE_MIN_CORES :: 16
 
-// Each game under headless Godot (SPEC.md, Test suites); several games run in parallel, and on a machine with
+// Each game under headless Godot (README.md, Test suites); several games run in parallel, and on a machine with
 // GODOT_LANE_MIN_CORES a game's steps in two lanes (GODOT_LANE_APART beside the rest), once its extension is current
 // and its project imported. A step that
 // passes or is skipped says so only with --verbose; a failing one always does.
@@ -747,7 +749,7 @@ cmd_bake :: proc(args: []string) -> Result {
 
 VIEW_INDEX :: "unified_index.tres"
 
-// The view index (src/godot/SPEC.md): every scene of the game whose root has a UnifiedView marker as a direct child,
+// The view index (src/godot/README.md): every scene of the game whose root has a UnifiedView marker as a direct child,
 // by the marker's kind, written to <game>/unified_index.tres (committed; `check`: fail when it is stale instead). A
 // scene's text is read directly: `[node ... type="UnifiedView" parent="."]` and its `kind = "..."` line. `quiet`:
 // say nothing when it is current.
@@ -852,7 +854,7 @@ bake :: proc(game: Game, check: bool, quiet := false) -> Tool_Result {
 	return bake_project(game.dir, scenes, check, quiet)
 }
 
-// A game's level scenes (src/level/SPEC.md), as res:// paths: every scene in game/levels/ (where a new level goes),
+// A game's level scenes (src/level/README.md), as res:// paths: every scene in game/levels/ (where a new level goes),
 // and any other scene with its baked .level beside it (committed with it), wherever the game keeps it.
 level_scenes :: proc(dir: string) -> []string {
 	out: [dynamic]string

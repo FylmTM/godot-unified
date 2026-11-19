@@ -3,9 +3,9 @@ package cli
 import "core:os"
 import "core:strings"
 
-// unified's library tooling (src/godot/SPEC.md, Library tooling): the tool base, validate, coop and the level exporter,
-// mirrored into every Godot project the CLI runs Godot on as res://addons/unified/ (git-ignored there). Godot loads
-// nothing from outside a project, so each gets a copy, refreshed before every Godot run (ensure_imported,
+// unified's library tooling (src/godot/README.md, Library tooling): the tool base, validate, coop and the level
+// exporter, mirrored into every Godot project the CLI runs Godot on as res://addons/unified/ (git-ignored there).
+// Godot loads nothing from outside a project, so each gets a copy, refreshed before every Godot run (ensure_imported,
 // write_extension_list).
 TOOLS_SOURCE :: "src/godot/tools"
 TOOLS_DIR :: "addons/unified"
@@ -38,7 +38,7 @@ mirror_tree :: proc(src, dst, label: string) {
 		return relative
 	}
 	mirrored :: proc(relative: string) -> bool {
-		return relative != "SPEC.md"
+		return relative != "README.md"
 	}
 	for file in find_files(dst, "") {
 		relative := relative_to(dst, file)

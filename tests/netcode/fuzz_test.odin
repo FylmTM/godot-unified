@@ -322,7 +322,7 @@ fuzz_client_messages :: proc(t: ^testing.T) {
 
 // A joiner fed snapshots by a relay that may be hostile: Snap_Begins for different ticks in any order, chunks of two
 // genuine snapshots, Finalized ticks and Snap_Oks, each sent as is or mangled. Whatever arrives, the joiner loads a
-// snapshot, fails with a reason, or waits: never an assert (src/netcode/SPEC.md: a crafted snapshot can do no more
+// snapshot, fails with a reason, or waits: never an assert (src/netcode/README.md: a crafted snapshot can do no more
 // than fail to load). A client that failed is replaced by a new joiner.
 @(test)
 fuzz_joiner_snapshots :: proc(t: ^testing.T) {

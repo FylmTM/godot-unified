@@ -1,4 +1,4 @@
-// The world's settings (src/physics/SPEC.md, What physics covers): gravity, explosions, the solver settings, bounds
+// The world's settings (src/physics/README.md, What physics covers): gravity, explosions, the solver settings, bounds
 // and the awake body count. Every setting lives in Box3D's world, so it rolls back with the snapshot (tested per
 // setter: a setter that didn't is left out).
 package physics

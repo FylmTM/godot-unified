@@ -1,4 +1,4 @@
-// Views (src/godot/SPEC.md): scene views spawned per spawn key under the session's view_root from the scene the view
+// Views (src/godot/README.md): scene views spawned per spawn key under the session's view_root from the scene the view
 // index maps their kind to, interpolated and smoothed (track.odin); and MultiMesh views whose buffers are
 // written natively. A scene view's scene holds a UnifiedView marker as a direct child of its root; a MultiMesh view
 // is a MultiMeshInstance3D / 2D holding a UnifiedMultiView marker. The root's class picks how it is shown: a
@@ -222,7 +222,7 @@ register_classes :: proc() {
 		parent = "Node",
 		size = size_of(Unified_Multi_View_Node),
 		doc_brief = "Makes its parent MultiMeshInstance3D or MultiMeshInstance2D show one kind of the game's MultiMesh items.",
-		doc = "The host owns the MultiMesh's instance count and buffer: position and rotation interpolated between ticks, scale, color ([code]use_colors[/code]) and custom data ([code]use_custom_data[/code]).",
+		doc = "The MultiMesh's [code]transform_format[/code] (2D or 3D, matching its instance), [code]use_colors[/code] and [code]use_custom_data[/code] decide the buffer's layout. The host owns [code]instance_count[/code], [code]visible_instance_count[/code] and the buffer (position and rotation interpolated between ticks, scale, color and custom data), and [code]custom_aabb[/code] unless the game set one before the first frame (the instances' origins grown by the mesh's reach: without it Godot transforms the mesh's AABB by every instance).",
 		fini = proc(instance: rawptr) {delete((^Unified_Multi_View_Node)(instance).kind)},
 		notification = proc(instance: rawptr, what: i32) {
 			node := (^Unified_Multi_View_Node)(instance)

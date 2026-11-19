@@ -1,4 +1,4 @@
-// Box3D itself, below physics' wrappers (src/physics/SPEC.md, The boundary): every mirror has its binding's layout
+// Box3D itself, below physics' wrappers (src/physics/README.md, The boundary): every mirror has its binding's layout
 // scalar for scalar (so a conversion is a transmute or a pointer cast), the enums' members are the library's, the golden
 // trace that pins the library's results on every platform, a sync-test of the library alone, and image loads that are
 // safe on any bytes. A Box3D upgrade is proven here before the physics tests run (the upgrade-dependency skill).

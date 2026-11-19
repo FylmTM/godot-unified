@@ -126,6 +126,8 @@ want_delay :: proc(rtt_us: f64, timing: Timing, min_delay: u32 = 1) -> u32 {
 	return u32(clamp(needed, i64(floor), i64(max(timing.max_delay, floor))))
 }
 
+// A relay <-> client message's type byte. Each value says its direction (c->r, r->c), its delivery (R reliable, U
+// unreliable) and its fields, in order.
 Msg :: enum u8 {
 	// c->r R: slot u8 (ANY_SLOT: any), join tick u32 (0: at start), compat u64, token [16]u8, name len u8 + bytes
 	Hello = 1,
@@ -156,10 +158,13 @@ Msg :: enum u8 {
 	Desync, // r->c R: tick u32, diverged u32 (sim.Slots), detail len u16 + bytes ("" unless typed reports are on)
 }
 
+// What Welcome asks of the client beyond playing.
 Welcome_Flags :: bit_set[enum u8 {
 	Keep_Images, // keep the snapshots of the last DESYNC_IMAGES checksum ticks: the relay may ask for one
 };u8]
 
+// Why the relay refused a Hello, or a client it had seated (Reject). The client fails with it, except Too_Far_Behind,
+// which disconnects it.
 Reject_Reason :: enum u8 {
 	Full = 1,
 	Slot_Taken,

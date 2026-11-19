@@ -1,4 +1,4 @@
-// Queries (src/physics/SPEC.md, What physics covers): the world's casts and overlaps, the mover queries, the per-body
+// Queries (src/physics/README.md, Results): the world's casts and overlaps, the mover queries, the per-body
 // and per-shape queries, sensor and contact data. Deterministic: Box3D's trees are part of the world state, so the
 // same world answers the same way after a restore or on another machine, and collected results are sorted on top.
 // Every result names the body (a link), the shape, the body's tag and the shape's category bits, so a game knows what
@@ -193,7 +193,7 @@ Overlap_Ctx :: struct {
 
 // Every shape whose fat AABB overlaps the box [lo, hi] ("near" rather than exact: world_overlap_shape is exact), into
 // `out` (replaced), sorted by body index, then shape index. A game keeps `out` in its World as scratch: it never
-// holds anything from an earlier call, so it can't carry a result into another tick (src/sim/SPEC.md, World).
+// holds anything from an earlier call, so it can't carry a result into another tick (src/sim/README.md, World).
 world_overlap_aabb :: proc(world: ^World, lo, hi: [3]f32, out: ^[dynamic]Overlap, filter := Filter{}) {
 	clear(out)
 	overlap := Overlap_Ctx{context, world, out}

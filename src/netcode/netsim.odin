@@ -4,6 +4,7 @@
 // (the dev UI's Conditions panel); a direction that is ideal with nothing queued passes datagrams straight through.
 package netcode
 
+// How a netsim impairs one direction: one-way latency, uniform jitter, and per-mille loss, duplicates and reordering.
 Profile :: struct {
 	name:      string,
 	latency:   i64, // one way, µs
@@ -47,6 +48,8 @@ profile_by_name :: proc(name: string) -> (Profile, bool) {
 	return {}, false
 }
 
+// A network simulator's state (netsim_live): the wrapped link, each direction's profile, and the datagrams held back
+// with their delivery times.
 Net_Sim :: struct {
 	inner:    Link,
 	up:       Profile, // datagrams we send
@@ -79,6 +82,7 @@ xorshift32 :: proc(state: ^u32) -> u32 {
 	return value
 }
 
+// A datagram a netsim holds back until `at` (µs on its clock).
 Sim_Packet :: struct {
 	at:    i64,
 	peer:  Peer,

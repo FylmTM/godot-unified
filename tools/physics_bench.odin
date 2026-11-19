@@ -36,7 +36,7 @@ Physics_Rollback :: struct {
 	step_plus_rollback_p99_us: f64,
 	step_plus_rollback_p90_us: f64, // of each tick's step plus its rollback: two preempted samples don't move it
 	// The awake bodies in dense contact a step and a rollback at the cap fit in the frame budget at p90, scaled from
-	// the pile (the cost per body is about flat): what physics bounds a tick to (src/physics/SPEC.md, Capacity).
+	// the pile (the cost per body is about flat): what physics bounds a tick to (src/physics/README.md, Capacity).
 	bodies_fit:                int,
 }
 

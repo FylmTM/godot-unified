@@ -71,7 +71,7 @@ pin :: proc(section, key: string) -> string {
 	return value
 }
 
-// The project's .env (SPEC.md, Local settings): `KEY=value` lines of UNIFIED_* variables, `#` comments. Returns the
+// The project's .env (README.md, Local settings): `KEY=value` lines of UNIFIED_* variables, `#` comments. Returns the
 // pairs in file order, or an error message naming the bad line.
 env_parse :: proc(text: string) -> (pairs: [dynamic][2]string, err: string) {
 	text := text

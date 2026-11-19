@@ -15,6 +15,7 @@ Peer :: distinct i32
 // Fits EOS P2P packets (1170 bytes) and every common UDP path.
 MAX_DATAGRAM :: 1152
 
+// A change of a peer's connection the transport itself knows of (Link.event).
 Link_Event_Kind :: enum u8 {
 	Connected,
 	Disconnected, // the transport knows the peer is gone (the channel then drops it at once)
@@ -27,6 +28,8 @@ Account :: struct {
 	id:       string,
 }
 
+// The transport interface: moves whole datagrams of at most MAX_DATAGRAM bytes to and from the peers it numbers,
+// never blocking. A datagram may be lost; the channel does the rest.
 Link :: struct {
 	data:    rawptr,
 	// Queues one datagram to `to`. Losing it is allowed.
@@ -45,6 +48,7 @@ Link :: struct {
 	account: proc(data: rawptr, peer: Peer) -> (account: Account, ok: bool),
 }
 
+// The account `link` vouches for behind `peer`; ok = false when it vouches for none (LAN, direct UDP).
 link_account :: proc(link: ^Link, peer: Peer) -> (account: Account, ok: bool) {
 	if link.account == nil {
 		return
@@ -81,7 +85,7 @@ now_us :: proc() -> i64 {
 	return time.tick_now()._nsec / 1000
 }
 
-// Sleeps until `wake_us` (a now_us value); returns at once if it has passed.
+// Sleeps until `wake_us` (a now_us value), to the microsecond the OS scheduler allows; returns at once if it has passed.
 sleep_until :: proc(wake_us: i64) {
 	if wait_us := wake_us - now_us(); wait_us > 0 {
 		sleep_us(wait_us)
@@ -112,6 +116,7 @@ Hub :: struct {
 	allocator: runtime.Allocator, // every queue's: a queue grown on one thread is swapped to another
 }
 
+// One hub endpoint's datagrams its link hasn't taken yet, appended to by any thread under the mutex.
 Inbox :: struct {
 	mu:    sync.Mutex,
 	queue: Loop_Queue,
@@ -152,6 +157,7 @@ hub_destroy :: proc(hub: ^Hub) {
 	free(hub)
 }
 
+// A loopback link's state: its hub endpoint and the datagrams it took from its inbox (loopback_link).
 Loop_Link :: struct {
 	hub:     ^Hub,
 	self:    Peer,
@@ -263,6 +269,7 @@ Lobby_Build :: struct {
 	players: int, // the lobby's member limit: the game's PLAYERS
 }
 
+// How far a lobby has got (Lobby_Status.stage).
 Lobby_Stage :: enum u8 {
 	Idle, // nothing opened
 	Opening, // logging in, creating, finding or joining the lobby, connecting to the host

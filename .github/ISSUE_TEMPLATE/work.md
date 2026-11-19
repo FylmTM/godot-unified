@@ -5,7 +5,7 @@ about: One reviewable piece of work for the board
 
 ## What and why
 
-<!-- The problem or the goal, in a few lines. Link the spec or the issue it comes from. -->
+<!-- The problem or the goal, in a few lines. Link the issue it comes from; a design to agree on goes here. -->
 
 ## Done when
 

@@ -81,11 +81,11 @@ core works inside.
 
 Four co-op games in this repo prove the library. Each is a Godot project with its Odin sim in `simulation/`.
 
-- [`games/minimal_3d/`](games/minimal_3d/SPEC.md): the smallest 3D game (capsules that throw balls), the showcase
+- [`games/minimal_3d/`](games/minimal_3d/): the smallest 3D game (capsules that throw balls), the showcase
   of how to write a game, and what `uni init` copies for a new one.
-- [`games/survivor/`](games/survivor/SPEC.md): a top-down survivor with waves of enemies and physics props (3D).
-- [`games/friendslop/`](games/friendslop/SPEC.md): a third-person physics sandbox: carry, stack, throw (3D).
-- [`games/drift/`](games/drift/SPEC.md): a ship arena defending a station (2D views, physics locked to a plane).
+- [`games/survivor/`](games/survivor/): a top-down survivor with waves of enemies and physics props (3D).
+- [`games/friendslop/`](games/friendslop/): a third-person physics sandbox: carry, stack, throw (3D).
+- [`games/drift/`](games/drift/): a ship arena defending a station (2D views, physics locked to a plane).
 
 ## Getting started
 
@@ -104,7 +104,7 @@ Toolchain (macOS ARM64, Linux x64 or Windows x64):
 The CLI fetches or builds everything else (Godot, odinfmt, Box3D) from `pins.cfg`. A local Godot or unified-box3d
 checkout can stand in through `UNIFIED_GODOT` and `UNIFIED_BOX3D` in a git-ignored `.env`. Online play also needs the
 EOS SDK, which Epic's licence keeps out of the repo: download it and set `UNIFIED_EOS_SDK` and the `UNIFIED_EOS_*`
-IDs ([`docs/EOS.md`](docs/EOS.md)). Everything else works without it. All settings: [`src/cli/SPEC.md`](src/cli/SPEC.md).
+IDs ([`docs/EOS.md`](docs/EOS.md)). Everything else works without it. All settings: [`src/cli/README.md`](src/cli/README.md).
 
 Then, from the repo root (`uni.cmd` on Windows):
 
@@ -119,7 +119,8 @@ Then, from the repo root (`uni.cmd` on Windows):
 
 ## Documentation
 
-- `SPEC.md` next to each module (`src/<pkg>/SPEC.md`) and game (`games/<game>/SPEC.md`): what it does and how.
+- `README.md` in each package (`src/<pkg>/`) and game (`games/<game>/`): what it is, how it works, its decisions;
+  `./uni doc <pkg>`: its API, from the code's doc comments.
 - [`src/README.md`](src/README.md): how the core works inside, across packages.
 - [`tools/main.odin`](tools/main.odin): this repo's CLI, `uni`, and its private commands.
 - [`AGENTS.md`](AGENTS.md): the rules and workflow for working on unified, for people and agents alike.

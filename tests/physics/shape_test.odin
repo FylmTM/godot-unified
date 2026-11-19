@@ -1,4 +1,4 @@
-// The Shapes group (src/physics/SPEC.md, What physics covers): every shape proc once, through physics (the mesh,
+// The Shapes group (src/physics/README.md, What physics covers): every shape proc once, through physics (the mesh,
 // height field and compound creators with their geometry in geometry_test.odin, the per-shape queries and contact
 // data in queries_test.odin).
 package test_physics

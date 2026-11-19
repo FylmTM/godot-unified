@@ -1,11 +1,13 @@
-// The overlay, top right: the panel toggles, the graph-group toggles, the stats (10 Hz) and the graphs (every
-// frame). Clicks go through it to the game, except on its buttons.
+// The overlay, in a corner of the game window (top right until its corner button moves it to the next): the panel
+// toggles, the graph-group toggles, the stats (10 Hz) and the graphs (every frame). Clicks go through it to the game,
+// except on its buttons.
 //
 // Every graph shares one time axis, real time: each frame takes a width proportional to how long it lasted (the
 // last FRAME_SPAN_MS), so a hitch covers as much of a graph as the time it cost, and the graphs line up with each
 // other. A pixel column shows the frames that overlap it: the frame graph and stacks their longest frame, lines
 // their largest value, marks any. Graphs belong to groups ("frame", "sim", "net", a game's own) the overlay toggles;
-// only "frame" starts shown. Samples are recorded whatever is shown.
+// only "frame" starts shown. Samples are recorded whatever is shown. Each graph's legend gives its parts' average per
+// frame over the last second (marks: how many per second).
 package devui
 
 import "core:fmt"

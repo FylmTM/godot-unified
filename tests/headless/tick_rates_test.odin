@@ -261,7 +261,7 @@ the_widest_accepted_ticks_play_on_a_bad_network :: proc(t: ^testing.T) {
 	check(t, "2 x 116 B", &two, two_stalls, 2)
 	testing.expectf(t, two.replaced == 0, "2 x 116 B: %d inputs replaced", two.replaced)
 	// (32 start players on `bad`: a Welcome lost and resent can come after the start lead, and a player's first
-	// inputs with it (the netcode spec, Start). That is the start, not the stream: inputs are not checked here.)
+	// inputs with it (src/netcode/README.md, Relay). That is the start, not the stream: inputs are not checked here.)
 	cfg.clients = 32
 	many, many_stalls := plain_session(Plain_32x4, 0, 64, cfg)
 	defer headless.session_result_destroy(&many)

@@ -1,4 +1,4 @@
-// Bodies (src/physics/SPEC.md, What physics covers): Box3D's body procs on a Body_Ref, named by its names without
+// Bodies (src/physics/README.md, What physics covers): Box3D's body procs on a Body_Ref, named by its names without
 // `get_`. Accessors trust the ref (check_refs covers the block's; a link goes through resolve first).
 package physics
 

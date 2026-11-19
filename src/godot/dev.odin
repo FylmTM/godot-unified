@@ -12,8 +12,9 @@
 //          already known: the client fell behind; a host or single player steps most ticks that way, normally)
 //   net    round trip, bandwidth in and out, relay silence (time since the relay's last message)
 // and its panels: the Inspector (the predicted state, the constants, the session data), Input (the local player's
-// newest input and the verified tick's), Events (every event state), Commands (sent, confirmed, refused) and the F3
-// note, which gets the session's recording (driver.odin: a snapshot and the input log after it).
+// newest input and the verified tick's), Events (every event state), Commands (sent, confirmed: a verified tick carried
+// it, any player's; refused) and the F3 note, which gets the session's recording (driver.odin: a snapshot and the input
+// log after it).
 #+private
 package godot
 

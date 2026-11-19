@@ -1,4 +1,4 @@
-// src/physics/SPEC.md, "2D": bodies locked to the plane z = 0. The plane stays exact under contacts,
+// src/physics/README.md, "2D": bodies locked to the plane z = 0. The plane stays exact under contacts,
 // impulses and continuous collision; 2D rotations convert to quaternions without trig; a top-down
 // game (ships, rocks that split, walls, ray-cast bullets) rolls back and resumes from a portable image.
 package test_physics

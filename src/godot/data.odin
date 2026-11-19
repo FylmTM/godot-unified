@@ -1,4 +1,4 @@
-// Session data, constants and enums as typed Godot classes (src/godot/SPEC.md "Session data and constants"), all
+// Session data, constants and enums as typed Godot classes (src/godot/README.md, Data and classes), all
 // registered at load from RTTI:
 //
 //   - a class per type of the game's data union (Glue.data: `Data_Hud` -> DataHud, extends Object), one live
@@ -6,10 +6,12 @@
 //     (fill_frame: push_data), held by `UnifiedData` with a property per type named from it (`Data_Hud` -> hud);
 //   - `UnifiedConstants`: the constants' fields (godot.init's constants), one instance filled at load (no fields when the
 //     game has none);
+//   - `UnifiedInput`: the input values' fields (Glue.input_values), one instance scripts set;
+//   - a class per struct nested in those types or in the event and command unions (`Hud_Player` -> DataHudPlayer);
 //   - the engine singleton `Unified` (class and singleton, like Godot's Input): `Unified.data`, `Unified.constants`,
-//     `Unified.session`, `Unified.tick_hz` and `Unified.view_scale`;
-//   - a class per enum type the event, command, data and constants types use (`Phase` -> EnumPhase) with its members
-//     as integer constants (EnumPhase.LOBBY) and a static `name(value)`.
+//     `Unified.input`, `Unified.session`, `Unified.tick_hz`, `Unified.view_scale` and `Unified.level_markers(root)`;
+//   - a class per enum type the event, command, data, constants and input types use (`Phase` -> EnumPhase) with its
+//     members as integer constants (EnumPhase.LOBBY) and a static `name(value)`.
 #+private
 package godot
 

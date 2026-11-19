@@ -1,8 +1,8 @@
-// The physics plug-in (src/physics/SPEC.md): Box3D for games. A World is one Box3D world set up for determinism (one
-// worker by default; a fixed creation order is the game's job) plus one saved snapshot per ring slot; it plugs into
-// the sim harness as Extra state (save/restore/hash/image/load/check). Bodies, shapes and joints are referenced from
-// the state block by refs, which leave out Box3D's world index so the block is identical across the worlds of one
-// process and across machines. Games reach Box3D only through this package.
+// The physics plug-in (src/physics/README.md, The plug-in): Box3D for games. A World is one Box3D world set up for
+// determinism (one worker by default; a fixed creation order is the game's job) plus one saved snapshot per ring slot;
+// it plugs into the sim harness as Extra state (save/restore/hash/image/load/check). Bodies, shapes and joints are
+// referenced from the state block by refs, which leave out Box3D's world index so the block is identical across the
+// worlds of one process and across machines. Games reach Box3D only through this package.
 package physics
 
 import "core:sync"
@@ -29,11 +29,14 @@ Body_Entry :: struct {
 	_pad:  [7]u8,
 }
 
+// What a body is besides its tag (Body_Entry.flags).
 Body_Flag :: enum u8 {
 	Alive,
 	World, // the World's: level geometry, the anchor, platforms made in world_create
 }
 
+// One physics world (create): the Box3D world, its snapshots per ring slot, and physics' table by body index. A game
+// keeps it in its World (outside the block) and plugs it into the harness with `extra`.
 World :: struct {
 	id:           box3d.WorldId,
 	tick_hz:      int, // Settings.tick_hz

@@ -1,4 +1,4 @@
-// The standard end-to-end scenarios (src/headless/SPEC.md, End-to-end suites), one proc each. Every
+// The standard end-to-end scenarios (src/headless/README.md, End-to-end suites), one proc each. Every
 // game's suite (games/<game>/simulation/tests/suite_test.odin) and the toy's (tests/scenarios) call
 // each of them from a test of its own. Test-only: it imports core:testing, so game binaries never
 // import it. Failures name the scenario, its parameters and the first tick that differs.
@@ -13,7 +13,7 @@ import "unified:netcode"
 import "unified:sim"
 
 // `uni test --long` builds with -define:UNIFIED_LONG_TESTS=true: a game's suite then runs every
-// standard scenario at full length (src/headless/SPEC.md, Running). The toy's suite always does.
+// standard scenario at full length (src/headless/README.md, End-to-end suites). The toy's suite always does.
 LONG :: #config(UNIFIED_LONG_TESTS, false)
 
 // A game's suite: the game and the parameters of its runs.
@@ -39,8 +39,9 @@ Reference :: struct {
 }
 
 
-// Restoring `window` ticks back and re-simulating, every tick, reproduces every tick's checksum.
-// `window` is at most headless.max_window(game) (the game's ring).
+// Restoring `window` ticks back and re-simulating, every tick, reproduces every tick's checksum and events, the Extra
+// agrees after every restore and no NaN reaches the block (headless.run_synctest). `window` is at most
+// headless.max_window(game) (the game's ring).
 rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 	longest := headless.max_window(suite.game)
 	if !testing.expectf(
@@ -190,8 +191,8 @@ session_agrees :: proc(t: ^testing.T, suite: ^Suite($G), clients: int, profile: 
 }
 
 // A session of `suite.players` clients in which slot `slot` joins at `tick` (from a snapshot handed over
-// through the relay): no desyncs, and the joiner's checksums match the others' from its first
-// verified tick on.
+// through the relay): no desyncs, the joiner's checksums match the others' from its first verified tick on, and the
+// relay's input log replays to them.
 late_join_agrees :: proc(t: ^testing.T, suite: ^Suite($G), profile: netcode.Network, slot: int, tick: u32) {
 	what := fmt.tprintf(
 		"late_join_agrees (slot %d at tick %d, %s network; %s)",

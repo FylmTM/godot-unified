@@ -1,4 +1,4 @@
-// The stepped Run (src/headless/SPEC.md, Runs): what a game's tests start from.
+// The stepped Run (src/headless/README.md, Runs): what a game's tests start from.
 package test_headless
 
 import "core:testing"

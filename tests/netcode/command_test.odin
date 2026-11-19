@@ -1,4 +1,4 @@
-// Commands (src/netcode/SPEC.md "Commands"): delivered exactly once and in order under loss, duplication and
+// Commands (src/netcode/README.md, Commands): delivered exactly once and in order under loss, duplication and
 // reordering; a late input's commands move to a later tick instead of being lost; the sender predicted them
 // at the tick it sent them for and rolls back when the relay put them elsewhere; everyone else sees them at
 // the relay's tick; the relay's log replays them.

@@ -1,3 +1,4 @@
+// The commands on Odin code (build, headless, vet, fmt) and the odin test suite.
 package cli
 
 import "core:encoding/json"
@@ -5,8 +6,6 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 import "core:time"
-
-// build, vet, fmt and the odin test suite.
 
 @(private)
 Build_Opts :: struct {
@@ -79,7 +78,7 @@ Headless_Opts :: struct {
 	overflow: [dynamic]string `hint:"-- <mode> [options]" usage:"after --: the headless mode and its options (sim, synctest, session, bench, ...)"`,
 }
 
-// The game's headless binary (src/headless/SPEC.md: offline runs, sync-tests, replays, sessions, the relay and
+// The game's headless binary (src/headless/README.md: offline runs, sync-tests, replays, sessions, the relay and
 // clients, benchmarks), built when stale and run with our stdin, stdout and stderr: its JSON is this command's
 // stdout.
 @(private)

@@ -1,4 +1,4 @@
-# One job per platform plus one for Godot, every step one uni command (src/cli/SPEC.md). Each platform job runs `uni
+# One job per platform plus one for Godot, every step one uni command (src/cli/README.md). Each platform job runs `uni
 # test --suite odin,net` (the odin suite: unit tests and every end-to-end suite, reference runs included, so CI is the
 # cross-platform check of determinism; the net suite beside it: real UDP, separate processes) and `uni bench` (not
 # gated). linux-x64 also runs `uni fmt --check` and `uni vet` (every target); linux-arm64 the box3d-debug suite (the

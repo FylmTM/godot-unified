@@ -1,4 +1,5 @@
-// UnifiedSession: the GDScript-facing session node (src/godot/SPEC.md).
+// UnifiedSession: the GDScript-facing session node; each member's doc is where it is bound (src/godot/README.md,
+// Godot side).
 package godot
 
 import "core:fmt"
@@ -66,7 +67,7 @@ register_session_class :: proc() {
 		parent = "Node",
 		size = size_of(Session_Node),
 		doc_brief = "Runs a unified session (single player, host or join) and shows it: views, events, commands.",
-		doc = "One per app. The session runs the game's deterministic sim on its own thread; this node takes the newest frame every process step (at priority -1000, before every other node), moves the scene views under [member view_root], fills the MultiMesh views, and routes the sim's events to their views and to [signal sim_event]. The game's extension decides what the views are (src/godot/SPEC.md). Reach it typed: [code]@onready var session: UnifiedSession = %UnifiedSession[/code], or [code]Unified.session[/code]. Players are ints: a player's key, the same while they are in the session whatever slot they hold (0: nobody).",
+		doc = "One per app. The session runs the game's deterministic sim on its own thread; this node takes the newest frame every process step (at priority -1000, before every other node), moves the scene views under [member view_root], fills the MultiMesh views, and routes the sim's events to their views and to [signal sim_event]. The game's extension decides what the views are (src/godot/README.md). Reach it typed: [code]@onready var session: UnifiedSession = %UnifiedSession[/code], or [code]Unified.session[/code]. Players are ints: a player's key, the same while they are in the session whatever slot they hold (0: nobody).",
 		init = proc(instance: rawptr) {
 			session := (^Session_Node)(instance)
 			session.seed = 1 // local_name stays "": the roster shows "P" and the slot from 1
@@ -224,7 +225,7 @@ register_session_class :: proc() {
 		"get_view",
 		proc(session: ^Session_Node, kind: i64, key: i64) -> gd.Node {return view_of_key(kind, u64(key))},
 		{"kind", "key"},
-		doc = "The scene view of [param kind] (an [EnumView] value) and [param key], null when there is none (or it lingers, gone from the sim).",
+		doc = "The scene view of [param kind] (an [EnumView] value; another is an error, once) and [param key], null when there is none (or it lingers, gone from the sim).",
 	)
 	gd.bind_method(
 		class,
@@ -275,7 +276,7 @@ register_session_class :: proc() {
 	gd.bind_dynamic_method(class, "send_command", proc(_: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
 			command, _ := gd.from_variant(gd.Object, args[0])
 			return gd.to_variant(send_command(command))
-		}, nil, {{"command", .OBJECT, "UnifiedCommand"}}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Sends one of the game's commands (make one with its class, e.g. [code]CommandDrop.new()[/code]); the sim gets it exactly once. False, with an error, when it can't be sent.")
+		}, nil, {{"command", .OBJECT, "UnifiedCommand"}}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Sends one of the game's commands (make one with its class, e.g. [code]CommandDrop.new()[/code]); the sim gets it exactly once. False, with an error naming why, when it can't be sent: not one of the game's commands, a property set to a wrong value, no running session, or a full queue.")
 	gd.bind_method(
 		class,
 		"take_sync_stats",

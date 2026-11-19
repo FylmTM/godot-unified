@@ -15,10 +15,11 @@ package godot
 // in emission order.
 //
 // Events are identified by `Event_Id` (tick, kind, subject, nth): the caller picks what makes two events "the
-// same" across re-simulations (src/sim/SPEC.md "Events": the subject convention). Each tracked event also gets a
+// same" across re-simulations (src/sim/README.md, Events: the subject convention). Each tracked event also gets a
 // serial when it is Emitted, the same on its Confirmed or Cancelled, for the view to match them (an event cancelled
 // and produced again later is a new one, with a new serial).
 
+// What makes two events from different simulations of a tick the same one (tracker_init's `id_of` builds it).
 Event_Id :: struct {
 	tick:   u32,
 	kind:   u32,
@@ -27,12 +28,14 @@ Event_Id :: struct {
 	nth:    u32, // among the tick's events of the same kind and subject
 }
 
+// A step of an event's lifecycle: Emitted once, then Confirmed or Cancelled once (UnifiedSession.EventState).
 Event_Action :: enum u8 {
 	Emitted, // first produced by a simulation of its tick
 	Confirmed, // its tick is verified: it will never be cancelled
 	Cancelled, // a re-simulation no longer produces it
 }
 
+// One step the tracker outputs (Event_Tracker.out): the event in its newest simulation, and its serial.
 Tracked :: struct($E: typeid) {
 	action: Event_Action,
 	event:  E,

@@ -126,7 +126,6 @@ plain_check :: proc(
 	return fmt.tprintf("%s: %v is not plain data", path, type.id)
 }
 
-// Panics unless T is plain data (see plain_violation).
 // Panics unless T is plain data without bools or floats (see wire_violation): what the netcode client and the relay
 // check an Input with.
 check_wire :: proc($T: typeid) {

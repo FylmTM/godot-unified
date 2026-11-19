@@ -1,32 +1,10 @@
 # `unified:dmath`: deterministic f32 math
 
-Status: signed off 2026-11-18 (#331)
-
 The arithmetic tick code uses, identical on every CPU: f32 only, hardware `+ − × ÷` and `sqrt` (IEEE-exact), never
-fused into a multiply-add.
-
-## API
-
-```odin
-sqrt(x)                                   // hardware, IEEE-exact
-min(a, b) / max(a, b) / clamp(x, lo, hi)  // compare and select, any number type: the same zero on a ±0 tie everywhere
-// vectors are [2]f32 / [3]f32; each group takes either (its members: the name plus 2 or 3)
-length(v)  length_sq(v)                   // length_sq: no sqrt, compare against r * r
-dist_sq(a, b)                             // squared distance
-dot(a, b)                                 // components summed in order: x, y (, z)
-cross2(a, b)                              // a.x * b.y - a.y * b.x
-normalize(v, eps = 0.0001)                // zero when |v| <= eps
-clamp_length(v, max_len)
-quat_rotate(quat, v)                      // v turned by the unit quaternion (x, y, z, w)
-quat_yaw(facing: [2]f32) -> [4]f32        // about +Y, turning +Z toward the unit floor direction (x, z): sqrt only; zero: identity
-to_i32_clamped(x, lo, hi)                 // clamp the f32, then convert; NaN gives lo
-DIR8                                      // [8][2]f32: the 8 compass directions, exact table values (@(rodata))
-// input encodings (input.odin): the client quantizes, the sim decodes any bits safely
-axis_i8(x) / axis(i8)                     // −1..1 <-> −127..127 (NaN: 0; −128 reads as −1)
-stick(x, y: i8) -> [2]f32                 // two axes, the length clamped to 1
-Dir2 (u16) / dir2(v) / dir2_vec(d)        // a 2D direction in 2 bytes; 0: none
-Dir3 ({u, v: u16}) / dir3(v) / dir3_vec(d) // a 3D direction in 4 bytes (octahedral); {}: none
-```
+fused into a multiply-add. Vectors are `[2]f32` and `[3]f32`, and the input encodings (`input.odin`) are how a client
+puts analog values into an Input. A leaf package: every tick package and every game's sim may import it, and host
+code (`godot`, `devui`) may too, since nothing there feeds the sim. The lint (`src/lint/README.md`) enforces the rules
+below where a token scan can.
 
 ## How it works
 
@@ -37,9 +15,9 @@ Dir3 ({u, v: u16}) / dir3(v) / dir3_vec(d) // a 3D direction in 4 bytes (octahed
   fails with the reason if a compiler upgrade or flag starts fusing.
 - **`min`, `max`, `clamp` are dmath's.** Odin's builtins on floats lower to instructions free to return either zero
   when -0 meets +0: x64 and arm64, debug and release builds, even two inlined calls of one build differ, and a
-  `max(dot(v, n), 0)` stores another block. dmath's compare and select (`a if a < b else b`; a tie or a NaN first
-  operand gives the second), for integers too, since the lint can't see types: it bans the builtins with two or more
-  arguments in tick code (`max(u16)`, a type's bound, stays). `tests/dmath`'s canary pins the ties.
+  `max(dot(v, n), 0)` stores another block. dmath's are a compare and a select, for integers too, since the lint
+  can't see types: it bans the builtins with two or more arguments in tick code (`max(u16)`, a type's bound, stays).
+  `tests/dmath`'s canary pins the ties.
 - **No NaN reaches the state block.** A NaN made at run time has each platform's bits (`ffc00000` on x64, `7fc00000`
   on arm64), so a NaN in the block gives peers on different CPUs different checksums. Guard every division and
   `sqrt` whose operand can be 0/0 or negative (`normalize` has its `eps`). The sync-test fails on a NaN in the block
