@@ -89,6 +89,10 @@ Data_Toy :: struct {
 	_pad2:       [4]u8,
 	lamp:        sim.Entity, // its index (sim.entity(4): 4)
 	no_lamp:     sim.Entity, // the zero Entity: -1
+	open:        sim.Bits(10), // {1, 7}: an Array of the indices
+	recent:      sim.List(sim.Handle(toy.Thing), 4), // the live things (up to 4): an Array of their keys
+	queue:       sim.Queue(u8, 3), // 2, 3, 4 (wrapped): an Array, oldest first
+	_pad3:       [7]u8,
 }
 
 // The constants (Unified.constants): what `constants` returns, copied at install.
@@ -202,6 +206,8 @@ Input_Values :: struct {
 	drift: f32,
 	_pad:  [4]u8,
 	pick:  sim.Entity, // a fixed thing's index, set and read back (-1: none)
+	picks: sim.List(u8, 3), // an Array of up to 3 ints, set and read back
+	_pad2: [4]u8,
 }
 
 fill_frame :: proc(f: ^Frame) {
@@ -265,6 +271,18 @@ fill_frame :: proc(f: ^Frame) {
 		)
 	}
 	mark := &local.last_mark
+	collections: struct {
+		open:   sim.Bits(10),
+		recent: sim.List(sim.Handle(toy.Thing), 4),
+		queue:  sim.Queue(u8, 3),
+	}
+	sim.incl(&collections.open, 1)
+	sim.incl(&collections.open, 7)
+	live := sim.iterate(&f.state.things)
+	for _, thing in sim.next(&live) do sim.append(&collections.recent, thing) // full: the rest left out
+	for item in ([]u8{1, 2, 3}) do sim.append(&collections.queue, item)
+	sim.pop_front(&collections.queue)
+	sim.append(&collections.queue, 4)
 	godot.push_data(f, Data_Toy {
 		bumps       = local.bumps,
 		bump_sum    = local.bump_sum,
@@ -287,6 +305,9 @@ fill_frame :: proc(f: ^Frame) {
 		turn        = {0, 0, 0, 1},
 		cell        = {-3, 7},
 		lamp        = sim.entity(4),
+		open        = collections.open,
+		recent      = collections.recent,
+		queue       = collections.queue,
 	})
 	// the rotation negated every other tick (the same rotation): on the shorter arc it doesn't turn at all, so it is
 	// exact at any alpha

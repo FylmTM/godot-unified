@@ -223,6 +223,7 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 				"is not a thing's index",
 				"unified: UnifiedSetup.from_json: ",
 				"which view_root has no node at",
+				"it holds at most",
 			},
 			nil,
 		},

@@ -74,7 +74,8 @@ position_to_sim :: proc(position: sim.Position) -> sim.Position {
 // value: EnumPhase.LOBBY), bit_sets (an Array of member values), a Vector2/3/4 or Vector2i/3i/4i ([2]/[3]/[4] of f32
 // or i32), a Color (godot.Color), a Quaternion (godot.Quat), a sim.Position (Vector2 in a 2D game, else Vector3; in
 // view units until send_command), a handle (its key: sim.handle_key, 0: none), a player (its key), a nested struct
-// (an object of its class: DataArea.new()).
+// (an object of its class: DataArea.new()), a sim.List or Queue (an Array of its items), a sim.Bits (an Array of its
+// indices).
 write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -> string {
 	variant_type := gd.variant_type(variant)
 	got :: proc(variant_type: gdi.VariantType) -> string {return fmt.tprintf("got %v", variant_type)}
@@ -117,6 +118,7 @@ write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -
 		copy(out, ([^]u8)(&entity)[:size_of(sim.Entity)])
 		return ""
 	}
+	if collection, is_collection := collection_of(type); is_collection do return collection_write(collection, out, variant)
 	#partial switch want {
 	case .VECTOR2, .VECTOR3, .VECTOR4, .COLOR, .QUATERNION, .VECTOR2I, .VECTOR3I, .VECTOR4I:
 		if variant_type != want do return fmt.tprintf("want a %v, %s", want, got(variant_type))

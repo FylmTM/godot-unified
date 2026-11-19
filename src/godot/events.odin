@@ -87,6 +87,9 @@ field_kind :: proc(type: ^runtime.Type_Info) -> (kind: gdi.VariantType, class_na
 	case type.id == Quat:
 		return .QUATERNION, ""
 	}
+	if collection, is_collection := collection_of(type); is_collection {
+		return .ARRAY, element_type_name(collection.elem) // a List's or Queue's items, a Bits' indices (collections.odin)
+	}
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Integer, runtime.Type_Info_Enum:
 		return .INT, ""
@@ -162,6 +165,9 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, units: Units) -> gd
 		return gd.to_variant(gd.Color{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2), f32_at(bytes, 3)})
 	case type.id == Quat:
 		return gd.to_variant(gd.Quaternion{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2), f32_at(bytes, 3)})
+	}
+	if collection, is_collection := collection_of(type); is_collection {
+		return collection_variant(type, collection, bytes, units)
 	}
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Integer:
@@ -276,8 +282,9 @@ typed_array :: proc(type: ^runtime.Type_Info) -> gd.Array {
 	return array
 }
 
-// The element type of an array, enumerated array or bit_set (a bit_set's elements are ints).
+// The element type of an array, enumerated array, sim collection or bit_set (a bit_set's elements are ints).
 array_elem :: proc(type: ^runtime.Type_Info) -> ^runtime.Type_Info {
+	if collection, is_collection := collection_of(type); is_collection do return collection.elem
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Array:
 		return info.elem

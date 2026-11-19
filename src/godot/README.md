@@ -157,7 +157,10 @@ everywhere:
 - a `sim.Position` a `Vector2` (`Glue.is_2d`) or `Vector3`, in view units; by shape, `[2]/[3]/[4]f32` a
   `Vector2/3/4` and `[2]/[3]/[4]i32` a `Vector2i/3i/4i`; `godot.Color` a `Color`, `godot.Quat` a `Quaternion`;
 - other arrays and enumerated arrays a typed `Array` (an array of arrays untyped); a nested struct an object of its
-  class (a struct only view data uses has no class: a `Dictionary`); a string (constants) a `String`.
+  class (a struct only view data uses has no class: a `Dictionary`); a string (constants) a `String`;
+- a `sim.List` or `sim.Queue` a typed `Array` of its live items (a Queue's oldest first), a `sim.Bits` an
+  `Array[int]` of the indices it holds; a settable one (a Setup, input values, a nested value, a command) takes such
+  an Array back, refused past its capacity.
 
 `_` fields are left out. Godot's own math types are refused at install: data maps by shape, so a game never imports
 `unified:gdext`.

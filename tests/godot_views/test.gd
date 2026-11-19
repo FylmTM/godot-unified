@@ -264,6 +264,15 @@ func _initialize() -> void:
 	input.drift = 3.0
 	check("Unified.input reads back as set", near(input.drift, 3.0), input.drift)
 	check("a sim.Entity as its index (-1: none)", toy.lamp == 4 and toy.no_lamp == -1, [toy.lamp, toy.no_lamp])
+	check("a sim.Bits: an Array of its indices", toy.open == [1, 7], toy.open)
+	check("a sim.Queue: an Array of its items, oldest first", toy.queue == [2, 3, 4], toy.queue)
+	check("a sim.List of handles: an Array of their keys, typed", toy.recent.get_typed_builtin() == TYPE_INT \
+		and toy.recent.all(func(key: int) -> bool: return key > 0), toy.recent)
+	check("a sim.List field starts empty", input.picks.is_empty(), input.picks)
+	input.picks = [3, 1]
+	check("a sim.List set as an Array reads back", input.picks == [3, 1], input.picks)
+	input.picks = [1, 2, 3, 4]  # past its capacity: refused with an error line, the value kept
+	check("a sim.List past its capacity is refused", input.picks == [3, 1], input.picks)
 	check("an Entity field starts as none", input.pick == -1, input.pick)
 	input.pick = 2
 	var picked := input.pick

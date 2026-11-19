@@ -168,6 +168,10 @@ godot_type_in :: proc(type: ^runtime.Type_Info) -> typeid {
 nested_types_of :: proc(types: []^runtime.Type_Info, out: ^[dynamic]^runtime.Type_Info) {
 	walk :: proc(type: ^runtime.Type_Info, out: ^[dynamic]^runtime.Type_Info, is_root: bool) {
 		if type == nil || type.id == sim.Position || type.id == sim.Player || is_handle(type) do return
+		if collection, is_collection := collection_of(type); is_collection { 	// an Array of its items: no class of its own
+			walk(collection.elem, out, false)
+			return
+		}
 		#partial switch info in runtime.type_info_base(type).variant {
 		case runtime.Type_Info_Array:
 			walk(info.elem, out, false)
