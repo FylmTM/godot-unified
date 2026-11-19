@@ -53,7 +53,8 @@ SNAP_STALL_US :: 5_000_000 // a joiner's snapshot provider that sends nothing th
 // doesn't replace it (on_hello).
 SEATED_LIVE_US :: 4 * KEEPALIVE_US
 IMAGE_MAX :: 256 << 20 // the largest snapshot the relay takes for a desync report
-NO_REPORTS :: max(u32) // Seat.report_from of a slot that sends no checksums yet
+NO_REPORTS :: max(u32) // Conn.report_from of a connection that sends no checksums yet
+LOCAL_MAX :: 4 // the most seats (local players) one connection holds
 
 // A received command waiting for the tick it goes in.
 @(private)
@@ -62,12 +63,16 @@ Wait_Command :: struct {
 	cmd:  sim.Raw_Command,
 }
 
-// The checksums the slots sent for one checksum tick.
+// A set of connections, by channel peer (Relay_Conn.refused).
+Peers :: bit_set[0 ..< MAX_PEERS;u64]
+
+// The checksums the connections sent for one checksum tick: one vote per connection (one sim), whatever its seats.
 @(private)
-Check :: struct($PLAYERS: int) {
+Check :: struct {
 	tick:     u32,
-	have:     sim.Slots,
-	values:   [PLAYERS]u64,
+	have:     Peers,
+	values:   [MAX_PEERS]u64,
+	slots:    [MAX_PEERS]sim.Slots, // each reporting connection's slots when it reported (a desync names them)
 	judged:   bool, // the majority is known (every expected report came in, or CHECK_WAIT_MS passed)
 	majority: u64,
 }
@@ -89,46 +94,54 @@ Relay_Member :: struct {
 // A typed desync report waiting for the snapshots it diffs.
 @(private)
 Pending_Image :: struct {
-	slot:  int,
+	conn:  Peer, // whom it is asked of
 	image: [dynamic]u8,
 	total: u32,
 	done:  bool, // complete, or not coming
 }
 
-// What the relay keeps per slot: the connection seated there, its inputs and commands, its late join. A seat is
-// emptied with one assignment (seat_reset) when its occupant leaves and before a new one sits down, so nothing of a
-// previous occupant survives into the next.
-Seat :: struct($Input: typeid) {
-	peer:        Peer, // -1: nobody
-	hello_us:    i64, // its Hello's sent time (the client's clock): newest wins by it (on_hello)
-	member:      u16, // the member seated here (NO_MEMBER: none)
+// What the relay keeps per client connection (relay.conns, by channel peer): one sim, so one stream of finalized
+// ticks and its acks, one checksum report per checksum tick, one late join with its snapshot, and the seats it holds
+// (src/netcode/README.md, Relay: Connections and seats). Emptied with one assignment (relay_conn_reset) when it ends.
+Relay_Conn :: struct {
 	connected:   bool,
 	welcomed:    bool,
 	done:        bool, // verified the last tick of a fixed-length session
 	base_known:  bool, // finalized ticks can be streamed to this client
-	active_from: u32, // first tick the slot is present (0: not joined)
-	report_from: u32, // the first checksum tick the slot reports (NO_REPORTS: none yet)
-	inputs:      [INPUT_RING]Input,
-	input_tick:  [INPUT_RING]u32, // which tick inputs[k] holds
-	recv_upto:   u32, // every input up to this tick is in
+	hello_us:    i64, // its Hello's sent time (the client's clock): newest wins by it (on_hello)
+	locals:      [LOCAL_MAX]i8, // the slot each of its local players holds (-1: none)
+	report_from: u32, // the first checksum tick it reports (NO_REPORTS: none yet)
 	client_ack:  u32, // the newest finalized tick the client acked
 	resume:      u32, // the tick after the last one a broadcast that stopped short carried (0: start at the oldest)
 	sent_upto:   u32, // the newest tick a broadcast carried to this client (from its snapshot's on)
-	cmd_recv:    u32, // the command ack: every seq up to this one is received
-	cmd_wait:    [dynamic]Wait_Command, // received, not finalized yet, in seq order (its buffer outlives resets)
 	// late join: who sends the joiner its snapshot, and the check of the snapshot before the joiner plays
-	provider:    int, // -1: none pending
+	provider:    Peer, // the connection asked for it (-1: none pending)
 	snap_min:    u32, // the oldest tick the joiner's snapshot may be of
 	snap_total:  u32, // bytes of the snapshot being forwarded (from its Snap_Begin)
 	snap_sent:   u32, // bytes forwarded so far
 	snap_tick:   u32, // the checksum tick the joiner's snapshot is of
-	snap_from:   int, // who sent it
+	snap_from:   Peer, // who sent it
 	snap_us:     i64, // when the joiner's snapshot last made progress (asked for, begun, a chunk)
 	checking:    bool, // the joiner restores it and sends its checksum; the relay compares
 	snap_value:  u64, // the joiner's checksum of its restored snapshot
 	snap_have:   bool,
-	refused:     sim.Slots, // providers whose snapshot for this joiner failed the check, was unusable or never came
+	refused:     Peers, // providers whose snapshot for this joiner failed the check, was unusable or never came
 	bad_check:   bool, // a snapshot for this joiner failed the check (refused: Bad_Snapshot, else No_Snapshot)
+}
+
+// What the relay keeps per slot: who sits there (a connection's local player), their inputs and commands. A seat is
+// emptied with one assignment (seat_reset) when its occupant leaves and before a new one sits down, so nothing of a
+// previous occupant survives into the next.
+Seat :: struct($Input: typeid) {
+	conn:        Peer, // the connection seated here (-1: nobody)
+	local:       u8, // which of its local players
+	member:      u16, // the member seated here (NO_MEMBER: none)
+	active_from: u32, // first tick the slot is present (0: not joined)
+	inputs:      [INPUT_RING]Input,
+	input_tick:  [INPUT_RING]u32, // which tick inputs[k] holds
+	recv_upto:   u32, // every input up to this tick is in
+	cmd_recv:    u32, // the command ack: every seq up to this one is received
+	cmd_wait:    [dynamic]Wait_Command, // received, not finalized yet, in seq order (its buffer outlives resets)
 }
 
 // The relay, generic over the game type G (only its Input, PLAYERS and tick rate matter).
@@ -141,8 +154,8 @@ Relay :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Ga
 	w:                   wire.Writer,
 	poll_us:             i64, // how often relay_step wants to run between deadlines (a host's: none until a remote link)
 	seats:               [sim.part(G, sim.GAME_PLAYERS)]Seat(sim.part(G, sim.GAME_INPUT)),
-	slot_of:             [MAX_PEERS]int, // a channel peer's slot (-1: none)
-	checks:              [CHECK_RING]Check(sim.part(G, sim.GAME_PLAYERS)),
+	conns:               [MAX_PEERS]Relay_Conn, // by channel peer
+	checks:              [CHECK_RING]Check,
 	started:             bool, // Welcome sent to the start players
 	welcome_us:          i64,
 	lead:                u32, // ticks from Welcome to the clock's tick 0
@@ -156,7 +169,7 @@ Relay :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Ga
 	broadcast_to:        u32, // the newest finalized tick when it did
 	desyncs:             int, // desync reports (a checksum tick on which some slots differ from the majority)
 	reports:             [dynamic]Desync_Report, // waiting to go out while a typed report gathers its snapshots
-	pending:             [2]Pending_Image, // the typed report's snapshots: a majority slot's, a diverged one's
+	pending:             [2]Pending_Image, // the typed report's snapshots: a majority connection's, a diverged one's
 	pending_on:          bool,
 	pending_tick:        u32,
 	pending_us:          i64, // when the typed report last made progress (asked, an answer or bytes of one came)
@@ -198,8 +211,8 @@ relay_create :: proc(game: ^$G, cfg: Relay_Config) -> ^Relay(G) {
 		seat_reset(&seat)
 		reserve(&seat.cmd_wait, COMMAND_QUEUE)
 	}
-	for &slot in relay.slot_of {
-		slot = -1
+	for &conn in relay.conns {
+		relay_conn_reset(&conn)
 	}
 	setup := game.setup // the session's: what every client creates its sim with
 	header := sim.log_header(game, cfg.seed, &setup, sim.content_hash(game.levels), relay.compat)
@@ -213,11 +226,60 @@ seat_reset :: proc(seat: ^Seat($Input)) {
 	waiting := seat.cmd_wait
 	clear(&waiting)
 	seat^ = {
-		peer        = -1,
-		provider    = -1,
-		report_from = NO_REPORTS,
-		cmd_wait    = waiting,
+		conn     = -1,
+		cmd_wait = waiting,
 	}
+}
+
+// Empties a connection's record (no client there).
+@(private)
+relay_conn_reset :: proc(conn: ^Relay_Conn) {
+	conn^ = {
+		locals      = -1,
+		provider    = -1,
+		snap_from   = -1,
+		report_from = NO_REPORTS,
+	}
+}
+
+// The connection seated in `slot` (nil: nobody), for tests and tools that look at a player's stream or late join.
+relay_conn :: proc(relay: ^Relay($G), slot: int) -> ^Relay_Conn {
+	peer := relay.seats[slot].conn
+	return &relay.conns[peer] if peer >= 0 else nil
+}
+
+// The lowest slot a connection holds (-1: none): what a log line and a Snap_Request's target name it by.
+@(private)
+conn_slot :: proc(relay: ^Relay($G), peer: Peer) -> int {
+	lowest := -1
+	for slot in relay.conns[peer].locals {
+		if slot >= 0 && (lowest < 0 || int(slot) < lowest) do lowest = int(slot)
+	}
+	return lowest
+}
+
+// The slots a connection holds.
+@(private)
+conn_slots :: proc(relay: ^Relay($G), peer: Peer) -> (slots: sim.Slots) {
+	for slot in relay.conns[peer].locals {
+		if slot >= 0 do slots += {int(slot)}
+	}
+	return
+}
+
+// The connections that hold a seat, in the order of their lowest slots (the host's first): the order a provider is
+// picked in and a checksum tie is broken by.
+@(private)
+conns_by_slot :: proc(relay: ^Relay($G)) -> (order: [MAX_PEERS]Peer, count: int) {
+	seen: Peers
+	for &seat in relay.seats {
+		if seat.conn >= 0 && int(seat.conn) not_in seen {
+			seen += {int(seat.conn)}
+			order[count] = seat.conn
+			count += 1
+		}
+	}
+	return
 }
 
 // Writes the recording's tick count and closes its sink (once; relay_destroy does it too). False if a write failed.
@@ -267,9 +329,9 @@ relay_stop :: proc(relay: ^Relay($G), now: i64) {
 	if relay.ending {
 		return
 	}
-	for &seat, slot in relay.seats {
-		if seat.connected {
-			relay_send(relay, slot, msg_begin(&relay.w, .End), .Reliable, now)
+	for &conn, peer in relay.conns {
+		if conn.connected {
+			relay_send(relay, Peer(peer), msg_begin(&relay.w, .End), .Reliable, now)
 		}
 	}
 	relay.ending = true
@@ -282,9 +344,10 @@ relay_finished :: proc(relay: ^Relay($G)) -> bool {
 	return relay.finished
 }
 
+// Sends a message to a client connection (nothing when it has none).
 @(private)
-relay_send :: proc(relay: ^Relay($G), slot: int, writer: ^wire.Writer, delivery: Delivery, now: i64) {
-	if peer := relay.seats[slot].peer; peer >= 0 {
+relay_send :: proc(relay: ^Relay($G), peer: Peer, writer: ^wire.Writer, delivery: Delivery, now: i64) {
+	if peer >= 0 && relay.conns[peer].connected {
 		channel_send(relay.ch, peer, writer.buf[:], delivery, now)
 	}
 }
@@ -297,6 +360,7 @@ ms_ticks :: proc(relay: ^Relay($G), ms: int) -> u32 {
 @(private)
 send_welcome :: proc(relay: ^Relay($G), slot: int, now: i64) {
 	seat := &relay.seats[slot]
+	conn := &relay.conns[seat.conn]
 	writer := msg_begin(&relay.w, .Welcome)
 	wire.w_u8(writer, u8(slot))
 	wire.w_u16(writer, seat.member)
@@ -309,8 +373,8 @@ send_welcome :: proc(relay: ^Relay($G), slot: int, now: i64) {
 		flags += {.Keep_Images}
 	}
 	wire.w_u8(writer, transmute(u8)flags)
-	relay_send(relay, slot, writer, .Reliable, now)
-	seat.welcomed = true
+	relay_send(relay, seat.conn, writer, .Reliable, now)
+	conn.welcomed = true
 }
 
 @(private)
@@ -320,11 +384,12 @@ reject :: proc(relay: ^Relay($G), peer: Peer, why: Reject_Reason, now: i64) {
 	channel_send(relay.ch, peer, writer.buf[:], .Reliable, now)
 }
 
-// Refuses a slot that is in already (its snapshot failed, it fell too far behind): it gets Reject and is gone.
+// Refuses a connection that is in already (its snapshot failed, it fell too far behind): it gets Reject and is gone,
+// with every seat it held.
 @(private)
-refuse_seat :: proc(relay: ^Relay($G), slot: int, why: Reject_Reason, now: i64) {
-	reject(relay, relay.seats[slot].peer, why, now)
-	seat_left(relay, slot, fmt.tprintf("refused (%v)", why), now)
+refuse_conn :: proc(relay: ^Relay($G), peer: Peer, why: Reject_Reason, now: i64) {
+	reject(relay, peer, why, now)
+	conn_left(relay, peer, fmt.tprintf("refused (%v)", why), now)
 }
 
 @(private)
@@ -337,7 +402,7 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 	copy(token[:], wire.r_bytes(reader, TOKEN_SIZE))
 	name := r_text(reader, NAME_MAX)
 	hello_us := r_i64(reader)
-	if !reader.ok || relay.slot_of[peer] >= 0 {
+	if !reader.ok || relay.conns[peer].connected {
 		return
 	}
 	if relay.ending {
@@ -363,11 +428,13 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 	// which arrives last: an earlier try's Hello that comes late (lost once and resent, or on a slower path; its
 	// player cancelled it and tried again) is refused while the seated connection is live. A silent one is
 	// replaced whatever the order (a crashed game; another machine, whose clock says nothing about this one's).
-	replaced := -1
+	replaced := -1 // the slot of the seat it replaces
+	replaced_conn := Peer(-1)
 	if known >= 0 && relay.members[known].entry.connected {
 		replaced = int(relay.members[known].entry.slot)
-		seated := &relay.seats[replaced]
-		if hello_us < seated.hello_us && channel_silence_us(relay.ch, seated.peer, now) < SEATED_LIVE_US {
+		replaced_conn = relay.seats[replaced].conn
+		seated := &relay.conns[replaced_conn]
+		if hello_us < seated.hello_us && channel_silence_us(relay.ch, replaced_conn, now) < SEATED_LIVE_US {
 			reject(relay, peer, .Newer_Connection, now)
 			log.infof("member %d: an earlier try's Hello after the seated one's, refused", known + 1)
 			return
@@ -381,7 +448,7 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 	if wanted == ANY_SLOT {
 		limit := relay.started ? PLAYERS : relay.cfg.start_players
 		for other in 0 ..< limit {
-			if !relay.seats[other].connected || other == replaced {
+			if relay.seats[other].conn < 0 || other == replaced {
 				slot = other
 				break
 			}
@@ -396,7 +463,7 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 			reject(relay, peer, .Full, now)
 			return
 		}
-		if relay.seats[slot].connected && slot != replaced {
+		if relay.seats[slot].conn >= 0 && slot != replaced {
 			reject(relay, peer, .Slot_Taken, now)
 			return
 		}
@@ -406,18 +473,17 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 		}
 	}
 	// A joiner starts from another player's snapshot: with nobody to send one, it can't join.
-	provider := -1
+	provider := Peer(-1)
 	if relay.started {
-		if provider = pick_provider(relay, slot, {}, replaced); provider < 0 {
+		if provider = pick_provider(relay, peer, {}, replaced_conn); provider < 0 {
 			reject(relay, peer, .No_Snapshot, now)
 			log.infof("a client asking for slot %d refused: nobody can send it a snapshot", slot)
 			return
 		}
 	}
-	if replaced >= 0 {
-		old_peer := relay.seats[replaced].peer
-		seat_left(relay, replaced, "replaced by a new connection", now)
-		channel_drop(relay.ch, old_peer, now)
+	if replaced_conn >= 0 {
+		conn_left(relay, replaced_conn, "replaced by a new connection", now)
+		channel_drop(relay.ch, replaced_conn, now)
 	}
 	if known < 0 {
 		append(&relay.members, Relay_Member{key = strings.clone(key)})
@@ -434,24 +500,27 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 	entry.slot = u8(slot)
 	entry.connected = true
 	seat := &relay.seats[slot]
-	seat_reset(seat) // a new occupant: nothing of the previous one's (inputs, commands, snapshot) carries over
+	seat_reset(seat) // a new occupant: nothing of the previous one's (inputs, commands) carries over
 	seat.member = entry.member
-	seat.peer = peer
-	seat.hello_us = hello_us
-	seat.connected = true
-	relay.slot_of[peer] = slot
+	seat.conn = peer
+	seat.local = 0
+	conn := &relay.conns[peer]
+	relay_conn_reset(conn) // a new connection: nothing of the previous one's on this peer (stream, snapshot) carries over
+	conn.connected = true
+	conn.hello_us = hello_us
+	conn.locals[0] = i8(slot)
 	send_roster_entry(relay, known, now)
 	for k in 0 ..< len(relay.members) {
 		if k != known {
-			send_roster_entry(relay, k, now, slot)
+			send_roster_entry(relay, k, now, peer)
 		}
 	}
 	if !relay.started {
 		seat.active_from = 1
-		seat.report_from = 1
-		seat.base_known = true
+		conn.report_from = 1
+		conn.base_known = true
 		for other in 0 ..< relay.cfg.start_players {
-			if !relay.seats[other].connected {
+			if relay.seats[other].conn < 0 {
 				return
 			}
 		}
@@ -468,16 +537,16 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 	join_tick := max(asked_join_tick, relay.clock + ms_ticks(relay, JOIN_LEAD_MS), relay.finalized + 2)
 	seat.active_from = join_tick
 	seat.recv_upto = join_tick - 1
-	seat.snap_min = join_tick - 1
+	conn.snap_min = join_tick - 1
 	send_welcome(relay, slot, now)
-	request_snapshot(relay, slot, provider, now)
+	request_snapshot(relay, peer, provider, now)
 	log.infof(
 		"member %d joins slot %d at tick %d (clock %d), snapshot from slot %d",
 		seat.member,
 		slot,
 		join_tick,
 		relay.clock,
-		provider,
+		conn_slot(relay, provider),
 	)
 }
 
@@ -495,55 +564,59 @@ find_member :: proc(relay: ^Relay($G), key: string) -> int {
 	return -1
 }
 
-// The lowest connected slot that can send `joiner` a snapshot and isn't in `refused` (-1: none), other than
-// `leaving` (a seat about to be replaced).
+// The connection holding the lowest slot that can send `joiner` a snapshot and isn't in `refused` (-1: none), other
+// than `leaving` (a connection about to be replaced).
 @(private)
-pick_provider :: proc(relay: ^Relay($G), joiner: int, refused: sim.Slots, leaving := -1) -> int {
-	for &seat, other in relay.seats {
+pick_provider :: proc(relay: ^Relay($G), joiner: Peer, refused: Peers, leaving := Peer(-1)) -> Peer {
+	order, count := conns_by_slot(relay)
+	for other in order[:count] {
+		conn := &relay.conns[other]
 		if other != joiner &&
 		   other != leaving &&
-		   seat.connected &&
-		   seat.welcomed &&
-		   seat.base_known &&
-		   !seat.checking &&
-		   seat.provider < 0 &&
-		   other not_in refused {
+		   conn.connected &&
+		   conn.welcomed &&
+		   conn.base_known &&
+		   !conn.checking &&
+		   conn.provider < 0 &&
+		   int(other) not_in refused {
 			return other
 		}
 	}
 	return -1
 }
 
+// Asks `provider` for a snapshot for `joiner` (a Snap_Request whose target is the joiner's lowest slot).
 @(private)
-request_snapshot :: proc(relay: ^Relay($G), joiner, provider: int, now: i64) {
-	seat := &relay.seats[joiner]
-	seat.provider = provider
-	seat.snap_total = 0
-	seat.snap_sent = 0
-	seat.snap_us = now
+request_snapshot :: proc(relay: ^Relay($G), joiner, provider: Peer, now: i64) {
+	conn := &relay.conns[joiner]
+	conn.provider = provider
+	conn.snap_total = 0
+	conn.snap_sent = 0
+	conn.snap_us = now
 	writer := msg_begin(&relay.w, .Snap_Request)
-	wire.w_u8(writer, u8(joiner))
-	wire.w_u32(writer, seat.snap_min)
+	wire.w_u8(writer, u8(conn_slot(relay, joiner)))
+	wire.w_u32(writer, conn.snap_min)
 	relay_send(relay, provider, writer, .Reliable, now)
 }
 
-// The joiner's snapshot didn't get through (its provider left) or failed the check: ask another slot, or refuse
-// the joiner.
+// The joiner's snapshot didn't get through (its provider left) or failed the check: ask another connection, or
+// refuse the joiner.
 @(private)
-restart_snapshot :: proc(relay: ^Relay($G), joiner: int, why: string, now: i64) {
-	seat := &relay.seats[joiner]
-	seat.provider = -1
-	seat.checking = false
-	seat.base_known = false
-	seat.client_ack = 0
-	seat.report_from = NO_REPORTS
-	if provider := pick_provider(relay, joiner, seat.refused); provider >= 0 {
+restart_snapshot :: proc(relay: ^Relay($G), joiner: Peer, why: string, now: i64) {
+	conn := &relay.conns[joiner]
+	conn.provider = -1
+	conn.checking = false
+	conn.base_known = false
+	conn.client_ack = 0
+	conn.report_from = NO_REPORTS
+	slot := conn_slot(relay, joiner)
+	if provider := pick_provider(relay, joiner, conn.refused); provider >= 0 {
 		request_snapshot(relay, joiner, provider, now)
-		log.infof("slot %d: %s, asking slot %d", joiner, why, provider)
+		log.infof("slot %d: %s, asking slot %d", slot, why, conn_slot(relay, provider))
 		return
 	}
-	log.warnf("slot %d: %s, and nobody else can send a snapshot", joiner, why)
-	refuse_seat(relay, joiner, seat.bad_check ? .Bad_Snapshot : .No_Snapshot, now)
+	log.warnf("slot %d: %s, and nobody else can send a snapshot", slot, why)
+	refuse_conn(relay, joiner, conn.bad_check ? .Bad_Snapshot : .No_Snapshot, now)
 }
 
 @(private)
@@ -555,14 +628,15 @@ have_input :: #force_inline proc(seat: ^Seat($Input), tick: u32) -> bool {
 on_inputs :: proc(relay: ^Relay($G), slot: int, reader: ^wire.Reader, now: i64) {
 	Input :: sim.part(G, sim.GAME_INPUT)
 	seat := &relay.seats[slot]
+	conn := &relay.conns[seat.conn]
 	finalized_ack := wire.r_u32(reader)
 	first := wire.r_u32(reader)
 	count := u32(wire.r_u8(reader))
 	if !reader.ok {
 		return
 	}
-	if seat.base_known {
-		seat.client_ack = max(seat.client_ack, min(finalized_ack, relay.finalized))
+	if conn.base_known {
+		conn.client_ack = max(conn.client_ack, min(finalized_ack, relay.finalized))
 	}
 	input: Input // each input as its changes from the one before it, the first from the zero input
 	malformed := false
@@ -624,22 +698,22 @@ on_inputs :: proc(relay: ^Relay($G), slot: int, reader: ^wire.Reader, now: i64) 
 }
 
 @(private)
-on_checksum :: proc(relay: ^Relay($G), slot: int, reader: ^wire.Reader, now: i64) {
-	seat := &relay.seats[slot]
+on_checksum :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) {
+	conn := &relay.conns[peer]
 	tick := wire.r_u32(reader)
 	value := wire.r_u64(reader)
 	if !reader.ok || tick % CHECKSUM_EVERY != 0 || tick == 0 {
 		return
 	}
-	if seat.checking {
+	if conn.checking {
 		// A joiner's first checksum is of its restored snapshot; judge_snapshots compares it.
-		if tick == seat.snap_tick && !seat.snap_have {
-			seat.snap_value = value
-			seat.snap_have = true
+		if tick == conn.snap_tick && !conn.snap_have {
+			conn.snap_value = value
+			conn.snap_have = true
 		}
 		return
 	}
-	if tick < seat.report_from || tick > relay.finalized {
+	if tick < conn.report_from || tick > relay.finalized {
 		return // a client verifies only finalized ticks: a later one would take a ring slot no honest report reaches
 	}
 	check := &relay.checks[(tick / CHECKSUM_EVERY) % CHECK_RING]
@@ -652,30 +726,39 @@ on_checksum :: proc(relay: ^Relay($G), slot: int, reader: ^wire.Reader, now: i64
 		}
 	}
 	if check.judged {
-		// A late report (a slot catching up): measured against the majority already known.
+		// A late report (a connection catching up): measured against the majority already known.
 		if value != check.majority {
-			report_desync(relay, tick, {slot}, now)
+			report_desync(relay, tick, conn_slots(relay, peer), now)
 		}
 		return
 	}
-	check.values[slot] = value
-	check.have += {slot}
+	check.values[peer] = value
+	check.slots[peer] = conn_slots(relay, peer)
+	check.have += {int(peer)}
 }
 
-// The slots expected to report `tick`'s checksum: connected, streamed to, past their snapshot check, and
+// The connections expected to report `tick`'s checksum: connected, streamed to, past their snapshot check, and
 // reporting from that tick on.
 @(private)
-expected_reports :: proc(relay: ^Relay($G), tick: u32) -> (expected: sim.Slots) {
-	for &seat, slot in relay.seats {
-		if seat.connected && seat.welcomed && seat.base_known && !seat.checking && seat.report_from <= tick {
-			expected += {slot}
+expected_reports :: proc(relay: ^Relay($G), tick: u32) -> (expected: Peers) {
+	for &conn, peer in relay.conns {
+		if conn.connected && conn.welcomed && conn.base_known && !conn.checking && conn.report_from <= tick {
+			expected += {peer}
 		}
 	}
 	return
 }
 
-// Judges the checksum ticks whose reports are in (or waited for long enough): the majority value (ties: the lowest
-// slot's, so with 2 players slot 0, the host, wins), and a desync when anyone differs from it.
+// The lowest slot a connection held when it reported `check` (MAX_PLAYERS for none).
+@(private)
+check_slot :: proc(check: ^Check, peer: int) -> int {
+	for slot in check.slots[peer] do return slot
+	return sim.MAX_PLAYERS
+}
+
+// Judges the checksum ticks whose reports are in (or waited for long enough): the majority value among the
+// connections, one vote each (ties: the connection that held the lowest slot, so with 2 players the host wins), and a
+// desync naming the slots of every connection that differs from it.
 @(private)
 judge_checks :: proc(relay: ^Relay($G), now: i64) {
 	wait := ms_ticks(relay, CHECK_WAIT_MS)
@@ -687,23 +770,23 @@ judge_checks :: proc(relay: ^Relay($G), now: i64) {
 			continue
 		}
 		check.judged = true
-		best := 0
-		for slot in check.have {
+		best, best_slot := 0, sim.MAX_PLAYERS + 1
+		for peer in check.have {
 			votes := 0
 			for other in check.have {
-				if check.values[other] == check.values[slot] {
+				if check.values[other] == check.values[peer] {
 					votes += 1
 				}
 			}
-			if votes > best {
-				best = votes
-				check.majority = check.values[slot]
+			if slot := check_slot(&check, peer); votes > best || (votes == best && slot < best_slot) {
+				best, best_slot = votes, slot
+				check.majority = check.values[peer]
 			}
 		}
 		diverged: sim.Slots
-		for slot in check.have {
-			if check.values[slot] != check.majority {
-				diverged += {slot}
+		for peer in check.have {
+			if check.values[peer] != check.majority {
+				diverged += check.slots[peer]
 			}
 		}
 		if diverged != {} {
@@ -727,11 +810,11 @@ majority_of :: proc(relay: ^Relay($G), tick: u32) -> (value: u64, judged: bool) 
 @(private)
 judge_snapshots :: proc(relay: ^Relay($G), now: i64) {
 	wait := ms_ticks(relay, CHECK_WAIT_MS)
-	for &seat, joiner in relay.seats {
-		if !seat.checking || !seat.snap_have {
+	for &conn, joiner in relay.conns {
+		if !conn.connected || !conn.checking || !conn.snap_have {
 			continue
 		}
-		tick := seat.snap_tick
+		tick := conn.snap_tick
 		majority, judged := majority_of(relay, tick)
 		if !judged {
 			check := &relay.checks[(tick / CHECKSUM_EVERY) % CHECK_RING]
@@ -739,31 +822,38 @@ judge_snapshots :: proc(relay: ^Relay($G), now: i64) {
 				continue // the reports are on their way
 			}
 			// Nobody reported the tick (or it left the ring): nothing to compare with.
-			log.infof("slot %d: snapshot of tick %d not checked: no other checksum of it", joiner, tick)
-			majority = seat.snap_value
+			slot := conn_slot(relay, Peer(joiner))
+			log.infof("slot %d: snapshot of tick %d not checked: no other checksum of it", slot, tick)
+			majority = conn.snap_value
 			relay.unchecked_snapshots += 1
 		}
-		if seat.snap_value != majority {
-			seat.refused += {seat.snap_from}
-			seat.bad_check = true
+		if conn.snap_value != majority {
+			conn.refused += {int(conn.snap_from)}
+			conn.bad_check = true
+			from := conn_slot(relay, conn.snap_from)
 			restart_snapshot(
 				relay,
-				joiner,
-				fmt.tprintf("the snapshot of tick %d from slot %d differs from the others", tick, seat.snap_from),
+				Peer(joiner),
+				fmt.tprintf("the snapshot of tick %d from slot %d differs from the others", tick, from),
 				now,
 			)
 			continue
 		}
-		seat.checking = false
-		seat.report_from = max(seat.active_from, tick + 1)
+		conn.checking = false
+		active_from := max(u32)
+		for slot in conn.locals {
+			if slot >= 0 do active_from = min(active_from, relay.seats[slot].active_from)
+		}
+		conn.report_from = max(active_from, tick + 1)
 		writer := msg_begin(&relay.w, .Snap_Ok)
 		wire.w_u32(writer, tick)
-		relay_send(relay, joiner, writer, .Reliable, now)
+		relay_send(relay, Peer(joiner), writer, .Reliable, now)
 	}
 }
 
-// A desync on `tick`: counted and logged; told to every client, after the typed report's snapshots (when the
-// relay has desync_detail and this is the session's first desync) or at once.
+// A desync on `tick` (`diverged`: the slots of the connections that differ): counted and logged; told to every
+// client, after the typed report's snapshots (when the relay has desync_detail and this is the session's first
+// desync) or at once.
 @(private)
 report_desync :: proc(relay: ^Relay($G), tick: u32, diverged: sim.Slots, now: i64) {
 	relay.desyncs += 1
@@ -777,18 +867,19 @@ report_desync :: proc(relay: ^Relay($G), tick: u32, diverged: sim.Slots, now: i6
 	}
 	if relay.desync_diff != nil && !relay.detailed && !relay.pending_on {
 		check := &relay.checks[(tick / CHECKSUM_EVERY) % CHECK_RING]
-		majority_slot, diverged_slot := -1, -1
-		for slot in check.have {
-			if !relay.seats[slot].connected {
-				continue
+		majority_conn, diverged_conn := Peer(-1), Peer(-1)
+		order, count := conns_by_slot(relay)
+		for peer in order[:count] {
+			if int(peer) not_in check.have || check.slots[peer] != conn_slots(relay, peer) {
+				continue // it did not report, or another connection reported from this peer since
 			}
-			if slot in diverged && diverged_slot < 0 {
-				diverged_slot = slot
-			} else if slot not_in diverged && majority_slot < 0 {
-				majority_slot = slot
+			if check.slots[peer] & diverged != {} && diverged_conn < 0 {
+				diverged_conn = peer
+			} else if check.slots[peer] & diverged == {} && majority_conn < 0 {
+				majority_conn = peer
 			}
 		}
-		if check.tick == tick && majority_slot >= 0 && diverged_slot >= 0 {
+		if check.tick == tick && majority_conn >= 0 && diverged_conn >= 0 {
 			relay.detailed = true
 			relay.pending_on = true
 			relay.pending_tick = tick
@@ -796,13 +887,13 @@ report_desync :: proc(relay: ^Relay($G), tick: u32, diverged: sim.Slots, now: i6
 			relay.pending_from = now
 			for &pending, k in relay.pending {
 				clear(&pending.image)
-				pending.slot = k == 0 ? majority_slot : diverged_slot
+				pending.conn = k == 0 ? majority_conn : diverged_conn
 				pending.total = 0
 				pending.done = false
 				writer := msg_begin(&relay.w, .Snap_Request)
 				wire.w_u8(writer, RELAY_TARGET)
 				wire.w_u32(writer, tick)
-				relay_send(relay, pending.slot, writer, .Reliable, now)
+				relay_send(relay, pending.conn, writer, .Reliable, now)
 			}
 			inject_at(&relay.reports, 0, report) // first in the queue: it goes out with its detail
 			return
@@ -845,9 +936,9 @@ send_reports :: proc(relay: ^Relay($G), now: i64) {
 		detail := report.detail[:min(len(report.detail), MAX_MESSAGE - len(writer.buf) - 2)]
 		wire.w_u16(writer, u16(len(detail)))
 		wire.w_bytes(writer, transmute([]u8)detail)
-		for &seat, slot in relay.seats {
-			if seat.connected && seat.welcomed {
-				relay_send(relay, slot, writer, .Reliable, now)
+		for &conn, peer in relay.conns {
+			if conn.connected && conn.welcomed {
+				relay_send(relay, Peer(peer), writer, .Reliable, now)
 			}
 		}
 		delete(report.detail)
@@ -855,21 +946,21 @@ send_reports :: proc(relay: ^Relay($G), now: i64) {
 	clear(&relay.reports)
 }
 
-// A typed desync report's snapshot coming in from one of the two slots asked.
+// A typed desync report's snapshot coming in from one of the two connections asked.
 @(private)
-take_image :: proc(relay: ^Relay($G), slot: int, kind: Msg, reader: ^wire.Reader, now: i64) {
+take_image :: proc(relay: ^Relay($G), peer: Peer, kind: Msg, reader: ^wire.Reader, now: i64) {
 	if !relay.pending_on {
 		return
 	}
 	for &pending in relay.pending {
-		if pending.slot != slot || pending.done {
+		if pending.conn != peer || pending.done {
 			continue
 		}
 		if kind == .Snap_Begin {
 			tick := wire.r_u32(reader)
 			total := wire.r_u32(reader)
 			if !reader.ok || pending.total != 0 {
-				return // a slot answers once: another Snap_Begin restarts nothing
+				return // a connection answers once: another Snap_Begin restarts nothing
 			}
 			pending.total = tick == relay.pending_tick && total <= IMAGE_MAX ? total : 0
 			pending.done = pending.total == 0
@@ -896,7 +987,7 @@ take_image :: proc(relay: ^Relay($G), slot: int, kind: Msg, reader: ^wire.Reader
 
 @(private)
 active :: #force_inline proc(seat: ^Seat($Input), tick: u32) -> bool {
-	return seat.active_from != 0 && tick >= seat.active_from && seat.connected
+	return seat.active_from != 0 && tick >= seat.active_from && seat.conn >= 0
 }
 
 @(private)
@@ -984,41 +1075,42 @@ take_commands :: proc(relay: ^Relay($G), tick: u32, tick_inputs: ^sim.Inputs(G))
 broadcast :: proc(relay: ^Relay($G), now: i64) {
 	relay.broadcast_us = now
 	relay.broadcast_to = relay.finalized
-	for &seat, slot in relay.seats {
-		if !seat.welcomed || !seat.connected {
+	for &conn, index in relay.conns {
+		peer := Peer(index)
+		if !conn.welcomed || !conn.connected {
 			continue
 		}
-		if !seat.base_known {
-			finalized_message(relay, slot, seat.client_ack + 1, seat.client_ack, now) // the relay time and acks only
-			seat.resume = 0
+		if !conn.base_known {
+			finalized_message(relay, peer, conn.client_ack + 1, conn.client_ack, now) // the relay time and acks only
+			conn.resume = 0
 			continue
 		}
 		// The unacked ticks, up to CATCHUP_TICKS of them. When they don't fit one message (WINDOW_MAX ticks, or
 		// MAX_MESSAGE bytes), each broadcast carries on where the one before stopped, and starts again at the oldest
 		// once one reached the newest: the client gets a message of ticks per broadcast, not one per round trip (its
 		// ack is what moves the oldest).
-		newest := min(relay.finalized, seat.client_ack + CATCHUP_TICKS) // the newest tick this client is streamed
-		first := seat.client_ack + 1
-		if seat.resume > first && seat.resume <= newest {
-			first = seat.resume
+		newest := min(relay.finalized, conn.client_ack + CATCHUP_TICKS) // the newest tick this client is streamed
+		first := conn.client_ack + 1
+		if conn.resume > first && conn.resume <= newest {
+			first = conn.resume
 		}
-		carried := first + finalized_message(relay, slot, first, newest, now) - 1 // the newest tick it carried
-		seat.resume = carried < newest ? carried + 1 : 0
+		carried := first + finalized_message(relay, peer, first, newest, now) - 1 // the newest tick it carried
+		conn.resume = carried < newest ? carried + 1 : 0
 		// Ticks no broadcast carried yet wait for the cycle to come round to them, a broadcast per message of
 		// backlog: while the cycle is behind them, a second message carries them now.
-		fresh := max(seat.sent_upto, seat.client_ack) + 1
+		fresh := max(conn.sent_upto, conn.client_ack) + 1
 		if fresh > carried && fresh <= newest {
-			carried = max(carried, fresh + finalized_message(relay, slot, fresh, newest, now) - 1)
+			carried = max(carried, fresh + finalized_message(relay, peer, fresh, newest, now) - 1)
 		}
-		seat.sent_upto = max(seat.sent_upto, carried)
+		conn.sent_upto = max(conn.sent_upto, carried)
 	}
 }
 
-// Sends `slot` a Finalized with the relay time, its acks and the ticks from `first` on, up to `newest` (none when
-// newest < first): as many as fit one message. Returns how many it carried.
+// Sends a connection a Finalized with the relay time, its seat's acks and the ticks from `first` on, up to `newest`
+// (none when newest < first): as many as fit one message. Returns how many it carried.
 @(private)
-finalized_message :: proc(relay: ^Relay($G), slot: int, first, newest: u32, now: i64) -> (written: u32) {
-	seat := &relay.seats[slot]
+finalized_message :: proc(relay: ^Relay($G), peer: Peer, first, newest: u32, now: i64) -> (written: u32) {
+	seat := &relay.seats[conn_slot(relay, peer)]
 	writer := msg_begin(&relay.w, .Finalized)
 	// Relay time: when tick 0 was due, so negative during the lead.
 	w_i64(writer, i64(f64(now - relay.welcome_us) - f64(relay.lead) * relay.tm.tick_us))
@@ -1047,30 +1139,30 @@ finalized_message :: proc(relay: ^Relay($G), slot: int, first, newest: u32, now:
 		written += 1
 	}
 	writer.buf[count_at] = u8(written)
-	relay_send(relay, slot, writer, .Unreliable, now)
+	relay_send(relay, peer, writer, .Unreliable, now)
 	return
 }
 
-// Sends a member's roster entry to every connected client (or only to slot `to`).
+// Sends a member's roster entry to every connected client (or only to connection `to`).
 @(private)
-send_roster_entry :: proc(relay: ^Relay($G), member: int, now: i64, to := -1) {
+send_roster_entry :: proc(relay: ^Relay($G), member: int, now: i64, to := Peer(-1)) {
 	writer := msg_begin(&relay.w, .Roster)
 	w_roster_entry(writer, &relay.members[member].entry)
-	for &seat, slot in relay.seats {
-		if seat.connected && (to < 0 || to == slot) {
-			relay_send(relay, slot, writer, .Reliable, now)
+	for &conn, peer in relay.conns {
+		if conn.connected && (to < 0 || to == Peer(peer)) {
+			relay_send(relay, Peer(peer), writer, .Reliable, now)
 		}
 	}
 }
 
-// The seat's occupant is gone (left, disconnected, refused, replaced): the seat is emptied, the member's roster entry
-// says so, and a joiner it was sending a snapshot to asks someone else.
+// The seat's occupant is gone (its connection left, disconnected, was refused or replaced): the seat is emptied and
+// the member's roster entry says so.
 @(private)
 seat_left :: proc(relay: ^Relay($G), slot: int, why: string, now: i64) {
 	seat := &relay.seats[slot]
 	member := int(seat.member)
-	if seat.peer >= 0 {
-		relay.slot_of[seat.peer] = -1
+	if seat.conn >= 0 {
+		relay.conns[seat.conn].locals[seat.local] = -1
 	}
 	seat_reset(seat) // a left player's commands that never reached a tick go with it
 	log.infof("member %d (slot %d) %s", member, slot, why)
@@ -1080,14 +1172,26 @@ seat_left :: proc(relay: ^Relay($G), slot: int, why: string, now: i64) {
 		entry.connected = false
 		send_roster_entry(relay, member - 1, now) // the entry stays: a "left" message can still name them
 	}
+}
+
+// A connection is gone (left, disconnected, refused, replaced): every seat it held is emptied, its record too, and a
+// joiner it was sending a snapshot to asks someone else.
+@(private)
+conn_left :: proc(relay: ^Relay($G), peer: Peer, why: string, now: i64) {
+	conn := &relay.conns[peer]
+	slot := conn_slot(relay, peer)
+	for local in conn.locals {
+		if local >= 0 do seat_left(relay, int(local), why, now)
+	}
+	relay_conn_reset(conn)
 	for &pending in relay.pending {
-		if relay.pending_on && pending.slot == slot {
+		if relay.pending_on && pending.conn == peer {
 			pending.done = true
 		}
 	}
-	for &other, joiner in relay.seats {
-		if other.provider == slot && other.connected {
-			restart_snapshot(relay, joiner, fmt.tprintf("snapshot provider %d left", slot), now)
+	for &other, joiner in relay.conns {
+		if other.provider == peer && other.connected {
+			restart_snapshot(relay, Peer(joiner), fmt.tprintf("snapshot provider %d left", slot), now)
 		}
 	}
 }
@@ -1106,8 +1210,8 @@ handle_relay_msg :: proc(relay: ^Relay($G), peer: Peer, data: []u8, now: i64) {
 		on_hello(relay, peer, &reader, now)
 		return
 	}
-	slot := relay.slot_of[peer]
-	if slot < 0 {
+	conn := &relay.conns[peer]
+	if !conn.connected {
 		if kind == .Leave {
 			channel_drop(relay.ch, peer, now) // refused earlier: its connection is free at once, not in DISCONNECT_US
 		}
@@ -1115,108 +1219,109 @@ handle_relay_msg :: proc(relay: ^Relay($G), peer: Peer, data: []u8, now: i64) {
 	}
 	#partial switch kind {
 	case .Inputs:
-		on_inputs(relay, slot, &reader, now)
+		if slot := conn.locals[0]; slot >= 0 {
+			on_inputs(relay, int(slot), &reader, now)
+		}
 	case .Checksum:
-		on_checksum(relay, slot, &reader, now)
+		on_checksum(relay, peer, &reader, now)
 	case .Snap_Begin, .Snap_Chunk:
-		forward_snapshot(relay, slot, kind, &reader, data, now)
+		forward_snapshot(relay, peer, kind, &reader, data, now)
 	case .Done:
-		relay.seats[slot].done = true
+		conn.done = true
 	case .Leave:
-		seat_left(relay, slot, "left", now)
+		conn_left(relay, peer, "left", now)
 		channel_drop(relay.ch, peer, now)
 	}
 }
 
 // Forwards a snapshot message from the provider the relay asked (anything else is dropped), or takes a desync
-// report's snapshot.
+// report's snapshot. Its target names the joiner by its lowest slot (request_snapshot).
 @(private)
-forward_snapshot :: proc(relay: ^Relay($G), slot: int, kind: Msg, reader: ^wire.Reader, data: []u8, now: i64) {
+forward_snapshot :: proc(relay: ^Relay($G), from: Peer, kind: Msg, reader: ^wire.Reader, data: []u8, now: i64) {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	target := wire.r_u8(reader)
 	if reader.ok && target == RELAY_TARGET {
-		take_image(relay, slot, kind, reader, now)
+		take_image(relay, from, kind, reader, now)
 		return
 	}
-	joiner := int(target)
-	if !reader.ok ||
-	   joiner >= PLAYERS ||
-	   relay.seats[joiner].peer < 0 ||
-	   relay.seats[joiner].provider != slot ||
-	   len(data) > MAX_MESSAGE {
+	if !reader.ok || int(target) >= PLAYERS || relay.seats[target].conn < 0 || len(data) > MAX_MESSAGE {
 		return
 	}
-	seat := &relay.seats[joiner]
-	// Before its answer's Snap_Begin (snap_total 0), what the provider sends for this seat is the rest of its answer
+	joiner := relay.seats[target].conn
+	conn := &relay.conns[joiner]
+	if conn.provider != from {
+		return
+	}
+	// Before its answer's Snap_Begin (snap_total 0), what the provider sends for this joiner is the rest of its answer
 	// to an earlier request (the seat's previous occupant's, sent before this request reached it), queued ahead of
 	// this one: a snapshot older than this request allows, or chunks of one. Dropped, not held against the provider,
 	// and a sign of life while the answer behind it can still be streamed from the ring.
 	if kind == .Snap_Begin {
 		tick := wire.r_u32(reader)
 		total := wire.r_u32(reader)
-		if reader.ok && seat.snap_total == 0 && tick < seat.snap_min {
-			stale_snapshot_message(relay, seat, now)
+		if reader.ok && conn.snap_total == 0 && tick < conn.snap_min {
+			stale_snapshot_message(relay, conn, now)
 			return
 		}
 		// A snapshot of a checksum tick (the joiner's checksum of it is compared with the others'), still in the
 		// ring (the ticks after it are streamed from there).
 		if !reader.ok ||
-		   tick < seat.snap_min ||
+		   tick < conn.snap_min ||
 		   tick % CHECKSUM_EVERY != 0 ||
 		   relay_tick(relay, tick) == nil ||
 		   total == 0 {
-			seat.refused += {slot} // it would send the same again: ask another slot
+			conn.refused += {int(from)} // it would send the same again: ask another connection
 			restart_snapshot(
 				relay,
 				joiner,
-				fmt.tprintf("slot %d's snapshot of tick %d is not usable", slot, tick),
+				fmt.tprintf("slot %d's snapshot of tick %d is not usable", conn_slot(relay, from), tick),
 				now,
 			)
 			return
 		}
-		seat.snap_us = now
-		seat.snap_total = total
-		seat.snap_sent = 0
-		seat.snap_tick = tick
+		conn.snap_us = now
+		conn.snap_total = total
+		conn.snap_sent = 0
+		conn.snap_tick = tick
 		// A snapshot that replaces this one is never older: the joiner keeps the finalized ticks streamed to it from
 		// here on, and acks of them may still be on their way when the next Snap_Begin is forwarded.
-		seat.snap_min = tick
-		seat.snap_from = slot
-		seat.snap_have = false
+		conn.snap_min = tick
+		conn.snap_from = from
+		conn.snap_have = false
 		// Stream finalized ticks from the snapshot's tick on (that tick's inputs seed the joiner's
 		// prediction of the others).
-		seat.client_ack = tick - 1
-		seat.sent_upto = tick - 1
-		seat.base_known = true
-		log.infof("forwarding slot %d's snapshot of tick %d to slot %d", slot, tick, joiner)
+		conn.client_ack = tick - 1
+		conn.sent_upto = tick - 1
+		conn.base_known = true
+		log.infof("forwarding slot %d's snapshot of tick %d to slot %d", conn_slot(relay, from), tick, target)
 	} else {
 		offset := wire.r_u32(reader)
 		size := u32(len(reader.data) - reader.pos)
-		if reader.ok && seat.snap_total == 0 {
-			stale_snapshot_message(relay, seat, now)
+		if reader.ok && conn.snap_total == 0 {
+			stale_snapshot_message(relay, conn, now)
 			return
 		}
-		if !reader.ok || offset != seat.snap_sent || size > seat.snap_total - offset {
+		if !reader.ok || offset != conn.snap_sent || size > conn.snap_total - offset {
 			return
 		}
-		seat.snap_sent += size
-		seat.snap_us = now
-		if seat.snap_sent == seat.snap_total {
+		conn.snap_sent += size
+		conn.snap_us = now
+		if conn.snap_sent == conn.snap_total {
 			// Complete: the joiner restores it and sends its checksum, which judge_snapshots checks.
-			seat.provider = -1
-			seat.checking = true
+			conn.provider = -1
+			conn.checking = true
 		}
 	}
-	channel_send(relay.ch, seat.peer, data, .Reliable, now)
+	channel_send(relay.ch, joiner, data, .Reliable, now)
 }
 
 // A joiner's provider is still sending what it answered an earlier request with (forward_snapshot): it lives, while
 // the ticks from the joiner's snap_min on are in the ring (the snapshot it answers this request with is of one of
 // them). Past that it is replaced once SNAP_STALL_US pass, as if silent.
 @(private)
-stale_snapshot_message :: proc(relay: ^Relay($G), seat: ^Seat($Input), now: i64) {
-	if relay.finalized < seat.snap_min + RELAY_RING {
-		seat.snap_us = now
+stale_snapshot_message :: proc(relay: ^Relay($G), conn: ^Relay_Conn, now: i64) {
+	if relay.finalized < conn.snap_min + RELAY_RING {
+		conn.snap_us = now
 	}
 }
 
@@ -1227,8 +1332,8 @@ relay_step :: proc(relay: ^Relay($G), now: i64) -> (wake_us: i64) {
 		switch event.kind {
 		case .Connected, .Incompatible:
 		case .Disconnected:
-			if slot := relay.slot_of[event.peer]; slot >= 0 {
-				seat_left(relay, slot, "disconnected", now)
+			if relay.conns[event.peer].connected {
+				conn_left(relay, event.peer, "disconnected", now)
 			}
 		case .Message:
 			handle_relay_msg(relay, event.peer, event.data, now)
@@ -1239,9 +1344,9 @@ relay_step :: proc(relay: ^Relay($G), now: i64) -> (wake_us: i64) {
 		relay.clock = relay.beats > relay.lead ? relay.beats - relay.lead : 0
 		finalize(relay)
 		// A client whose unacked ticks left the ring can't be streamed to any more.
-		for &seat, slot in relay.seats {
-			if seat.connected && seat.base_known && relay.finalized - seat.client_ack > RELAY_RING {
-				refuse_seat(relay, slot, .Too_Far_Behind, now)
+		for &conn, peer in relay.conns {
+			if conn.connected && conn.base_known && relay.finalized - conn.client_ack > RELAY_RING {
+				refuse_conn(relay, Peer(peer), .Too_Far_Behind, now)
 			}
 		}
 		if broadcast_due(relay, now) {
@@ -1249,18 +1354,19 @@ relay_step :: proc(relay: ^Relay($G), now: i64) -> (wake_us: i64) {
 		}
 		judge_checks(relay, now)
 		judge_snapshots(relay, now)
-		for &seat, joiner in relay.seats {
-			if provider := seat.provider; provider >= 0 && now - seat.snap_us > SNAP_STALL_US {
-				seat.refused += {provider}
-				restart_snapshot(relay, joiner, fmt.tprintf("no snapshot from slot %d", provider), now)
+		for &conn, joiner in relay.conns {
+			if provider := conn.provider; provider >= 0 && conn.connected && now - conn.snap_us > SNAP_STALL_US {
+				conn.refused += {int(provider)}
+				why := fmt.tprintf("no snapshot from slot %d", conn_slot(relay, provider))
+				restart_snapshot(relay, Peer(joiner), why, now)
 			}
 		}
 		send_reports(relay, now)
 	}
 	if !relay.ending && relay.started && relay.cfg.ticks != 0 && relay.finalized == relay.cfg.ticks {
 		all_done := true
-		for &seat in relay.seats {
-			if seat.welcomed && seat.connected && !seat.done {
+		for &conn in relay.conns {
+			if conn.welcomed && conn.connected && !conn.done {
 				all_done = false
 			}
 		}
@@ -1271,8 +1377,8 @@ relay_step :: proc(relay: ^Relay($G), now: i64) -> (wake_us: i64) {
 	channel_flush(relay.ch, now)
 	if relay.ending && !relay.finished {
 		idle := true
-		for &seat in relay.seats {
-			if seat.peer >= 0 && !channel_idle(relay.ch, seat.peer) {
+		for &conn, peer in relay.conns {
+			if conn.connected && !channel_idle(relay.ch, Peer(peer)) {
 				idle = false
 			}
 		}

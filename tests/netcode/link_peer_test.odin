@@ -70,7 +70,7 @@ a_leave_and_the_next_hello_in_one_poll_on_one_link_peer :: proc(t: ^testing.T) {
 		netcode.client_step(new_client, now) // its Hello goes out
 		net_run(&session, 6)
 		connected := 0
-		for seat in session.relay.seats do connected += int(seat.connected)
+		for seat in session.relay.seats do connected += int(seat.conn >= 0)
 		testing.expectf(
 			t,
 			new_client.status == .Connected && connected == 2,
@@ -141,7 +141,7 @@ a_duplicate_hello_of_a_replaced_connection_on_one_link_peer :: proc(t: ^testing.
 	netcode.client_step(first, session.clock.now)
 	netcode.link_send(&wire_from_5, 0, capture.sent[0])
 	net_run(&session, 0.05)
-	testing.expect(t, session.relay.seats[1].connected, "the first connection is seated")
+	testing.expect(t, session.relay.seats[1].conn >= 0, "the first connection is seated")
 	second := netcode.client_create(
 		&toy.GAME,
 		{slot = -1, player_name = "Linus"},
@@ -163,7 +163,7 @@ a_duplicate_hello_of_a_replaced_connection_on_one_link_peer :: proc(t: ^testing.
 		second.status,
 		second.detail,
 		second.member,
-		session.relay.seats[1].connected,
+		session.relay.seats[1].conn >= 0,
 		session.relay.seats[1].member,
 		len(session.relay.members),
 		members,

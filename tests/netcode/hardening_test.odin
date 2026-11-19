@@ -28,7 +28,7 @@ relay_idles_when_everyone_left :: proc(t: ^testing.T) {
 	netcode.client_stop(client, session.clock.now)
 	net_run(&session, 1)
 	testing.expect_value(t, client.status, netcode.Status.Disconnected)
-	testing.expect(t, !session.relay.seats[0].connected)
+	testing.expect(t, session.relay.seats[0].conn < 0)
 	testing.expectf(
 		t,
 		session.relay.finalized <= session.relay.clock + 1,
@@ -53,8 +53,8 @@ snapshot_provider_leaves_another_steps_in :: proc(t: ^testing.T) {
 	bystander := net_join(&session, 1)
 	net_run(&session, 2)
 	joiner := net_join(&session)
-	net_run(&session, 1, proc(session: ^Net) -> bool {return session.relay.seats[2].provider >= 0})
-	testing.expect_value(t, session.relay.seats[2].provider, 0) // the lowest player that can provide: provider
+	net_run(&session, 1, proc(session: ^Net) -> bool {return provider_slot(session.relay, 2) >= 0})
+	testing.expect_value(t, provider_slot(session.relay, 2), 0) // the lowest player that can provide: provider
 	netcode.client_stop(provider, session.clock.now)
 	net_run(&session, 4)
 	testing.expect_value(t, joiner.status, netcode.Status.Connected)
@@ -73,13 +73,13 @@ snapshot_provider_leaves_joiner_is_refused :: proc(t: ^testing.T) {
 	provider := net_join(&session, 0)
 	net_run(&session, 2)
 	joiner := net_join(&session)
-	net_run(&session, 1, proc(session: ^Net) -> bool {return session.relay.seats[1].provider >= 0})
-	testing.expect_value(t, session.relay.seats[1].provider, 0)
+	net_run(&session, 1, proc(session: ^Net) -> bool {return provider_slot(session.relay, 1) >= 0})
+	testing.expect_value(t, provider_slot(session.relay, 1), 0)
 	netcode.client_stop(provider, session.clock.now)
 	net_run(&session, 4)
 	testing.expect_value(t, joiner.status, netcode.Status.Failed)
 	testing.expect_value(t, joiner.detail, "no player can send this player a snapshot")
-	testing.expect(t, !session.relay.seats[1].connected)
+	testing.expect(t, session.relay.seats[1].conn < 0)
 }
 
 // A raw channel standing in for the relay, to send a client exactly the messages a test wants.
@@ -366,10 +366,10 @@ only_the_asked_provider_sends_snapshots :: proc(t: ^testing.T) {
 		netcode.channel_poll(evil, session.clock.now)
 		net_run(&session, 0.01)
 	}
-	testing.expect(t, session.relay.seats[1].connected)
+	testing.expect(t, session.relay.seats[1].conn >= 0)
 	joiner := net_join(&session)
-	net_run(&session, 1, proc(session: ^Net) -> bool {return session.relay.seats[2].provider >= 0})
-	testing.expect_value(t, session.relay.seats[2].provider, 0)
+	net_run(&session, 1, proc(session: ^Net) -> bool {return provider_slot(session.relay, 2) >= 0})
+	testing.expect_value(t, provider_slot(session.relay, 2), 0)
 	// The attacker sends a 5-byte "snapshot" for the joiner.
 	clear(&writer.buf)
 	wire.w_u8(&writer, u8(netcode.Msg.Snap_Begin))
@@ -577,7 +577,7 @@ joiner_in_a_reused_slot_ignores_the_old_echo :: proc(t: ^testing.T) {
 	net_run(&session, 1)
 	netcode.client_stop(old, session.clock.now)
 	net_run(&session, 1)
-	testing.expect(t, !session.relay.seats[1].connected)
+	testing.expect(t, session.relay.seats[1].conn < 0)
 	netcode.client_destroy(pop(&session.clients))
 
 	AHEAD :: i64(4 * 3600) * 1_000_000 // the joiner's machine booted 4 hours earlier
@@ -662,7 +662,7 @@ refused_hello_does_not_replace_the_seated_member :: proc(t: ^testing.T) {
 	defer evil_destroy(&evil)
 	reject := evil_run(&evil, &session, 1, .Reject)
 	testing.expect(t, len(reject) == 2 && netcode.Reject_Reason(reject[1]) == .Slot_Taken)
-	testing.expect(t, session.relay.seats[0].connected)
+	testing.expect(t, session.relay.seats[0].conn >= 0)
 	testing.expect_value(t, seated.status, netcode.Status.Connected)
 }
 
@@ -697,15 +697,15 @@ silent_or_unusable_snapshot_provider_is_replaced :: proc(t: ^testing.T) {
 		evil_run(&evil, &session, 1)
 		joiner := net_join(&session)
 		evil_run(&evil, &session, 0.1)
-		testing.expect_value(t, session.relay.seats[2].provider, 0)
+		testing.expect_value(t, provider_slot(session.relay, 2), 0)
 		if unusable {
 			writer := evil_begin(&evil, .Snap_Begin)
 			wire.w_u8(writer, 2)
-			wire.w_u32(writer, (session.relay.seats[2].snap_min + 15) / 16 * 16 + 1) // not a checksum tick
+			wire.w_u32(writer, (conn_in(session.relay, 2).snap_min + 15) / 16 * 16 + 1) // not a checksum tick
 			wire.w_u32(writer, 100)
 			evil_send(&evil, &session)
 			evil_run(&evil, &session, 0.1)
-			testing.expect_value(t, session.relay.seats[2].provider, 1)
+			testing.expect_value(t, provider_slot(session.relay, 2), 1)
 		}
 		evil_run(&evil, &session, f64(netcode.SNAP_STALL_US) / 1e6 + 3)
 		testing.expectf(t, joiner.status == .Connected, "unusable %v: the joiner is %v", unusable, joiner.status)
@@ -770,7 +770,7 @@ a_reused_seat_starts_empty :: proc(t: ^testing.T) {
 	evil_begin(&evil, .Leave)
 	evil_send(&evil, &session)
 	evil_run(&evil, &session, 0.2)
-	testing.expect(t, !session.relay.seats[1].connected)
+	testing.expect(t, session.relay.seats[1].conn < 0)
 	joiner := net_join(&session, 1)
 	net_run(
 		&session,
@@ -844,7 +844,7 @@ a_leave_and_a_hello_in_one_datagram_seat_nobody :: proc(t: ^testing.T) {
 	net_join(&session, 0)
 	evil.acking = true
 	evil_run(&evil, &session, 1)
-	testing.expect(t, session.relay.seats[1].connected)
+	testing.expect(t, session.relay.seats[1].conn >= 0)
 	evil.acking = false
 	evil_begin(&evil, .Leave)
 	evil_send(&evil, &session)
@@ -862,9 +862,9 @@ a_leave_and_a_hello_in_one_datagram_seat_nobody :: proc(t: ^testing.T) {
 	seat := &session.relay.seats[1]
 	testing.expectf(
 		t,
-		!seat.connected || netcode.channel_connected(session.relay.ch, seat.peer),
+		seat.conn < 0 || netcode.channel_connected(session.relay.ch, seat.conn),
 		"seat 1 is held by channel peer %d, which has no connection",
-		seat.peer,
+		seat.conn,
 	)
 	replaced := session.relay.replaced
 	late := net_join(&session) // the next endpoint gets the dropped peer's number
@@ -920,7 +920,7 @@ a_client_that_stops_acking_is_refused_as_too_far_behind :: proc(t: ^testing.T) {
 	reject := evil_run(&evil, &session, f64(netcode.RELAY_RING) / toy.HZ + 3, .Reject)
 	testing.expect(t, len(reject) == 2 && netcode.Reject_Reason(reject[1]) == .Too_Far_Behind, "a Too_Far_Behind")
 	testing.expect(t, session.relay.finalized > netcode.RELAY_RING)
-	testing.expect(t, !session.relay.seats[1].connected)
+	testing.expect(t, session.relay.seats[1].conn < 0)
 	net_run(&session, 1)
 	testing.expect_value(t, honest.status, netcode.Status.Connected)
 }

@@ -100,6 +100,28 @@ net_make :: proc(session: ^Net, ticks: u32, remotes: int, record := true) {
 
 // A plain relay (no host player) whose clock starts once `start_players` clients connected; `desync_detail`: typed
 // desync reports.
+// The connection seated in `slot`, as the relay keeps it (a zero record when nobody sits there).
+conn_in :: proc(relay: ^netcode.Relay($G), slot: int) -> netcode.Relay_Conn {
+	conn := netcode.relay_conn(relay, slot)
+	return conn^ if conn != nil else {provider = -1, snap_from = -1, locals = -1, report_from = netcode.NO_REPORTS}
+}
+
+// The lowest slot of the connection the relay asked for the snapshot of the joiner in `slot` (-1: none asked).
+provider_slot :: proc(relay: ^netcode.Relay($G), slot: int) -> int {
+	provider := conn_in(relay, slot).provider
+	if provider < 0 do return -1
+	for &seat, other in relay.seats {
+		if seat.conn == provider do return other
+	}
+	return -1
+}
+
+// Whether the connection seated in `provider` is among those refused for the joiner in `slot`.
+refused_slot :: proc(relay: ^netcode.Relay($G), slot: int, provider: int) -> bool {
+	conn := relay.seats[provider].conn
+	return conn >= 0 && int(conn) in conn_in(relay, slot).refused
+}
+
 net_make_relay :: proc(session: ^Net, start_players: int, ticks: u32, desync_detail := false) {
 	session.clock.now = 1_000_000
 	session.hub = netcode.hub_create(8)

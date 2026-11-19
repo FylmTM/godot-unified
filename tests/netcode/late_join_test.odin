@@ -38,10 +38,10 @@ a_bad_snapshot_is_refused_and_another_player_sends_one :: proc(t: ^testing.T) {
 	testing.expect(t, session.relay.desyncs > 0) // player 0 parted from the others at tick 100
 	testing.expect(t, sim.Slots{0} <= session.relay.first_desync.diverged)
 	joiner := net_join(&session, 3)
-	net_run(&session, 1, proc(session: ^Net) -> bool {return session.relay.seats[3].provider >= 0})
-	testing.expect_value(t, session.relay.seats[3].provider, 0) // asked first: the lowest that can provide
+	net_run(&session, 1, proc(session: ^Net) -> bool {return provider_slot(session.relay, 3) >= 0})
+	testing.expect_value(t, provider_slot(session.relay, 3), 0) // asked first: the lowest that can provide
 	net_run(&session, 4)
-	testing.expect(t, 0 in session.relay.seats[3].refused)
+	testing.expect(t, refused_slot(session.relay, 3, 0))
 	testing.expect_value(t, joiner.status, netcode.Status.Connected)
 	testing.expect(t, joiner.verified > joiner.first_tick)
 	// The joiner agrees with the honest players.
@@ -73,8 +73,8 @@ a_bad_snapshot_with_nobody_else_refuses_the_joiner :: proc(t: ^testing.T) {
 	net_join(&session, 2)
 	net_run(&session, 3)
 	joiner := net_join(&session, 3)
-	net_run(&session, 4, proc(session: ^Net) -> bool {return 0 in session.relay.seats[3].refused})
-	testing.expect(t, 0 in session.relay.seats[3].refused)
+	net_run(&session, 4, proc(session: ^Net) -> bool {return refused_slot(session.relay, 3, 0)})
+	testing.expect(t, refused_slot(session.relay, 3, 0))
 	netcode.client_stop(session.clients[1], session.clock.now)
 	netcode.client_stop(session.clients[2], session.clock.now)
 	net_run(&session, 2)
@@ -84,7 +84,7 @@ a_bad_snapshot_with_nobody_else_refuses_the_joiner :: proc(t: ^testing.T) {
 		joiner.detail,
 		"the snapshot differed from the other players' and nobody else could send one",
 	)
-	testing.expect(t, !session.relay.seats[3].connected)
+	testing.expect(t, session.relay.seats[3].conn < 0)
 }
 
 // A joiner that leaves before its provider sent the snapshot, and another one in the same seat right after: the
@@ -98,12 +98,12 @@ a_quick_rejoin_is_sent_a_fresh_snapshot :: proc(t: ^testing.T) {
 	net_join(&session, 0, .Ideal)
 	net_run(&session, 2)
 	first := net_join(&session, -1, .Ideal)
-	net_run(&session, 1, proc(session: ^Net) -> bool {return session.relay.seats[1].provider >= 0})
-	testing.expect_value(t, session.relay.seats[1].provider, 0)
+	net_run(&session, 1, proc(session: ^Net) -> bool {return provider_slot(session.relay, 1) >= 0})
+	testing.expect_value(t, provider_slot(session.relay, 1), 0)
 	net_run(&session, 0.3)
 	netcode.client_stop(first, session.clock.now)
 	net_run(&session, 0.02)
-	testing.expect(t, !session.relay.seats[1].connected)
+	testing.expect(t, session.relay.seats[1].conn < 0)
 	second := net_join(&session, -1, .Ideal)
 	net_run(&session, 5)
 	testing.expectf(t, second.status == .Connected, "the second joiner is %v (%s)", second.status, second.detail)
@@ -127,8 +127,8 @@ an_older_snapshot_after_a_newer_begin_is_refused :: proc(t: ^testing.T) {
 	evil_run(&evil, &session, 1)
 	joiner := net_join(&session, -1, .Wan)
 	evil_run(&evil, &session, 0.3)
-	testing.expect_value(t, session.relay.seats[2].provider, 0)
-	older := (session.relay.seats[2].snap_min + 15) / 16 * 16 // the first checksum tick the joiner may start from
+	testing.expect_value(t, provider_slot(session.relay, 2), 0)
+	older := (conn_in(session.relay, 2).snap_min + 15) / 16 * 16 // the first checksum tick the joiner may start from
 	newer := older + 16
 	for honest.verified < older {
 		evil_run(&evil, &session, 0.01)
@@ -156,7 +156,7 @@ an_older_snapshot_after_a_newer_begin_is_refused :: proc(t: ^testing.T) {
 	)
 	evil_snapshot(&evil, &session, 2, older, snapshot)
 	evil_run(&evil, &session, 6)
-	testing.expect(t, 0 in session.relay.seats[2].refused)
+	testing.expect(t, refused_slot(session.relay, 2, 0))
 	testing.expectf(
 		t,
 		joiner.status == .Connected && joiner.snap_tick >= newer && session.relay.finalized - joiner.verified < 64,
@@ -167,7 +167,7 @@ an_older_snapshot_after_a_newer_begin_is_refused :: proc(t: ^testing.T) {
 		joiner.verified,
 		joiner.fin_upto,
 		session.relay.finalized,
-		session.relay.seats[2].client_ack,
+		conn_in(session.relay, 2).client_ack,
 	)
 }
 
@@ -190,8 +190,8 @@ a_provider_replaced_mid_transfer_leaves_no_gap :: proc(t: ^testing.T) {
 	evil_run(&evil, &session, 2, round = 0.001)
 	joiner := net_join(&session, 3)
 	evil_run(&evil, &session, 0.2, round = 0.001)
-	testing.expect_value(t, session.relay.seats[3].provider, 0)
-	first_tick := (session.relay.seats[3].snap_min + 15) / 16 * 16
+	testing.expect_value(t, provider_slot(session.relay, 3), 0)
+	first_tick := (conn_in(session.relay, 3).snap_min + 15) / 16 * 16
 	for session.relay.finalized < first_tick do evil_run(&evil, &session, 0.001, round = 0.001)
 	writer := evil_begin(&evil, .Snap_Begin)
 	wire.w_u8(writer, 3)
@@ -206,7 +206,7 @@ a_provider_replaced_mid_transfer_leaves_no_gap :: proc(t: ^testing.T) {
 	evil_send(&evil, &session)
 	evil_run(&evil, &session, 0.02, round = 0.001, hitched = 0)
 	at_restart := session.relay.finalized
-	testing.expect_value(t, session.relay.seats[3].provider, 1)
+	testing.expect_value(t, provider_slot(session.relay, 3), 1)
 	net_run(&session, 6)
 	testing.expectf(
 		t,
@@ -218,9 +218,9 @@ a_provider_replaced_mid_transfer_leaves_no_gap :: proc(t: ^testing.T) {
 		joiner.fin_upto,
 		session.relay.finalized,
 		at_restart,
-		session.relay.seats[3].client_ack,
+		conn_in(session.relay, 3).client_ack,
 		first_tick,
-		session.relay.seats[3].snap_tick,
+		conn_in(session.relay, 3).snap_tick,
 	)
 	net_run(&session, 40)
 	testing.expectf(t, joiner.status == .Connected, "40 s later the joiner is %v (%s)", joiner.status, joiner.detail)
@@ -243,7 +243,7 @@ a_restarted_snapshot_keeps_up_at_any_phase :: proc(t: ^testing.T) {
 		testing.expectf(
 			t,
 			joiner.status == .Connected &&
-			0 in session.relay.seats[3].refused &&
+			refused_slot(session.relay, 3, 0) &&
 			session.relay.finalized - joiner.verified < 64,
 			"phase %d: the joiner is %v (%s): verified %d, fin_upto %d; the relay finalized %d, its client_ack %d, refused %v",
 			k,
@@ -252,8 +252,8 @@ a_restarted_snapshot_keeps_up_at_any_phase :: proc(t: ^testing.T) {
 			joiner.verified,
 			joiner.fin_upto,
 			session.relay.finalized,
-			session.relay.seats[3].client_ack,
-			session.relay.seats[3].refused,
+			conn_in(session.relay, 3).client_ack,
+			conn_in(session.relay, 3).refused,
 		)
 	}
 }
@@ -280,8 +280,8 @@ slow_join :: proc(
 	evil_run(evil, session, 3, round = 0.001) // past tick 100, where the diverged build parts
 	joiner = net_join(session, -1, joiner_link)
 	evil_run(evil, session, 0.3, round = 0.001)
-	testing.expect_value(t, session.relay.seats[2].provider, 0)
-	tick = (session.relay.seats[2].snap_min + 15) / 16 * 16
+	testing.expect_value(t, provider_slot(session.relay, 2), 0)
+	tick = (conn_in(session.relay, 2).snap_min + 15) / 16 * 16
 	for session.relay.finalized < tick do evil_run(evil, session, 0.001, round = 0.001)
 	simulation := sim.create(game, SEED)
 	defer sim.destroy(simulation)
@@ -357,16 +357,16 @@ a_slow_snapshot_is_still_checked :: proc(t: ^testing.T) {
 	defer net_destroy(&session)
 	defer evil_destroy(&evil)
 	evil_run(&evil, &session, 4, round = 0.001, done = proc(session: ^Net) -> bool {
-			return session.relay.unchecked_snapshots > 0 || session.relay.seats[2].refused != {}
+			return session.relay.unchecked_snapshots > 0 || conn_in(session.relay, 2).refused != {}
 		})
 	testing.expectf(
 		t,
-		session.relay.unchecked_snapshots == 0 && 0 in session.relay.seats[2].refused,
+		session.relay.unchecked_snapshots == 0 && refused_slot(session.relay, 2, 0),
 		"%d snapshot let in unchecked, %d ticks after its tick %d, though slot 1 reported that tick; providers refused: %v",
 		session.relay.unchecked_snapshots,
 		session.relay.finalized - tick,
 		tick,
-		session.relay.seats[2].refused,
+		conn_in(session.relay, 2).refused,
 	)
 }
 
@@ -384,7 +384,7 @@ a_snapshot_in_slow_pieces_catches_up_past_1024_ticks :: proc(t: ^testing.T) {
 	evil_run(&evil, &session, 1)
 	joiner := net_join(&session, -1, .Ideal)
 	evil_run(&evil, &session, 0.1)
-	tick := (session.relay.seats[1].snap_min + 15) / 16 * 16
+	tick := (conn_in(session.relay, 1).snap_min + 15) / 16 * 16
 	for session.relay.finalized < tick {
 		evil_run(&evil, &session, 0.01)
 	}
@@ -437,8 +437,8 @@ a_snapshot_nobody_else_reports_is_let_in_unchecked :: proc(t: ^testing.T) {
 	evil_run(&evil, &session, 1)
 	joiner := net_join(&session, -1, .Ideal)
 	evil_run(&evil, &session, 0.1)
-	testing.expect_value(t, session.relay.seats[1].provider, 0)
-	tick := (session.relay.seats[1].snap_min + 15) / 16 * 16
+	testing.expect_value(t, provider_slot(session.relay, 1), 0)
+	tick := (conn_in(session.relay, 1).snap_min + 15) / 16 * 16
 	for session.relay.finalized < tick {
 		evil_run(&evil, &session, 0.01)
 	}
@@ -504,8 +504,8 @@ a_rejoin_while_a_large_snapshot_is_on_its_way_gets_in :: proc(t: ^testing.T) {
 	evil_run(&evil, &session, 1)
 	first := net_join(&session, -1, .Ideal)
 	evil_run(&evil, &session, 0.1)
-	testing.expect_value(t, session.relay.seats[1].provider, 0)
-	tick := (session.relay.seats[1].snap_min + 15) / 16 * 16
+	testing.expect_value(t, provider_slot(session.relay, 1), 0)
+	tick := (conn_in(session.relay, 1).snap_min + 15) / 16 * 16
 	for session.relay.finalized < tick do evil_run(&evil, &session, 0.01)
 	big := make([]u8, 8 << 20)
 	defer delete(big)
@@ -513,11 +513,11 @@ a_rejoin_while_a_large_snapshot_is_on_its_way_gets_in :: proc(t: ^testing.T) {
 	evil_run(&evil, &session, 1)
 	netcode.client_stop(first, session.clock.now)
 	evil_run(&evil, &session, 0.2)
-	testing.expect(t, !session.relay.seats[1].connected)
+	testing.expect(t, session.relay.seats[1].conn < 0)
 	second := net_join(&session, -1, .Ideal)
 	evil_run(&evil, &session, 0.1)
-	testing.expect_value(t, session.relay.seats[1].provider, 0)
-	tick = (session.relay.seats[1].snap_min + 15) / 16 * 16
+	testing.expect_value(t, provider_slot(session.relay, 1), 0)
+	tick = (conn_in(session.relay, 1).snap_min + 15) / 16 * 16
 	for session.relay.finalized < tick do evil_run(&evil, &session, 0.01)
 	simulation := sim.create(&toy.GAME, SEED)
 	defer sim.destroy(simulation)
@@ -535,7 +535,7 @@ a_rejoin_while_a_large_snapshot_is_on_its_way_gets_in :: proc(t: ^testing.T) {
 		"the second joiner is %v (%s); providers refused: %v",
 		second.status,
 		second.detail,
-		session.relay.seats[1].refused,
+		conn_in(session.relay, 1).refused,
 	)
 }
 
@@ -554,10 +554,10 @@ stale_chunks_keep_a_provider_only_while_the_ring_holds_the_join :: proc(t: ^test
 	evil_run(&evil, &session, 1)
 	joiner := net_join(&session, -1, .Ideal)
 	evil_run(&evil, &session, 0.1)
-	testing.expect_value(t, session.relay.seats[1].provider, 0)
-	snap_min := session.relay.seats[1].snap_min
+	testing.expect_value(t, provider_slot(session.relay, 1), 0)
+	snap_min := conn_in(session.relay, 1).snap_min
 	chunk := [64]u8{}
-	for session.relay.seats[1].connected && session.relay.finalized < snap_min + 2 * netcode.RELAY_RING {
+	for session.relay.seats[1].conn >= 0 && session.relay.finalized < snap_min + 2 * netcode.RELAY_RING {
 		writer := evil_begin(&evil, .Snap_Chunk)
 		wire.w_u8(writer, 1)
 		wire.w_u32(writer, 0)
@@ -565,7 +565,7 @@ stale_chunks_keep_a_provider_only_while_the_ring_holds_the_join :: proc(t: ^test
 		evil_send(&evil, &session)
 		evil_run(&evil, &session, 1)
 		if session.relay.finalized < snap_min + netcode.RELAY_RING - 64 {
-			testing.expect_value(t, session.relay.seats[1].provider, 0)
+			testing.expect_value(t, provider_slot(session.relay, 1), 0)
 		}
 	}
 	evil_run(&evil, &session, 1)

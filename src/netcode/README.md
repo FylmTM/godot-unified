@@ -91,6 +91,11 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
 
 ## Relay
 
+- **Connections and seats.** The relay keeps two records apart: a **connection** (`Relay_Conn`, by channel peer) is one
+  client program, one sim, so it has one stream of finalized ticks and its acks, one checksum report per checksum
+  tick, one late join with its snapshot; a **seat** (`Seat`, by slot) is one player, a member with their inputs and
+  commands. A connection holds its seats (`LOCAL_MAX` at most); when it goes, every seat it held empties. A snapshot is
+  asked for, sent and checked per connection.
 - **Hello** asks for a slot or any free one (slots go lowest-free). The relay checks `compat` (`sim.compat_of`), finds
   who it is (Members) and, once the session runs, someone who can send the joiner a snapshot; `Reject_Reason` names
   each refusal. A Hello while the session ends gets End, not silence.
@@ -233,8 +238,8 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
 
 ## Late join and rejoin
 
-- The joiner's join tick J = max(asked, clock + `JOIN_LEAD_MS`, finalized + 2). The lowest connected player that can
-  (and didn't send it a bad one) is asked for a snapshot of the first checksum tick S ≥ J − 1 it verifies. It goes
+- The joiner's join tick J = max(asked, clock + `JOIN_LEAD_MS`, finalized + 2). The connection holding the lowest slot
+  that can (and didn't send it a bad one) is asked for a snapshot of the first checksum tick S ≥ J − 1 it verifies. It goes
   through the relay in reliable chunks, only from the player asked; the finalized ticks from S on are streamed to the
   joiner. A provider that leaves, sends nothing for `SNAP_STALL_US`, or sends a snapshot the relay can't use is
   replaced by another, asked for a snapshot no older than the one begun (the joiner keeps the finalized ticks it
@@ -261,9 +266,10 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
 
 - Every client sends the checksum of every `CHECKSUM_EVERY`th verified tick (`sim.DEEP_CHECKSUM_EVERY`: they cover
   every extra's whole state); a joiner from its first checksum tick after S on.
-- The relay judges a checksum tick once every player expected to report it has, or `CHECK_WAIT_MS` after it is due:
-  the majority value (a tie goes to the lowest slot: with 2 players, the host). Slots that differ from it are a
-  **desync**: counted, logged, and reported to every client (`Desync_Report`); the `desync` hook gets it, the dev UI
+- The relay judges a checksum tick once every connection expected to report it has, or `CHECK_WAIT_MS` after it is
+  due: the majority value, one vote per connection, since a connection is one sim whatever its seats (a tie goes to
+  the connection holding the lowest slot: with 2 players, the host). The slots of the connections that differ from it
+  are a **desync**: counted, logged, and reported to every client (`Desync_Report`); the `desync` hook gets it, the dev UI
   shows it, `session_run`'s `ok` turns false. A late report that differs from a judged tick is reported too.
   Checksums of ticks the relay has not finalized are dropped.
 - **Typed reports** (`desync_detail` on the relay or host config; the Godot host turns it on where the dev UI is):
