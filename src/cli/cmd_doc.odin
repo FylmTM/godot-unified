@@ -34,9 +34,13 @@ cmd_doc :: proc(args: []string) -> Result {
 	targets: [dynamic]Doc_Target
 	for arg in opts.overflow {
 		dot := strings.last_index_byte(arg, '.')
-		if dir, found := doc_package_dir(arg); found {
+		// a directory by a bare name only first: after a package, a bare word is one of its names (`Game`, beside a
+		// game repo's game/ on a case-blind file system)
+		bare_dir := len(targets) == 0 || strings.contains_any(arg, "/\\")
+		if dir, found := doc_package_dir(arg, bare_dir); found {
 			append(&targets, Doc_Target{dir = dir, typed = arg})
-		} else if dir_of_prefix, prefix_found := doc_package_dir(arg[:max(dot, 0)]); dot > 0 && prefix_found {
+		} else if dir_of_prefix, prefix_found := doc_package_dir(arg[:max(dot, 0)], bare_dir);
+		   dot > 0 && prefix_found {
 			append(&targets, Doc_Target{dir = dir_of_prefix, typed = arg[:dot]})
 			append(&targets[len(targets) - 1].names, arg[dot + 1:])
 		} else if len(targets) > 0 {
@@ -328,9 +332,10 @@ doc_first_sentence :: proc(doc: []string) -> string {
 }
 
 // A package name or a path, as the directory of its package: `sim` and `unified:sim` are the collection's, a game's
-// name its sim package (games/<game>/simulation/<game>), anything else a directory (found false: none of them).
+// name its sim package (games/<game>/simulation/<game>), anything else a directory (`any_dir`; found false: none of
+// them).
 @(private)
-doc_package_dir :: proc(name: string) -> (dir: string, found: bool) {
+doc_package_dir :: proc(name: string, any_dir: bool) -> (dir: string, found: bool) {
 	pkg := strings.trim_prefix(name, "unified:")
 	if collection_dir := join(state.project.unified, "src", pkg); os.is_directory(collection_dir) {
 		return collection_dir, true
@@ -340,7 +345,7 @@ doc_package_dir :: proc(name: string) -> (dir: string, found: bool) {
 			return join(game.dir, "simulation", game.name), true
 		}
 	}
-	if os.is_directory(name) {
+	if any_dir && os.is_directory(name) {
 		abs, _ := os.get_absolute_path(name, context.allocator)
 		return abs, true
 	}
