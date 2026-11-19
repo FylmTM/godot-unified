@@ -3,7 +3,8 @@ extends PanelContainer
 ## The HUD's session panel, top-right: who is in the session and how friends join.
 ## In the lobby (a game's gathering phase): a "Lobby" heading, the join code (or LAN address) large with a
 ## Copy button, the players, and a hint (waiting for a friend, or how to start). While playing: "Players", the code in
-## one small line (friends can still join), the players. Hidden when solo and offline.
+## one small line (friends can still join), the players, and a warning while the link to the host is slow (its round
+## trip past what the game plays smoothly at). Hidden when solo and offline.
 ## The game passes its rows; the panel owns the look. Built in code.
 
 ## One per present player, in player order: {player: int, name: String, status: String, bar: float (0..1, < 0 hides)}.
@@ -16,6 +17,7 @@ var _copy: Button
 var _code_small: Label
 var _list: VBoxContainer
 var _hint: Label
+var _link: Label
 
 
 func _init() -> void:
@@ -59,6 +61,13 @@ func _ready() -> void:
 	_hint = _label(vbox, &"Dim")
 	_hint.add_theme_font_size_override(&"font_size", 14)
 	_hint.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_link = _label(vbox, &"")
+	_link.name = &"Link"
+	_link.add_theme_font_size_override(&"font_size", 14)
+	_link.add_theme_color_override(&"font_color", UiTheme.BAD)
+	_link.autowrap_mode = TextServer.AUTOWRAP_WORD_SMART
+	_link.visible = false
+	Unified.session.link_slow_changed.connect(func(_slow: bool) -> void: _refresh_link())
 	visible = false
 
 
@@ -79,6 +88,7 @@ func refresh(rows: Array, lobby: bool, start_hint: String) -> void:
 		_code_small.text = "%s  %s" % ["Code" if is_code else "LAN", code]
 		# Mouse-look games capture the mouse while playing; the button is only offered when it can be clicked.
 		_copy.visible = Input.mouse_mode != Input.MOUSE_MODE_CAPTURED
+	_refresh_link()
 	_hint.visible = lobby
 	if lobby:
 		if rows.size() < 2:
@@ -108,6 +118,14 @@ func refresh(rows: Array, lobby: bool, start_hint: String) -> void:
 		var bar: float = r.get("bar", -1.0)
 		row.bar.visible = bar >= 0.0
 		row.bar.value = bar
+
+
+## The slow link's line: the round trip against the game's ceiling, shown while the session says the link is slow.
+func _refresh_link() -> void:
+	_link.visible = Unified.session.link_slow
+	if _link.visible:
+		_link.text = "Slow connection: %d ms to the host (plays smoothly up to %d ms)" % [
+			int(Unified.session.round_trip_ms), int(Unified.session.round_trip_ceiling_ms)]
 
 
 func _label(parent: Control, variation: StringName) -> Label:

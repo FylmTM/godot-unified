@@ -1,5 +1,6 @@
 extends Control
-## Shown by `Game` while an online session connects: the live status, the lobby code when hosting, Cancel.
+## Shown by `Game` while an online session connects, reconnects or recovers: the live status, the lobby code when
+## hosting, a slow link's warning, Cancel.
 
 const DOTS: Array[String] = ["", ".", "..", "..."]
 
@@ -18,6 +19,7 @@ func _ready() -> void:
 	Game.status_changed.connect(func(_s: UnifiedSession.Status, _d: String) -> void: _refresh())
 	Unified.session.join_code_changed.connect(func(_c: String) -> void: _refresh())
 	Game.input_device_changed.connect(func(_pad: bool) -> void: _refresh())
+	Unified.session.link_slow_changed.connect(func(_slow: bool) -> void: _refresh())
 	_copy.pressed.connect(func() -> void: Game.copy_with_feedback(_copy, _code.text))
 	_cancel.pressed.connect(func() -> void:
 		Sfx.play(&"click")
@@ -28,8 +30,8 @@ func _ready() -> void:
 
 func _process(delta: float) -> void:
 	_t += delta
-	if Game.status == UnifiedSession.STATUS_CONNECTING:
-		_status.text = "Connecting" + DOTS[int(_t * 3.0) % DOTS.size()]
+	if Game.status != UnifiedSession.STATUS_CONNECTED:
+		_status.text = _status_word() + DOTS[int(_t * 3.0) % DOTS.size()]
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -39,8 +41,28 @@ func _unhandled_input(event: InputEvent) -> void:
 
 
 func _refresh() -> void:
-	_status.text = "Connected" if Game.status == UnifiedSession.STATUS_CONNECTED else "Connecting"
-	_detail.text = Game.status_detail if Game.status_detail != "" else "Talking to the lobby service."
+	_status.text = _status_word()
+	match Game.status:
+		UnifiedSession.STATUS_RECONNECTING:
+			_detail.text = "The link to the host was lost. Your place in the game is kept."
+		UnifiedSession.STATUS_RECOVERING:
+			_detail.text = "Putting your game back in step with the host's."
+		_:
+			_detail.text = Game.status_detail if Game.status_detail != "" else "Talking to the lobby service."
+	if Unified.session.link_slow:
+		_detail.text += "\nSlow connection: %d ms to the host (this game plays smoothly up to %d ms)." % [
+			int(Unified.session.round_trip_ms), int(Unified.session.round_trip_ceiling_ms)]
 	_code.text = Unified.session.join_code if Game.mode == Game.Mode.HOST else ""  # online: the lobby code
 	_code_box.visible = _code.text != ""
 	_key_hint.text = "%s to cancel" % Game.input_label(&"ui_cancel")
+
+
+func _status_word() -> String:
+	match Game.status:
+		UnifiedSession.STATUS_CONNECTED:
+			return "Connected"
+		UnifiedSession.STATUS_RECONNECTING:
+			return "Reconnecting"
+		UnifiedSession.STATUS_RECOVERING:
+			return "Resyncing"
+	return "Connecting"

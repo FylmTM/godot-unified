@@ -264,6 +264,13 @@ func _on_status_changed(new_status: UnifiedSession.Status, detail: String) -> vo
 				_hide_connect_overlay()
 				flow = Flow.PLAYING
 				get_tree().change_scene_to_file(PLAY_SCENE)
+			elif flow == Flow.PLAYING:
+				_hide_connect_overlay()  # back from reconnecting or recovering
+		UnifiedSession.STATUS_RECONNECTING, UnifiedSession.STATUS_RECOVERING:
+			# The library brings the session back by itself (a new connection, or the state put right): the play
+			# scene stays, frozen, under the overlay; Cancel leaves.
+			if flow == Flow.PLAYING:
+				_show_connect_overlay()
 		UnifiedSession.STATUS_FAILED:
 			leave_to_menu(detail if detail != "" else "Connection failed.")
 		UnifiedSession.STATUS_LEFT:
