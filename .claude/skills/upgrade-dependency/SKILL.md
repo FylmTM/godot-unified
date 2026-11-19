@@ -30,6 +30,10 @@ For every upgrade:
   mirrors, and a wrapper per new or changed Box3D proc) until `./uni vet` and those tests pass.
 - `BOX3D_GOLDEN` there pins the library's results. If it or a reference run changes, the simulation changed: update
   it and regenerate the reference runs deliberately (`sim-change`).
+- `tests/physics/debug_draw_test.odin` holds Box3D's debug draw to "changes nothing": a flag in
+  `physics.DEBUG_DRAW_PURE` that starts writing to the world fails `debug_draw_changes_nothing` (take it out of the
+  set: it is then drawn between a snapshot save and restore); `debug_draw_joint_extras_write` failing means joint
+  extras stopped writing (move `.Joint_Extras` into the set).
 - The `tag` is part of `sim.compat_of` (builds on other releases refuse each other), so every reference run's log and
   snapshot carry a new compat: paste each suite's new `REFERENCE` literal (the games' and the toy's), with the bump. The
   results are unchanged when only the `snapshot` and `log` hashes moved; a changed checkpoint or `trace` is a sim

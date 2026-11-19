@@ -17,6 +17,7 @@ Host_Config :: struct {
 	account:       Account,
 	recording:     sim.Log_Sink, // optional: the session's input log (Relay_Config.recording)
 	desync_detail: bool, // typed desync reports (Relay_Config.desync_detail)
+	dev:           bool, // the host player's client attaches a sim.Dev (Client_Config.dev)
 }
 
 // The relay and the host player's own client in one process (host_create), joined by a loopback hub. Driven by
@@ -58,6 +59,7 @@ host_create :: proc(game: ^$G, cfg: Host_Config, hooks: Hooks(G)) -> ^Host(G) {
 		compat      = compat,
 		content     = cfg.content,
 		player_name = cfg.player_name,
+		dev         = cfg.dev,
 	}
 	host.client = client_create(game, client_config, loopback_link(host.hub, 1), hooks)
 	host.client.poll_us = SOLO_POLL_US // its only link is in-process: host_step hands it what the relay sends at once

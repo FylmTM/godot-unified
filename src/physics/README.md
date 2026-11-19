@@ -47,7 +47,11 @@ the game helpers below.
 - **Creation** takes defs by value and the references as arguments, and fills the def's ids itself (a joint's bodies
   are links, so a joint can attach to the anchor or a platform). It asserts the def's `user_data` unset: a pointer has
   no place in rollback state.
-- **Out of scope**: debug draw, profile and counters, recording (our replays), the dynamic tree, task and worker
+- **Debug draw** (`debug_draw`): Box3D's own draw for joints, contacts, bounds and the rest, shapes drawn by physics
+  (Box3D draws a shape only through a host object it keeps in the world). It never changes what `hash`, a save or an
+  image holds: a flag outside `DEBUG_DRAW_PURE` is drawn between a snapshot save and restore, and the tests hold
+  every flag to it.
+- **Out of scope**: profile and counters, recording (our replays), the dynamic tree, task and worker
   callbacks (`Settings.workers`), pre-solve, custom-filter, friction and restitution callbacks (code run mid-step),
   `user_data` setters, step and snapshots (the plug-in's), narrow-phase internals, `World_EnableSpeculative` (never
   read), demo geometry (`CreateRock`, `CreateComplexHull`, wave and torus meshes), `ComputeCosSin` (ours is `dmath`).

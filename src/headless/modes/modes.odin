@@ -350,7 +350,7 @@ mode_bench :: proc(game: ^$G, args: ^Args) -> bool {
 		result.warmup,
 	)
 	fmt.printfln(
-		`{{"mode":"bench","what":"%s","entities":%d,"window":%d,"ticks":%d,"warmup":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"resim_final_us":%s,"checksum_us":%s,"checksum_deep_us":%s,"snapshot_encode_us":%s,"snapshot_keep_us":%s,"snapshot_bytes":%d,"save_bytes":%d,"mismatches":%d}}`,
+		`{{"mode":"bench","what":"%s","entities":%d,"window":%d,"ticks":%d,"warmup":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"resim_final_us":%s,"checksum_us":%s,"checksum_deep_us":%s,"snapshot_encode_us":%s,"snapshot_keep_us":%s,"snapshot_bytes":%d,"save_bytes":%d,"mismatches":%d,"zones":%s,"zoned_step_us":%s}}`,
 		what,
 		entities,
 		window,
@@ -368,6 +368,8 @@ mode_bench :: proc(game: ^$G, args: ^Args) -> bool {
 		result.snapshot_bytes,
 		result.save_bytes,
 		result.mismatches,
+		zones_json(result.zones),
+		stat_json(result.zoned_step),
 	)
 	return result.mismatches == 0
 }

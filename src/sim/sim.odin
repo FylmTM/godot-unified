@@ -127,6 +127,7 @@ Tick :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	events:         ^Events, // what this tick emits (event.odin)
 	player_changes: Player_Changes, // who arrived or left this tick (the State's Players already shows it)
 	commands:       ^Commands(part(G, GAME_CMD)), // the tick's commands, decoded (command.odin)
+	dev:            ^Dev, // the Sim's development attachment (dev.odin; nil: none): the harness's, never tick code's
 }
 
 // The step's changes to the State's Players (Tick.player_changes): `for player in t.player_changes.arrived`.
@@ -303,6 +304,7 @@ Ring_Slot :: struct($State: typeid) {
 	saved:  bool, // ... and its state (step(save = false) leaves it out): state_at, restore and snapshots read it
 	state:  State,
 	events: Events, // emitted by the step that produced `tick`
+	draws:  Debug_Draws, // drawn by the step that produced `tick` (dev.odin)
 }
 
 // A running simulation of game G (create, from_snapshot; destroy): the tick counter, the block, the World, the Extra
@@ -328,6 +330,7 @@ Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	// core:hash/xxhash's streaming XXH3 (dev-2026-11) returns wrong digests for some lengths.
 	hash_buf:     [dynamic]u8,
 	kept:         []Kept_Tick(part(G, GAME_STATE)), // KEEP_SLOTS, allocated by the first snapshot_keep
+	dev:          ^Dev, // draws and zones (dev_attach; nil: none)
 }
 
 // XXH3-64 (seed 0), one-shot.
@@ -627,8 +630,11 @@ create_with_setup :: proc(
 destroy :: proc(simulation: ^Sim($G)) {
 	for &slot in simulation.ring {
 		delete(slot.events.list)
+		delete(slot.draws.shapes)
+		delete(slot.draws.text)
 	}
 	delete(simulation.ring)
+	dev_destroy(simulation.dev)
 	delete(simulation.hash_buf)
 	wire_check_destroy(&simulation.input_check)
 	for &kept in simulation.kept {
@@ -662,6 +668,7 @@ step :: proc(simulation: ^Sim($G), inputs: ^Inputs(G), save := true) {
 	slot.valid = true
 	slot.saved = false
 	builtin.clear(&slot.events.list)
+	started := dev_step_begin(simulation.dev, &slot.draws)
 	tick := make_tick(simulation, number, read, &slot.events)
 	changes := &simulation.changes
 	players_update(&tick, changes)
@@ -672,6 +679,7 @@ step :: proc(simulation: ^Sim($G), inputs: ^Inputs(G), save := true) {
 	}
 	commands_decode(&simulation.commands, read)
 	simulation.game.tick(&tick)
+	dev_step_end(simulation.dev, started)
 	players_remember(&simulation.state.players, read)
 	simulation.tick = number
 	if save do save_tick(simulation)
@@ -710,6 +718,7 @@ make_tick :: proc(simulation: ^Sim($G), number: u32, inputs: ^Inputs(G), events:
 		inputs   = inputs,
 		events   = events,
 		commands = &simulation.commands,
+		dev      = simulation.dev,
 	}
 }
 

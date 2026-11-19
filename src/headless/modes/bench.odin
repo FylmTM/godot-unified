@@ -54,6 +54,64 @@ Bench_Result :: struct {
 	save_bytes:                 int, // what each tick's save copies: the block and the extras' saves (sim.save_size)
 	warmup:                     int, // the first ticks, left out of the timings
 	mismatches:                 int,
+	// The game's zones (sim.zone) per forward step, from a second pass of the same ticks with a Dev attached and timed
+	// (so the timings above carry no clock reads), the game's zones then "other"; empty for a game without zones. And
+	// that pass's forward step, whose mean less `step`'s is what timing the zones costs.
+	zones:                      []Zone_Stat,
+	zoned_step:                 Stat,
+}
+
+@(private)
+Zone_Stat :: struct {
+	name: string,
+	stat: Stat,
+}
+
+// The zones' clock (sim.dev_attach): nanoseconds.
+@(private)
+bench_clock :: proc "contextless" () -> i64 {
+	return time.tick_now()._nsec
+}
+
+// The zone pass of run_bench: the same forward ticks, a Dev attached with a clock, each zone's self time per step.
+@(private)
+bench_zones :: proc(
+	game: ^$G,
+	entities: int,
+	seed: u64,
+	recorded: []sim.Inputs(G),
+	warmup: u32,
+	result: ^Bench_Result,
+) {
+	simulation := sim.create(game, seed)
+	defer sim.destroy(simulation)
+	if game.bench_prepare != nil {
+		game.bench_prepare(&simulation.state, simulation.world, entities)
+		sim.save(simulation)
+	}
+	dev := sim.dev_attach(simulation, bench_clock)
+	if dev == nil do return // a build without the dev UI times no zones
+	samples: [sim.ZONES_MAX + 1][dynamic]f64
+	step_us := make([dynamic]f64, context.temp_allocator)
+	for &zone in samples do zone = make([dynamic]f64, context.temp_allocator)
+	for tick in 1 ..< u32(len(recorded)) {
+		before := dev.zone_ns
+		start := time.tick_now()
+		sim.step(simulation, &recorded[tick], save = false)
+		took := time.duration_microseconds(time.tick_since(start))
+		sim.save(simulation)
+		if tick <= warmup do continue
+		append(&step_us, took)
+		for &zone, i in samples do append(&zone, f64(dev.zone_ns[i] - before[i]) / 1000)
+	}
+	result.zoned_step = stat_of(step_us[:])
+	totals := sim.zone_totals(simulation)
+	if len(totals.names) == 0 do return
+	result.zones = make([]Zone_Stat, len(totals.names), context.temp_allocator)
+	for name, i in totals.names {
+		index := i < len(totals.names) - 1 ? i : sim.ZONES_MAX
+		result.zones[i] = {fmt.tprint(name), stat_of(samples[index][:])} // the names die with the sim
+	}
 }
 
 // The ticks a benchmark runs before it times anything, after the first `window` (which have no rollback that deep):
@@ -193,5 +251,19 @@ run_bench :: proc(game: ^$G, entities: int, window, ticks: u32, seed: u64, playe
 	result.snapshot_keep = stat_of(snapshot_keep_us[:deep_checksums])
 	result.save_bytes = sim.save_size(simulation)
 	result.snapshot_bytes = sim.snapshot_size(simulation)
+	bench_zones(game, entities, seed, recorded, warmup, &result)
 	return
+}
+
+// The zones as the bench prints them: {"<zone>":{"mean":..,"p99":..},...} (temp-allocated).
+@(private)
+zones_json :: proc(zones: []Zone_Stat) -> string {
+	out := make([dynamic]u8, context.temp_allocator)
+	append(&out, '{')
+	for zone, i in zones {
+		if i > 0 do append(&out, ',')
+		append(&out, fmt.tprintf(`"%s":%s`, zone.name, stat_json(zone.stat)))
+	}
+	append(&out, '}')
+	return string(out[:])
 }

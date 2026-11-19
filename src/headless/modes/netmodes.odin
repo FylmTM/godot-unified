@@ -59,6 +59,7 @@ mode_session :: proc(game: ^$G, args: ^Args) -> bool {
 		profile = profile_opt(args, .Wan),
 		ticks   = u32(opt_int(args, "ticks", 1200, low = 64, high = 1_000_000)),
 		seed    = seed_opt(args),
+		dev     = true, // zones per client step in each client's JSON
 	}
 	// A profile of its own: --latency and --jitter one way (ms), --loss per mille.
 	if latency := opt_int(args, "latency", -1, low = -1, high = 2000); latency >= 0 {

@@ -204,6 +204,21 @@ re-simulated tick emits the same events (`events_diff`).
 not a table's item (a level marker, an item of a fixed array) is named by an `Entity`. A point is a `Position`, in
 sim units, which the view maps to its own.
 
+## Debug draws and zones
+
+Tick code can show a developer what the sim saw and time its systems; neither is state. **Draws** (`debug_line`,
+`debug_sphere`, `debug_text`, ...; `physics.debug_draw` for the physics world) are kept in the tick's ring slot
+beside its events, so a re-simulated tick draws again and replaces what it drew, and the host shows the shown tick's
+draws. **Zones** (`sim.zone(t, Zone.Steer)`, scoped) time the rest of a scope; a zone's time is its self time, so a
+step's zones and "other" add up to the step. The zone a draw is made in is its draw group, the unit the dev UI
+toggles, so one enum names both; a game names its zone enum at each call because a bare `.Steer` has nothing to infer
+the enum from, and a seventh `sim.Game` parameter for a dev feature would cost every game more.
+
+Both hang off a `Dev` the host attaches to a `Sim` (`dev_attach`), which owns the clock: the sim reads none itself.
+Without one every call is a nil check; a build without the dev UI (`DEV` false) leaves every call an empty proc. The
+lint bans `.dev` outside this package, so tick code can't read a draw list or a zone time into state, and the
+sync-tests prove a run with everything attached computes the checksums of one without.
+
 ## Tables and handles
 
 A `Table` is a fixed-capacity array of the game's items inside the State, so it is plain data, rolled back, hashed

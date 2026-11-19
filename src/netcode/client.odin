@@ -27,6 +27,9 @@ Client_Config :: struct {
 	// prediction cap, so a step that catches up costs what a full-depth rollback costs, which the game's benchmark
 	// bounds. The channel, the clock and own inputs are served between the steps.
 	catchup_ticks: u32,
+	// Attach a sim.Dev to every sim the client makes or restores (debug draws, zones timed on the netcode's clock): a
+	// dev UI build, the headless session modes.
+	dev:           bool,
 }
 
 // Where a client stands (Client.status), reported through Hooks.status.
@@ -401,6 +404,7 @@ on_welcome :: proc(client: ^Client($G), reader: ^wire.Reader) {
 	reserve(&client.checksums, ticks != 0 ? int(ticks / CHECKSUM_EVERY) + 1 : CHECKSUMS_KEPT)
 	if first == 1 {
 		client.sim = usim.create(client.game, seed, client.cfg.content)
+		if client.cfg.dev do usim.dev_attach(client.sim, zone_clock)
 		if !client.leaving {
 			set_status(client, .Connected, "") // a client that left before its Welcome stays leaving ("left")
 		}
@@ -660,6 +664,7 @@ load_snapshot :: proc(client: ^Client($G), now: i64) {
 		return
 	}
 	client.sim = sim
+	if client.cfg.dev do usim.dev_attach(client.sim, zone_clock)
 	client.stats.snapshot_bytes = len(client.snap_buf)
 	client.stats.snapshot_us = now - client.snap_begin_us
 	client.verified = client.sim.tick
@@ -1335,13 +1340,37 @@ Client_Result :: struct {
 	// Did not fail and was told of no desync; a fixed-length session's client also verified every tick of it.
 	ok:          bool,
 	using stats: Client_Stats,
+	zones:       []Zone_Mean, // Client_Config.dev: each zone's self time per stepped tick, the game's zones then "other"
+}
+
+// A zone's mean self time per stepped tick (Client_Result.zones).
+Zone_Mean :: struct {
+	name: string,
+	us:   f64,
+}
+
+// The clock a client's sim times its zones by (sim.dev_attach): the netcode's, in nanoseconds.
+@(private)
+zone_clock :: proc "contextless" () -> i64 {
+	return time.tick_now()._nsec
 }
 
 // A client's results; the checksums are copied into `allocator` (the caller deletes them).
 client_result :: proc(client: ^Client($G), allocator := context.allocator) -> Client_Result {
 	checksums := make([][2]u64, len(client.checksums), allocator)
 	copy(checksums, client.checksums[:])
+	zones: []Zone_Mean
+	if client.sim != nil {
+		totals := usim.zone_totals(client.sim)
+		zones = make([]Zone_Mean, len(totals.names), allocator)
+		stepped := 0
+		for count in client.stats.steps do stepped += count
+		for name, i in totals.names {
+			zones[i] = {strings.clone(name, allocator), stepped > 0 ? f64(totals.ns[i]) / 1000 / f64(stepped) : 0}
+		}
+	}
 	return {
+		zones      = zones,
 		slot       = client.slot,
 		member     = int(client.member),
 		join_tick  = client.first_tick,
@@ -1362,8 +1391,13 @@ client_json :: proc(result: Client_Result) -> string {
 		}
 		append(&checksums, ..transmute([]u8)fmt.tprintf(`[%d,"%016x"]`, entry[0], entry[1]))
 	}
+	zones := make([dynamic]u8, 0, 16 + len(result.zones) * 32, context.temp_allocator)
+	for zone, i in result.zones {
+		if i > 0 do append(&zones, ',')
+		append(&zones, ..transmute([]u8)fmt.tprintf(`"%s":%.2f`, zone.name, zone.us))
+	}
 	return fmt.tprintf(
-		`{{"slot":%d,"member":%d,"final_tick":%d,"checksums":[%s],"client_step_us":{{"p99":%d,"max":%d,"count":%d}},"snapshot_bytes":%d,"snapshot_ms":%.1f,"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"desyncs":%d,"ok":%v,"net":%s,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}}}}`,
+		`{{"slot":%d,"member":%d,"final_tick":%d,"checksums":[%s],"client_step_us":{{"p99":%d,"max":%d,"count":%d}},"snapshot_bytes":%d,"snapshot_ms":%.1f,"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"desyncs":%d,"ok":%v,"net":%s,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"zones":{{%s}}}}`,
 		result.slot,
 		result.member,
 		result.final_tick,
@@ -1391,5 +1425,6 @@ client_json :: proc(result: Client_Result) -> string {
 		result.step_us[.Verified],
 		result.step_us[.Resim],
 		result.step_us[.Predicted],
+		string(zones[:]),
 	)
 }
