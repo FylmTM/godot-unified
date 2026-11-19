@@ -41,9 +41,13 @@ user_cache_cleanable :: proc() -> []string {
 }
 
 // Renames a freshly unpacked `tmp` directory to `dir`. Another checkout may have won the race: then `ready` (a file
-// inside `dir`) exists and `tmp` goes. A virus scanner can still hold a fresh file on Windows: one retry.
+// inside `dir`) exists and `tmp` goes. On Windows a virus scanner holds a fresh file while it scans it (a CI runner's
+// Defender takes seconds over the Godot editor just unpacked and run), so the rename is retried, waiting longer each
+// time, for up to RENAME_PATIENCE.
 rename_into_place :: proc(tmp, dir, ready: string) {
-	for attempt in 0 ..< 2 {
+	start := time.tick_now()
+	wait := 250 * time.Millisecond
+	for {
 		if os.rename(tmp, dir) == nil {
 			return
 		}
@@ -51,9 +55,14 @@ rename_into_place :: proc(tmp, dir, ready: string) {
 			remove_tree(tmp)
 			return
 		}
-		if attempt == 0 {
-			time.sleep(time.Second)
+		if time.tick_since(start) > RENAME_PATIENCE {
+			break
 		}
+		time.sleep(wait)
+		wait = min(wait * 2, 4 * time.Second)
 	}
 	fatal("cannot move %s into place as %s", tmp, dir)
 }
+
+// How long rename_into_place keeps retrying a rename a virus scanner blocks.
+RENAME_PATIENCE :: 30 * time.Second
