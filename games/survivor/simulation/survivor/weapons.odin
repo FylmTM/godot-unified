@@ -45,13 +45,13 @@ fire :: proc(t: ^Tick) {
 // (a ray: the level, crates and barrels; a barrel takes the damage); they expire after their life.
 move_projectiles :: proc(t: ^Tick) {
 	grid := &t.world.scratch.grid
-	grid_build(grid, &t.state.enemies) // the enemies moved and died since steering
+	enemy_grid_build(grid, &t.state.enemies) // the enemies moved and died since steering
 	projectiles := sim.iterate(&t.state.projectiles)
 	for projectile, handle in sim.next(&projectiles) {
 		step := projectile.vel * t.dt
 		next_pos := projectile.pos + step
 		hit: i32 = -1
-		for row in grid_near(grid, next_pos.xz) {
+		for row in sim.grid_near(grid, next_pos.xz) {
 			for enemy_index in row {
 				if hit >= 0 && enemy_index >= hit {
 					continue

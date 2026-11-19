@@ -18,10 +18,10 @@ fill_frame :: proc(f: ^Frame) {
 			pos  = sim.Position(character.pos),
 		}, Player_View{hp = max(character.hp, 0), dashing = character.dash_ticks > 0})
 	}
-	for &item, i in f.state.items[:f.world.item_count] {
+	for &item, i in f.state.items[:f.world.items.count] {
 		if !item.alive do continue
 		godot.push_view(f, sim.entity(i), {
-			kind = f.world.items[i].kind == .Barrel ? .Barrel : .Crate,
+			kind = sim.slice(&f.world.items)[i].kind == .Barrel ? .Barrel : .Crate,
 			pos  = sim.Position(physics.body_position(f.world.phys, item.body)),
 			rot  = physics.body_rotation(f.world.phys, item.body),
 		})
@@ -54,7 +54,7 @@ fill_frame :: proc(f: ^Frame) {
 			custom = {0, age_s(f.tick, gem.spawn_tick), 0, 0},
 		})
 	}
-	godot.push_data(f, hud_of(f.state, f.tick))
+	godot.push_data(f, hud_of(f.state, f.tick, f.seed))
 }
 
 HIT_FLASH_S :: 0.15

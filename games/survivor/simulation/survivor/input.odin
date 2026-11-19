@@ -25,8 +25,9 @@ Upgrade :: enum u8 {
 	Move_Speed,
 }
 
-// The level-up pick (GDScript: a `CommandPick` with `upgrade` = an EnumUpgrade value): one pending level-up goes to
-// `upgrade`. A pick with nothing pending is ignored.
+// The level-up pick (GDScript: a `CommandPick` with `upgrade` = an EnumUpgrade value): the oldest pending level-up goes
+// to `upgrade` when it is one of that level's offers (upgrade_offers). A pick with nothing pending, or not offered, is
+// ignored.
 Cmd_Pick :: struct {
 	upgrade: Upgrade,
 }

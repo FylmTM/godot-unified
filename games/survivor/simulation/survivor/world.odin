@@ -19,18 +19,16 @@ MAX_PILLARS :: 16
 
 // The world outside the block: the physics world, what the sim reads of the level, and per-tick scratch.
 World :: struct {
-	phys:         ^physics.World,
+	phys:        ^physics.World,
 	// The level's pillars on the ground plane (x, z), which enemies are pushed out of, and how far the walls' inner
 	// faces are from the centre, which enemies stay inside.
-	pillars:      [MAX_PILLARS]Box2,
-	pillar_count: int,
-	arena_inner:  f32,
+	pillars:     sim.List(Box2, MAX_PILLARS),
+	arena_inner: f32,
 	// Where the level puts things: each slot's start spot (its `spawn` markers, in scene order) and each item (its
-	// `item` markers, in scene order: the item's index).
-	spawns:       [PLAYERS][3]f32,
-	items:        [MAX_ITEMS]Item_Spot,
-	item_count:   int,
-	scratch:      Scratch,
+	// `item` markers, in scene order: the item's index, as in State.items).
+	spawns:      [PLAYERS][3]f32,
+	items:       sim.List(Item_Spot, MAX_ITEMS),
+	scratch:     Scratch,
 }
 
 // A box on the ground plane: its centre and half size (x, z).
@@ -49,7 +47,7 @@ Item_Spot :: struct {
 
 // Per-tick scratch (rebuilt every tick, never snapshotted): the enemy grid and the items' positions.
 Scratch :: struct {
-	grid:    Grid,
+	grid:    Enemy_Grid,
 	new_vel: [MAX_ENEMIES][2]f32,
 	items:   [MAX_ITEMS][2]f32, // each alive item's position (x, z) this tick
 }
@@ -60,6 +58,7 @@ Roll :: enum u8 {
 	Spawn_Jitter_X,
 	Spawn_Jitter_Z,
 	Spawn_Kind,
+	Upgrade_Offer,
 }
 
 // The physics world with the level's static geometry (src/level/README.md); the pillars and walls the enemies keep to;
@@ -80,9 +79,8 @@ world_create :: proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^W
 		assert(len(body.shapes) == 1 && body.shapes[0].kind == .Box, "survivor: a pillar or wall is one box")
 		box := Box2{body.pos.xz + body.shapes[0].pos.xz, body.shapes[0].half.xz}
 		if body.category == CAT_PILLAR {
-			assert(world.pillar_count < MAX_PILLARS, "survivor: too many pillars")
-			world.pillars[world.pillar_count] = box
-			world.pillar_count += 1
+			added := sim.append(&world.pillars, box)
+			assert(added, "survivor: too many pillars")
 		} else if box.half.x > box.half.y { 	// along x: a north or south wall
 			world.arena_inner = dmath.min(world.arena_inner, abs(box.center.y) - box.half.y)
 		} else {
@@ -97,12 +95,11 @@ world_create :: proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^W
 			world.spawns[spawn_count] = marker.pos
 			spawn_count += 1
 		case "item":
-			assert(world.item_count < MAX_ITEMS, "survivor: more item markers than MAX_ITEMS")
 			// prop_view.gd's export_enum: the names, lowercased
 			kind, known := level.prop_enum(&marker, "kind", Item_Kind.Crate)
 			assert(known, "survivor: an item marker's kind is no Item_Kind")
-			world.items[world.item_count] = {marker.pos, marker.rot, kind}
-			world.item_count += 1
+			added := sim.append(&world.items, Item_Spot{marker.pos, marker.rot, kind})
+			assert(added, "survivor: more item markers than MAX_ITEMS")
 		}
 	}
 	assert(spawn_count == PLAYERS, "survivor: the level needs a spawn marker per slot")
@@ -121,7 +118,7 @@ init :: proc(t: ^Tick) {
 	physics.level_change(t, t.world.phys, Level_Id.Arena)
 	t.state.phase = .Lobby
 	t.state.tuning = TUNINGS[.Play]
-	for i in 0 ..< t.world.item_count {
+	for i in 0 ..< int(t.world.items.count) {
 		item_reset(t.state, t.world, i)
 	}
 }
@@ -136,7 +133,7 @@ init_stress :: proc(t: ^Tick) {
 // The caller destroys any old body first.
 item_reset :: proc(state: ^State, world: ^World, i: int) {
 	item := &state.items[i]
-	spot := &world.items[i]
+	spot := &sim.slice(&world.items)[i]
 	item.alive = true
 	item.hp = spot.kind == .Barrel ? BARREL_HP : 0
 	item.respawn_tick = 0
