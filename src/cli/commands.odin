@@ -99,7 +99,7 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "bench",
-			summary = "each game's standard benchmark (if it has one: modes.run's `bench`) and its sessions on the virtual clock (bad; wan with a late joiner), alone, on a release build; the project's own rows",
+			summary = "each game's standard benchmarks (a row each: modes.run's `benches`) and its sessions on the virtual clock (bad; wan with a late joiner), alone, on a release build; the project's own rows",
 			options = option_types(Bench_Opts),
 			details = bench_details,
 			run     = cmd_bench,

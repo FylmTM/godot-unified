@@ -10,10 +10,14 @@ import "core:strings"
 
 import "unified:sim"
 
-// A benchmark's setup: `entities` entities held (with Game.bench_prepare), a `window`-tick rollback every tick, for
-// `ticks` ticks. `what` says what it measures.
+// A benchmark's setup: the game on `setup`, `entities` entities held (with Game.bench_prepare), a `window`-tick
+// rollback every tick, for `ticks` ticks. `what` says what it measures; `name` is its row (`uni bench`, the `bench`
+// mode's `--name`): a game with several benchmarks (a level each, a scene each) names each one, and one unnamed
+// benchmark is the game's own row.
 Bench :: struct {
+	name:     string, // "": the game's row; else the row <game>/<name>
 	what:     string,
+	setup:    string, // the Setup it plays, in --setup's text form (sim.struct_from_text: "scene=pyramid"); "": the game's
 	entities: int,
 	window:   int, // 0: prediction_window(game), the deepest rollback the netcode makes
 	ticks:    int,
