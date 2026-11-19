@@ -169,7 +169,8 @@ Frame_Data :: struct {
 // named procs, never inline lambdas.
 Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specialization_of(G, sim.Game) {
 	// Main thread, every frame, for each local player (`local`: its index): its Input from Godot's input (the action
-	// helpers read its device, input.odin; its input values: input_values).
+	// helpers read its device, input.odin; its input values: input_values). nil for a game without one (sim.No_Input):
+	// its players act through commands alone.
 	sample_input: proc(local: int, input: ^sim.part(G, sim.GAME_INPUT)),
 	// Session thread, every published tick: the views of the tick's state (push_view, push_multi_view) and the
 	// session data (push_data).

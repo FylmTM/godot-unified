@@ -268,6 +268,11 @@ Game :: struct(
 // The command union of a game that has no commands: sim.Game(State, Input, World, Event, sim.No_Commands, ...).
 No_Commands :: union {}
 
+// The Input of a game whose players act through commands only (a turn-based game): sim.Game(State, sim.No_Input,
+// ...) and sim.Players(T, Profile, sim.No_Input, PLAYERS). Zero bytes everywhere: nothing on the wire, in the log or
+// in the State but each tick's presence.
+No_Input :: struct {}
+
 // The World of a game that keeps nothing outside the block: sim.Game(State, Input, sim.No_World, ...).
 No_World :: struct {}
 

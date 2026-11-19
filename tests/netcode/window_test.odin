@@ -169,6 +169,48 @@ window_refuses_malformed :: proc(t: ^testing.T) {
 	}
 }
 
+// A zero-byte Input (sim.No_Input): presence, join records and commands round trip with no input bytes anywhere; an
+// unchanged tick is still one byte, and a full tick holds no input bytes.
+@(test)
+window_without_inputs :: proc(t: ^testing.T) {
+	Still_Inputs :: sim.Inputs(toy.Still_Game)
+	ticks: [3]Still_Inputs
+	ticks[0].present = {0, 2}
+	ticks[0].joins = {1, 0, 2, 0}
+	ticks[1] = ticks[0]
+	ticks[1].joins = {}
+	ticks[2] = ticks[1]
+	bump := sim.command_make(toy.Cmd, toy.Cmd_Bump{5})
+	bump.slot = 2
+	sim.add_command(&ticks[2], bump)
+	writer := wire.writer_make(netcode.MAX_DATAGRAM)
+	defer delete(writer.buf)
+	sizes: [3]int
+	for &tick_inputs, i in ticks {
+		netcode.window_write_tick(&writer, &tick_inputs, i > 0 ? &ticks[i - 1] : nil)
+		sizes[i] = len(writer.buf)
+	}
+	testing.expect_value(t, sizes[1] - sizes[0], 1)
+	reader := wire.reader_make(writer.buf[:])
+	back: Still_Inputs
+	for &tick_inputs, i in ticks {
+		ok := netcode.window_read_tick(&reader, &back)
+		testing.expectf(t, ok && sim.inputs_same(&back, &tick_inputs), "tick %d differs", i)
+	}
+	testing.expect_value(t, wire.r_remaining(&reader), 0)
+	// the flags, present, replaced and the input mask (a bit per slot each), one join record
+	testing.expect_value(t, netcode.window_tick_max_bytes(sim.No_Input, toy.PLAYERS, nil), 1 + 3 + 1 + sim.JOIN_BYTES)
+
+	// a client's own inputs: an empty mask each, nothing past it
+	own := wire.writer_make(netcode.MAX_DATAGRAM)
+	defer delete(own.buf)
+	held, base: sim.No_Input
+	netcode.window_write_input(&own, &held, &base)
+	testing.expect_value(t, len(own.buf), 0)
+	own_reader := wire.reader_make(own.buf[:])
+	testing.expect(t, netcode.window_read_input(&own_reader, &held), "an empty input reads back")
+}
+
 // A client's own unacked inputs: each as its changes from the one before, the first from the zero input. A
 // held input is one byte (the mask); they read back as written; a bit past the input's size or a cut is refused.
 @(test)

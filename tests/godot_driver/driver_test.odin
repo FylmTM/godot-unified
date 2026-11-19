@@ -467,6 +467,39 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, !godot.api.installed)
 		testing.expectf(t, len(godot.api.problems) == 2, "both policy problems: %v", godot.api.problems)
 	}
+
+	// A game without an Input (sim.No_Input): its Glue has no sample_input, the main thread's sample does nothing,
+	// and the commands sent from the main thread drive it. A sample_input for it is a problem.
+	{
+		godot.install(&toy.STILL, STILL_GLUE)
+		testing.expectf(t, godot.api.installed, "a Glue without sample_input installs: %v", godot.api.problems)
+		sync.atomic_store(&seen.bumps, 0)
+		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 24, name = "solo"})
+		testing.expect(t, ok, err)
+		godot.api.sample_input()
+		for amount in ([]i32{3, -1}) {
+			testing.expect(t, godot.api.send(sim.command_make(toy.Cmd, toy.Cmd_Bump{amount}), 0))
+		}
+		messages := make([dynamic]godot.Message, context.temp_allocator)
+		testing.expect(t, drain(&messages, 5000, is_result), "the session ends with a result")
+		for godot.api.running() do time.sleep(time.Millisecond)
+		godot.api.wait()
+		testing.expect_value(t, sync.atomic_load(&seen.bumps), 2)
+		sampling := STILL_GLUE
+		sampling.sample_input = proc(_: int, _: ^sim.No_Input) {}
+		godot.install(&toy.STILL, sampling)
+		testing.expectf(t, len(godot.api.problems) == 1, "a sample_input without an Input: %v", godot.api.problems)
+	}
+}
+
+// The Glue of the toy without an Input: no sample_input; fill_frame keeps the local player's bump count.
+@(private = "file")
+STILL_GLUE := godot.Glue(toy.Still_Game, View, MultiView) {
+	fill_frame = proc(frame: ^godot.Frame(toy.Still_Game, View, MultiView)) {
+		if local := sim.player_data(&frame.state.players, frame.local_players[0]); local != nil {
+			sync.atomic_store(&seen.bumps, local.bumps)
+		}
+	},
 }
 
 @(private = "file")
