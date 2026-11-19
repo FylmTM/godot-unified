@@ -482,6 +482,13 @@ suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 	if !opts.bless {
 		return passed
 	}
+	// what it re-pinned, read now: the plain run below rewrites the logs, and the warnings of both runs bury it
+	changes: [dynamic]string
+	for exe in exes {
+		text, _ := read_text(aprintf("%s.log", exe))
+		append(&changes, ..test_output_repins(text))
+	}
+	defer bless_summary(changes[:])
 	repinned := false
 	for build in test_builds(opts) {
 		repinned ||= stale(build) // built current just before the run: a source of it changed during the run
@@ -494,6 +501,18 @@ suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 	plain.bless = false
 	plain_exes, plain_ok := ensure_test_binaries(plain)
 	return plain_ok && run_test_binaries(plain_exes) && passed
+}
+
+// The odin suite's last words under --bless: every pin it changed, each with its file and old -> new
+// (test_output_repins), or that it changed none.
+@(private)
+bless_summary :: proc(changes: []string) {
+	if len(changes) == 0 {
+		log("uni: test --bless: nothing re-pinned")
+		return
+	}
+	log("uni: test --bless re-pinned:")
+	for change in changes do log("  %s", change)
 }
 
 // The odin suite's binaries again, next to Box3D's debug library in a folder of their own (the debug library has the

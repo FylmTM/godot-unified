@@ -96,3 +96,32 @@ Finished 274 tests in 1.4s. All tests were successful.
 	testing.expect_value(t, cli.test_output_finished(output), 274)
 	testing.expect_value(t, cli.test_output_finished("No test found for the name: \"x\"\nNo tests to run.\n"), 0)
 }
+
+// `test --bless` closes with what it re-pinned: each re-pin warning with its value lines, each blessed replay, and
+// none of the other warnings around them.
+@(test)
+bless_run_lists_its_repins :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	output :=
+		"[WARN ] --- [2026-11-19 21:39:02] [client.odin:817:on_desync()] desync at tick 112: differ\n" +
+		"[WARN ] --- [2026-11-19 21:39:18] [reference_test.odin:23:the_reference_run_reproduces()] " +
+		"reference_reproduces (4 players): re-pinned in a/reference_test.odin:\n" +
+		"\tREFERENCE.log: 0x2d -> 0x2c\n" +
+		"\tREFERENCE.compat: 0x1 -> 0x2\n" +
+		"[WARN ] --- [2026-11-19 21:39:18] [scenarios.odin:140:replays_reproduce()] replays_reproduce: blessed bug_7 (no expected.unie)\n" +
+		"[WARN ] --- [2026-11-19 21:39:19] [relay.odin:1194:report_desync()] DESYNC at tick 112\n" +
+		"Finished 13 tests in 63.1303ms. All tests were successful.\n"
+	repins := cli.test_output_repins(output)
+	testing.expect_value(t, len(repins), 2)
+	if len(repins) == 2 {
+		testing.expect_value(
+			t,
+			repins[0],
+			"reference_reproduces (4 players): re-pinned in a/reference_test.odin:\n" +
+			"    REFERENCE.log: 0x2d -> 0x2c\n" +
+			"    REFERENCE.compat: 0x1 -> 0x2",
+		)
+		testing.expect_value(t, repins[1], "replays_reproduce: blessed bug_7 (no expected.unie)")
+	}
+	testing.expect_value(t, len(cli.test_output_repins("Finished 3 tests in 1ms.\n")), 0)
+}

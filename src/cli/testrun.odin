@@ -318,6 +318,38 @@ test_output_finished :: proc(output: string) -> int {
 	return 0
 }
 
+// What a `--bless` run re-pinned, from its runner's output: each warning saying a pinned literal was re-pinned
+// (scenarios.bless_pin: "<check>: re-pinned in <file>:", then a tab-indented "<name>: <old> -> <new>" per value) or a
+// replay regression blessed ("replays_reproduce: blessed <name> (...)"), without the runner's prefix, its value lines
+// indented under it. Temp-allocated.
+test_output_repins :: proc(output: string) -> []string {
+	out := make([dynamic]string, context.temp_allocator)
+	block := strings.builder_make(context.temp_allocator)
+	in_block := false
+	for line in strings.split_lines(output, context.temp_allocator) {
+		if in_block && strings.has_prefix(line, "\t") {
+			fmt.sbprintf(&block, "\n    %s", strings.trim_space(line))
+			continue
+		}
+		if in_block {
+			append(&out, strings.clone(strings.to_string(block), context.temp_allocator))
+			in_block = false
+		}
+		if !strings.has_prefix(line, "[WARN") do continue
+		message := line
+		if end := strings.index(line, "()] "); end >= 0 do message = line[end + len("()] "):]
+		if !strings.contains(message, ": re-pinned in ") &&
+		   !strings.has_prefix(message, "replays_reproduce: blessed ") {
+			continue
+		}
+		strings.builder_reset(&block)
+		strings.write_string(&block, strings.trim_right_space(message))
+		in_block = true
+	}
+	if in_block do append(&out, strings.clone(strings.to_string(block), context.temp_allocator))
+	return out[:]
+}
+
 // The lines of a passing test run worth showing: each warning or error the runner logged ("[WARN ]", "[ERROR]": a
 // leak report, a test's log.warn) with the indented lines under it, and the runner's "Finished N tests" line.
 // Everything else (the tests' own prints, a fuzz test's expected rejections, the runner's [INFO] lines) stays in the
