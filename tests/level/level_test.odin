@@ -5,6 +5,7 @@ package test_level
 import "core:math"
 import "core:testing"
 
+import "unified:dmath"
 import "unified:level"
 import "unified:physics"
 
@@ -192,6 +193,13 @@ round_trip :: proc(t: ^testing.T) {
 	curve, is_curve := falloff.value.(level.Curve_Ref)
 	testing.expect(t, falloff.key == "falloff" && is_curve, "a Curve property")
 	testing.expect(t, is_curve && loaded.curves[curve] == curve_ramp(), "a Curve property's samples")
+	ramp, has_ramp := level.prop_curve(&loaded, marker, "falloff")
+	testing.expect(t, has_ramp && ramp.samples == curve_ramp(), "prop_curve: the samples as a dmath.Curve")
+	testing.expect_value(t, dmath.curve_sample(ramp, 0.5), 0.5)
+	_, has_missing := level.prop_curve(&loaded, marker, "nope")
+	testing.expect(t, !has_missing, "prop_curve: no such property")
+	_, has_other := level.prop_curve(&loaded, marker, "gate")
+	testing.expect(t, !has_other, "prop_curve: a property of another type")
 	platforms: [dynamic]string
 	defer delete(platforms)
 	for &each in loaded.markers {
