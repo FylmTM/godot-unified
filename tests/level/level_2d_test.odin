@@ -64,7 +64,7 @@ round_trip_2d :: proc(t: ^testing.T) {
 other_versions_refused :: proc(t: ^testing.T) {
 	file := fixture()
 	defer delete(file)
-	for version in ([]u8{0, 2, 4}) {
+	for version in ([]u8{0, 3, 5}) {
 		bad := make([]u8, len(file), context.temp_allocator)
 		copy(bad, file)
 		bad[4] = version

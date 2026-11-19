@@ -1,0 +1,6 @@
+[gd_scene format=3]
+
+[node name="Bad2DNav" type="Node2D"]
+metadata/unified_px_per_m = 64.0
+
+[node name="Region" type="NavigationRegion3D" parent="."]

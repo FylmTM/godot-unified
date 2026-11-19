@@ -21,6 +21,9 @@
 //            prop count u16, each key u32, type u8, value (bool u8 | int i32 | float f32 | vec3 3f32 |
 //            string u32 | ref i32: marker index, -1 none | curve CURVE_SAMPLES f32), then path point count u16,
 //            points 3f32 (world)
+//   nav:     agent radius f32, height f32, max climb f32, vertex count u32, vertices 3f32 (level space), polygon
+//            count u32, each index count u8 (at least 3) + indices u32 (distinct vertices, counter-clockwise seen
+//            from above)
 package level
 
 import "base:intrinsics"
@@ -30,7 +33,7 @@ import "unified:dmath"
 import "unified:wire"
 
 MAGIC :: "UNLV"
-VERSION :: 3 // bump on any change to a .level file's bytes (the library-sim-change skill)
+VERSION :: 4 // bump on any change to a .level file's bytes (the library-sim-change skill)
 
 // How many evenly spaced samples of its domain a Curve property holds.
 CURVE_SAMPLES :: 32
@@ -132,26 +135,43 @@ Marker :: struct {
 	path:  [][3]f32, // a Path3D or Path2D child's points, world space, metres (empty: none)
 }
 
+// The agent a navigation mesh was baked for, from its NavigationMesh: the walkable area is shrunk by `radius` from
+// the walls, a ceiling lower than `height` is not walkable, and a step up to `max_climb` joins two floors. Metres. A
+// level has one region, so one agent size: a game sizes its walkers from it.
+Nav_Agent :: struct {
+	radius:    f32,
+	height:    f32,
+	max_climb: f32,
+}
+
 // A loaded level file (load): its bodies and markers in scene-tree order, in storage that destroy frees. A game keeps
 // it in its World, outside the block.
 Level :: struct {
 	// A 2D level's pixels per metre (its view maps metres back to pixels with it); 0: a 3D level.
-	px_per_m:  f32,
-	scene:     string, // the res:// path of the scene it was exported from ("": none)
-	bodies:    []Body,
-	markers:   []Marker,
+	px_per_m:     f32,
+	scene:        string, // the res:// path of the scene it was exported from ("": none)
+	bodies:       []Body,
+	markers:      []Marker,
+	// The level's navigation mesh, the saved bake of its NavigationRegion3D in level space (both empty: none), as
+	// plain slices a game's navigation is built from. Each polygon is simple and convex, its vertex indices distinct
+	// and counter-clockwise seen from above (the exporter checks it); vertices are welded where exactly equal, so
+	// adjacent polygons share vertex indices, and an edge joins at most two polygons.
+	nav_vertices: [][3]f32,
+	nav_polygons: [][]u32,
+	nav_agent:    Nav_Agent, // what the mesh was baked for (zero: no mesh)
 	// A Curve property's CURVE_SAMPLES values, evenly spaced over its domain (each property's Curve_Samples).
-	curves:    [][CURVE_SAMPLES]f32,
+	curves:       [][CURVE_SAMPLES]f32,
 	// Backing storage the slices above point into, and the allocator load made it with (destroy frees with it).
-	allocator: runtime.Allocator,
-	strings:   []string,
-	shapes:    []Shape,
-	props:     []Prop,
-	points:    [][3]f32,
-	triangles: [][3]u32,
-	bytes:     []u8,
-	surfaces:  []Surface,
-	heights:   []f32,
+	allocator:    runtime.Allocator,
+	strings:      []string,
+	shapes:       []Shape,
+	props:        []Prop,
+	points:       [][3]f32,
+	triangles:    [][3]u32,
+	bytes:        []u8,
+	surfaces:     []Surface,
+	heights:      []f32,
+	nav_indices:  []u32,
 }
 
 // Frees the slices load allocated (with the allocator it was given) and zeroes the Level. Its strings point into the
@@ -169,6 +189,8 @@ destroy :: proc(level: ^Level) {
 	delete(level.bytes)
 	delete(level.surfaces)
 	delete(level.heights)
+	delete(level.nav_polygons)
+	delete(level.nav_indices)
 	level^ = {}
 }
 
@@ -211,6 +233,7 @@ Decoder :: struct {
 	surfaces:  [dynamic]Surface,
 	heights:   [dynamic]f32,
 	curves:    [dynamic][CURVE_SAMPLES]f32,
+	indices:   [dynamic]u32, // the nav polygons'
 	ok:        bool,
 }
 
@@ -352,9 +375,10 @@ read_shape_body :: proc(decoder: ^Decoder, shape: ^Shape, spans: ^Shape_Spans) {
 
 // Parses a level file: not ok for a truncated or malformed file (an index out of range, a marker ref to no marker, a
 // height field under 2 × 2, a NaN or an infinity in geometry, a pose's rotation not unit within 1e-3, a half extent,
-// radius or height field scale not above 0), trailing bytes, or another version than VERSION (readers accept only the
-// current one): a bad file fails here, never as invisible geometry or a hang later. The strings are views into
-// `data`, which must outlive the Level.
+// radius or height field scale not above 0, a navigation polygon of fewer than 3 vertices or naming one twice, a
+// negative navigation agent size),
+// trailing bytes, or another version than VERSION (readers accept only the current one): a bad file fails here, never
+// as invisible geometry or a hang later. The strings are views into `data`, which must outlive the Level.
 load :: proc(data: []u8, allocator := context.allocator) -> (level: Level, ok: bool) {
 	context.allocator = allocator
 	decoder := Decoder {
@@ -465,21 +489,49 @@ load :: proc(data: []u8, allocator := context.allocator) -> (level: Level, ok: b
 		}
 	}
 
+	nav_agent := Nav_Agent {
+		radius    = read_finite(&decoder),
+		height    = read_finite(&decoder),
+		max_climb = read_finite(&decoder),
+	}
+	if !(nav_agent.radius >= 0 && nav_agent.height >= 0 && nav_agent.max_climb >= 0) do decoder.ok = false
+	nav_vertices := read_points(&decoder, int(wire.r_u32(&decoder.reader)))
+	polygon_count := read_count(&decoder, int(wire.r_u32(&decoder.reader)), 1 + 3 * 4)
+	nav_polygons: [dynamic]Span
+	defer delete(nav_polygons)
+	for _ in 0 ..< polygon_count {
+		count := read_count(&decoder, int(wire.r_u8(&decoder.reader)), 4)
+		polygon := Span{len(decoder.indices), count}
+		append(&nav_polygons, polygon)
+		if count < 3 do decoder.ok = false
+		for _ in 0 ..< count {
+			index := wire.r_u32(&decoder.reader)
+			if int(index) >= nav_vertices.count do decoder.ok = false
+			for earlier in decoder.indices[polygon.start:] {
+				if earlier == index do decoder.ok = false // a vertex twice: degenerate
+			}
+			append(&decoder.indices, index)
+		}
+		if !decoder.reader.ok || !decoder.ok do break
+	}
+
 	level = {
-		allocator = allocator,
-		px_per_m  = px_per_m,
-		scene     = scene,
-		bodies    = bodies,
-		markers   = markers,
-		curves    = decoder.curves[:],
-		strings   = string_table,
-		shapes    = decoder.shapes[:],
-		props     = decoder.props[:],
-		points    = decoder.points[:],
-		triangles = decoder.triangles[:],
-		bytes     = decoder.bytes[:],
-		surfaces  = decoder.surfaces[:],
-		heights   = decoder.heights[:],
+		allocator    = allocator,
+		px_per_m     = px_per_m,
+		scene        = scene,
+		bodies       = bodies,
+		markers      = markers,
+		curves       = decoder.curves[:],
+		strings      = string_table,
+		shapes       = decoder.shapes[:],
+		props        = decoder.props[:],
+		points       = decoder.points[:],
+		triangles    = decoder.triangles[:],
+		bytes        = decoder.bytes[:],
+		surfaces     = decoder.surfaces[:],
+		heights      = decoder.heights[:],
+		nav_indices  = decoder.indices[:],
+		nav_polygons = make([][]u32, len(nav_polygons)),
 	}
 	if !decoder.reader.ok || !decoder.ok || decoder.reader.pos != len(data) {
 		destroy(&level)
@@ -494,6 +546,9 @@ load :: proc(data: []u8, allocator := context.allocator) -> (level: Level, ok: b
 		shape.materials = level.surfaces[spans.materials.start:][:spans.materials.count]
 		shape.heights = level.heights[spans.heights.start:][:spans.heights.count]
 	}
+	level.nav_agent = nav_agent
+	level.nav_vertices = level.points[nav_vertices.start:][:nav_vertices.count]
+	for span, i in nav_polygons do level.nav_polygons[i] = level.nav_indices[span.start:][:span.count]
 	for &body, i in level.bodies {
 		span := body_shapes[i]
 		body.shapes = level.shapes[span.start:][:span.count]
