@@ -56,11 +56,13 @@ Character :: struct {
 }
 
 Item :: struct {
-	body:         physics.Body_Ref,
-	holders:      [2]sim.Player, // the player holding each grab point ({}: free)
-	thrown_by:    sim.Player, // the last thrower (while thrown_ticks > 0), whether still here or not
-	thrown_ticks: u16,
-	pad_cooldown: u16,
+	body:           physics.Body_Ref,
+	holders:        [2]sim.Player, // the player holding each grab point ({}: free)
+	thrown_by:      sim.Player, // the last thrower (while thrown_ticks > 0), whether still here or not
+	thrown_ticks:   u16,
+	pad_cooldown:   u16,
+	// The thrower's body and this item's don't touch from the throw until the item is clear of them (release_throws).
+	thrower_ignore: physics.Filter_Joint_Ref,
 }
 
 // A moving platform: its pose is a pure function of `phase` (physics.path_sample).

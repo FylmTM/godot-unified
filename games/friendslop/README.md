@@ -72,8 +72,10 @@ Solo finishes every beat; co-op is faster or opens a shortcut.
   `HELD_MAX_TICKS`. A dropped or freed friend is limp until they land.
 - **Throw:** hold throw to charge (`THROW_CHARGE_TICKS`), release: the target gets the holder's velocity plus the aim
   times `THROW_SPEED_MIN + THROW_SPEED_ADD · charge`, plus `THROW_LIFT` up. The heavy crate can't be thrown (it is
-  dropped). A thrown item is "thrown by P" for `THROWN_TAG_TICKS` and ignores its thrower for
-  `THROWER_IGNORE_TICKS`. A thrown friend is limp until they land (`THROWN_MIN_TICKS` to `THROWN_MAX_TICKS`).
+  dropped). A thrown item is "thrown by P" for `THROWN_TAG_TICKS`, and it and its thrower pass through each other
+  (a contact ignore, `physics.ignore_contacts`) until it is `THROW_CLEAR_DIST` from them, its tag ends or they leave;
+  after that a bounce back hits them like any hit. A thrown friend is limp until they land (`THROWN_MIN_TICKS` to
+  `THROWN_MAX_TICKS`).
 - **Hit:** a contact hit between a thrown or fast (`HIT_SPEED`) item and a player knocks them back along the item's
   motion (`KNOCKBACK`); a player inside a bumper is knocked away from it at the bumper's `strength`. Either way they
   hop (`KNOCKBACK_UP`), are limp for `STUN_TICKS`, and drop what they hold.
@@ -81,6 +83,7 @@ Solo finishes every beat; co-op is faster or opens a shortcut.
   velocity (a straight-up pad keeps the horizontal velocity); `PAD_COOLDOWN_TICKS` per body.
 - **Platforms:** kinematic bodies on `physics.Path`s (ping-pong, loop, once, or follow: forward while their trigger
   is active, back while not), optionally gated by a trigger. The pose is a pure function of the platform's phase.
+  Each leg is linear, smoothstepped, or follows a designer curve on the marker (`easing`: the ferry's slow start).
 - **Triggers:** a plate is pressed while the summed mass in its sensor (up to `PLATE_REACH` above it) reaches its
   threshold (players count unless it is `items_only`); a bell rings on a hit of at least `BELL_SPEED` (again after
   `BELL_COOLDOWN_TICKS`); a switch fires when a player enters it; a lock when the key enters it. Bells, switches and

@@ -85,6 +85,10 @@ _data = {
 }
 point_count = 2
 
+[sub_resource type="Curve" id="ferry_ease"]
+_data = [Vector2(0, 0), 0.0, 0.0, 0, 0, Vector2(0.6, 0.3), 1.4, 1.4, 0, 0, Vector2(1, 1), 0.0, 0.0, 0, 0]
+point_count = 3
+
 [node name="Hub" type="Node3D"]
 
 [node name="Floor" type="StaticBody3D" parent="."]
@@ -243,6 +247,7 @@ transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -4, -0.2, 10)
 script = ExtResource("2_platform")
 seconds = 3.0
 wait = 0.75
+easing = SubResource("ferry_ease")
 
 [node name="Path" type="Path3D" parent="Ferry"]
 curve = SubResource("ferry_path")

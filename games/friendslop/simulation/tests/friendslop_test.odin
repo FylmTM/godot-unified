@@ -154,6 +154,11 @@ throw_hits_friend :: proc(t: ^testing.T) {
 	}
 	step(&run, {aim_at(&run, 0, player_pos(&run, 1) + {0, 0.6, 0}, {}), {}, {}, {}}) // release: throw
 	testing.expect_value(t, headless.run_events(&run, g.Event_Thrown), 1)
+	testing.expect(
+		t,
+		run.simulation.state.items[crate].thrower_ignore != {},
+		"the crate passes through its thrower while it clears them",
+	)
 	stunned := false
 	for _ in 0 ..< 96 {
 		step(&run, {})
@@ -211,7 +216,7 @@ platforms_carry_players :: proc(t: ^testing.T) {
 pad_launches_player :: proc(t: ^testing.T) {
 	run := headless.run_begin(&g.GAME, 1, seated = 1)
 	defer headless.run_end(&run)
-	pad := run.simulation.world.pads[0].volume.pos
+	pad := sim.slice(&run.simulation.world.pads)[0].volume.pos
 	peak: f32 = 0
 	for _ in 0 ..< 200 {
 		step(&run, {walk(&run, 0, pad, 0.05), {}, {}, {}})
@@ -311,6 +316,7 @@ owners_follow_the_person :: proc(t: ^testing.T) {
 	for _ in 0 ..< 8 do step(&run, {{aim = dmath.dir3({0, 40, -100}), buttons = {.Throw}}, {}, {}, {}})
 	step(&run, {{aim = dmath.dir3({0, 40, -100})}, {}, {}, {}}) // release: throw
 	testing.expect_value(t, headless.run_events(&run, g.Event_Thrown), 1)
+	testing.expect(t, items[crate].thrower_ignore != {}, "the crate passes through its thrower while it clears them")
 	testing.expect_value(t, items[crate].thrown_by, thrower)
 	// The thrower leaves; someone new (member 100) takes slot 0.
 	headless.run_seat(&run, 0, 0)

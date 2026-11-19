@@ -86,25 +86,22 @@ Checkpoint_Def :: struct {
 // The world outside the block: the physics world (the level with it), what the sim reads from the level's markers
 // (games/friendslop/README.md, Level), and per-tick scratch.
 World :: struct {
-	phys:             ^physics.World,
-	items:            [MAX_ITEMS]Item_Def,
-	item_count:       int,
-	platforms:        [MAX_PLATFORMS]Platform_Def,
-	platform_count:   int,
-	triggers:         [MAX_TRIGGERS]Trigger_Def,
-	trigger_count:    int,
-	pads:             [MAX_PADS]Pad_Def,
-	pad_count:        int,
-	bumpers:          [MAX_BUMPERS]Bumper_Def,
-	bumper_count:     int,
-	checkpoints:      [MAX_CHECKPOINTS]Checkpoint_Def,
-	checkpoint_count: int,
-	spawns:           [PLAYERS][3]f32, // by slot: a spawn marker each
-	start:            Volume, // walking in starts a run (zero: no start marker, no route)
-	finish:           Volume, // the trophy in it ends the run
-	overlaps:         [dynamic]physics.Overlap, // scratch
-	contacts:         [dynamic]physics.Contact_Event, // scratch
-	character_def:    physics.Character_Def, // the players' (world_create)
+	phys:           ^physics.World,
+	items:          [MAX_ITEMS]Item_Def,
+	item_count:     int,
+	platforms:      [MAX_PLATFORMS]Platform_Def,
+	platform_count: int,
+	triggers:       [MAX_TRIGGERS]Trigger_Def,
+	trigger_count:  int,
+	pads:           sim.List(Pad_Def, MAX_PADS),
+	bumpers:        sim.List(Bumper_Def, MAX_BUMPERS),
+	checkpoints:    sim.List(Checkpoint_Def, MAX_CHECKPOINTS),
+	spawns:         [PLAYERS][3]f32, // by slot: a spawn marker each
+	start:          Volume, // walking in starts a run (zero: no start marker, no route)
+	finish:         Volume, // the trophy in it ends the run
+	overlaps:       [dynamic]physics.Overlap, // scratch
+	contacts:       [dynamic]physics.Contact_Event, // scratch
+	character_def:  physics.Character_Def, // the players' (world_create)
 }
 
 // Builds the world from the level (src/level/README.md): static geometry, then the markers the sim uses, and the
@@ -195,6 +192,7 @@ world_create :: proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^W
 			wait := level.prop_f32(&marker, "wait")
 			assert(seconds > 0 && wait >= 0, "friendslop: a platform needs seconds per leg, and no negative wait")
 			def.path.ease = level.prop_bool(&marker, "smooth") ? .Smooth : .Linear
+			if curve, has := level.prop_curve(park, &marker, "easing"); has do def.path.ease, def.path.curve = .Curve, curve
 			def.path.mode = def.mode == .Loop ? .Loop : def.mode == .Ping_Pong ? .Ping_Pong : .Once
 			point_count := dmath.min(len(marker.path), physics.MAX_PATH_POINTS)
 			if point_count == 0 {
@@ -209,23 +207,20 @@ world_create :: proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^W
 			def.path.count = u8(point_count)
 			world.platform_count += 1
 		case "pad":
-			assert(world.pad_count < MAX_PADS, "friendslop: too many pads")
 			pad := Pad_Def{volume_of(&marker), level.prop_vec3(&marker, "launch")}
 			assert(pad.launch != {}, "friendslop: a pad's launch is zero")
-			world.pads[world.pad_count] = pad
-			world.pad_count += 1
+			added := sim.append(&world.pads, pad)
+			assert(added, "friendslop: too many pads")
 		case "bumper":
-			assert(world.bumper_count < MAX_BUMPERS, "friendslop: too many bumpers")
 			bumper := Bumper_Def{volume_of(&marker), level.prop_f32(&marker, "strength")}
 			assert(bumper.strength > 0, "friendslop: a bumper's strength must be positive")
-			world.bumpers[world.bumper_count] = bumper
-			world.bumper_count += 1
+			added := sim.append(&world.bumpers, bumper)
+			assert(added, "friendslop: too many bumpers")
 		case "checkpoint":
-			assert(world.checkpoint_count < MAX_CHECKPOINTS, "friendslop: too many checkpoints")
 			checkpoint := Checkpoint_Def{level.prop_int(&marker, "index"), volume_of(&marker)}
 			assert(checkpoint.index >= 0, "friendslop: a checkpoint's index is negative (-1 is the hub)")
-			world.checkpoints[world.checkpoint_count] = checkpoint
-			world.checkpoint_count += 1
+			added := sim.append(&world.checkpoints, checkpoint)
+			assert(added, "friendslop: too many checkpoints")
 		case "start":
 			world.start = volume_of(&marker)
 		case "finish":

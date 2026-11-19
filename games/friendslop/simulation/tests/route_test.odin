@@ -4,6 +4,7 @@ package test_friendslop
 
 import "core:testing"
 
+import "unified:dmath"
 import "unified:headless"
 import "unified:level"
 import "unified:physics"
@@ -262,4 +263,19 @@ route_resets_when_nobody_is_present :: proc(t: ^testing.T) {
 	testing.expect_value(t, run.simulation.state.phase, g.Phase.Hub)
 	testing.expect_value(t, run.simulation.state.checkpoint, -1)
 	expect_clean(t, &run)
+}
+
+// The ferry follows the designer curve on its marker (platform.gd's `easing`, level.prop_curve): a slow start through
+// (0.6, 0.3), then a quick finish.
+@(test)
+the_ferry_eases_by_its_curve :: proc(t: ^testing.T) {
+	run := headless.run_begin(&g.GAME, 1, seated = 1)
+	defer headless.run_end(&run)
+	ferry := platform_at_marker(&run, "Ferry")
+	if !testing.expect(t, ferry >= 0, "the Ferry marker") do return
+	path := &run.simulation.world.platforms[ferry].path
+	testing.expect_value(t, path.ease, physics.Path_Ease.Curve)
+	testing.expect(t, path.curve.samples[0] == 0 && path.curve.samples[31] == 1, "from 0 to 1")
+	eased := dmath.curve_sample(path.curve, 0.6)
+	testing.expectf(t, abs(eased - 0.3) < 0.01, "at 0.6 of the leg's time: %v of the way", eased)
 }

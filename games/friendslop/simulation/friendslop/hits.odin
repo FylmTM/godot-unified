@@ -10,7 +10,7 @@ bump_players :: proc(t: ^Tick) {
 	for character, player in sim.next(&players) {
 		if character.stun > 0 || character.respawn > 0 || character.held_by != {} do continue
 		pos := player_pos(t, player)
-		for &bumper in t.world.bumpers[:t.world.bumper_count] {
+		for &bumper in sim.slice(&t.world.bumpers) {
 			if !in_volume(bumper.volume, pos) do continue
 			direction := dmath.normalize(pos.xz - bumper.volume.pos.xz)
 			if direction == {} do direction = -character.facing
@@ -42,8 +42,8 @@ apply_hits :: proc(t: ^Tick) {
 hit_player :: proc(t: ^Tick, index: int, player: sim.Player, hit: ^physics.Contact_Event) {
 	item := &t.state.items[index]
 	if !sim.player_present(t, player) || item.holders[0] == player || item.holders[1] == player do return
-	own := item.thrown_by == player && item.thrown_ticks > THROWN_TAG_TICKS - THROWER_IGNORE_TICKS
-	if own || (item.thrown_ticks == 0 && hit.speed < HIT_SPEED) do return
+	// (a thrown item can't hit its thrower before it is clear of them: their bodies don't touch, age_throws)
+	if item.thrown_ticks == 0 && hit.speed < HIT_SPEED do return
 	direction := dmath.normalize(physics.body_linear_velocity(t.world.phys, item.body).xz)
 	if direction == {} do direction = dmath.normalize(hit.normal.xz)
 	knock(t, player, direction, KNOCKBACK, bumper = false)

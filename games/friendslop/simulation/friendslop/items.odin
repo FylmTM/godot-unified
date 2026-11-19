@@ -1,6 +1,8 @@
 package friendslop
 
+import "unified:dmath"
 import "unified:physics"
+import "unified:sim"
 
 // Creates an item's dynamic body at its level placement (a sphere or a box, its density set from the item's mass),
 // tagged with its index, with hit events on and sensor events on (plates and locks see it).
@@ -40,6 +42,7 @@ send_item_home :: proc(t: ^Tick, index: int) {
 	physics.body_teleport(t.world.phys, item.body, t.world.items[index].pos, t.world.items[index].rot)
 	item.thrown_ticks = 0
 	item.thrown_by = {}
+	physics.stop_ignoring(t.world.phys, &item.thrower_ignore)
 }
 
 // Items that fell below KILL_Y go home.
@@ -49,9 +52,19 @@ return_fallen_items :: proc(t: ^Tick) {
 	}
 }
 
-// Counts down the thrown items' tags.
+// Counts down the thrown items' tags, and ends a thrown item's ignore of its thrower once it is clear of them
+// (THROW_CLEAR_DIST), its tag ran out or the thrower left (their body went with the ignore: the stale ref is zeroed
+// here, before the tick ends). From then a bounce back hits the thrower like any hit.
 age_throws :: proc(t: ^Tick) {
 	for i in 0 ..< t.world.item_count {
-		if t.state.items[i].thrown_ticks > 0 do t.state.items[i].thrown_ticks -= 1
+		item := &t.state.items[i]
+		if item.thrown_ticks > 0 do item.thrown_ticks -= 1
+		if item.thrower_ignore == {} do continue
+		clear := item.thrown_ticks == 0 || !sim.player_present(t, item.thrown_by)
+		if !clear {
+			away := physics.body_position(t.world.phys, item.body) - player_pos(t, item.thrown_by)
+			clear = dmath.length_sq(away) > THROW_CLEAR_DIST * THROW_CLEAR_DIST
+		}
+		if clear do physics.stop_ignoring(t.world.phys, &item.thrower_ignore)
 	}
 }

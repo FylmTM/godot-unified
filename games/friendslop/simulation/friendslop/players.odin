@@ -34,8 +34,7 @@ update_presence :: proc(t: ^Tick) {
 // Where a player in `slot` (re)appears: their place at the team's last checkpoint during a run, else their hub spawn.
 respawn_point :: proc(t: ^Tick, slot: int) -> [3]f32 {
 	if t.state.checkpoint >= 0 {
-		for i in 0 ..< t.world.checkpoint_count {
-			checkpoint := &t.world.checkpoints[i]
+		for &checkpoint in sim.slice(&t.world.checkpoints) {
 			if checkpoint.index == int(t.state.checkpoint) {
 				spread := f32(slot) * CHECKPOINT_SPREAD - CHECKPOINT_SPREAD * (PLAYERS - 1) / 2
 				return checkpoint.volume.pos + {spread, 0, 0}
