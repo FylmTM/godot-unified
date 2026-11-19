@@ -112,7 +112,7 @@ constants :: proc() -> Data_Constants {
 // expects): fill_frame pushes them in sim units (/ VIEW_SCALE) and the host maps them back.
 VIEW_SCALE :: 10
 POS_2D :: sim.Position{120, 80, 5} // pos.z is unused in 2D
-ANGLE_2D :: 0.5
+ANGLE_2D :: 0.5 // radians, as test.gd reads Node2D.rotation
 POS_3D :: sim.Position{1, 2, 3}
 YAW_3D :: 0.75
 TUMBLE_3D :: 0.3 // a MultiMesh instance's rotation about +X after the yaw: a full rotation, not a yaw only
@@ -201,7 +201,7 @@ fill_frame :: proc(f: ^Frame) {
 		bench_frame(f)
 		return
 	}
-	q2 := godot.quat_angle_2d(ANGLE_2D)
+	q2 := godot.quat_turns_2d(ANGLE_2D / math.TAU)
 	q3 := quat_yaw_angle(YAW_3D)
 	godot.push_view(f, f.local_players[0], {
 		kind = .Typed2D,
@@ -273,7 +273,7 @@ fill_frame :: proc(f: ^Frame) {
 	})
 	// the rotation negated every other tick (the same rotation): on the shorter arc it doesn't turn at all, so it is
 	// exact at any alpha
-	angle := godot.quat_angle_2d(0.25)
+	angle := godot.quat_turns_2d(0.25 / math.TAU) // 0.25 rad
 	godot.push_multi_view(f, {
 		key    = 1,
 		kind   = .Multi2D,

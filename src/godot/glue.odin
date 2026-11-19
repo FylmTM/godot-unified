@@ -32,7 +32,7 @@ View_Item :: struct($View: typeid) {
 	// their events that no view took by subject come here. A view of a thing may show a player (a car's driver).
 	player: sim.Player,
 	pos:    sim.Position, // sim units (the host applies Glue.view_scale); 2D: pos.xy (Godot 2D: x right, y down)
-	rot:    [4]f32, // unit quaternion (x, y, z, w); dmath.quat_yaw, quat_angle_2d (2D); zero = identity
+	rot:    [4]f32, // unit quaternion (x, y, z, w); dmath.quat_yaw, godot.quat_turns_2d (2D); zero = identity
 	// The subject's warp epoch: a value other than the one last shown snaps the view (no interpolation, no correction
 	// glide). A body's is physics.body_warp (every physics teleport moves it on); a thing that is no one body keeps a
 	// counter in its state and bumps it where it teleports. Rollback-safe: a re-simulated teleport bumps it to the
@@ -47,7 +47,7 @@ Multi_View_Item :: struct($MultiView: typeid) {
 	key:    u64, // identifies the instance across ticks, per kind (a handle's sim.handle_key); 0: not interpolated
 	kind:   MultiView,
 	pos:    sim.Position, // like View_Item's
-	rot:    [4]f32, // unit quaternion like View_Item's (2D: quat_angle_2d); zero = identity
+	rot:    [4]f32, // unit quaternion like View_Item's (2D: quat_turns_2d); zero = identity
 	scale:  [3]f32, // per local axis (2D: x, y); zero = {1, 1, 1}
 	color:  Color, // the instance color (use_colors), RGBA; zero = white
 	custom: [4]f32, // the instance custom data (the game's shader reads it)

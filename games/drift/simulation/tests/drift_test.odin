@@ -18,22 +18,11 @@ Run :: headless.Run(g.Game)
 
 // One sync-tested tick of the seated members (headless.run_seat) with these inputs, and slot 0's command when given.
 step :: proc(run: ^Run, input: [g.PLAYERS]g.Input, command: g.Cmd = nil) {
-	inputs := headless.run_inputs(run)
-	inputs.input = input
 	if command != nil {
-		sent := sim.add_command(&inputs, 0, command)
-		assert(sent)
+		headless.run_command(run, input, 0, command)
+	} else {
+		headless.run_step(run, input)
 	}
-	headless.run_step(run, &inputs)
-}
-
-// The event of type E the last step emitted (found = false: none).
-emitted :: proc(run: ^Run, $E: typeid) -> (event: E, found: bool) {
-	for &raw in sim.events_at(run.simulation, run.simulation.tick) {
-		event = sim.event_value(&raw, g.Event).(E) or_continue
-		return event, true
-	}
-	return
 }
 
 scripted :: proc(run: ^Run) -> (input: [g.PLAYERS]g.Input) {
@@ -100,7 +89,7 @@ a_ship_warps_through_a_gate :: proc(t: ^testing.T) {
 	warp: g.Event_Warped
 	for _ in 0 ..< 32 {
 		step(&run, {})
-		if event, warped := emitted(&run, g.Event_Warped); warped {
+		if event, warped := headless.run_last_event(&run, g.Event_Warped); warped {
 			warp = event
 			break
 		}
@@ -151,7 +140,7 @@ owners_follow_the_player_not_the_slot :: proc(t: ^testing.T) {
 
 	headless.run_seat(&run, 2, 1) // A comes back in another slot
 	step(&run, {})
-	spawn, spawned := emitted(&run, g.Event_Spawned)
+	spawn, spawned := headless.run_last_event(&run, g.Event_Spawned)
 	testing.expect(t, spawned, "A's ship spawned")
 	ship := sim.player_data(&state.players, first)
 	testing.expect_value(t, ship.shots, 1)

@@ -13,7 +13,7 @@ fixture :: proc() -> []u8 {
 	hull := [][3]f32{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 1, 1}}
 	mesh_points := [][3]f32{{10, 0, -2}, {14, 2, -2}, {14, 2, 2}, {10, 0, 2}}
 	mesh_triangles := [][3]u32{{0, 2, 1}, {0, 3, 2}}
-	curves := [][level.CURVE_SAMPLES]f32{curve_ramp()}
+	ramp := curve_ramp()
 	shapes := []level.Shape {
 		{
 			kind = .Box,
@@ -91,7 +91,7 @@ fixture :: proc() -> []u8 {
 		{key = "push", value = [3]f32{1, 2, 3}},
 		{key = "label", value = "lift"},
 		{key = "gate", value = level.Marker_Ref(1)},
-		{key = "falloff", value = level.Curve_Ref(0)},
+		{key = "falloff", value = level.Curve_Samples(&ramp)},
 	}
 	path := [][3]f32{{0, 0, 0}, {0, 3, 0}}
 	markers := []level.Marker {
@@ -118,7 +118,7 @@ fixture :: proc() -> []u8 {
 			scale = {1, 1, 1},
 		},
 	}
-	return encode(bodies, markers, scene = "res://levels/fixture.tscn", curves = curves)
+	return encode(bodies, markers, scene = "res://levels/fixture.tscn")
 }
 
 // A curve's samples rising from 0 to 1.
@@ -190,15 +190,15 @@ round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, level.prop_f32(marker, "nope", 9), 9)
 	testing.expect_value(t, len(marker.path), 2)
 	falloff := marker.props[len(marker.props) - 1]
-	curve, is_curve := falloff.value.(level.Curve_Ref)
+	curve, is_curve := falloff.value.(level.Curve_Samples)
 	testing.expect(t, falloff.key == "falloff" && is_curve, "a Curve property")
-	testing.expect(t, is_curve && loaded.curves[curve] == curve_ramp(), "a Curve property's samples")
-	ramp, has_ramp := level.prop_curve(&loaded, marker, "falloff")
+	testing.expect(t, is_curve && curve^ == curve_ramp(), "a Curve property's samples")
+	ramp, has_ramp := level.prop_curve(marker, "falloff")
 	testing.expect(t, has_ramp && ramp.samples == curve_ramp(), "prop_curve: the samples as a dmath.Curve")
 	testing.expect_value(t, dmath.curve_sample(ramp, 0.5), 0.5)
-	_, has_missing := level.prop_curve(&loaded, marker, "nope")
+	_, has_missing := level.prop_curve(marker, "nope")
 	testing.expect(t, !has_missing, "prop_curve: no such property")
-	_, has_other := level.prop_curve(&loaded, marker, "gate")
+	_, has_other := level.prop_curve(marker, "gate")
 	testing.expect(t, !has_other, "prop_curve: a property of another type")
 	platforms: [dynamic]string
 	defer delete(platforms)
@@ -208,7 +208,7 @@ round_trip :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(platforms), 2)
 	if len(platforms) == 2 do testing.expect_value(t, platforms[1], "Ferry")
 	// Encoding what was read gives the same bytes.
-	again := encode(loaded.bodies, loaded.markers, scene = loaded.scene, curves = loaded.curves)
+	again := encode(loaded.bodies, loaded.markers, scene = loaded.scene)
 	defer delete(again)
 	testing.expect(t, string(again) == string(data))
 }

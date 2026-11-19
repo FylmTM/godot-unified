@@ -10,26 +10,17 @@ import "unified:sim"
 
 import g "../minimal_3d"
 
-// Steps the run once with `slot`'s commands (none: a plain step).
-step_with :: proc(run: ^headless.Run(g.Game), slot: int, commands: ..g.Cmd) {
-	inputs := headless.run_inputs(run)
-	for command in commands do sim.add_command(&inputs, slot, command)
-	headless.run_step(run, &inputs)
-}
-
 // A throw emits its event at once, at most THROW_SPEED_MAX, and the ball is gone once it lands.
 @(test)
 a_thrown_ball_lands_and_is_gone :: proc(t: ^testing.T) {
 	run := headless.run_begin(&g.GAME, 1, seated = 1)
 	defer headless.run_end(&run)
-	step_with(&run, 0, g.Cmd_Throw_Ball{speed = 255})
+	headless.run_command(&run, 0, g.Cmd_Throw_Ball{speed = 255})
 	testing.expect_value(t, headless.run_events(&run, g.Event_Ball_Thrown), 1)
-	for &raw in sim.events_at(run.simulation, run.simulation.tick) {
-		thrown, is_throw := sim.event_value(&raw, g.Event).(g.Event_Ball_Thrown)
-		if is_throw do testing.expect_value(t, thrown.speed, g.THROW_SPEED_MAX)
-	}
+	thrown, _ := headless.run_last_event(&run, g.Event_Ball_Thrown)
+	testing.expect_value(t, thrown.speed, g.THROW_SPEED_MAX)
 	testing.expect_value(t, run.simulation.state.balls.count, 1)
-	for _ in 0 ..< 2 * g.TICK_HZ do step_with(&run, 0)
+	for _ in 0 ..< 2 * g.TICK_HZ do headless.run_step(&run)
 	testing.expect_value(t, run.simulation.state.balls.count, 0)
 	scenarios.expect_synced(t, &run)
 }
@@ -39,11 +30,14 @@ a_thrown_ball_lands_and_is_gone :: proc(t: ^testing.T) {
 a_throw_waits_out_the_cooldown :: proc(t: ^testing.T) {
 	run := headless.run_begin(&g.GAME, 1, seated = 1)
 	defer headless.run_end(&run)
-	step_with(&run, 0, g.Cmd_Throw_Ball{speed = 4}, g.Cmd_Throw_Ball{speed = 4}) // the second in the same tick: dropped
-	step_with(&run, 0, g.Cmd_Throw_Ball{speed = 4}) // a tick later: dropped
+	twice := headless.run_inputs(&run)
+	sim.add_command(&twice, 0, g.Cmd_Throw_Ball{speed = 4})
+	sim.add_command(&twice, 0, g.Cmd_Throw_Ball{speed = 4}) // the second in the same tick: dropped
+	headless.run_step(&run, &twice)
+	headless.run_command(&run, 0, g.Cmd_Throw_Ball{speed = 4}) // a tick later: dropped
 	testing.expect_value(t, run.simulation.state.balls.count, 1)
-	for _ in 0 ..< sim.ticks(g.THROW_COOLDOWN_S, g.TICK_HZ) do step_with(&run, 0)
-	step_with(&run, 0, g.Cmd_Throw_Ball{speed = 4})
+	for _ in 0 ..< sim.ticks(g.THROW_COOLDOWN_S, g.TICK_HZ) do headless.run_step(&run)
+	headless.run_command(&run, 0, g.Cmd_Throw_Ball{speed = 4})
 	testing.expect_value(t, run.simulation.state.balls.count, 2)
 	scenarios.expect_synced(t, &run)
 }
@@ -75,8 +69,11 @@ a_full_table_loses_the_throw :: proc(t: ^testing.T) {
 a_co_op_pause_stops_the_game :: proc(t: ^testing.T) {
 	run := headless.run_begin(&g.GAME, 1, seated = 2)
 	defer headless.run_end(&run)
-	step_with(&run, 0, g.Cmd_Throw_Ball{speed = 8})
-	step_with(&run, 1, g.Cmd_Set_Paused{true}, g.Cmd_Set_Paused{true}) // twice: one change, one event
+	headless.run_command(&run, 0, g.Cmd_Throw_Ball{speed = 8})
+	pause := headless.run_inputs(&run)
+	sim.add_command(&pause, 1, g.Cmd_Set_Paused{true})
+	sim.add_command(&pause, 1, g.Cmd_Set_Paused{true}) // twice: one change, one event
+	headless.run_step(&run, &pause)
 	testing.expect_value(t, headless.run_events(&run, g.Event_Paused), 1)
 	state := &run.simulation.state
 	time := state.clock.time
@@ -96,8 +93,8 @@ a_co_op_pause_stops_the_game :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.slot_data(run.simulation, 0).position, moved)
 	data := sim.slot_data(run.simulation, 0)
 	testing.expect(t, sim.timer_running(state.clock.time, data.throw_ready), "the cooldown waits out the pause")
-	step_with(&run, 0, g.Cmd_Set_Paused{false})
-	step_with(&run, 0)
+	headless.run_command(&run, 0, g.Cmd_Set_Paused{false})
+	headless.run_step(&run)
 	testing.expect_value(t, state.clock.time, time + 1)
 	testing.expect_value(t, headless.run_events(&run, g.Event_Paused), 2) // so far: the pause and the resume
 	scenarios.expect_synced(t, &run)

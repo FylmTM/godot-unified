@@ -5,8 +5,8 @@ package test_level
 import "unified:level"
 import "unified:wire"
 
-// Encodes bodies and markers (their `index` fields are ignored; Ref props hold marker indices, Curve props indices
-// into `curves`), in the current version. `px_per_m`: a 2D level's pixels per metre (Level.px_per_m), 0 for a 3D
+// Encodes bodies and markers (their `index` fields are ignored; Ref props hold marker indices, Curve props their
+// samples), in the current version. `px_per_m`: a 2D level's pixels per metre (Level.px_per_m), 0 for a 3D
 // level. A shape whose surface is zero or its body's is written as having none of its own; a mesh's extra surfaces
 // are its materials past the first.
 encode :: proc(
@@ -14,7 +14,6 @@ encode :: proc(
 	markers: []level.Marker,
 	px_per_m: f32 = 0,
 	scene := "",
-	curves: [][level.CURVE_SAMPLES]f32 = nil,
 	allocator := context.allocator,
 ) -> []u8 {
 	string_table := make([dynamic]string, 0, 64, context.temp_allocator)
@@ -142,9 +141,9 @@ encode :: proc(
 			case level.Marker_Ref:
 				wire.w_u8(&writer, u8(level.Prop_Type.Ref))
 				wire.w_u32(&writer, u32(value))
-			case level.Curve_Ref:
+			case level.Curve_Samples:
 				wire.w_u8(&writer, u8(level.Prop_Type.Curve))
-				for sample in curves[value] do wire.w_f32(&writer, sample)
+				for sample in value^ do wire.w_f32(&writer, sample)
 			}
 		}
 		write_points(&writer, marker.path)

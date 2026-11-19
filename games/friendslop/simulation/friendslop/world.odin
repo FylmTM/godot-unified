@@ -203,7 +203,7 @@ read_places :: proc(places: ^Places, level_data: ^level.Level) {
 			wait := level.prop_f32(&marker, "wait")
 			assert(seconds > 0 && wait >= 0, "friendslop: a platform needs seconds per leg, and no negative wait")
 			def.path.ease = level.prop_bool(&marker, "smooth") ? .Smooth : .Linear
-			if curve, has := level.prop_curve(level_data, &marker, "easing"); has {
+			if curve, has := level.prop_curve(&marker, "easing"); has {
 				def.path.ease, def.path.curve = .Curve, curve
 			}
 			def.path.mode = def.mode == .Loop ? .Loop : def.mode == .Ping_Pong ? .Ping_Pong : .Once

@@ -97,7 +97,7 @@ Prop_Type :: enum u8 {
 }
 
 // A marker property: an exported script property (a Vector2 is a [3]f32 with z = 0; a NodePath to another marker is
-// its Marker_Ref; a Curve its Curve_Ref).
+// its Marker_Ref; a Curve its samples, Curve_Samples).
 Prop :: struct {
 	key:   string,
 	value: Prop_Value,
@@ -111,14 +111,14 @@ Prop_Value :: union {
 	[3]f32,
 	string,
 	Marker_Ref,
-	Curve_Ref,
+	Curve_Samples,
 }
 
 // Another marker: its index in Level.markers (-1: none).
 Marker_Ref :: distinct i32
 
-// A Curve property's samples: its index in Level.curves.
-Curve_Ref :: distinct i32
+// A Curve property's samples: a view into Level.curves, resolved at load (as long-lived as the Level).
+Curve_Samples :: distinct ^[CURVE_SAMPLES]f32
 
 // A marker node: its kind (the game's vocabulary), name, transform, exported script properties and path.
 Marker :: struct {
@@ -140,7 +140,7 @@ Level :: struct {
 	scene:     string, // the res:// path of the scene it was exported from ("": none)
 	bodies:    []Body,
 	markers:   []Marker,
-	// A Curve property's CURVE_SAMPLES values, evenly spaced over its domain (Curve_Ref indexes them).
+	// A Curve property's CURVE_SAMPLES values, evenly spaced over its domain (each property's Curve_Samples).
 	curves:    [][CURVE_SAMPLES]f32,
 	// Backing storage the slices above point into, and the allocator load made it with (destroy frees with it).
 	allocator: runtime.Allocator,
@@ -416,6 +416,8 @@ load :: proc(data: []u8, allocator := context.allocator) -> (level: Level, ok: b
 	defer delete(marker_props)
 	marker_path: [dynamic]Span
 	defer delete(marker_path)
+	curve_props: [dynamic][2]int // a Curve property: its index in decoder.props, its samples' in decoder.curves
+	defer delete(curve_props)
 	marker_count := read_count(&decoder, int(wire.r_u32(&decoder.reader)), 1)
 	markers := make([]Marker, marker_count)
 	for &marker, i in markers {
@@ -447,7 +449,7 @@ load :: proc(data: []u8, allocator := context.allocator) -> (level: Level, ok: b
 			case .Curve:
 				samples: [CURVE_SAMPLES]f32
 				for &sample in samples do sample = wire.r_f32(&decoder.reader)
-				property.value = Curve_Ref(len(decoder.curves))
+				append(&curve_props, [2]int{len(decoder.props), len(decoder.curves)}) // resolved once read
 				append(&decoder.curves, samples)
 			case:
 				decoder.ok = false
@@ -483,6 +485,7 @@ load :: proc(data: []u8, allocator := context.allocator) -> (level: Level, ok: b
 		destroy(&level)
 		return {}, false
 	}
+	for curve in curve_props do level.props[curve[0]].value = Curve_Samples(&level.curves[curve[1]])
 	for &shape, i in level.shapes {
 		spans := shape_spans[i]
 		shape.points = level.points[spans.points.start:][:spans.points.count]
@@ -613,11 +616,10 @@ prop_ref :: proc(marker: ^Marker, key: string) -> int {
 
 #assert(CURVE_SAMPLES == dmath.CURVE_SAMPLES)
 
-// A Curve property as a dmath.Curve (its samples over the curve's domain, mapped to x in 0..1: curve_sample), looked
-// up in the marker's level; ok is false when the marker has no such property (an unset Curve is not exported) or it
-// is of another type.
-prop_curve :: proc(level: ^Level, marker: ^Marker, key: string) -> (curve: dmath.Curve, ok: bool) {
-	ref := prop_value(marker, key, Curve_Ref(-1))
-	if ref < 0 || int(ref) >= len(level.curves) do return
-	return {samples = level.curves[ref]}, true
+// A Curve property as a dmath.Curve (its samples over the curve's domain, mapped to x in 0..1: curve_sample); ok is
+// false when the marker has no such property (an unset Curve is not exported) or it is of another type.
+prop_curve :: proc(marker: ^Marker, key: string) -> (curve: dmath.Curve, ok: bool) #optional_ok {
+	samples := prop_value(marker, key, Curve_Samples(nil))
+	if samples == nil do return
+	return {samples = samples^}, true
 }

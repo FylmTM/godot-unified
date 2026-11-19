@@ -163,19 +163,22 @@ track_rotation_interpolates_and_smooths :: proc(t: ^testing.T) {
 	testing.expectf(t, abs(godot.yaw_of(pose.rot) - 0.5) < 1e-3, "converged: %v", godot.yaw_of(pose.rot))
 }
 
-// 2D angles (about +Z): round trip across the circle, interpolation through a track, and independence from yaw.
+// 2D angles in turns (about +Z): round trip across the circle, a quarter turn is +x to +y, interpolation through a
+// track, and independence from yaw.
 @(test)
 angle2d_round_trips_and_interpolates :: proc(t: ^testing.T) {
-	for angle in ([]f32{0, 0.5, -1, 2, 3, -3}) {
-		testing.expectf(t, abs(godot.angle_2d_of(godot.quat_angle_2d(angle)) - angle) < 1e-5, "angle %v", angle)
-		testing.expectf(t, abs(godot.yaw_of(godot.quat_angle_2d(angle))) < 1e-5, "angle %v has no yaw", angle)
+	for turns in ([]f32{0, 0.125, -0.25, 0.4, 0.49, -0.45}) {
+		testing.expectf(t, abs(godot.turns_2d_of(godot.quat_turns_2d(turns)) - turns) < 1e-5, "turns %v", turns)
+		testing.expectf(t, abs(godot.yaw_of(godot.quat_turns_2d(turns))) < 1e-5, "turns %v has no yaw", turns)
 	}
-	testing.expect(t, abs(godot.angle_2d_of(godot.IDENTITY)) < 1e-6)
+	quarter := godot.quat_turns_2d(0.25)
+	testing.expectf(t, abs(quarter.z - quarter.w) < 1e-6 && quarter.z > 0, "a quarter turn: %v", quarter)
+	testing.expect(t, abs(godot.turns_2d_of(godot.IDENTITY)) < 1e-6)
 	track: godot.Track
-	godot.track_push(&track, 1, {{}, godot.quat_angle_2d(0)})
-	godot.track_push(&track, 2, {{}, godot.quat_angle_2d(1)})
+	godot.track_push(&track, 1, {{}, godot.quat_turns_2d(0)})
+	godot.track_push(&track, 2, {{}, godot.quat_turns_2d(0.25)})
 	pose := godot.track_sample(&track, 2, 0.5, 0)
-	testing.expectf(t, abs(godot.angle_2d_of(pose.rot) - 0.5) < 1e-3, "angle %v", godot.angle_2d_of(pose.rot))
+	testing.expectf(t, abs(godot.turns_2d_of(pose.rot) - 0.125) < 1e-3, "turns %v", godot.turns_2d_of(pose.rot))
 }
 
 @(test)

@@ -11,9 +11,7 @@ import "unified:sim"
 
 // One sync-tested tick of the seated players (headless.run_seat), each with its input.
 step :: proc(run: ^headless.Run(g.Game), input: [g.PLAYERS]g.Input = {}) {
-	inputs := headless.run_inputs(run)
-	inputs.input = input
-	headless.run_step(run, &inputs)
+	headless.run_step(run, input)
 }
 
 // The tick on which killing_tick kills every present player (0: none), through the game's own rule.
