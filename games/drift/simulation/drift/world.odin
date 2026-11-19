@@ -61,15 +61,16 @@ world_create :: proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^W
 	arena := physics.level_data(world.phys, Level_Id.Arena)
 	assert(arena.px_per_m > 0, "drift: the level is not a 2D level (src/level/README.md)")
 
-	spawn_count := 0
+	spawned: [PLAYERS]bool
 	gate_markers: [MAX_GATES]int // each gate's marker index
 	for &marker in arena.markers {
 		pos := marker.pos.xy
 		switch marker.kind {
 		case "spawn":
-			assert(spawn_count < PLAYERS, "drift: more spawn markers than slots")
-			world.spawns[spawn_count] = pos
-			spawn_count += 1
+			slot := level.prop_int(&marker, "slot")
+			assert(slot >= 0 && slot < PLAYERS && !spawned[slot], "drift: a spawn's slot is out of range or taken")
+			spawned[slot] = true
+			world.spawns[slot] = pos
 		case "station":
 			world.station = pos
 		case "gate":
@@ -84,7 +85,7 @@ world_create :: proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^W
 			assert(added, "drift: too many rock spawners")
 		}
 	}
-	assert(spawn_count == PLAYERS, "drift: the level needs a spawn marker per slot")
+	for slot_spawned in spawned do assert(slot_spawned, "drift: the level needs a spawn marker per slot")
 	assert(world.spawners.count > 0, "drift: the level has no rock_spawn marker")
 	for &gate in sim.slice(&world.gates) {
 		pair_marker := gate.pair

@@ -29,24 +29,23 @@ Data_Hud :: struct {
 	reset_in_s:  f32, // over: until back to the lobby
 }
 
-hud_of :: proc(state: ^g.State, time: sim.Game_Time) -> (hud: Data_Hud) {
-	hud.phase = state.phase
-	hud.wave = state.waves
-	hud.station_hp = state.station_hp
-	hud.score = state.score
-	hud.rocks = u32(state.rocks.count)
-	switch state.phase {
+hud_of :: proc(f: ^Frame) -> (hud: Data_Hud) {
+	hud.phase = f.state.phase
+	hud.wave = f.state.waves
+	hud.station_hp = f.state.station_hp
+	hud.score = f.state.score
+	hud.rocks = u32(f.state.rocks.count)
+	switch f.state.phase {
 	case .Lobby:
 	case .Match:
-		hud.time_s = sim.seconds(time - state.match_tick, g.TICK_HZ)
-		hud.next_wave_s = state.next_wave_tick > time ? sim.seconds(state.next_wave_tick - time, g.TICK_HZ) : 0
+		hud.time_s = sim.seconds(f.time - f.state.match_tick, g.TICK_HZ)
+		hud.next_wave_s = sim.timer_remaining_s(f.time, f.state.next_wave, g.TICK_HZ)
 	case .Over:
-		hud.time_s = sim.seconds(state.over_tick - state.match_tick, g.TICK_HZ)
-		end := state.over_tick + g.OVER_HOLD_TICKS
-		hud.reset_in_s = end > time ? sim.seconds(end - time, g.TICK_HZ) : 0
+		hud.time_s = sim.seconds(f.state.over_hold.start - f.state.match_tick, g.TICK_HZ)
+		hud.reset_in_s = sim.timer_remaining_s(f.time, f.state.over_hold, g.TICK_HZ)
 	}
 	for slot in 0 ..< g.PLAYERS {
-		ship := sim.slot_data(&state.players, slot)
+		ship := sim.slot_data(&f.state.players, slot)
 		if ship == nil do continue
 		hud.players[slot] = {
 			shots = ship.shots,

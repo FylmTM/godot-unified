@@ -42,7 +42,7 @@ advance_phase :: proc(t: ^Tick) {
 			if def.kind != .Trophy do continue
 			if !in_volume(places(t).finish, physics.body_position(t.world.phys, t.state.items[i].body)) do continue
 			t.state.phase = .Finished
-			t.state.finish_tick = t.time
+			sim.timer_start_ticks(t, &t.state.finish_hold, FINISH_HOLD_TICKS)
 			ticks := u32(t.time - t.state.run_tick)
 			if t.state.best_ticks == 0 || ticks < t.state.best_ticks do t.state.best_ticks = ticks
 			sim.emit(t, Event_Run_Finished {
@@ -53,7 +53,7 @@ advance_phase :: proc(t: ^Tick) {
 			break
 		}
 	case .Finished:
-		if t.time - t.state.finish_tick >= FINISH_HOLD_TICKS do reset_route(t)
+		if sim.timer_done(t, t.state.finish_hold) do reset_route(t)
 	}
 }
 

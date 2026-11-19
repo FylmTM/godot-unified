@@ -49,6 +49,7 @@ A game stays this shape: no menus or settings, one scene that starts a session. 
 - **A population, a benchmark with `bench_prepare`, keyed rolls, a tuning variant:** survivor, with dev commands,
   timing zones, debug draws, a `sim.Grid`, `sim.due` and a roll its HUD peeks.
 - **How a view is shown:** friendslop (a script-posed view, `Glue.view_policy`: the held item at the hand), drift and
-  friendslop (a warp epoch at every teleport, so the view snaps).
+  friendslop (a teleported body's view snaps: `physics.body_warp`), survivor (a warp epoch of its own for a body made
+  again).
 - **Shown by no game** (the declaration's doc comment says how): `Appear.Verified` and `Glue.multi_policy`,
   `sim.Queue`, `sim.Bits`, dmath's trig, `Game.predict_input`, `Game.input_delay_min_ticks`.

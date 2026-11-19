@@ -88,7 +88,7 @@ lobby_match_over_lobby :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, state.phase, g.Phase.Over)
 	step(&run)
-	testing.expect_value(t, simulation.tick, over + u32(g.OVER_HOLD_TICKS))
+	testing.expect_value(t, simulation.tick, over + g.OVER_HOLD_TICKS)
 	testing.expect_value(t, state.phase, g.Phase.Lobby)
 	testing.expect_value(t, state.enemies.count, 0)
 	testing.expect(
@@ -157,7 +157,8 @@ when scenarios.LONG {
 				}
 			}
 			survived_sum += sim.seconds(
-				(state.phase == .Over ? state.over_tick : sim.game_time(state, simulation.tick)) - state.match_tick,
+				(state.phase == .Over ? state.over_hold.start : sim.game_time(state, simulation.tick)) -
+				state.match_tick,
 				g.TICK_HZ,
 			)
 			wave_sum += f32(state.wave)

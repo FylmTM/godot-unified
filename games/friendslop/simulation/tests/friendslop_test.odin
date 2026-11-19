@@ -175,7 +175,7 @@ throw_hits_friend :: proc(t: ^testing.T) {
 	stunned := false
 	for _ in 0 ..< 96 {
 		step(&run, {})
-		stunned ||= sim.slot_data(run.simulation, 1).stun > 0
+		stunned ||= sim.slot_data(run.simulation, 1).stun != {}
 	}
 	testing.expect(t, stunned)
 	testing.expectf(
@@ -185,7 +185,7 @@ throw_hits_friend :: proc(t: ^testing.T) {
 		headless.run_events(&run, g.Event_Thrown),
 	)
 	idle(&run, 96)
-	testing.expect_value(t, sim.slot_data(run.simulation, 1).stun, 0)
+	testing.expect_value(t, sim.slot_data(run.simulation, 1).stun, sim.Timer{})
 	testing.expect(t, .Limp not_in sim.slot_data(run.simulation, 1).controller.flags)
 	scenarios.expect_synced(t, &run)
 }

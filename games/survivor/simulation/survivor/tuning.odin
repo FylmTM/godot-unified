@@ -1,7 +1,6 @@
 package survivor
 
 import "unified:dmath"
-import "unified:sim"
 
 // Every rule's number. Times are written in seconds and converted to ticks at compile time: a value that is not a whole
 // number of ticks does not compile.
@@ -83,7 +82,7 @@ SPAWN_KINDS := [10]Enemy_Kind{.Grunt, .Grunt, .Grunt, .Grunt, .Grunt, .Grunt, .G
 // ---- crates and barrels
 
 BARREL_HP :: 30
-BARREL_RESPAWN_TICKS :: sim.Game_Time(10.0 * TICK_HZ)
+BARREL_RESPAWN_TICKS :: u32(10.0 * TICK_HZ)
 CRATE_HALF :: 0.5 // m
 BARREL_RADIUS :: 0.4 // the capsule's radius (m)
 BARREL_HALF_HEIGHT :: 0.3 // half its segment (m)
@@ -101,7 +100,7 @@ BLAST_LIFT :: 0.5 // the impulse's upward part, before normalizing
 // ---- phases
 
 OVER_HOLD_S :: 5.0 // the match-over screen, before the world resets
-OVER_HOLD_TICKS :: sim.Game_Time(OVER_HOLD_S * TICK_HZ)
+OVER_HOLD_TICKS :: u32(OVER_HOLD_S * TICK_HZ)
 
 // ---- difficulty and roles
 

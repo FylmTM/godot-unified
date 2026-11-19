@@ -50,14 +50,14 @@ break_rocks :: proc(t: ^Tick) {
 // shape are keyed rolls.
 spawn_waves :: proc(t: ^Tick) {
 	if t.state.phase != .Match do return
-	if t.time >= t.state.next_wave_tick {
+	if sim.timer_done(t, t.state.next_wave) {
 		t.state.rocks_left += WAVE_ROCKS + WAVE_ROCKS_MORE * u32(t.state.waves)
 		t.state.waves += 1
-		t.state.next_wave_tick = t.time + WAVE_EVERY_TICKS
-		t.state.next_rock_tick = t.time
+		sim.timer_start_ticks(t, &t.state.next_wave, WAVE_EVERY_TICKS)
+		sim.timer_start_ticks(t, &t.state.next_rock, 0) // its first rock: this tick
 		sim.emit(t, Event_Wave{wave = t.state.waves})
 	}
-	if t.state.rocks_left == 0 || t.time < t.state.next_rock_tick do return
+	if t.state.rocks_left == 0 || sim.timer_running(t, t.state.next_rock) do return
 	spawner := &sim.slice(&t.world.spawners)[t.state.spawner % t.world.spawners.count]
 	speed := ROCK_SPEED + ROCK_SPEED_PER_WAVE * f32(t.state.waves - 1)
 	// the drift direction turned by up to ROCK_SPREAD_TURNS either way
@@ -69,5 +69,5 @@ spawn_waves :: proc(t: ^Tick) {
 		t.state.spawner += 1
 		t.state.rocks_left -= 1
 	}
-	t.state.next_rock_tick = t.time + ROCK_EVERY_TICKS
+	sim.timer_start_ticks(t, &t.state.next_rock, ROCK_EVERY_TICKS)
 }

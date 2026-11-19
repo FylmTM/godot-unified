@@ -8,7 +8,7 @@ import "unified:sim"
 bump_players :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
-		if character.stun > 0 || sim.timer_running(t, character.respawn) || character.held_by != {} do continue
+		if sim.timer_running(t, character.stun) || sim.timer_running(t, character.respawn) || character.held_by != {} do continue
 		pos := player_pos(t, player)
 		for &bumper in sim.slice(&places(t).bumpers) {
 			if !in_volume(bumper.volume, pos) do continue
@@ -69,7 +69,7 @@ knock :: proc(t: ^Tick, player: sim.Player, direction: [2]f32, speed: f32, bumpe
 	if character.held_by != {} || sim.timer_running(t, character.respawn) do return
 	if character.held_kind != .None do drop(t, player)
 	physics.character_set_limp(t.world.phys, &character.controller, true)
-	character.stun = STUN_TICKS
+	sim.timer_start_ticks(t, &character.stun, STUN_TICKS)
 	character.thrown = false
 	character.charge = 0
 	physics.body_set_linear_velocity(

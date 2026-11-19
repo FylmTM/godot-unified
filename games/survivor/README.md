@@ -22,11 +22,11 @@ physics bodies, so the World also keeps what they move around: the pillars' boxe
 walls' inner faces are from the centre.
 
 The level also places the crates and barrels and the players' start spots. Its `item` markers are the view scenes
-themselves (`game/views/crate.tscn`, `barrel.tscn`; `prop_view.gd` declares the kind, each scene sets its `kind`):
-each is a dynamic body tagged with its index (the markers' scene order, at most `MAX_ITEMS`), created where the
-marker rests; the play scene removes the markers, the items' views draw them, and the menu backdrop shows the level
-as it is. Its `spawn` markers, one per slot in scene order, are the start spots: players are dynamic capsules with
-rotation locked, created at their slot's spot when they become present.
+themselves (`game/views/crate.tscn`, `barrel.tscn`; `prop_view.gd` declares the kind, each scene sets its `kind`): each
+is a dynamic body tagged with its index (the markers' scene order, at most `MAX_ITEMS`), created where the marker rests;
+the play scene removes the markers, the items' views draw them, and the menu backdrop shows the level as it is. Its
+`spawn` markers, one per slot (its `slot` property), are the start spots: players are dynamic capsules with rotation
+locked, created at their slot's spot when they become present.
 
 ## Input and commands
 

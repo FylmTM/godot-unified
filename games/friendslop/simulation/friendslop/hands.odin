@@ -17,7 +17,7 @@ use_hands :: proc(t: ^Tick) {
 			struggle(t, character, player, .Jump in buttons.pressed)
 			continue
 		}
-		if character.stun > 0 do continue
+		if sim.timer_running(t, character.stun) do continue
 		holding := character.held_kind != .None
 		if .Grab in buttons.pressed {
 			if holding do drop(t, player)
@@ -38,10 +38,9 @@ use_hands :: proc(t: ^Tick) {
 // lets go anyway after HELD_MAX_TICKS.
 struggle :: proc(t: ^Tick, character: ^Character, player: sim.Player, pressed_jump: bool) {
 	character.held_ticks += 1
-	if character.break_window > 0 do character.break_window -= 1
-	else do character.break_presses = 0
+	if !sim.timer_running(t, character.break_window) do character.break_presses = 0
 	if pressed_jump {
-		if character.break_presses == 0 do character.break_window = BREAK_FREE_WINDOW_TICKS
+		if character.break_presses == 0 do sim.timer_start_ticks(t, &character.break_window, BREAK_FREE_WINDOW_TICKS)
 		character.break_presses += 1
 	}
 	broke_free := character.break_presses >= BREAK_FREE_PRESSES && character.held_ticks >= BREAK_FREE_MIN_TICKS
@@ -201,8 +200,8 @@ grab :: proc(t: ^Tick, player: sim.Player, target: Target) {
 		held.held_by = player
 		held.held_ticks = 0
 		held.break_presses = 0
-		held.break_window = 0
-		held.stun = 0
+		held.break_window = {}
+		held.stun = {}
 		held.thrown = false
 		held.charge = 0
 		physics.character_set_limp(t.world.phys, &held.controller, true)
@@ -253,7 +252,7 @@ drop :: proc(t: ^Tick, player: sim.Player) {
 		held.held_by = {}
 		held.held_ticks = 0
 		held.thrown = true
-		held.stun = THROWN_MAX_TICKS
+		sim.timer_start_ticks(t, &held.stun, THROWN_MAX_TICKS)
 	case .None:
 	}
 	character.held_kind = .None

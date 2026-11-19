@@ -25,8 +25,8 @@ frames every local ship.
 ## World
 
 The arena is a level drawn in Godot's 2D editor (`game/levels/arena.tscn`, baked to `arena.level`,
-`src/level/README.md`, 2D levels): static walls and obstacles, then markers: a `spawn` per slot, the `station`,
-`gate`s (`pair`: the other gate) and `rock_spawn`s on the edges (`dir`: the drift direction).
+`src/level/README.md`, 2D levels): static walls and obstacles, then markers: a `spawn` per slot (its `slot`), the
+`station`, `gate`s (`pair`: the other gate) and `rock_spawn`s on the edges (`dir`: the drift direction).
 
 - The station: a kinematic hexagon (`STATION_RADIUS`) at the station marker, with `STATION_HP`.
 - Ships: dynamic circles (`SHIP_RADIUS`, `SHIP_DENSITY`, `SHIP_DAMPING`), made when a player becomes present, at
