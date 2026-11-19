@@ -2,6 +2,7 @@
 
 [resource]
 metadata/views = {
+"card": "res://views/card.tscn",
 "decoy2d": "res://views/decoy2d.tscn",
 "plain2d": "res://views/plain2d.tscn",
 "plain3d": "res://views/plain3d.tscn",

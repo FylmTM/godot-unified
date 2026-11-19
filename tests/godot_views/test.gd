@@ -120,6 +120,8 @@ func _initialize() -> void:
 	var blink: Node2D = null
 	var blink_despawned := false
 	var blink_kept := false
+	var card: Control = null  # the thing's data-only view, followed until it is freed
+	var card_seen := {}  # what it showed while alive
 	for i in 150:  # up to ~3 s
 		await create_timer(0.02).timeout
 		typed = child_of_kind(views, "typed2d")
@@ -135,13 +137,23 @@ func _initialize() -> void:
 		elif is_instance_valid(blink) and blink.get("despawns") == 1:
 			blink_despawned = true
 			blink_kept = blink_kept or blink.position == Vector2(999, 999)  # the host no longer sets its pose
+		if card == null:
+			card = child_of_kind(views, "card") as Control
+			if card != null:
+				card_seen = {events = card.get("events"), positions = []}
+		if card != null and is_instance_valid(card):
+			card_seen.first_life = card.get("life_at_first_process")
+			card_seen.life_sets = card.get("life_sets")
+			card_seen.despawns = card.get("despawns")
+			card_seen.parent = card.get_parent()
+			(card_seen.positions as Array).append(card.position)
 		if i == 5:
 			press(&"ui_accept", true)  # one press, shorter than a tick: latched until a tick takes it
 		elif i == 6:
 			press(&"ui_accept", false)
 		if typed != null and typed.get("updates") > 1 and typed.get("ticks_sets") > 2 \
 				and typed_multi.visible_instance_count == 2 and blink_despawned and not is_instance_valid(blink) \
-				and events.any(func(e: Array) -> bool:
+				and card != null and not is_instance_valid(card) and events.any(func(e: Array) -> bool:
 					return e[0] is EventExpired and e[1] == UnifiedSession.EVENT_CONFIRMED):
 			break
 	check("typed 2D view spawned from the index", typed != null, typed)
@@ -194,7 +206,8 @@ func _initialize() -> void:
 	check("Unified.view_scale: the Glue's", near(Unified.view_scale, 10.0), Unified.view_scale)
 	check("a sim.Position in session data: view units (x 10), a Vector2",
 		toy.at.is_equal_approx(Vector2(toy.x, toy.y) * 10.0), [toy.at, toy.x, toy.y])
-	check_events(events, typed, plain, me)
+	check_events(events, typed, me)
+	check_card(card, card_seen, views)
 	check("by subject type: a view of another table's handle with the thing's key gets none of its events",
 		decoys_seen and decoy_events.is_empty(), decoy_events)
 	check("scene data as properties (an enum as its int)", typed.get("shown") and typed.get("mode") == 1 and typed.get("hp") == -3 \
@@ -415,7 +428,7 @@ func check_unnamed() -> void:
 # CANCELLED once, its fields typed properties; the subject's view gets them too (the player's view: the toy's
 # things have no scene view, so `Spawned` falls back to its player), unless Glue.event_key routes it (Expired to the
 # plain2d view keyed 2, Joined to none).
-func check_events(events: Array[Array], typed: Node, plain: Node, me: int) -> void:
+func check_events(events: Array[Array], typed: Node, me: int) -> void:
 	check("event states are class constants", UnifiedSession.EVENT_EMITTED == 0 \
 		and UnifiedSession.EVENT_CONFIRMED == 1 and UnifiedSession.EVENT_CANCELLED == 2,
 		[UnifiedSession.EVENT_EMITTED, UnifiedSession.EVENT_CONFIRMED, UnifiedSession.EVENT_CANCELLED])
@@ -450,9 +463,26 @@ func check_events(events: Array[Array], typed: Node, plain: Node, me: int) -> vo
 	check("event_key No_View: Joined reaches no view (the signal only)",
 		not (typed.get("events") as Array).any(func(e: Array) -> bool: return e[0] is EventPlayerJoined),
 		typed.get("events"))
-	var on_plain: Array = (plain.get("events") as Array) if plain != null else []
-	check("event_key View: Expired reaches the view it names, in both states",
-		on_plain.size() >= 2 and on_plain.all(func(e: Array) -> bool: return e[0] is EventExpired), on_plain)
+
+
+# A data-only view (ext/ext.odin's card: a Control root): spawned from the index under view_root, its data set before
+# its first _process and again when it changes, never posed (its own layout stays), an event_key event reaching it
+# while it lingers after its thing went, _sim_despawned once, then freed.
+func check_card(card: Control, seen: Dictionary, views: Node) -> void:
+	check("a Control view spawned from the index under view_root", not seen.is_empty() and seen.parent == views,
+		seen.get("parent"))
+	if seen.is_empty():
+		return
+	check("its data is set before its first _process", seen.first_life > 0, seen.first_life)
+	check("its data is set again when it changes", seen.life_sets > 1, seen.life_sets)
+	check("the host never poses a data-only view",
+		(seen.positions as Array).all(func(p: Vector2) -> bool: return p == Vector2(7, 7)), seen.positions)
+	var on_card: Array = seen.events
+	check("event_key View: Expired reaches the card it names while it lingers, in both states",
+		on_card.size() >= 2 and on_card.all(func(e: Array) -> bool: return e[0] is EventExpired) \
+		and on_card[-1][1] == UnifiedSession.EVENT_CONFIRMED, on_card)
+	check("a data-only view that leaves gets _sim_despawned once, then is freed",
+		seen.despawns == 1 and not is_instance_valid(card), seen.despawns)
 
 
 # Game input off (UnifiedSession.game_input): a press doesn't reach the sim; an action still held when it comes back

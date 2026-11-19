@@ -123,6 +123,10 @@ fill gets re-simulated before it is verified; it costs one more `fill_frame` per
 only while some kind asks for it. The main thread creates the view once the newest verified tick reaches that tick;
 such a view is never cancelled.
 
+**What a player sees is the game's choice, not a secret** (`src/sim/README.md`, Hidden information): every client
+holds the whole state, and `fill_frame` decides what is shown. A card in an ally's hand pushed face down
+(`godot.is_local` says whose a player is) is hidden from the honest client only.
+
 ### Data and classes
 
 **Session data** (values that belong to no entity: a HUD's score, the wave) are the `Data_*` structs of `Glue.data`,
@@ -177,7 +181,11 @@ The game's `View` and `MultiView` enums and the State's level enum are the class
 `EnumLevel`, whatever the game named them; every enum class has `name(value)` and `names()` (a menu's options, in
 value order).
 A scene view's scene holds a **`UnifiedView`** marker as a direct child of its root, its kind set in the scene by the
-member's lowercased name (which stays right when the enum is reordered); the root's class decides how it is posed. A
+member's lowercased name (which stays right when the enum is reordered); the root's class decides how it is posed: a
+Node3D gets position and rotation, a Node2D position and angle, and any other root (a `Control`: a card in a hand, a
+panel) only its data, never a pose, so its container lays it out. Its events, `_sim_despawned` and its linger are a
+posed view's. View data is set as the root's properties, so a field never takes a name the root's class has
+(`owner`, `size`, `position`). A
 MultiMeshInstance3D / 2D holding a **`UnifiedMultiView`** marker shows one MultiView kind. Views and their data are
 set before any other node's `_process` (the session runs at priority −1000), so a view's own `_process` sees the
 frame's pose. A `view_root` that leaves the tree holds no views, so a play scene needs no teardown. Unset, it is

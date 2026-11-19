@@ -16,6 +16,7 @@ View :: enum u8 {
 	Plain2D,
 	Plain3D,
 	Decoy2D,
+	Card, // a Control: data only, never posed
 	Scripted3D, // posed by its script (GLUE.view_policy)
 }
 
@@ -42,6 +43,15 @@ Typed2D_Data :: struct {
 	dir:       [2]f32,
 	tint:      godot.Color,
 	pad_check: f32,
+}
+
+// The card view's data (a Control root: the host sets data, never a pose): one card per thing. `holder` is not
+// `owner`: a data field is set as the root's property, and a Node's own `owner` is another.
+Card_Data :: struct {
+	life:   i32,
+	shape:  toy.Shape,
+	_pad:   [3]u8,
+	holder: sim.Player, // its key
 }
 
 Mode :: enum u8 {
@@ -241,11 +251,18 @@ fill_frame :: proc(f: ^Frame) {
 	// A decoy per thing: a view of another table's handle with the thing's key. A Spawned event (its subject a
 	// Handle(Thing)) reaches only views pushed with a Handle(Thing), so not these: it falls back to its player's view.
 	things := sim.iterate(&f.state.things)
-	for _, thing in sim.next(&things) {
-		godot.push_view(f, sim.Handle(Decoy){index = thing.index, generation = thing.generation}, {
-			kind = .Decoy2D,
-			pos  = {-9, -9, 0},
-		})
+	for item, thing in sim.next(&things) {
+		decoy := sim.Handle(Decoy) {
+			index      = thing.index,
+			generation = thing.generation,
+		}
+		godot.push_view(f, decoy, {kind = .Decoy2D, pos = {-9, -9, 0}})
+		godot.push_view(
+			f,
+			decoy,
+			{kind = .Card},
+			Card_Data{life = item.life, shape = toy.Shape(item.life % 3), holder = item.owner},
+		)
 	}
 	mark := &local.last_mark
 	godot.push_data(f, Data_Toy {
@@ -295,13 +312,16 @@ fill_frame :: proc(f: ^Frame) {
 	})
 }
 
-// Expired to the plain2d view keyed 2 (by its subject, a thing, it would reach no view), Joined to none (by its
-// subject: the player's view), the rest by their subject (Spawned: the player's view, its thing having none: the
-// decoys have its key, not its type).
+// Expired to its thing's card (by its subject, a thing, it would reach no view; the card has gone that tick and
+// lingers), Joined to none (by its subject: the player's view), the rest by their subject (Spawned: the player's view,
+// its thing having none: the decoys and cards have its key, not its type).
 event_key :: proc(event: toy.Event, subject: godot.Subject) -> godot.Event_Target(View) {
-	#partial switch _ in event {
+	#partial switch value in event {
 	case toy.Event_Expired:
-		return godot.to_view(View.Plain2D, sim.entity(2))
+		return godot.to_view(
+			View.Card,
+			sim.Handle(Decoy){index = value.thing.index, generation = value.thing.generation},
+		)
 	case sim.Event_Player_Joined:
 		return {route = .No_View}
 	}
