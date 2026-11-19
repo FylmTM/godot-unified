@@ -1,6 +1,7 @@
 // What a game declares: plain data, the unions and tick rate (game_violation), and what compat tells apart.
 package test_sim
 
+import "base:intrinsics"
 import "core:strings"
 import "core:testing"
 
@@ -119,7 +120,7 @@ extra_rate_check :: proc(t: ^testing.T) {
 
 // sim.game_violation of a toy with these unions and this tick rate.
 declared :: proc($Cmd, $Event: typeid, tick_hz := 64) -> string {
-	game := sim.Game(toy.State, toy.Input, toy.World, Event, Cmd, sim.No_Setup, sim.No_Profile, toy.PLAYERS) {
+	game := sim.Game(toy.State, toy.Input, toy.World, Event, Cmd, sim.No_Setup, toy.Profile, toy.PLAYERS) {
 		name    = "toy",
 		tick_hz = tick_hz,
 	}
@@ -293,7 +294,8 @@ declarations_are_checked :: proc(t: ^testing.T) {
 
 // compat_of of a toy with these unions, Input and State (the toy's name, version and tick rate).
 compat_with :: proc($State, $Input, $Event, $Cmd: typeid) -> u64 {
-	game := sim.Game(State, Input, toy.World, Event, Cmd, toy.Setup, sim.No_Profile, toy.PLAYERS) {
+	Profile :: sim.part(intrinsics.type_field_type(State, "players"), 1)
+	game := sim.Game(State, Input, toy.World, Event, Cmd, toy.Setup, Profile, toy.PLAYERS) {
 		name    = toy.GAME.name,
 		version = toy.GAME.version,
 		tick_hz = toy.GAME.tick_hz,

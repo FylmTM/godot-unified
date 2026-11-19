@@ -11,8 +11,8 @@ import "unified:headless/scenarios"
 import "unified:netcode"
 import "unified:sim"
 
-// The widest Input netcode.game_violation accepts at each player count (a tick of at most 274 bytes); 2 and 32 players
-// are Plain_2x116 and Plain_32x4, 8 is Plain_8x26.
+// Wide Inputs at each player count, near the widest netcode.game_violation accepts (a tick of at most 274 bytes with
+// one join: tests/netcode/window_test.odin): 2 and 32 players are Plain_2x116 and Plain_32x4, 8 is Plain_8x26.
 Plain_4x56 :: sim.Game(
 	Plain_State(56, 4),
 	Plain_Input(56),

@@ -8,8 +8,8 @@
 //              in order, its input as window_write_input writes it: the bytes that changed (a bit per byte,
 //              ceil(size_of(Input) / 8) bytes) and their new values
 //   .Commands: the tick's commands (sim.write_commands); without the flag the tick has none
-//   .Joins:    the tick's join records (sim.write_joins); without the flag it has none (they are per tick, never
-//              carried over from the tick before)
+//   .Joins:    the tick's join records with their Profiles (sim.write_joins); without the flag it has none (they are
+//              per tick, never carried over from the tick before; the relay seats one new player per tick)
 //
 // A tick like the one before it, without commands, is one byte. The input log keeps sim.write_tick's format. A
 // client's Inputs packet writes its own unacked inputs the same way, each from the one before it.
@@ -28,10 +28,11 @@ Window_Flag :: enum u8 {
 // A window tick's first byte: which of its parts follow.
 Window_Flags :: bit_set[Window_Flag;u8]
 
-// The most bytes window_write_tick writes for a tick with `commands`: every field changed, every slot joining.
-window_tick_max_bytes :: proc($Input: typeid, $PLAYERS: int, commands: []sim.Raw_Command) -> int {
+// The most bytes window_write_tick writes for a relay's tick with `commands`: every field changed, a player joining with
+// a Profile of `profile_size` bytes (the relay seats one new player per tick: src/netcode/README.md, Relay).
+window_tick_max_bytes :: proc($Input: typeid, $PLAYERS: int, commands: []sim.Raw_Command, profile_size := 0) -> int {
 	size := 1 + 3 * mask_bytes(PLAYERS) + PLAYERS * window_input_max_bytes(Input)
-	size += 1 + PLAYERS * sim.JOIN_BYTES
+	size += 1 + sim.JOIN_BYTES + profile_size
 	if len(commands) > 0 {
 		size += 1
 		for &command in commands {
@@ -85,7 +86,7 @@ window_write_tick :: proc(writer: ^wire.Writer, tick: ^sim.Inputs($G), base: ^si
 		sim.write_commands(writer, tick.commands[:tick.command_count])
 	}
 	if .Joins in flags {
-		sim.write_joins(writer, tick.joins[:])
+		sim.write_joins(writer, tick.joins[:], ([^]u8)(&tick.profiles)[:size_of(tick.profiles)])
 	}
 }
 
@@ -128,7 +129,9 @@ window_read_tick :: proc(reader: ^wire.Reader, tick: ^sim.Inputs($G)) -> bool {
 		tick.command_count = count
 	}
 	tick.joins = {}
-	if .Joins in flags && !sim.read_joins(reader, tick.present, tick.joins[:]) {
+	tick.profiles = {}
+	profiles := ([^]u8)(&tick.profiles)[:size_of(tick.profiles)]
+	if .Joins in flags && !sim.read_joins(reader, tick.present, tick.joins[:], profiles) {
 		return false
 	}
 	return reader.ok

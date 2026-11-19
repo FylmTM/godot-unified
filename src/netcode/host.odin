@@ -5,9 +5,12 @@ package netcode
 
 import "unified:sim"
 
-// A session hosted in this process (host_create): the relay's settings and the host player's own.
-Host_Config :: struct {
+// A session of game G hosted in this process (host_create): the relay's settings and the host player's own. Written
+// as a literal at the call (`host_create(&GAME, {seed = 7, setup = Setup{mode = .Hard}}, hooks)`).
+Host_Config :: struct($G: typeid) {
 	seed:          u64,
+	setup:         Maybe(sim.part(G, sim.GAME_SETUP)), // the session's Setup (nil: the game's, Game.setup)
+	profile:       sim.part(G, sim.GAME_PROFILE), // the host player's
 	ticks:         u32, // 0: endless
 	compat:        u64, // build/game id the relay checks (0: sim.compat_of(game))
 	player_name:   string, // the host player's display name
@@ -34,7 +37,7 @@ SOLO_POLL_US :: 50_000
 
 // Creates the relay (its clock starts when the host's client connects, on the first steps) and
 // the host's client in slot 0.
-host_create :: proc(game: ^$G, cfg: Host_Config, hooks: Hooks(G)) -> ^Host(G) {
+host_create :: proc(game: ^$G, cfg: Host_Config(G), hooks: Hooks(G)) -> ^Host(G) {
 	host := new(Host(G))
 	host.hub = hub_create(2)
 	compat := cfg.compat if cfg.compat != 0 else sim.compat_of(game)
@@ -42,6 +45,7 @@ host_create :: proc(game: ^$G, cfg: Host_Config, hooks: Hooks(G)) -> ^Host(G) {
 	game,
 	{
 		seed          = cfg.seed,
+		setup         = cfg.setup,
 		ticks         = cfg.ticks,
 		start_players = 1,
 		compat        = compat,
@@ -52,8 +56,9 @@ host_create :: proc(game: ^$G, cfg: Host_Config, hooks: Hooks(G)) -> ^Host(G) {
 	)
 	host.relay.poll_us = SOLO_POLL_US
 	relay_add_link(host.relay, loopback_link(host.hub, 0, cfg.account))
-	client_config := Client_Config {
+	client_config := Client_Config(G) {
 		slot        = 0,
+		profile     = cfg.profile,
 		compat      = compat,
 		player_name = cfg.player_name,
 		dev         = cfg.dev,

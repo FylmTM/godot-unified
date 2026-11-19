@@ -12,10 +12,11 @@ package netcode
 import "unified:sim"
 import "unified:wire"
 
-// A relay's session (relay_create): its seed, length, start players and build id, and the optional recording
-// and typed desync reports.
-Relay_Config :: struct {
+// A relay's session (relay_create) of game G: its seed, Setup, length, start players and build id, and the optional
+// recording and typed desync reports. Written as a literal at the call (`relay_create(&GAME, {seed = 7})`).
+Relay_Config :: struct($G: typeid) {
 	seed:          u64,
+	setup:         Maybe(sim.part(G, sim.GAME_SETUP)), // the session's Setup, sent in Welcome (nil: the game's, Game.setup)
 	ticks:         u32, // session length; 0: endless
 	start_players: int, // slots 0..start_players-1 must connect before the clock starts (>= 1)
 	compat:        u64, // build/game id a Hello must carry (0: sim.compat_of(game))
@@ -54,7 +55,6 @@ SNAP_STALL_US :: 5_000_000 // a joiner's snapshot provider that sends nothing th
 SEATED_LIVE_US :: 4 * KEEPALIVE_US
 IMAGE_MAX :: 256 << 20 // the largest snapshot the relay takes for a desync report
 NO_REPORTS :: max(u32) // Conn.report_from of a connection that sends no checksums yet
-LOCAL_MAX :: 4 // the most seats (local players) one connection holds
 
 // A received command waiting for the tick it goes in.
 @(private)
@@ -129,13 +129,14 @@ Relay_Conn :: struct {
 	bad_check:   bool, // a snapshot for this joiner failed the check (refused: Bad_Snapshot, else No_Snapshot)
 }
 
-// What the relay keeps per slot: who sits there (a connection's local player), their inputs and commands. A seat is
-// emptied with one assignment (seat_reset) when its occupant leaves and before a new one sits down, so nothing of a
-// previous occupant survives into the next.
-Seat :: struct($Input: typeid) {
+// What the relay keeps per slot: who sits there (a connection's local player), their Profile, inputs and commands. A
+// seat is emptied with one assignment (seat_reset) when its occupant leaves and before a new one sits down, so nothing
+// of a previous occupant survives into the next.
+Seat :: struct($Input, $Profile: typeid) {
 	conn:        Peer, // the connection seated here (-1: nobody)
 	local:       u8, // which of its local players
 	member:      u16, // the member seated here (NO_MEMBER: none)
+	profile:     Profile, // what its Hello brought: written beside its join record
 	active_from: u32, // first tick the slot is present (0: not joined)
 	inputs:      [INPUT_RING]Input,
 	input_tick:  [INPUT_RING]u32, // which tick inputs[k] holds
@@ -146,14 +147,18 @@ Seat :: struct($Input: typeid) {
 
 // The relay, generic over the game type G (only its Input, PLAYERS and tick rate matter).
 Relay :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Game) {
-	cfg:                 Relay_Config,
+	cfg:                 Relay_Config(G),
+	setup:               sim.part(G, sim.GAME_SETUP), // the session's: what every client creates its sim with
 	compat:              u64,
 	desync_diff:         proc(a, b: []u8) -> string, // cfg.desync_detail: the game State's snapshot diff
 	tm:                  Timing,
 	ch:                  ^Channel,
 	w:                   wire.Writer,
 	poll_us:             i64, // how often relay_step wants to run between deadlines (a host's: none until a remote link)
-	seats:               [sim.part(G, sim.GAME_PLAYERS)]Seat(sim.part(G, sim.GAME_INPUT)),
+	seats:               [sim.part(
+		G,
+		sim.GAME_PLAYERS,
+	)]Seat(sim.part(G, sim.GAME_INPUT), sim.part(G, sim.GAME_PROFILE)),
 	conns:               [MAX_PEERS]Relay_Conn, // by channel peer
 	checks:              [CHECK_RING]Check,
 	started:             bool, // Welcome sent to the start players
@@ -186,19 +191,24 @@ Relay :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Ga
 }
 
 // Creates a relay for `game` with no links yet (relay_add_link), starting its recording if cfg has one. The clock
-// starts once cfg.start_players have connected.
-relay_create :: proc(game: ^$G, cfg: Relay_Config) -> ^Relay(G) {
+// starts once cfg.start_players have connected. Panics on a Setup that does not read as sent (sim.setup_violation).
+relay_create :: proc(game: ^$G, cfg: Relay_Config(G)) -> ^Relay(G) {
 	State :: sim.part(G, sim.GAME_STATE)
 	Input :: sim.part(G, sim.GAME_INPUT)
+	Profile :: sim.part(G, sim.GAME_PROFILE)
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	sim.check_wire(Input)
 	if reason := game_violation(game); reason != "" {
 		panic(reason)
 	}
-	_ = tick_command_budget(Input, PLAYERS) // asserts a tick with a command fits a datagram
+	_ = tick_command_budget(Input, PLAYERS, size_of(Profile)) // asserts a tick with a command fits a datagram
 	assert(cfg.start_players >= 1 && cfg.start_players <= PLAYERS)
 	relay := new(Relay(G))
 	relay.cfg = cfg
+	relay.setup = cfg.setup.? or_else game.setup
+	if reason := sim.setup_violation(game, &relay.setup); reason != "" {
+		panic(fmt.tprintf("%s: the session's Setup %s", game.name, reason))
+	}
 	relay.compat = cfg.compat != 0 ? cfg.compat : sim.compat_of(game)
 	if cfg.desync_detail {
 		relay.desync_diff = proc(a, b: []u8) -> string {return sim.snapshot_diff(State, a, b)}
@@ -214,15 +224,14 @@ relay_create :: proc(game: ^$G, cfg: Relay_Config) -> ^Relay(G) {
 	for &conn in relay.conns {
 		relay_conn_reset(&conn)
 	}
-	setup := game.setup // the session's: what every client creates its sim with
-	header := sim.log_header(game, cfg.seed, &setup, sim.content_hash(game.levels), relay.compat)
+	header := sim.log_header(game, cfg.seed, &relay.setup, sim.content_hash(game.levels), relay.compat)
 	sim.log_stream_begin(&relay.recording, cfg.recording, header)
 	return relay
 }
 
 // Empties a seat (nobody there), keeping only its command buffer.
 @(private)
-seat_reset :: proc(seat: ^Seat($Input)) {
+seat_reset :: proc(seat: ^Seat($Input, $Profile)) {
 	waiting := seat.cmd_wait
 	clear(&waiting)
 	seat^ = {
@@ -357,24 +366,49 @@ ms_ticks :: proc(relay: ^Relay($G), ms: int) -> u32 {
 	return ceil_ticks(f64(ms) * 1000, relay.tm.tick_us)
 }
 
+// Welcomes a connection: the session's seed, rate, length and Setup, and the seat it holds in `slot`. `start`: a start
+// client, which builds tick 0 itself (Welcome_Flags.Start); every other gets a snapshot.
 @(private)
-send_welcome :: proc(relay: ^Relay($G), slot: int, now: i64) {
+send_welcome :: proc(relay: ^Relay($G), slot: int, start: bool, now: i64) {
 	seat := &relay.seats[slot]
 	conn := &relay.conns[seat.conn]
-	writer := msg_begin(&relay.w, .Welcome)
-	wire.w_u8(writer, u8(slot))
-	wire.w_u16(writer, seat.member)
-	wire.w_u64(writer, relay.cfg.seed)
-	wire.w_u16(writer, u16(relay.tm.tick_hz))
-	wire.w_u32(writer, relay.cfg.ticks)
-	wire.w_u32(writer, seat.active_from)
-	flags: Welcome_Flags
-	if relay.desync_diff != nil {
-		flags += {.Keep_Images}
+	welcome := Welcome {
+		seed       = relay.cfg.seed,
+		tick_hz    = relay.tm.tick_hz,
+		ticks      = relay.cfg.ticks,
+		setup      = sim.bytes_of(&relay.setup),
+		seat_count = 1,
 	}
-	wire.w_u8(writer, transmute(u8)flags)
-	relay_send(relay, seat.conn, writer, .Reliable, now)
+	welcome.seats[0] = {
+		local      = seat.local,
+		slot       = u8(slot),
+		member     = seat.member,
+		first_tick = seat.active_from,
+	}
+	if relay.desync_diff != nil do welcome.flags += {.Keep_Images}
+	if start do welcome.flags += {.Start}
+	clear(&relay.w.buf)
+	write_welcome(&relay.w, &welcome)
+	relay_send(relay, seat.conn, &relay.w, .Reliable, now)
 	conn.welcomed = true
+}
+
+// The first tick at or after `from` on which no seat joins: the relay seats one new player per tick, so a tick carries
+// at most one join record and its Profile (the widest tick stays bounded, src/netcode/README.md, Relay).
+@(private)
+free_join_tick :: proc(relay: ^Relay($G), from: u32) -> u32 {
+	tick := from
+	for taken := true; taken; {
+		taken = false
+		for &seat in relay.seats {
+			if seat.conn >= 0 && seat.active_from == tick {
+				taken = true
+				tick += 1
+				break
+			}
+		}
+	}
+	return tick
 }
 
 @(private)
@@ -394,25 +428,27 @@ refuse_conn :: proc(relay: ^Relay($G), peer: Peer, why: Reject_Reason, now: i64)
 
 @(private)
 on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) {
+	Profile :: sim.part(G, sim.GAME_PROFILE)
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
-	wanted := wire.r_u8(reader)
-	asked_join_tick := wire.r_u32(reader)
-	compat := wire.r_u64(reader)
-	token: Token
-	copy(token[:], wire.r_bytes(reader, TOKEN_SIZE))
-	name := r_text(reader, NAME_MAX)
-	hello_us := r_i64(reader)
-	if !reader.ok || relay.conns[peer].connected {
+	hello, hello_ok := read_hello(reader)
+	if !hello_ok || relay.conns[peer].connected {
 		return
 	}
 	if relay.ending {
 		channel_send(relay.ch, peer, msg_begin(&relay.w, .End).buf[:], .Reliable, now) // not 30 s of silence
 		return
 	}
-	if compat != relay.compat {
+	// One seat per connection for now. A Profile of another size comes only from a modified client (compat covers the
+	// layout); what its bytes hold is the sim's to read.
+	ask := &hello.seats[0]
+	if hello.compat != relay.compat ||
+	   hello.seat_count != 1 ||
+	   ask.local >= LOCAL_MAX ||
+	   int(ask.profile.len) != size_of(Profile) {
 		reject(relay, peer, .Incompatible, now)
 		return
 	}
+	wanted, asked_join_tick, name, token, hello_us := ask.slot, ask.join_tick, ask.name, hello.token, hello.sent_us
 	// Who it is: the account the link vouches for, else the client's token (never what the client says it is).
 	account, vouched := channel_account(relay.ch, peer)
 	vouched &&= account.id != ""
@@ -503,12 +539,13 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 	seat_reset(seat) // a new occupant: nothing of the previous one's (inputs, commands) carries over
 	seat.member = entry.member
 	seat.conn = peer
-	seat.local = 0
+	seat.local = ask.local
+	copy(sim.bytes_of(&seat.profile), ask.profile.bytes[:ask.profile.len])
 	conn := &relay.conns[peer]
 	relay_conn_reset(conn) // a new connection: nothing of the previous one's on this peer (stream, snapshot) carries over
 	conn.connected = true
 	conn.hello_us = hello_us
-	conn.locals[0] = i8(slot)
+	conn.locals[ask.local] = i8(slot)
 	send_roster_entry(relay, known, now)
 	for k in 0 ..< len(relay.members) {
 		if k != known {
@@ -516,7 +553,6 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 		}
 	}
 	if !relay.started {
-		seat.active_from = 1
 		conn.report_from = 1
 		conn.base_known = true
 		for other in 0 ..< relay.cfg.start_players {
@@ -527,18 +563,23 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 		relay.started = true
 		relay.welcome_us = now
 		relay.lead = relay.cfg.local_start ? 0 : ms_ticks(relay, START_LEAD_MS)
+		// One new player per tick: the start players become present on ticks 1, 2, ... in slot order.
 		for other in 0 ..< relay.cfg.start_players {
-			send_welcome(relay, other, now)
+			relay.seats[other].active_from = u32(other + 1)
+		}
+		for other in 0 ..< relay.cfg.start_players {
+			send_welcome(relay, other, true, now)
 		}
 		log.infof("%d players connected, clock started", relay.cfg.start_players)
 		return
 	}
 	// Late join or rejoin: the slot becomes present at a future tick J.
 	join_tick := max(asked_join_tick, relay.clock + ms_ticks(relay, JOIN_LEAD_MS), relay.finalized + 2)
+	join_tick = free_join_tick(relay, join_tick)
 	seat.active_from = join_tick
 	seat.recv_upto = join_tick - 1
 	conn.snap_min = join_tick - 1
-	send_welcome(relay, slot, now)
+	send_welcome(relay, slot, false, now)
 	request_snapshot(relay, peer, provider, now)
 	log.infof(
 		"member %d joins slot %d at tick %d (clock %d), snapshot from slot %d",
@@ -620,7 +661,7 @@ restart_snapshot :: proc(relay: ^Relay($G), joiner: Peer, why: string, now: i64)
 }
 
 @(private)
-have_input :: #force_inline proc(seat: ^Seat($Input), tick: u32) -> bool {
+have_input :: #force_inline proc(seat: ^Seat($Input, $Profile), tick: u32) -> bool {
 	return seat.input_tick[tick % INPUT_RING] == tick
 }
 
@@ -986,7 +1027,7 @@ take_image :: proc(relay: ^Relay($G), peer: Peer, kind: Msg, reader: ^wire.Reade
 }
 
 @(private)
-active :: #force_inline proc(seat: ^Seat($Input), tick: u32) -> bool {
+active :: #force_inline proc(seat: ^Seat($Input, $Profile), tick: u32) -> bool {
 	return seat.active_from != 0 && tick >= seat.active_from && seat.conn >= 0
 }
 
@@ -1016,7 +1057,8 @@ finalize :: proc(relay: ^Relay($G)) {
 			}
 			tick_inputs.present += {slot}
 			if tick == seat.active_from {
-				tick_inputs.joins[slot] = seat.member // the join record
+				tick_inputs.joins[slot] = seat.member // the join record, with the Profile its Hello brought
+				tick_inputs.profiles[slot] = seat.profile
 			}
 			if have_input(&seat, tick) {
 				tick_inputs.input[slot] = seat.inputs[tick % INPUT_RING]
@@ -1028,6 +1070,7 @@ finalize :: proc(relay: ^Relay($G)) {
 				relay.replaced += 1
 			}
 		}
+		assert(sim.join_count(tick_inputs.joins[:]) <= 1, "one new player per tick (free_join_tick)")
 		take_commands(relay, tick, tick_inputs)
 		sim.log_stream_tick(&relay.recording, tick_inputs)
 		relay.finalized = tick
@@ -1040,10 +1083,11 @@ finalize :: proc(relay: ^Relay($G)) {
 @(private)
 take_commands :: proc(relay: ^Relay($G), tick: u32, tick_inputs: ^sim.Inputs(G)) {
 	Input :: sim.part(G, sim.GAME_INPUT)
+	Profile :: sim.part(G, sim.GAME_PROFILE)
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	taken: [PLAYERS]int
 	total, bytes := 0, 0
-	budget := tick_command_budget(Input, PLAYERS)
+	budget := tick_command_budget(Input, PLAYERS, size_of(Profile))
 	for k in 0 ..< sim.COMMANDS_PER_SLOT {
 		for &seat, slot in relay.seats {
 			waiting := &seat.cmd_wait

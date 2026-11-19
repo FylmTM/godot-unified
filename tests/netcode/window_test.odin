@@ -101,10 +101,14 @@ window_sizes :: proc(t: ^testing.T) {
 	// 1 flag + 1 slot mask + (1 byte mask + 1 byte) for slot 1
 	testing.expect_value(t, expect_round_trip(t, ticks[:3]), 7 + 1 + 4)
 
-	// Everything changed: presence, every byte of every input, commands, every slot joining.
+	// Everything changed: presence, every byte of every input, commands, a player joining (the relay seats one new
+	// player per tick).
 	full: [2]toy.Inputs
 	full[1].present = {0, 1, 2, 3}
-	full[1].joins = {1, 2, 3, 4}
+	full[1].joins = {0, 0, 3, 0}
+	full[1].profiles[2] = {
+		color = 9,
+	}
 	full[1].replaced = {2}
 	for &input in full[1].input {
 		input = {
@@ -123,7 +127,7 @@ window_sizes :: proc(t: ^testing.T) {
 	testing.expect_value(
 		t,
 		expect_round_trip(t, full[:]) - 1, // the first tick, unchanged from the empty one
-		netcode.window_tick_max_bytes(toy.Input, toy.PLAYERS, commands),
+		netcode.window_tick_max_bytes(toy.Input, toy.PLAYERS, commands, size_of(toy.Profile)),
 	)
 }
 
@@ -242,25 +246,25 @@ width_violation :: proc($PLAYERS: int, $B: int) -> string {
 }
 
 // The relay carries a game whose widest tick leaves TICKS_PER_MESSAGE_MIN of them per Finalized message (a tick of
-// at most 274 bytes) and refuses one byte of Input wider, at each player count: 116 bytes at 2 players, 76 at 3, 56 at
-// 4, 26 at 8, 11 at 16, 4 at 32.
+// at most 274 bytes, one player joining in it) and refuses one byte of Input wider, at each player count: 118 bytes at
+// 2 players, 78 at 3, 58 at 4, 29 at 8, 14 at 16, 7 at 32.
 @(test)
 the_relay_refuses_a_tick_too_wide_for_its_stream :: proc(t: ^testing.T) {
-	testing.expect_value(t, width_violation(2, 116), "")
-	testing.expect(t, width_violation(2, 117) != "")
-	testing.expect_value(t, width_violation(3, 76), "")
-	testing.expect(t, width_violation(3, 77) != "")
-	testing.expect_value(t, width_violation(4, 56), "")
-	testing.expect(t, width_violation(4, 57) != "")
-	testing.expect_value(t, width_violation(8, 26), "")
-	testing.expect(t, width_violation(8, 27) != "")
-	testing.expect_value(t, width_violation(16, 11), "")
-	testing.expect(t, width_violation(16, 12) != "")
-	testing.expect_value(t, width_violation(32, 4), "")
+	testing.expect_value(t, width_violation(2, 118), "")
+	testing.expect(t, width_violation(2, 119) != "")
+	testing.expect_value(t, width_violation(3, 78), "")
+	testing.expect(t, width_violation(3, 79) != "")
+	testing.expect_value(t, width_violation(4, 58), "")
+	testing.expect(t, width_violation(4, 59) != "")
+	testing.expect_value(t, width_violation(8, 29), "")
+	testing.expect(t, width_violation(8, 30) != "")
+	testing.expect_value(t, width_violation(16, 14), "")
+	testing.expect(t, width_violation(16, 15) != "")
+	testing.expect_value(t, width_violation(32, 7), "")
 	testing.expect_value(
 		t,
-		width_violation(32, 5),
-		"width: a tick of 32 players with 5-byte Inputs takes up to 302 bytes, so 3 fit a message and the relay needs 4: fewer players or a narrower Input",
+		width_violation(32, 8),
+		"width: a tick of 32 players with 8-byte Inputs takes up to 305 bytes, so 3 fit a message and the relay needs 4: fewer players or a narrower Input",
 	)
 	testing.expect_value(t, netcode.game_violation(&toy.GAME), "")
 }

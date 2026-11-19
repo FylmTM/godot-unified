@@ -66,15 +66,22 @@ fuzz_bytes :: proc(fuzz: ^Fuzz, out: ^[dynamic]u8, valid: []u8) {
 relay_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 	clear(&writer.buf)
 	msg := netcode.Msg(1 + k % 13)
+	if msg == .Hello {
+		hello := netcode.Hello {
+			compat     = sim.compat_of(&toy.GAME),
+			token      = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+			seat_count = 1,
+		}
+		hello.seats[0] = {
+			slot = netcode.ANY_SLOT,
+			name = netcode.text_of(netcode.NAME_MAX, "bot"),
+			profile = {len = size_of(toy.Profile)},
+		}
+		netcode.write_hello(writer, &hello)
+		return writer.buf[:]
+	}
 	wire.w_u8(writer, u8(msg))
 	#partial switch msg {
-	case .Hello:
-		wire.w_u8(writer, netcode.ANY_SLOT)
-		wire.w_u32(writer, 0)
-		wire.w_u64(writer, sim.compat_of(&toy.GAME))
-		wire.w_bytes(writer, {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}) // token
-		wire.w_u8(writer, 3)
-		wire.w_bytes(writer, {'b', 'o', 't'})
 	case .Inputs:
 		wire.w_u32(writer, 10)
 		wire.w_u32(writer, 11)
@@ -113,16 +120,12 @@ relay_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 client_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 	clear(&writer.buf)
 	msg := netcode.Msg(1 + k % 13)
+	if msg == .Welcome {
+		write_test_welcome(writer, 0, 1, 1)
+		return writer.buf[:]
+	}
 	wire.w_u8(writer, u8(msg))
 	#partial switch msg {
-	case .Welcome:
-		wire.w_u8(writer, 0)
-		wire.w_u16(writer, 1)
-		wire.w_u64(writer, SEED)
-		wire.w_u16(writer, toy.HZ)
-		wire.w_u32(writer, 0)
-		wire.w_u32(writer, 1)
-		wire.w_u8(writer, 0)
 	case .Finalized:
 		wire.w_u64(writer, 5000) // relay time
 		wire.w_u32(writer, 3) // input ack
@@ -350,14 +353,8 @@ fuzz_joiner_snapshots :: proc(t: ^testing.T) {
 		for fake.peer < 0 {
 			fake_step(fake, client)
 		}
-		writer := fake_begin(fake, .Welcome)
-		wire.w_u8(writer, 1) // slot
-		wire.w_u16(writer, 2) // member
-		wire.w_u64(writer, SEED)
-		wire.w_u16(writer, toy.HZ)
-		wire.w_u32(writer, 0) // endless
-		wire.w_u32(writer, JOIN_TICK)
-		wire.w_u8(writer, 0)
+		clear(&fake.writer.buf)
+		write_test_welcome(&fake.writer, 1, 2, JOIN_TICK) // slot 1, member 2, a joiner
 		fake_send(fake)
 		fake_step(fake, client)
 		return client

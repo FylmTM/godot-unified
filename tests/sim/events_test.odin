@@ -109,16 +109,7 @@ Probe_World :: struct {
 	tick_dt:     f32,
 }
 
-Probe_Game :: sim.Game(
-	toy.State,
-	toy.Input,
-	Probe_World,
-	toy.Event,
-	toy.Cmd,
-	sim.No_Setup,
-	sim.No_Profile,
-	toy.PLAYERS,
-)
+Probe_Game :: sim.Game(toy.State, toy.Input, Probe_World, toy.Event, toy.Cmd, sim.No_Setup, toy.Profile, toy.PLAYERS)
 Probe_Tick :: sim.Tick(Probe_Game)
 Probe_Inputs :: sim.Inputs(Probe_Game)
 

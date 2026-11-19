@@ -133,17 +133,42 @@ fake_welcome :: proc(fake: ^Fake_Relay, client: ^Client) {
 	for fake.peer < 0 {
 		fake_step(fake, client)
 	}
-	writer := fake_begin(fake, .Welcome)
-	wire.w_u8(writer, 0) // slot
-	wire.w_u16(writer, 1) // member
-	wire.w_u64(writer, SEED)
-	wire.w_u16(writer, toy.HZ)
-	wire.w_u32(writer, 0) // endless
-	wire.w_u32(writer, 1) // present from tick 1
-	wire.w_u8(writer, 0)
+	clear(&fake.writer.buf)
+	write_test_welcome(&fake.writer, 0, 1, 1) // slot 0, member 1, a start client present from tick 1
 	fake_send(fake)
 	fake_step(fake, client)
 	fake_step(fake, client)
+}
+
+// A Welcome to the toy's session (endless, no Setup) granting one seat: `slot`, `member`, present from `first`; a
+// start client (it builds tick 0) when `first` is 1.
+write_test_welcome :: proc(writer: ^wire.Writer, slot: u8, member: u16, first: u32) {
+	welcome := netcode.Welcome {
+		seed       = SEED,
+		tick_hz    = toy.HZ,
+		setup      = make([]u8, size_of(toy.Setup), context.temp_allocator),
+		seat_count = 1,
+	}
+	if first == 1 do welcome.flags += {.Start}
+	welcome.seats[0] = {
+		slot       = slot,
+		member     = member,
+		first_tick = first,
+	}
+	netcode.write_welcome(writer, &welcome)
+}
+
+// A Hello asking for `slot` (ANY_SLOT: any) with `token`, sent at `sent_us`.
+write_test_hello :: proc(writer: ^wire.Writer, slot: u8, token: netcode.Token, sent_us: i64) {
+	hello := netcode.Hello {
+		compat     = sim.compat_of(&toy.GAME),
+		token      = token,
+		sent_us    = sent_us,
+		seat_count = 1,
+	}
+	hello.seats[0].slot = slot
+	hello.seats[0].profile.len = size_of(toy.Profile) // the zero Profile
+	netcode.write_hello(writer, &hello)
 }
 
 finalized_of :: proc(tick: u32, dx: i8) -> (inputs: toy.Inputs) {
@@ -353,13 +378,7 @@ only_the_asked_provider_sends_snapshots :: proc(t: ^testing.T) {
 	evil_peer := netcode.channel_peer(evil, link_index, 0)
 	writer := wire.writer_make(64)
 	defer delete(writer.buf)
-	wire.w_u8(&writer, u8(netcode.Msg.Hello))
-	wire.w_u8(&writer, netcode.ANY_SLOT)
-	wire.w_u32(&writer, 0)
-	wire.w_u64(&writer, sim.compat_of(&toy.GAME))
-	wire.w_bytes(&writer, make([]u8, netcode.TOKEN_SIZE, context.temp_allocator))
-	wire.w_u8(&writer, 0)
-	wire.w_u64(&writer, u64(session.clock.now)) // sent at
+	write_test_hello(&writer, netcode.ANY_SLOT, {}, session.clock.now)
 	netcode.channel_send(evil, evil_peer, writer.buf[:], .Reliable, session.clock.now)
 	for _ in 0 ..< 20 {
 		netcode.channel_flush(evil, session.clock.now)
@@ -456,13 +475,8 @@ evil_seat :: proc(evil: ^Evil, session: ^Net, endpoint: int, slot: u8, token: ne
 	link_index := netcode.channel_add_link(evil.channel, netcode.loopback_link(session.hub, netcode.Peer(endpoint)))
 	evil.peer = netcode.channel_peer(evil.channel, link_index, 0)
 	evil.writer = wire.writer_make(64)
-	writer := evil_begin(evil, .Hello)
-	wire.w_u8(writer, slot)
-	wire.w_u32(writer, 0)
-	wire.w_u64(writer, sim.compat_of(&toy.GAME))
-	wire.w_bytes(writer, token[:])
-	wire.w_u8(writer, 0)
-	wire.w_u64(writer, u64(session.clock.now)) // sent at
+	clear(&evil.writer.buf)
+	write_test_hello(&evil.writer, slot, token, session.clock.now)
 	evil_send(evil, session)
 }
 
@@ -848,14 +862,8 @@ a_leave_and_a_hello_in_one_datagram_seat_nobody :: proc(t: ^testing.T) {
 	evil.acking = false
 	evil_begin(&evil, .Leave)
 	evil_send(&evil, &session)
-	writer := evil_begin(&evil, .Hello)
-	wire.w_u8(writer, 1)
-	wire.w_u32(writer, 0)
-	wire.w_u64(writer, sim.compat_of(&toy.GAME))
-	token: netcode.Token
-	wire.w_bytes(writer, token[:])
-	wire.w_u8(writer, 0)
-	wire.w_u64(writer, u64(session.clock.now)) // sent at
+	clear(&evil.writer.buf)
+	write_test_hello(&evil.writer, 1, {}, session.clock.now)
 	evil_send(&evil, &session)
 	netcode.channel_flush(evil.channel, session.clock.now) // one datagram: Leave, then Hello; then silence for good
 	net_run(&session, 0.5)

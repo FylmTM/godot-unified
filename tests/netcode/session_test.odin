@@ -15,6 +15,13 @@ Relay :: netcode.Relay(toy.Game)
 Hooks :: netcode.Hooks(toy.Game)
 
 SEED :: 5
+HOST_COLOR :: 7 // the host player's Profile (net_make)
+
+// The Profile colour of the client on hub endpoint `endpoint` (net_join): each client's own, so a test can tell whose
+// Profile reached a player.
+endpoint_color :: proc(endpoint: int) -> u8 {
+	return u8(10 + endpoint)
+}
 
 Watch :: struct {
 	frames:        int,
@@ -81,14 +88,16 @@ net_log :: proc(session: ^Net) -> ^sim.Input_Log(toy.Game) {
 }
 
 // A host with `remotes` remote clients under `wan`; `record`: the relay records the session (net_log).
-net_make :: proc(session: ^Net, ticks: u32, remotes: int, record := true) {
+net_make :: proc(session: ^Net, ticks: u32, remotes: int, record := true, setup := toy.Setup{}) {
 	session.clock.now = 1_000_000
 	session.hub = netcode.hub_create(8)
 	session.host = netcode.host_create(&toy.GAME, {
-			seed          = SEED,
-			ticks         = ticks,
-			player_name   = "Ada",
-			recording     = record ? sim.log_sink_memory(&session.recording) : {},
+			seed = SEED,
+			setup = setup,
+			ticks = ticks,
+			player_name = "Ada",
+			profile = {color = HOST_COLOR},
+			recording = record ? sim.log_sink_memory(&session.recording) : {},
 			desync_detail = true,
 		}, hooks_for(&session.watch[0]))
 	session.relay = session.host.relay
@@ -100,6 +109,16 @@ net_make :: proc(session: ^Net, ticks: u32, remotes: int, record := true) {
 
 // A plain relay (no host player) whose clock starts once `start_players` clients connected; `desync_detail`: typed
 // desync reports.
+net_make_relay :: proc(session: ^Net, start_players: int, ticks: u32, desync_detail := false) {
+	session.clock.now = 1_000_000
+	session.hub = netcode.hub_create(8)
+	session.relay = netcode.relay_create(
+		&toy.GAME,
+		{seed = SEED, ticks = ticks, start_players = start_players, desync_detail = desync_detail},
+	)
+	netcode.relay_add_link(session.relay, netcode.loopback_link(session.hub, 0))
+}
+
 // The connection seated in `slot`, as the relay keeps it (a zero record when nobody sits there).
 conn_in :: proc(relay: ^netcode.Relay($G), slot: int) -> netcode.Relay_Conn {
 	conn := netcode.relay_conn(relay, slot)
@@ -122,16 +141,6 @@ refused_slot :: proc(relay: ^netcode.Relay($G), slot: int, provider: int) -> boo
 	return conn >= 0 && int(conn) in conn_in(relay, slot).refused
 }
 
-net_make_relay :: proc(session: ^Net, start_players: int, ticks: u32, desync_detail := false) {
-	session.clock.now = 1_000_000
-	session.hub = netcode.hub_create(8)
-	session.relay = netcode.relay_create(
-		&toy.GAME,
-		{seed = SEED, ticks = ticks, start_players = start_players, desync_detail = desync_detail},
-	)
-	netcode.relay_add_link(session.relay, netcode.loopback_link(session.hub, 0))
-}
-
 // A remote client asking for `slot` (-1: any) behind `profile`, playing `game` (default the toy).
 net_join :: proc(session: ^Net, slot := -1, profile := netcode.Network.Wan, game: ^toy.Game = nil) -> ^Client {
 	endpoint := len(session.clients) + 1
@@ -143,7 +152,7 @@ net_join :: proc(session: ^Net, slot := -1, profile := netcode.Network.Wan, game
 	)
 	client := netcode.client_create(
 		game != nil ? game : &toy.GAME,
-		{slot = slot, player_name = endpoint == 1 ? "Grace" : "Linus"},
+		{slot = slot, player_name = endpoint == 1 ? "Grace" : "Linus", profile = {color = endpoint_color(endpoint)}},
 		link,
 		hooks_for(&session.watch[endpoint]),
 	)
