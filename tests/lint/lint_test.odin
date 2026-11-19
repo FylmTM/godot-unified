@@ -37,9 +37,10 @@ RULES := []Rule {
 		allow_fields = {"replaced", "dev"},
 		allow_config = {"UNIFIED_DEVUI"},
 	},
-	// Real-time code beside the sim: the encoding, the netcode (its clocks are fine), the EOS transport (its SDK
-	// bindings need f64 fields and system: libraries), the headless library, modes and scenarios, the lint itself.
-	{pkg = "wire", kind = .Realtime},
+	// The byte encoding under every binary format: a leaf the tick packages (sim, level) import, so held to their rules.
+	{pkg = "wire", kind = .Tick, imports = {"base:intrinsics"}},
+	// Real-time code beside the sim: the netcode (its clocks are fine), the EOS transport (its SDK bindings need f64
+	// fields and system: libraries), the headless library, modes and scenarios, the lint itself.
 	{pkg = "netcode", kind = .Realtime, imports = {"unified:sim", "unified:wire"}},
 	{pkg = "eos", kind = .Realtime, imports = {"unified:netcode", "system:"}},
 	{
