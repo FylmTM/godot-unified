@@ -7,7 +7,7 @@
 # 3. (after 2) leave, host at once, leave again before the old session is gone: the waiting start is dropped ("left").
 # 4. a session that ends on its own (its ticks ran out) stops answering from its last frame: no local player.
 # 5. a session's Setup (start_single(setup), session.setup, the default again) and a second local player (and
-#    local_players_changed saying so).
+#    local_players_changed saying so, and roster_changed once the shown tick has them present, and gone).
 # 6. open to friends: a running single-player session hosts on a port and closes; a failed open leaves it running.
 # 7. a replay: a 40-tick session's recording (user://recordings) played back, and every control a replay viewer uses
 #    (speed, seek, step, loop, the player it follows, the checkpoints it agreed with).
@@ -187,21 +187,31 @@ func _setup_and_locals() -> bool:
 	var changes: Array[int] = [0]
 	var count_change := func() -> void: changes[0] += 1
 	s.local_players_changed.connect(count_change)
+	# A player list redrawn on roster_changed alone (as the games' HUDs do) lists whoever is present: the roster's
+	# entry comes before the tick that seats the player is shown, and roster_changed comes again when it is.
+	var listed: Array = [s.get_players()]
+	var redraw := func() -> void: listed[0] = s.get_players()
+	s.roster_changed.connect(redraw)
 	var second: int = s.add_local_player(UnifiedSession.DEVICE_KEYBOARD, "Second")
 	check("add_local_player gives local 1", second == 1, second)
-	if not await _wait_for(func() -> bool: return s.local_players.size() == 2, 5.0, "the second local player joins"):
+	if not await _wait_for(func() -> bool: return s.local_players.size() == 2 and s.get_players().size() == 2, 5.0,
+			"the second local player joins"):
 		return false
 	check("local_players_changed said it joined", changes[0] >= 1, changes[0])
+	check("roster_changed came once both were present", listed[0] == s.get_players(), [listed[0], s.get_players()])
 	var second_player: int = s.get_local_player_key(1)
 	check("get_local_index names local 1", s.get_local_index(second_player) == 1, second_player)
 	check("its device is the keyboard", s.get_local_device(1) == UnifiedSession.DEVICE_KEYBOARD)
 	check("send_command from local 1", s.send_command(CommandBump.new(), 1))
 	check("remove_local_player(1)", s.remove_local_player(1))
 	var joined_changes: int = changes[0]
-	if not await _wait_for(func() -> bool: return s.local_players.size() == 1, 5.0, "the second local player leaves"):
+	if not await _wait_for(func() -> bool: return s.local_players.size() == 1 and s.get_players().size() == 1, 5.0,
+			"the second local player leaves"):
 		return false
 	check("local_players_changed said it left", changes[0] > joined_changes, changes[0])
+	check("roster_changed came once it was gone", listed[0] == s.get_players(), [listed[0], s.get_players()])
 	s.local_players_changed.disconnect(count_change)
+	s.roster_changed.disconnect(redraw)
 	s.leave()
 	if not await _wait_for(func() -> bool: return not s.running, 5.0, "the Setup's session ends"):
 		return false
