@@ -35,7 +35,7 @@ MAX_PLAYERS :: 32
 // run or a golden trace compute differently because of the library, not a game's rules (the library-sim-change skill). Part of
 // compat_of, so builds on other library versions refuse each other instead of desyncing; a game's own changes bump
 // its Game.version.
-LIBRARY_VERSION :: 8
+LIBRARY_VERSION :: 9
 
 // The library's part of a build's identity (compat_of): its sim version and the unified-box3d pin.
 Library :: struct {

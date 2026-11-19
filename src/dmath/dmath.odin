@@ -144,15 +144,18 @@ clamp_length3 :: proc "contextless" (vec: [3]f32, max_len: f32) -> [3]f32 {
 }
 
 // The rotation about +Y that turns +Z toward a unit floor direction `facing` (x, z), as a unit quaternion (x, y, z,
-// w): the half angle from the cosine, sqrt only, so a tick may use it (a character's facing; the 3D counterpart of
-// physics.quat_2d). `facing` is unit length (dmath.normalize) or zero (normalize's result for none): the identity.
+// w), sqrt only, so a tick may use it (a character's facing; the 3D counterpart of physics.quat_2d). Accurate to about
+// 1e-7 at every facing. `facing` is unit length (dmath.normalize) or zero (normalize's result for none): the identity.
 quat_yaw :: proc "contextless" (facing: [2]f32) -> [4]f32 {
 	if facing == {} do return {0, 0, 0, 1} // -0 compares equal to 0
-	cos_half_sq, sin_half_sq := (1 + facing.y) * 0.5, (1 - facing.y) * 0.5
-	if 0 > cos_half_sq do cos_half_sq = 0 // max(0, x): x itself on a tie or a NaN
-	if 0 > sin_half_sq do sin_half_sq = 0
-	cos_half, sin_half := sqrt(cos_half_sq), sqrt(sin_half_sq)
-	if facing.x < 0 do sin_half = -sin_half
+	// For the angle θ from +Z (cos θ = facing.y, sin θ = facing.x): (1 + cos θ, sin θ) = 2c·(c, s) and
+	// (sin θ, 1 − cos θ) = 2s·(c, s), c and s the half angle's. Their sum, with |sin θ| so both weigh the same way, is
+	// (c, s) times 2(c + |s|) >= 2, and every term in it is >= 0: no cancellation anywhere, so normalizing it is exact
+	// to rounding. (The half angle from the cosine alone, sqrt((1 + cos θ) / 2), loses most of its bits facing near -Z.)
+	cos_part, sin_part := (1 + facing.y) + abs(facing.x), (1 - facing.y) + abs(facing.x)
+	length := sqrt(cos_part * cos_part + sin_part * sin_part)
+	cos_half, sin_half := cos_part / length, sin_part / length
+	if facing.x < 0 do sin_half = 0 - sin_half
 	return {0, sin_half, 0, cos_half}
 }
 
