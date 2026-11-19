@@ -13,7 +13,8 @@ plugs Box3D in as rollback state (the Extra, `src/physics/README.md`); `netcode`
 ## The game type
 
 A game names its eight types once, `Game :: sim.Game(State, Input, World, Event, Cmd, Setup, Profile, PLAYERS)`, and
-fills one value of it, the descriptor: name, version, tick rate, `tick` and the optional hooks, each documented on its field.
+fills one value of it, the descriptor: name, version, tick rate, `tick` and the optional hooks, each documented on its
+field (`uni doc sim Game`).
 Everything generic over a game takes that one type (`Sim(G)`, `Tick(G)`, `Inputs(G)`, the netcode's client, the
 headless runs, `godot.Glue`) and names a part of it with `part`.
 

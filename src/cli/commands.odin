@@ -69,7 +69,7 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "doc",
-			summary = "a package's API: each file's header comment and every public declaration with its doc comment and file:line (no package: list them with their README's title)",
+			summary = "a package's API: each file's header comment and every public declaration with its doc comment and file:line, a struct with its fields' comments; names after the package: those declarations alone; --brief: a line each (no package: list them with their README's title)",
 			budget  = 1,
 			options = option_types(Doc_Opts),
 			run     = cmd_doc,

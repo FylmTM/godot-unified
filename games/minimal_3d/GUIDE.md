@@ -3,7 +3,8 @@
 For whoever writes this game's sim and views: the patterns that hold up under prediction, rollback, late joins and
 replays, then the symptoms of breaking them. Each line points at the README section or declaration that holds the
 detail. `src/` and `games/` are unified's (`unified/src/`, `unified/games/` in a game repo); `uni doc <pkg>` prints a
-package's API; this game's own code comments repeat the warnings where they apply.
+package's API (`--brief`: a line per declaration; `uni doc sim Game`: one declaration, a struct with its fields'
+comments); this game's own code comments repeat the warnings where they apply.
 
 `tick` turns the state block and one tick's inputs into the next block. Every client runs it ahead on guesses of the
 others' inputs and, when the real ones arrive, restores an older tick and runs it again (`src/sim/README.md`, The
