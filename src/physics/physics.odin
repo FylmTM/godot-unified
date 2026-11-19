@@ -44,35 +44,41 @@ Body_Flag :: enum u8 {
 // One physics world (create): the Box3D world, its snapshots per ring slot, and physics' table by body index. A game
 // keeps it in its World (outside the block) and plugs it into the harness with `extra`.
 World :: struct {
-	id:             box3d.WorldId,
-	tick_hz:        int, // Settings.tick_hz
-	dt:             f32, // seconds per step: 1 / tick_hz, as the sim's Tick.dt
-	substeps:       int,
+	id:              box3d.WorldId,
+	tick_hz:         int, // Settings.tick_hz
+	dt:              f32, // seconds per step: 1 / tick_hz, as the sim's Tick.dt
+	substeps:        int,
 	// In-process snapshots (Box3D's world arena: a memcpy) and the body table, one per ring slot.
-	ring:           [sim.MAX_RING_SIZE]box3d.WorldSnapshot, // slots past the sim's ring_size stay empty
-	body_ring:      [sim.MAX_RING_SIZE][dynamic]Body_Entry,
-	scratch:        box3d.WorldSnapshot, // the live state while `image` builds a past slot's image, and `load`'s backup
-	image:          ^box3d.WorldState, // the last Box3D image `image` built
-	image_bytes:    [dynamic]u8, // the last portable image: Box3D's, then the body table
+	ring:            [sim.MAX_RING_SIZE]box3d.WorldSnapshot, // slots past the sim's ring_size stay empty
+	body_ring:       [sim.MAX_RING_SIZE][dynamic]Body_Entry,
+	scratch:         box3d.WorldSnapshot, // the live state while `image` builds a past slot's image, and `load`'s backup
+	image:           ^box3d.WorldState, // the last Box3D image `image` built
+	image_bytes:     [dynamic]u8, // the last portable image: Box3D's, then the body table
 	// Kept ticks (sim.snapshot_keep): a ring slot's snapshot bytes and body table, copied, imaged only when wanted.
-	kept:           [sim.KEEP_SLOTS][dynamic]u8,
-	kept_bodies:    [sim.KEEP_SLOTS][dynamic]Body_Entry,
-	bodies:         [dynamic]Body_Entry, // by body index (rolled back: body_ring)
-	sealed:         bool, // `extra` was made: bodies created from now on are the block's
-	level_entered:  bool, // level_change ran (a world with levels steps only after one: step)
-	refs:           Ref_Layout, // the State's (extra)
-	layouts:        [dynamic]Type_Layout, // destroy_refs' cache (a few types: a list, no map in tick code)
-	owned:          [dynamic]bool, // check_refs' scratch
-	visitors:       [dynamic]box3d.ShapeId, // shape_sensor_data's scratch
-	sort_scratch:   [dynamic]u64, // sort_results' merge buffer (any result type: words, for alignment)
-	anchor:         box3d.BodyId, // the World's first body (world_anchor)
-	workers:        i32, // Box3D's worker count (Settings.workers, at least 1)
+	kept:            [sim.KEEP_SLOTS][dynamic]u8,
+	kept_bodies:     [sim.KEEP_SLOTS][dynamic]Body_Entry,
+	bodies:          [dynamic]Body_Entry, // by body index (rolled back: body_ring)
+	// Every body's Box3D generation by body index (body_created), so physics can name any body in the table
+	// (world_cast_ray_closest_rewound). Rolled back with the table (generation_ring) but neither hashed nor imaged: it
+	// says nothing the Box3D world doesn't, and a loaded image rebuilds it from the world's shapes (rebuild_generations).
+	generations:     [dynamic]u16,
+	generation_ring: [sim.MAX_RING_SIZE][dynamic]u16,
+	sealed:          bool, // `extra` was made: bodies created from now on are the block's
+	level_entered:   bool, // level_change ran (a world with levels steps only after one: step)
+	refs:            Ref_Layout, // the State's (extra)
+	layouts:         [dynamic]Type_Layout, // destroy_refs' cache (a few types: a list, no map in tick code)
+	owned:           [dynamic]bool, // check_refs' scratch
+	visitors:        [dynamic]box3d.ShapeId, // shape_sensor_data's scratch
+	body_shapes:     [dynamic]box3d.ShapeId, // world_cast_ray_closest_rewound's scratch
+	sort_scratch:    [dynamic]u64, // sort_results' merge buffer (any result type: words, for alignment)
+	anchor:          box3d.BodyId, // the World's first body (world_anchor)
+	workers:         i32, // Box3D's worker count (Settings.workers, at least 1)
 	// The game's levels, parsed and built (create_with_levels), and the filter category of their shapes that have none.
-	levels:         [dynamic]Baked_Level,
-	level_category: u64,
-	level_cell:     f32, // Settings.level_cell, resolved
-	level_hulls:    [dynamic]^Hull_Data, // what build_level_shape built (shapes point at it)
-	level_meshes:   [dynamic]^Mesh_Data,
+	levels:          [dynamic]Baked_Level,
+	level_category:  u64,
+	level_cell:      f32, // Settings.level_cell, resolved
+	level_hulls:     [dynamic]^Hull_Data, // what build_level_shape built (shapes point at it)
+	level_meshes:    [dynamic]^Mesh_Data,
 }
 
 // b3CreateWorld/b3DestroyWorld scan and modify Box3D's global world table and lazily initialise its
@@ -132,6 +138,9 @@ destroy :: proc(world: ^World) {
 	for &entries in world.body_ring {
 		delete(entries)
 	}
+	for &generations in world.generation_ring {
+		delete(generations)
+	}
 	box3d.DestroyWorldSnapshot(&world.scratch)
 	box3d.DestroyWorldState(world.image)
 	box3d.DestroyWorld(world.id)
@@ -150,6 +159,8 @@ destroy :: proc(world: ^World) {
 	delete(world.bodies)
 	delete(world.owned)
 	delete(world.visitors)
+	delete(world.body_shapes)
+	delete(world.generations)
 	delete(world.sort_scratch)
 	delete(world.image_bytes)
 	for k in 0 ..< sim.KEEP_SLOTS {
@@ -188,12 +199,17 @@ extra :: proc(world: ^World, $State: typeid) -> sim.Extra {
 			entries := &world.body_ring[slot]
 			resize(entries, len(world.bodies))
 			copy(entries[:], world.bodies[:])
+			generations := &world.generation_ring[slot]
+			resize(generations, len(world.generations))
+			copy(generations[:], world.generations[:])
 		},
 		restore = proc(data: rawptr, slot: int) -> bool {
 			world := (^World)(data)
 			if !box3d.World_RestoreSnapshot(world.id, &world.ring[slot]) do return false
 			resize(&world.bodies, len(world.body_ring[slot]))
 			copy(world.bodies[:], world.body_ring[slot][:])
+			resize(&world.generations, len(world.generation_ring[slot]))
+			copy(world.generations[:], world.generation_ring[slot][:])
 			return true
 		},
 		// On the netcode's checksum ticks (sim.DEEP_CHECKSUM_EVERY): the whole world, every body, contact, warm
@@ -253,7 +269,11 @@ extra :: proc(world: ^World, $State: typeid) -> sim.Extra {
 		},
 		size = proc(data: rawptr, slot: int) -> int {
 			world := (^World)(data)
-			return world.ring[slot].size + len(world.body_ring[slot]) * size_of(Body_Entry)
+			return(
+				world.ring[slot].size +
+				len(world.body_ring[slot]) * size_of(Body_Entry) +
+				len(world.generation_ring[slot]) * size_of(u16) \
+			)
 		},
 		// A corrupt image can be found halfway through the load and leave the world half-written, so the world is
 		// saved first and put back on failure. Loads are rare (late join). The body table comes from another machine
@@ -275,12 +295,34 @@ extra :: proc(world: ^World, $State: typeid) -> sim.Extra {
 			}
 			resize(&world.bodies, len(entries))
 			copy(world.bodies[:], entries)
+			rebuild_generations(world)
 			return true
 		},
 		check = proc(data: rawptr, state: rawptr) -> string {
 			return check_refs((^World)(data), state)
 		},
 	}
+}
+
+// The generations of a loaded world's bodies, from its shapes (a loaded image holds Box3D's ids, physics' table holds
+// no generation but a level body's): every shape a query can find names its body. A body without one keeps 0, which
+// names no live body; no ray can hit it.
+@(private)
+rebuild_generations :: proc(world: ^World) {
+	clear(&world.generations)
+	resize(&world.generations, len(world.bodies))
+	every := box3d.QueryFilter {
+		categoryBits = max(u64),
+		maskBits     = max(u64),
+	}
+	bounds := box3d.World_GetBounds(world.id)
+	box3d.World_OverlapAABB(world.id, bounds, every, proc "c" (shape: box3d.ShapeId, user: rawptr) -> bool {
+			world := (^World)(user)
+			body := box3d.Shape_GetBody(shape)
+			index := int(body.index1) - 1
+			if index >= 0 && index < len(world.generations) do world.generations[index] = body.generation
+			return true
+		}, world)
 }
 
 // Whether a loaded body table fits the loaded Box3D world (the image's load): known flags, zero padding, a dead entry

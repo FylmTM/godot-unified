@@ -101,6 +101,10 @@ the block (`geometry.odin`'s header): a game keeps a mesh, height field or compo
 - **Collecting procs replace `out`'s contents.** A game keeps the array in its World as scratch, and a forgotten
   `clear` can't carry a result into another tick.
 - Casts take an origin and a translation (the whole length).
+- **A shot asks the past.** `world_cast_ray_closest_rewound` answers what a ray hit on the picture its shooter saw a
+  few ticks ago: every moving body moved back by its linear velocity times the rewind, to first order (its rotation
+  and any change of speed as they are now), statics and still bodies as they are. It looks at every body that isn't
+  the level's, so it is for a shot, not for every ray of a tick.
 - Events are read in the tick that stepped; a re-simulation regenerates them.
 
 ## Character

@@ -138,6 +138,21 @@ Compound_Sphere_Def :: struct {
 	material: Surface_Material,
 }
 
+// A plane a kinematic mover must stay outside of, for solve_planes and clip_vector: a Mover_Plane's `plane` with how
+// it pushes.
+Collision_Plane :: struct {
+	plane:         Plane,
+	push_limit:    f32, // the most this plane pushes the mover (max(f32): rigid; less: soft)
+	push:          f32, // what solve_planes pushed along it
+	clip_velocity: bool, // clip_vector clips against it (false for a soft plane)
+}
+
+// solve_planes' answer: the mover's translation, and the iterations it took (for diagnostics).
+Plane_Solver_Result :: struct {
+	delta:           [3]f32,
+	iteration_count: i32,
+}
+
 // ---- bodies and shapes
 
 Body_Type :: enum i32 {

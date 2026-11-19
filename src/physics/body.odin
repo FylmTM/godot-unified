@@ -448,6 +448,8 @@ body_set_tag :: proc(world: ^World, ref: Body_Ref, tag: u64) {
 body_created :: proc(world: ^World, id: box3d.BodyId, tag: u64) {
 	index := int(id.index1) - 1
 	if index >= len(world.bodies) do resize(&world.bodies, index + 1)
+	if index >= len(world.generations) do resize(&world.generations, index + 1)
+	world.generations[index] = id.generation
 	world.bodies[index] = {
 		tag   = tag,
 		flags = world.sealed ? {.Alive} : {.Alive, .World},

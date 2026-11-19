@@ -110,6 +110,108 @@ world_cast_ray_closest :: proc(
 	return ray.hit, ray.found
 }
 
+// The closest hit as the world was `rewind_s` ago, to first order: what a shot hits on the picture its shooter saw
+// (sim.seen_rewind gives the rewind). Bodies with no linear velocity (statics, sleepers, still bodies) are cast as
+// they are; every other body as if moved back by its linear velocity times `rewind_s` (its rotation as it is), so the
+// hit's point is on the body there. Sensors and the `ignore` body are skipped, and the closest wins by fraction, then
+// body and shape index. `rewind_s` 0 or less (or NaN) is world_cast_ray_closest. Its cost beside that cast: a look at
+// the velocity of every body that isn't the active level's, and a ray per shape of each moving body whose box the ray
+// crosses, so it is for a shot, not for every ray of a tick.
+world_cast_ray_closest_rewound :: proc(
+	world: ^World,
+	origin, translation: [3]f32,
+	rewind_s: f32,
+	filter := Filter{},
+	ignore := Body_Link{},
+) -> (
+	hit: Hit,
+	ok: bool,
+) {
+	if !(rewind_s > 0) do return world_cast_ray_closest(world, origin, translation, filter, ignore)
+	// Bodies at rest, as they are: Box3D's cast, skipping every moving body.
+	ray := Ray_Ctx {
+		ctx    = context,
+		world  = world,
+		ignore = link_id(world, ignore),
+	}
+	box3d.World_CastRay(
+		world.id,
+		transmute(box3d.Vec3)origin,
+		transmute(box3d.Vec3)translation,
+		query_filter(filter),
+		still_ray_callback,
+		&ray,
+	)
+	hit, ok = ray.hit, ray.found
+	// Each moving body, moved back: the ray moved forward by the same displacement against its shapes as they are.
+	query := query_filter(filter)
+	for entry, index in world.bodies {
+		if .Alive not_in entry.flags || .Level in entry.flags || index >= len(world.generations) do continue
+		id := box3d.BodyId {
+			index1     = i32(index + 1),
+			world0     = world.id.index1 - 1,
+			generation = world.generations[index],
+		}
+		if id.index1 == ray.ignore.index1 || !box3d.Body_IsValid(id) do continue
+		velocity := transmute([3]f32)box3d.Body_GetLinearVelocity(id)
+		if velocity == {} do continue
+		displacement := velocity * rewind_s
+		shifted := origin + displacement
+		count := int(box3d.Body_GetShapeCount(id))
+		if count > len(world.body_shapes) do resize(&world.body_shapes, count)
+		count = int(box3d.Body_GetShapes(id, raw_data(world.body_shapes), i32(count)))
+		for shape in world.body_shapes[:count] {
+			if box3d.Shape_IsSensor(shape) do continue
+			shape_filter := box3d.Shape_GetFilter(shape)
+			if shape_filter.categoryBits & query.maskBits == 0 || shape_filter.maskBits & query.categoryBits == 0 do continue
+			box := transmute(AABB)box3d.Shape_GetAABB(shape)
+			if !ray_crosses_box(shifted, translation, box) do continue
+			candidate, found := shape_ray_cast(world, shape_ref_of(shape), shifted, translation)
+			if !found do continue
+			candidate.point -= displacement
+			if !ok || hit_before(candidate, hit) do hit, ok = candidate, true
+		}
+	}
+	return
+}
+
+// world_cast_ray_closest_rewound's cast of the bodies at rest: ray_callback's, skipping moving bodies too.
+@(private)
+still_ray_callback :: proc "c" (
+	shape: box3d.ShapeId,
+	point, normal: box3d.Vec3,
+	fraction: f32,
+	material: u64,
+	child: i32,
+	triangle: i32,
+	user: rawptr,
+) -> f32 {
+	if transmute([3]f32)box3d.Body_GetLinearVelocity(box3d.Shape_GetBody(shape)) != {} do return -1
+	return ray_callback(shape, point, normal, fraction, material, child, triangle, user)
+}
+
+// Whether the segment from `origin` along `translation` may touch `box` (a slab test, the box grown by a millimetre so
+// rounding never rejects a touch): a cheap rejection before a shape's own ray.
+@(private)
+ray_crosses_box :: proc(origin, translation: [3]f32, box: AABB) -> bool {
+	MARGIN :: 0.001
+	enter, leave: f32 = 0, 1
+	for axis in 0 ..< 3 {
+		lo, hi := box.lower_bound[axis] - MARGIN, box.upper_bound[axis] + MARGIN
+		start, along := origin[axis], translation[axis]
+		if along == 0 {
+			if start < lo || start > hi do return false
+			continue
+		}
+		near, far := (lo - start) / along, (hi - start) / along
+		if near > far do near, far = far, near
+		if near > enter do enter = near
+		if far < leave do leave = far
+		if enter > leave do return false
+	}
+	return true
+}
+
 // Every hit along `translation` from `origin` into `out` (replaced, never appended to), sensors skipped, sorted by
 // fraction, then body and shape index.
 world_cast_ray :: proc(world: ^World, origin, translation: [3]f32, out: ^[dynamic]Hit, filter := Filter{}) {
@@ -330,6 +432,31 @@ mover_planes_callback :: proc "c" (
 @(private)
 mover_plane_of :: proc(world: ^World, shape: box3d.ShapeId, plane: box3d.PlaneResult) -> Mover_Plane {
 	return {overlap_of(world, shape), transmute(Plane)plane.plane, transmute([3]f32)plane.point}
+}
+
+// The translation that brings a mover as close to `target_delta` (its wanted translation from where the planes were
+// collected: world_collide_mover's origin) as `planes` allow, each plane's `push` set to how far it pushed. Box3D's
+// plane solver: a kinematic mover's step is collide, solve, move by the delta, then clip_vector its velocity.
+solve_planes :: proc(target_delta: [3]f32, planes: []Collision_Plane) -> Plane_Solver_Result {
+	return(
+		transmute(Plane_Solver_Result)box3d.SolvePlanes(
+			transmute(box3d.Vec3)target_delta,
+			(^box3d.CollisionPlane)(raw_data(planes)),
+			i32(len(planes)),
+		) \
+	)
+}
+
+// `vector` (a mover's velocity) with its part into each plane that pushed (`push` > 0 after solve_planes) and clips
+// (`clip_velocity`) removed, so the mover slides along what it touches.
+clip_vector :: proc(vector: [3]f32, planes: []Collision_Plane) -> [3]f32 {
+	return(
+		transmute([3]f32)box3d.ClipVector(
+			transmute(box3d.Vec3)vector,
+			(^box3d.CollisionPlane)(raw_data(planes)),
+			i32(len(planes)),
+		) \
+	)
 }
 
 // ---- per-body queries (`pose` nil: the body where it is)

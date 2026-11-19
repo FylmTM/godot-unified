@@ -212,14 +212,16 @@ rig_synctest_with_joints :: proc(t: ^testing.T) {
 	testing.expect(t, slice.equal(four_workers, one_worker), "the rig on 4 workers: checksums differ from 1 worker's")
 }
 
-// What each tick's save copies (the block, the world's arena snapshot of its slot and its body table), and that the
+// What each tick's save copies (the block, the world's arena snapshot of its slot, its body table and the bodies'
+// generations), and that the
 // rig really did what it is for.
 rig_did_its_job :: proc(t: ^testing.T, session: ^sim.Sim(Rig_Game)) {
 	slot := sim.ring_slot(session, session.tick)
 	world_bytes := session.world.phys.ring[slot].size
 	table_bytes := len(session.world.phys.body_ring[slot]) * size_of(physics.Body_Entry)
-	testing.expect(t, world_bytes > 0 && table_bytes > 0)
-	testing.expect_value(t, sim.save_size(session), size_of(Rig) + world_bytes + table_bytes)
+	generation_bytes := len(session.world.phys.generation_ring[slot]) * size_of(u16)
+	testing.expect(t, world_bytes > 0 && table_bytes > 0 && generation_bytes > 0)
+	testing.expect_value(t, sim.save_size(session), size_of(Rig) + world_bytes + table_bytes + generation_bytes)
 	testing.expect(t, session.state.jumps > 5)
 	testing.expect(t, session.state.hits > 0)
 }
