@@ -1,12 +1,13 @@
 ---
 name: sim-change
-description: What to do when a change alters what the deterministic simulation computes - a reference run or the Box3D golden trace no longer reproduces, a game's rules or tuning change, the state layout, input, command or snapshot format changes, or the netcode wire protocol changes. Covers regenerating reference runs, the golden trace, protocol bumps, and the benchmarks. Use before committing any change to a sim package, src/physics, src/netcode or the unified-box3d pin, and whenever uni test reports a reference run or golden trace mismatch.
+description: What to do when a change alters what the deterministic simulation computes - a reference run, a replay regression or the Box3D golden trace no longer reproduces, a game's rules or tuning change, the state layout, input, command or snapshot format changes, or the netcode wire protocol changes. Covers regenerating reference runs, the golden trace, protocol bumps, and the benchmarks. Use before committing any change to a sim package, src/physics, src/netcode or the unified-box3d pin, and whenever uni test reports a reference run, replay regression or golden trace mismatch.
 ---
 
 # Changing what the simulation computes
 
-The reference runs' constants and the Box3D golden traces are the proof that every platform computes the same thing.
-They change only on purpose, never to make a test pass.
+The reference runs' constants and the Box3D golden traces are the proof that every platform computes the same thing,
+and a game's replay regressions that its recorded sessions still play the same. They change only on purpose, never to
+make a test pass.
 
 ## When a reference run or the golden trace fails
 
@@ -19,7 +20,9 @@ traces in `tests/physics` (`BOX3D_GOLDEN`, Box3D alone; `GOLDEN_CHARACTERS`, `GO
    (`git worktree add --detach .out/main-check origin/main`, run the check there, `git worktree remove --force .out/main-check`); never
    `git stash`, the stash is shared by every session. A determinism lint failure or a float-order change (summation order, a new `core:math` call) is the usual cause.
 2. **If it was meant to:** paste the `REFERENCE :: scenarios.Reference{...}` literal the failing test prints over the suite's `REFERENCE`, and
-   for a Box3D change `BOX3D_GOLDEN` in `tests/physics/box3d_test.odin`, in the same commit as the change. Only the `snapshot`
+   for a Box3D change `BOX3D_GOLDEN` in `tests/physics/box3d_test.odin`, in the same commit as the change. A replay
+   regression (`replays_reproduce`: its first differing tick and fields) is blessed with `./uni test <game> --bless`,
+   its `expected.unie` committed with the change (`src/headless/README.md`, Replay regressions). Only the `snapshot`
    and `log` hashes moving (the checkpoints and `trace` unchanged) means the format or compat changed, not the
    results. To find where two builds part: `./uni headless <game> -- sim --trace FILE` on each, compare the files.
 3. **Say why** in the commit message and the PR: what changed in the simulation and why the old results are no longer

@@ -1,6 +1,7 @@
 // minimal_3d's end-to-end suite: the standard scenarios of unified:headless/scenarios (src/headless/README.md),
-// unified's determinism lint and the extension's install check. The reference run is in reference_test.odin, the
-// game's own scenarios in the other files of this package (throw_test.odin).
+// its replay regressions (the recorded sessions in replays/), unified's determinism lint and the extension's install
+// check. The reference run is in reference_test.odin, the game's own scenarios in the other files of this package
+// (throw_test.odin).
 package test_minimal_3d
 
 import "core:testing"
@@ -43,6 +44,10 @@ a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(
 		3,
 		scenarios.LONG ? 900 : 300,
 	)}
+// Every recorded session in replays/ (one replay folder each) computes what was blessed, tick by tick; after a meant
+// rules change, `uni test minimal_3d --bless` (src/headless/README.md, Replay regressions).
+@(test)
+the_replays_reproduce :: proc(t: ^testing.T) {scenarios.replays_reproduce(t, &g.GAME, #directory + "/replays")}
 @(test)
 determinism_lint :: proc(t: ^testing.T) {lint.check_game(t, #directory + "/..")}
 

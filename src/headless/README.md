@@ -69,7 +69,8 @@ what Godot would refuse at load, caught by `uni test`). A new game copies minima
 library: it runs every scenario.
 
 **Two tiers.** The default run covers the toy's suite whole and each game's minimal set (`rollback_every_tick`, a
-session under `bad`, one under `wan` with churn, a late joiner, `presence_churn`, the reference run) on short runs,
+session under `bad`, one under `wan` with churn, a late joiner, `presence_churn`, the reference run, the replay
+regressions) on short runs,
 each scenario its own test so the runner spreads them over the cores. The long tier (`scenarios.LONG`, `uni test
 --long`) runs every standard scenario at full length, and the slow tests a game keeps behind it.
 
@@ -84,3 +85,27 @@ cross-platform determinism check.
 A mismatch prints the literal to paste: paste it only after a change that alters the simulation or the log or
 snapshot format, saying why (the `sim-change` skill). The log and snapshot carry the build's compat, so a version or
 pin bump moves their hashes while the checkpoints and the trace stay.
+
+## Replay regressions
+
+A recorded session kept with a game's tests as one that must reproduce: the gameplay of real play, checked tick by
+tick, without a hand-written scenario. Each is a replay folder in the game's `simulation/tests/replays/<name>/`, as
+the game writes them (a session recording's or an F3 note's `inputs.unil`, and the `snapshot.unis` it continues when
+it starts after tick 0; `src/godot/README.md`, Replays), so the game's replay session plays a failing one. Beside it
+`expected.unie` holds what the build that blessed it computed: every tick's checksum and events, and the state block on
+the ticks peers compare (`sim.DEEP_CHECKSUM_EVERY`), each packed as its difference from the one before. The recording
+itself is never rewritten.
+
+The suite's `scenarios.replays_reproduce` replays every folder (`headless.regression_run`). A divergence names the
+first tick whose checksum or events differ, then the leaf fields of the first stored block from there on that differs,
+with both values, through the typed diff the op log uses (`sim.state_changes`); when every block agrees, what differs
+is the Extra (the physics world). `uni test --long` replays each recording as a sync-tested run too (`Run`): rollback
+on real play's inputs, which no scripted player sends.
+
+**The results decide, never the build's identity.** A recording replays whatever compat or levels it was recorded and
+blessed with, so a refactor or a pin bump that computes nothing differently passes, and a rules change or a re-baked
+level fails at its first tick. After a meant change, `uni test <game> --bless` writes a new expectation for each
+recording that diverges or has none (a warning names each and where it diverged), committed with the change (the
+`sim-change` skill). A new regression is a copied folder, then a bless. A recording whose Input, commands, Setup or
+Profile changed layout (or whose snapshot no longer loads) can't be blessed: record a new one. `uni init` leaves
+minimal_3d's recordings out of a new game: a game records its own.

@@ -5,7 +5,8 @@
 package scenarios
 
 import "core:fmt"
-@(require) import "core:log" // only in reference_reproduces (generic)
+@(require) import "core:log" // only in reference_reproduces and replays_reproduce (generic)
+@(require) import "core:path/filepath" // only in replays_reproduce (generic)
 @(require) import "core:slice" // only in reference_reproduces (generic)
 import "core:testing"
 
@@ -16,6 +17,10 @@ import "unified:sim"
 // `uni test --long` builds with -define:UNIFIED_LONG_TESTS=true: a game's suite then runs every
 // standard scenario at full length (src/headless/README.md, End-to-end suites). The toy's suite always does.
 LONG :: #config(UNIFIED_LONG_TESTS, false)
+
+// `uni test --bless` builds with -define:UNIFIED_BLESS=true: replays_reproduce then writes a new expectation for each
+// recording that diverges or has none, instead of failing (src/headless/README.md, Replay regressions).
+BLESS :: #config(UNIFIED_BLESS, false)
 
 // A game's suite: the game and the parameters of its runs.
 Suite :: struct($G: typeid) {
@@ -114,6 +119,62 @@ expect_synced :: proc(t: ^testing.T, run: ^headless.Run($G), loc := #caller_loca
 	agreed := testing.expectf(t, run.check == "", "after restoring tick %d: %s", run.check_tick, run.check, loc = loc)
 	clean := testing.expectf(t, run.problem == "", "%s", run.problem, loc = loc)
 	return synced && agreed && clean
+}
+
+// Every replay regression in `dir` (a game's `#directory + "/replays"`: one replay folder per recording,
+// headless.regression_folders) reproduces its blessed expectation: each tick's checksum and events, the first that
+// differs named with the fields that differ (headless.regression_run). With BLESS, a recording that diverges or has no
+// expectation is blessed instead (a warning says which, and where it diverged); with LONG, each replay is sync-tested
+// too. No folder: nothing to check.
+replays_reproduce :: proc(t: ^testing.T, game: ^$G, dir: string) {
+	if !game_ok(t, game) do return
+	for folder in headless.regression_folders(dir) {
+		name := fmt.tprintf("%s/%s", filepath.base(dir), filepath.base(folder)) // replays/<name>
+		result := headless.regression_run(game, folder, bless = BLESS, synctest = LONG)
+		switch {
+		case result.blessed:
+			log.warnf("replays_reproduce: blessed %s (%s)", name, result.report)
+		case result.status == .Broken:
+			testing.expectf(t, false, "replays_reproduce: %s: %s", name, result.report)
+		case result.status == .Unblessed:
+			testing.expectf(
+				t,
+				false,
+				"replays_reproduce: %s: %s: ./uni test %s --bless",
+				name,
+				result.report,
+				game.name,
+			)
+		case result.status == .Diverges:
+			testing.expectf(
+				t,
+				false,
+				"replays_reproduce: %s: %s; if the change was meant: ./uni test %s --bless (the sim-change skill)",
+				name,
+				result.report,
+				game.name,
+			)
+		}
+		synctest := &result.synctest
+		testing.expectf(
+			t,
+			synctest.mismatches == 0,
+			"replays_reproduce (sync-tested): %s: %d mismatches; first: tick %d re-simulated differently at tick %d",
+			name,
+			synctest.mismatches,
+			synctest.first_tick,
+			synctest.first_at,
+		)
+		testing.expectf(
+			t,
+			synctest.check == "",
+			"replays_reproduce (sync-tested): %s: after restoring tick %d: %s",
+			name,
+			synctest.check_tick,
+			synctest.check,
+		)
+		testing.expectf(t, synctest.problem == "", "replays_reproduce (sync-tested): %s: %s", name, synctest.problem)
+	}
 }
 
 // Players come and go under rollback (restore `window` ticks back on every tick, as rollback_every_tick): slot 0's
