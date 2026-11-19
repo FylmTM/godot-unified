@@ -1,7 +1,7 @@
 # __GAME__
 
 A co-op game on [unified](https://github.com/FylmTM/godot-unified) (deterministic rollback netcode, Odin + Godot), started
-from `uni init`: a copy of unified's `games/minimal_3d`, where 1–4 players move capsules and throw balls up. Make it
+from `uni init`: a copy of unified's `games/minimal_3d`, where 1â€“4 players move capsules and throw balls up. Make it
 yours from here, starting with `SPEC.md` (a draft skeleton: the game's rules, before its code).
 
 ```
@@ -28,7 +28,8 @@ yours from here, starting with `SPEC.md` (a draft skeleton: the game's rules, be
 ## What to take from where
 
 A game stays this shape: no menus or settings, one scene that starts a session. unified's other games
-(`unified/games/`) show the rest:
+(`unified/games/`) show the rest; survivor's, drift's and friendslop's menus, settings and HUD panels (`game/app/`,
+`game/ui/`) are their own, not a template:
 
 - **Playing together:** the session's flags and `uni coop`. Direct (LAN) works as is (`--host-port`, `--join`,
   `uni coop --lan`); online (EOS lobbies and P2P: `--host-online`, `--join-code`) once the game passes
