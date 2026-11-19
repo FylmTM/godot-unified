@@ -164,7 +164,7 @@ Test_Opts :: struct {
 	suite: string `hint:"s,..." usage:"suites, comma-separated, or all (default: odin); listed below"`,
 	only:  string `hint:"name,..." usage:"tests (odin: name or package.name, picked when the binary runs, so no recompile; a name no test has fails) or steps (godot), comma-separated"`,
 	long:  bool `usage:"the long variants: every standard scenario at full length (odin), 960 ticks (net), a 256-tick session (godot)"`,
-	bless: bool `usage:"odin: after a meant sim change, re-pin what moved: each reference run and golden trace in its test's source, each replay regression's expectation; prints each value it changed and closes with all of them (or that nothing was), refuses results that moved without a version bump"`,
+	bless: bool `usage:"odin: after a meant sim change, re-pin what moved: each reference run and golden trace in its test's source, each replay regression's expectation; prints each value it changed and closes with all of them (or that nothing was), refuses results that moved without a version bump; with a game named, also pins its reference the first time"`,
 }
 
 @(private)

@@ -128,8 +128,10 @@ bump; the failure names what moved and prints no literal to paste. Only results 
 moved re-pins, and the diff shows it. When only a reference's `snapshot`, `log` and `compat` moved, the build's
 identity changed (a version or pin bump: the log and snapshot carry the compat), not its results; a snapshot or log
 format change without its version bump re-pins too, so the diff is where it shows. A second meant change on the same
-branch bumps again: versions are cheap. A reference not pinned yet (a new game's) is left for the game to pin, and one
-pinned before it had a `compat` (a game upgrading unified) prints its literal to paste once.
+branch bumps again: versions are cheap. A reference not pinned yet (a new game's: its parameters alone) is pinned only
+when the game asks: `uni test <game> --bless` replaces the placeholder whole with the run's literal (the token rewrite
+can't add the fields it lacks), while a bless of every game leaves it, so no game is pinned before its rules settle. A
+reference pinned before it had a `compat` (a game upgrading unified) prints its literal to paste once.
 
 Checks can share a pin (a golden on 1 and 4 workers): each compares with the value it was compiled with, so after a
 bless that rewrote a source, `uni test --bless` runs the suite once more without it and that run decides.

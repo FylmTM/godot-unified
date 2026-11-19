@@ -170,7 +170,8 @@ TEMPLATE_SKIP :: []string{"README.md", "unified_index.tres"}
 TEMPLATE_SKIP_DIRS :: []string{"simulation/tests/replays/"}
 
 // The template's reference run, which a copy keeps unpinned: its parameters without minimal_3d's results, so a new
-// game's first `uni test` warns with its own to paste once its rules settle (scenarios.reference_reproduces).
+// game's first `uni test` warns with its own run, which `uni test <game> --bless` pins once its rules settle
+// (scenarios.reference_reproduces).
 TEMPLATE_REFERENCE :: "simulation/tests/reference_test.odin"
 
 // The Reference fields a copy of TEMPLATE_REFERENCE leaves out: minimal_3d's results.
