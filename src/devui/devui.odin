@@ -37,6 +37,8 @@ visible: bool
 netsim: Netsim
 netsim_changed: bool // set by the Conditions panel; the host clears it after applying
 netsim_applies := true // false: the session has no remote links (single player); the panel greys its network part
+// The Conditions panel's dev switch (off by default): other players' views shown from verified ticks only (the host reads it).
+verified_players: bool
 
 @(private)
 State :: struct {

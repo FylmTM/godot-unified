@@ -44,24 +44,25 @@ Session_Node :: struct {
 
 @(private)
 Args :: struct {
-	autostart:   bool, // start single player at once (headless checks)
-	join:        string, // join_direct this address at once
-	host_port:   int, // host_direct on this port at once
-	local_net:   bool, // direct hosting listens on 127.0.0.1 only (tool runs: no firewall prompt)
-	scripted:    bool, // scripted input (the offline binary's), for hash checks
-	ticks:       int, // session length (0: endless)
-	seed:        i64,
-	quit:        bool, // quit when the session ends, printing its result
-	devui:       bool, // dev UI shown at start
-	lag_ms:      int, // netsim on remote links: this one-way latency, a quarter of it as jitter, 1% loss
-	bench:       int, // single player sessions hold this many entities (Game.bench_prepare)
-	online:      bool, // host_online at once
-	join_code:   string, // join_online this code at once
-	draw:        string, // the debug draw groups shown (UnifiedSession.debug_draw)
-	setup:       string, // --setup key=value,...: the Setup of sessions this process hosts (the game's default with them)
-	profile:     string, // --profile key=value,...: set on Unified.profile at the start
-	replay:      string, // replay this folder at once
-	no_watchdog: bool, // no session-thread watchdog (watchdog.odin)
+	autostart:        bool, // start single player at once (headless checks)
+	join:             string, // join_direct this address at once
+	host_port:        int, // host_direct on this port at once
+	local_net:        bool, // direct hosting listens on 127.0.0.1 only (tool runs: no firewall prompt)
+	scripted:         bool, // scripted input (the offline binary's), for hash checks
+	ticks:            int, // session length (0: endless)
+	seed:             i64,
+	quit:             bool, // quit when the session ends, printing its result
+	devui:            bool, // dev UI shown at start
+	lag_ms:           int, // netsim on remote links: this one-way latency, a quarter of it as jitter, 1% loss
+	bench:            int, // single player sessions hold this many entities (Game.bench_prepare)
+	online:           bool, // host_online at once
+	join_code:        string, // join_online this code at once
+	draw:             string, // the debug draw groups shown (UnifiedSession.debug_draw)
+	setup:            string, // --setup key=value,...: the Setup of sessions this process hosts (the game's default with them)
+	profile:          string, // --profile key=value,...: set on Unified.profile at the start
+	replay:           string, // replay this folder at once
+	no_watchdog:      bool, // no session-thread watchdog (watchdog.odin)
+	verified_players: bool, // other players start on the verified timeline (a dev option, verified_players.odin)
 }
 
 @(private)
@@ -652,7 +653,11 @@ session_ready :: proc(session: ^Session_Node) {
 		}
 		read_app_version()
 	}
-	dev_init(session.args.devui, session.args.lag_ms > 0 ? lag_settings(session.args.lag_ms) : {})
+	dev_init(
+		session.args.devui,
+		session.args.lag_ms > 0 ? lag_settings(session.args.lag_ms) : {},
+		session.args.verified_players,
+	)
 	switch {
 	case session.args.autostart:
 		session_start(session, {mode = .Single, scripted = session.args.scripted})
@@ -1202,6 +1207,7 @@ FLAGS := [?]Flag {
 	{"--draw", true, .Text, offset_of(Args, draw), 0, 0, ""},
 	{"--replay", true, .Text, offset_of(Args, replay), 0, 0, ""},
 	{"--no-watchdog", true, .Switch, offset_of(Args, no_watchdog), 0, 0, ""},
+	{"--verified-players", true, .Switch, offset_of(Args, verified_players), 0, 0, ""},
 	{"--setup", false, .Text, offset_of(Args, setup), 0, 0, "key=value[,key=value]"},
 	{"--profile", false, .Text, offset_of(Args, profile), 0, 0, "key=value[,key=value]"},
 }

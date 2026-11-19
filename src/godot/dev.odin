@@ -117,8 +117,9 @@ when DEVUI {
 
 	dev: Dev
 
-	dev_init :: proc(visible: bool, lag: Netsim_Settings) {
+	dev_init :: proc(visible: bool, lag: Netsim_Settings, verified_players: bool) {
 		if lag.enabled do devui.netsim = lag
+		if verified_players do devui.verified_players = true
 		if devui.is_ready() do return
 		devui.init(visible, dev_feedback)
 		rendering_server := gd.RenderingServer_singleton()
@@ -203,6 +204,7 @@ when DEVUI {
 	// Main thread, every frame: the overlay's stats and graphs, the panels' data, the Conditions panel.
 	dev_frame :: proc(session: ^Session_Node, dt: f64) {
 		dev_main_thread()
+		verified_players_want(devui.verified_players)
 		devui.netsim_applies = !(session.mode == .Single && api.installed && api.running())
 		for api.installed {
 			note := api.next_confirmed() or_break
@@ -237,6 +239,14 @@ when DEVUI {
 				} else {
 					devui.stat("ticks/s", "new %.0f   re-run %.0f", new_ticks, dev.per_second[1])
 				}
+			}
+			if VP.started {
+				devui.stat(
+					"verified",
+					"other players at tick %.1f, %.1f behind the prediction",
+					VP.play,
+					f64(frame.tick) - VP.play,
+				)
 			}
 			devui.stat(
 				"views",
@@ -633,7 +643,7 @@ when DEVUI {
 	_ :: slice
 	_ :: strings
 
-	dev_init :: proc(visible: bool, lag: Netsim_Settings) {}
+	dev_init :: proc(visible: bool, lag: Netsim_Settings, verified_players: bool) {}
 	dev_shutdown :: proc() {}
 	dev_wants_keyboard :: proc() -> bool {return false}
 	dev_visible :: proc() -> bool {return false}

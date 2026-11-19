@@ -277,6 +277,9 @@ that every `View` member has a scene and every indexed kind is a member.
   verified tick, then every verified tick's inputs, and this machine's checksum of each checksum tick), so an F3
   note carries what `uni headless <game> -- replay` replays and checks, naming the first tick it computes
   differently.
+- **Other players on the verified timeline** (dev UI builds, `verified_players.odin`; off unless switched on in the
+  Conditions panel or by `--verified-players`): remote players posed from final ticks only, a few ticks late, to
+  compare with the prediction.
 - **Debug draws and zones** (dev UI builds; `src/sim/README.md`, Debug draws and zones). The session's sim gets a
   Dev timed on the netcode's clock. The groups shown (the dev UI's draw toggles, `UnifiedSession.debug_draw`,
   `--draw`) go to the session thread as one mask, applied to the sim before each step, so only shown groups are kept;

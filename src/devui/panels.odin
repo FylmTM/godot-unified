@@ -11,15 +11,16 @@ import "unified:gdext/gdi"
 
 @(private)
 Conditions_Panel :: struct {
-	fps:     [len(FPS_CAPS)]gd.Button,
-	cap:     int, // the current cap (0: none)
-	net:     gd.VBoxContainer, // the network simulation's rows (greyed while it can't apply)
-	enabled: gd.CheckBox,
-	presets: [4]gd.Button,
-	both:    gd.CheckBox, // the sliders move both directions together
-	sliders: [2][3]gd.HSlider, // [up, down][latency, jitter, loss]
-	values:  [2][3]gd.Label,
-	applies: bool, // netsim_applies as the controls show it
+	fps:      [len(FPS_CAPS)]gd.Button,
+	cap:      int, // the current cap (0: none)
+	net:      gd.VBoxContainer, // the network simulation's rows (greyed while it can't apply)
+	enabled:  gd.CheckBox,
+	presets:  [4]gd.Button,
+	both:     gd.CheckBox, // the sliders move both directions together
+	sliders:  [2][3]gd.HSlider, // [up, down][latency, jitter, loss]
+	values:   [2][3]gd.Label,
+	applies:  bool, // netsim_applies as the controls show it
+	verified: gd.CheckBox, // verified_players
 }
 
 @(private)
@@ -120,8 +121,14 @@ build_conditions :: proc() {
 			gd.Control_set_custom_minimum_size(conditions.values[direction][field_index], {46, 0})
 		}
 	}
+	row = add(box, gd.HBoxContainer_new())
+	conditions.verified = check(row, "other players on verified ticks")
+	on(conditions.verified, "toggled", proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
+		verified_players, _ = gd.from_variant(bool, args[0])
+		return {}
+	})
 	conditions.applies = true
-	panel_make(.Conditions, "Conditions", {350, 40, 470, 140}, box)
+	panel_make(.Conditions, "Conditions", {350, 40, 470, 166}, box)
 }
 
 // Direction d (0 up, 1 down), field k (latency, jitter, loss) of `netsim`.
@@ -143,6 +150,7 @@ conditions_sync :: proc() {
 	conditions := &s.cond
 	for fps_cap, i in FPS_CAPS do gd.BaseButton_set_pressed_no_signal(conditions.fps[i], fps_cap == conditions.cap)
 	gd.BaseButton_set_pressed_no_signal(conditions.enabled, netsim.enabled)
+	gd.BaseButton_set_pressed_no_signal(conditions.verified, verified_players)
 	for direction in 0 ..< 2 {
 		for field, field_index in NET_FIELDS {
 			gd.Range_set_value_no_signal(
