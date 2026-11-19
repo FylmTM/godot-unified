@@ -6,6 +6,7 @@
 // enemies' neighbour grid) and the scripted inputs (script). The balance test's bot is the tests' (tests/bot.odin).
 package survivor
 
+import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
@@ -78,6 +79,7 @@ Zone :: enum u8 {
 tick :: proc(t: ^Tick) {
 	{
 		sim.zone(t, Zone.Players)
+		apply_dev_commands(t)
 		update_players(t)
 		pick_upgrades(t)
 	}
@@ -115,6 +117,26 @@ tick :: proc(t: ^Tick) {
 		advance_phase(t)
 	}
 	physics.debug_draw(t.world.phys, t, {.Shapes, .Contacts, .Sleep}) // nothing unless the dev UI shows them
+}
+
+// The dev commands (input.odin), first in the tick, by whoever sent them: a build without the dev UI never gets one
+// (sim.DEV_COMMAND_PREFIX).
+apply_dev_commands :: proc(t: ^Tick) {
+	players := sim.iterate_present(t)
+	for _, player in sim.next(&players) {
+		for sent in sim.commands(t, player) {
+			#partial switch command in sent {
+			case Cmd_Dev_Give_Xp:
+				if character := sim.player_data(t, command.player); character != nil do character.xp += command.xp
+			case Cmd_Dev_Skip_Wave:
+				t.state.wave += 1
+			case Cmd_Dev_Spawn:
+				for i in 0 ..< int(command.count) {
+					if !spawn_enemy(t.state, command.kind, dmath.DIR8[i % 8] * SPAWN_RING, t.number) do break
+				}
+			}
+		}
+	}
 }
 
 extra :: proc(world: ^World) -> sim.Extra {

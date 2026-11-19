@@ -43,6 +43,8 @@ Control
 Label
 Button
 CheckBox
+SpinBox
+OptionButton
 HSlider
 HBoxContainer
 VBoxContainer

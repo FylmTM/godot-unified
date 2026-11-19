@@ -19,6 +19,7 @@
 #+private
 package godot
 
+import "base:runtime"
 import "core:encoding/json"
 import "core:fmt"
 import "core:os"
@@ -272,6 +273,7 @@ when DEVUI {
 		}
 		if session.frame != nil do dev_sim_graphs(session.frame, dt)
 		dev_timeline(session)
+		dev_command_forms(session)
 		devui.frame(dt)
 		dev.prev_sync_us = session.sync_us
 		_, dev.prev_ui_ms = devui.frame_stats()
@@ -415,6 +417,167 @@ when DEVUI {
 		for path in names[:max(len(names) - RECORDINGS_KEPT, 0)] do _ = os.remove_all(path)
 	}
 
+	// One input of a dev command's form, flattened from the command's struct by RTTI: where its value goes.
+	Form_Slot :: struct {
+		offset: int,
+		type:   ^runtime.Type_Info,
+		player: bool, // a sim.Player: a choice of the session's players
+	}
+
+	// The dev commands' forms as the Commands panel shows them (rebuilt when the session's players change).
+	Dev_Forms :: struct {
+		built:   bool,
+		players: u64, // the present players' keys, hashed, the forms were built with
+		kinds:   [dynamic]int, // the command kind of each form
+		slots:   [dynamic][dynamic]Form_Slot, // by form: its inputs
+		keys:    [dynamic]u64, // a player choice's keys, in order
+	}
+
+	dev_forms: Dev_Forms
+
+	// The game's dev commands (sim.DEV_COMMAND_PREFIX) as forms in the Commands panel, and what a Send sends: the
+	// command built from the form's values, sent like a script's send_command.
+	dev_command_forms :: proc(session: ^Session_Node) {
+		if !api.installed do return
+		frame := session.frame
+		players: u64 = 1
+		if frame != nil do for key in frame.slots do players = players * 31 + key
+		devui.command_forms_enable(frame != nil && session.mode != .Replay && api.running())
+		if !dev_forms.built || players != dev_forms.players {
+			dev_forms.built, dev_forms.players = true, players
+			dev_forms_build(session)
+		}
+		form, values, sent := devui.take_form()
+		if !sent || form >= len(dev_forms.kinds) do return
+		kind := dev_forms.kinds[form]
+		layout := &api.commands[kind]
+		bytes: [sim.COMMAND_MAX]u8
+		for slot, i in dev_forms.slots[form] do form_write(bytes[slot.offset:], slot, values[i])
+		command, ok := sim.command_from_bytes(api.commands_type, kind, bytes[:layout.type.size])
+		if !ok do return
+		tick, player: u64
+		if frame != nil do tick, player = u64(frame.tick), frame.local_player
+		dev_command(u32(tick), api.send(command, 0) ? .Sent : .Refused, player, &command)
+	}
+
+	dev_forms_build :: proc(session: ^Session_Node) {
+		for &slots in dev_forms.slots do delete(slots)
+		clear(&dev_forms.slots)
+		clear(&dev_forms.kinds)
+		clear(&dev_forms.keys)
+		choices := make([dynamic]string, context.temp_allocator)
+		if frame := session.frame; frame != nil {
+			for key in frame.slots {
+				if key == 0 do continue
+				append(&dev_forms.keys, key)
+				append(&choices, fmt.tprintf("%s (%d)", player_name(session, i64(key)), key))
+			}
+		}
+		forms := make([dynamic]devui.Form, context.temp_allocator)
+		for layout, kind in api.commands {
+			if !sim.command_is_dev(api.commands_type, kind) do continue
+			slots: [dynamic]Form_Slot
+			fields := make([dynamic]devui.Form_Field, context.temp_allocator)
+			form_fields(layout.type, 0, "", &slots, &fields, choices[:])
+			append(&dev_forms.kinds, kind)
+			append(&dev_forms.slots, slots)
+			append(&forms, devui.Form{name = layout.name, fields = fields[:]})
+		}
+		devui.command_forms(forms[:])
+	}
+
+	// A struct's fields as form inputs (a nested struct flattened with dotted labels; `_` fields left zero; other
+	// types left zero too).
+	form_fields :: proc(
+		type: ^runtime.Type_Info,
+		base: int,
+		prefix: string,
+		slots: ^[dynamic]Form_Slot,
+		fields: ^[dynamic]devui.Form_Field,
+		players: []string,
+	) {
+		info, is_struct := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
+		if !is_struct do return
+		for i in 0 ..< int(info.field_count) {
+			name := info.names[i]
+			if strings.has_prefix(name, "_") do continue
+			field_type, offset := info.types[i], base + int(info.offsets[i])
+			label := prefix == "" ? name : fmt.tprintf("%s.%s", prefix, name)
+			if field_type.id == sim.Player {
+				append(slots, Form_Slot{offset, field_type, true})
+				append(fields, devui.Form_Field{label = label, kind = .Choice, choices = players})
+				continue
+			}
+			#partial switch variant in runtime.type_info_base(field_type).variant {
+			case runtime.Type_Info_Integer:
+				bits := field_type.size * 8
+				low := variant.signed ? -f64(i64(1) << uint(bits - 1)) : 0
+				high := variant.signed ? f64(i64(1) << uint(bits - 1)) - 1 : f64(u64(1) << uint(bits)) - 1
+				append(slots, Form_Slot{offset, field_type, false})
+				append(fields, devui.Form_Field {
+					label = label,
+					kind  = .Number,
+					min   = max(low, -1e9),
+					max   = min(high, 1e9),
+					step  = 1,
+				})
+			case runtime.Type_Info_Float:
+				append(slots, Form_Slot{offset, field_type, false})
+				append(fields, devui.Form_Field{label = label, kind = .Number, min = -1e6, max = 1e6, step = 0.01})
+			case runtime.Type_Info_Boolean:
+				append(slots, Form_Slot{offset, field_type, false})
+				append(fields, devui.Form_Field{label = label, kind = .Toggle})
+			case runtime.Type_Info_Enum:
+				names := make([]string, len(variant.names), context.temp_allocator)
+				for member, k in variant.names do names[k] = member
+				append(slots, Form_Slot{offset, field_type, false})
+				append(fields, devui.Form_Field{label = label, kind = .Choice, choices = names})
+			case runtime.Type_Info_Array:
+				// a vector or a sim.Position: one number per component (sim units)
+				if _, is_float := runtime.type_info_base(variant.elem).variant.(runtime.Type_Info_Float);
+				   is_float && variant.count <= 4 {
+					axes := [4]string{"x", "y", "z", "w"}
+					for k in 0 ..< variant.count {
+						append(slots, Form_Slot{offset + k * variant.elem_size, variant.elem, false})
+						append(fields, devui.Form_Field {
+							label = fmt.tprintf("%s.%s", label, axes[k]),
+							kind  = .Number,
+							min   = -1e6,
+							max   = 1e6,
+							step  = 0.01,
+						})
+					}
+				}
+			case runtime.Type_Info_Struct:
+				form_fields(field_type, offset, label, slots, fields, players)
+			}
+		}
+	}
+
+	// Writes one form input's value into the command's bytes.
+	form_write :: proc(out: []u8, slot: Form_Slot, value: f64) {
+		if slot.player {
+			index := int(value)
+			player: sim.Player
+			if index >= 0 && index < len(dev_forms.keys) do player = sim.player_of_key(dev_forms.keys[index])
+			(^sim.Player)(raw_data(out))^ = player
+			return
+		}
+		#partial switch variant in runtime.type_info_base(slot.type).variant {
+		case runtime.Type_Info_Integer:
+			bits := u64(i64(value))
+			for k in 0 ..< slot.type.size do out[k] = u8(bits >> uint(8 * k))
+		case runtime.Type_Info_Float:
+			(^f32)(raw_data(out))^ = f32(value)
+		case runtime.Type_Info_Boolean:
+			out[0] = value != 0 ? 1 : 0
+		case runtime.Type_Info_Enum:
+			index := int(value)
+			member: i64 = index >= 0 && index < len(variant.values) ? i64(variant.values[index]) : 0
+			for k in 0 ..< slot.type.size do out[k] = u8(u64(member) >> uint(8 * k))
+		}
+	}
+
 	// devui's on_feedback (main thread, a note was just written to `dir`): the session's recording, so the note
 	// replays (`uni headless <game> -- replay --snapshot snapshot.unis --log inputs.unil`), and note.json.
 	dev_feedback :: proc(dir: string, tag_bug: bool) {
@@ -484,4 +647,5 @@ when DEVUI {
 	dev_frame :: proc(session: ^Session_Node, dt: f64) {}
 	dev_draw_toggles :: proc(names: []string) -> u64 {return 0}
 	dev_save_recording :: proc(session: ^Session_Node) {}
+	_ :: runtime
 }

@@ -32,6 +32,26 @@ Cmd_Pick :: struct {
 	upgrade: Upgrade,
 }
 
+// Dev commands (sim.DEV_COMMAND_PREFIX): the dev UI's Commands panel offers each as a form; a build without the dev UI
+// never applies them. XP for a player (the form lists the session's players).
+Cmd_Dev_Give_Xp :: struct {
+	player: sim.Player,
+	xp:     i32,
+}
+
+// The next wave, at once.
+Cmd_Dev_Skip_Wave :: struct {}
+
+// `count` enemies of a kind on the spawn ring.
+Cmd_Dev_Spawn :: struct {
+	count: u16,
+	kind:  Enemy_Kind,
+	_pad:  u8,
+}
+
 Cmd :: union {
 	Cmd_Pick,
+	Cmd_Dev_Give_Xp,
+	Cmd_Dev_Skip_Wave,
+	Cmd_Dev_Spawn,
 }

@@ -38,6 +38,9 @@ rotation locked, created at their slot's spot when they become present.
   `DAMAGE_LEVELUP`, `SPEED_LEVELUP`) when it is one of that level's two offers, a keyed roll of the player and the
   level (`upgrade_offers`) that the HUD peeks to show only those cards. A pick with nothing pending, or not
   offered, is ignored.
+- Dev commands (the dev UI's Commands panel; a public build never applies them): `Cmd_Dev_Give_Xp` (XP for a
+  player), `Cmd_Dev_Skip_Wave` (the next wave), `Cmd_Dev_Spawn` (enemies of a kind on `SPAWN_RING`), applied first in
+  the tick (`apply_dev_commands`).
 
 ## Phases
 
