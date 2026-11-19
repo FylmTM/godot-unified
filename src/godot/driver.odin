@@ -838,6 +838,15 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 		append(&problems, strings.clone(reason))
 	}
 	data_problems(glue.data, constants, glue.input_values, &problems)
+	// every type GDScript reads by field names and classes
+	named := make([dynamic]^runtime.Type_Info, context.temp_allocator)
+	for variant in sim.union_variants(sim.part(G, sim.GAME_EVENT)) do append(&named, variant)
+	for variant in sim.union_variants(sim.part(G, sim.GAME_CMD)) do append(&named, variant)
+	for variant in sim.union_variants(glue.data) do append(&named, variant)
+	if constants != nil do append(&named, type_info_of(constants))
+	if glue.input_values != nil do append(&named, type_info_of(glue.input_values))
+	append(&named, type_info_of(sim.part(G, sim.GAME_SETUP)), type_info_of(sim.part(G, sim.GAME_PROFILE)))
+	generic_problems(named[:], &problems)
 	for policy, kind in glue.view_policy do policy_problems(policy, fmt.tprint(kind), false, &problems)
 	for policy, kind in glue.multi_policy do policy_problems(policy, fmt.tprint(kind), true, &problems)
 	return problems[:]

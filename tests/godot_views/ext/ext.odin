@@ -89,6 +89,19 @@ Data_Toy :: struct {
 	_pad2:       [4]u8,
 	lamp:        sim.Entity, // its index (sim.entity(4): 4)
 	no_lamp:     sim.Entity, // the zero Entity: -1
+	open:        sim.Bits(10), // {1, 7}: an Array of the indices
+	recent:      sim.List(sim.Handle(toy.Thing), 4), // the live things (up to 4): an Array of their keys
+	queue:       sim.Queue(u8, 3), // 2, 3, 4 (wrapped): an Array, oldest first
+	_pad3:       [7]u8,
+	trail:       sim.List(sim.Position, 3), // the local player's last Cmd_Trail: an Array of view-unit Vector2s
+	trail_box:   Trail_Box, // the same, inside a nested struct
+	areas:       sim.List(toy.Mark_Area, 2), // an Array of DataMarkArea objects
+	trail_first: [3]f32, // the trail's first point in sim units (the sim got it so)
+}
+
+// A nested struct holding a List of positions (DataTrailBox): its points read in view units too.
+Trail_Box :: struct {
+	points: sim.List(sim.Position, 3),
 }
 
 // The constants (Unified.constants): what `constants` returns, copied at install.
@@ -202,6 +215,11 @@ Input_Values :: struct {
 	drift: f32,
 	_pad:  [4]u8,
 	pick:  sim.Entity, // a fixed thing's index, set and read back (-1: none)
+	picks: sim.List(u8, 3), // an Array of up to 3 ints, set and read back
+	_pad2: [4]u8,
+	flags: sim.Bits(10), // an Array of indices below 10, set and read back
+	order: sim.Queue(u8, 3), // set as an Array, read back from its oldest (head 0)
+	_pad3: [3]u8,
 }
 
 fill_frame :: proc(f: ^Frame) {
@@ -265,28 +283,50 @@ fill_frame :: proc(f: ^Frame) {
 		)
 	}
 	mark := &local.last_mark
+	collections: struct {
+		open:   sim.Bits(10),
+		recent: sim.List(sim.Handle(toy.Thing), 4),
+		queue:  sim.Queue(u8, 3),
+	}
+	sim.incl(&collections.open, 1)
+	sim.incl(&collections.open, 7)
+	live := sim.iterate(&f.state.things)
+	for _, thing in sim.next(&live) do sim.append(&collections.recent, thing) // full: the rest left out
+	for item in ([]u8{1, 2, 3}) do sim.append(&collections.queue, item)
+	sim.pop_front(&collections.queue)
+	sim.append(&collections.queue, 4)
+	areas: sim.List(toy.Mark_Area, 2)
+	sim.append(&areas, toy.Mark_Area{corner = {1, 2}, layer = 3})
+	sim.append(&areas, toy.Mark_Area{corner = {4, 5}, layer = 6})
 	godot.push_data(f, Data_Toy {
-		bumps       = local.bumps,
-		bump_sum    = local.bump_sum,
-		marks       = local.marks,
-		mark_at     = mark.at,
+		trail = local.trail,
+		trail_first = ([3]f32)(local.trail.items[0]),
+		trail_box = {points = local.trail},
+		areas = areas,
+		bumps = local.bumps,
+		bump_sum = local.bump_sum,
+		marks = local.marks,
+		mark_at = mark.at,
 		mark_normal = mark.normal,
 		mark_weight = mark.weight,
-		mark_count  = mark.count,
-		mark_shape  = mark.shape,
+		mark_count = mark.count,
+		mark_shape = mark.shape,
 		mark_shapes = mark.shapes,
-		mark_loud   = mark.loud,
+		mark_loud = mark.loud,
 		mark_target = mark.target,
-		mark_place  = ([3]f32)(mark.place),
-		mark_area   = mark.area,
-		at          = {local.pos.x, local.pos.y, 0},
-		x           = local.pos.x,
-		y           = local.pos.y,
-		spawned     = f.state.spawned,
-		tint        = {1, 2, 3, 4},
-		turn        = {0, 0, 0, 1},
-		cell        = {-3, 7},
-		lamp        = sim.entity(4),
+		mark_place = ([3]f32)(mark.place),
+		mark_area = mark.area,
+		at = {local.pos.x, local.pos.y, 0},
+		x = local.pos.x,
+		y = local.pos.y,
+		spawned = f.state.spawned,
+		tint = {1, 2, 3, 4},
+		turn = {0, 0, 0, 1},
+		cell = {-3, 7},
+		lamp = sim.entity(4),
+		open = collections.open,
+		recent = collections.recent,
+		queue = collections.queue,
 	})
 	// the rotation negated every other tick (the same rotation): on the shorter arc it doesn't turn at all, so it is
 	// exact at any alpha

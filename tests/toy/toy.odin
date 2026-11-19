@@ -83,12 +83,18 @@ Cmd_Travel :: struct {
 	to: Area,
 }
 
+// A trail of up to 3 points (a List of positions: view units in GDScript, sim units in the sim), kept by the sender.
+Cmd_Trail :: struct {
+	points: sim.List(sim.Position, 3),
+}
+
 Cmd :: union {
 	Cmd_Bump,
 	Cmd_Mark,
 	Cmd_Clear_Bumps,
 	Cmd_Travel,
 	Cmd_Pause,
+	Cmd_Trail,
 }
 
 // A player's data (sim.Players): zeroed when someone new joins, kept while they are away.
@@ -100,6 +106,7 @@ Player_Data :: struct {
 	bump_fold: u32, // bump_fold(fold, amount) over the bumps in order
 	marks:     u32,
 	last_mark: Cmd_Mark,
+	trail:     sim.List(sim.Position, 3), // the last Cmd_Trail's
 	color:     u32, // their Profile's, from the tick they arrived
 }
 
@@ -203,6 +210,8 @@ tick :: proc(t: ^Tick) {
 				data.bumps, data.bump_sum, data.bump_fold = 0, 0, 0
 			case Cmd_Travel:
 				if command.to != t.state.level.id do sim.level_enter(t, command.to)
+			case Cmd_Trail:
+				data.trail = command.points
 			case Cmd_Pause:
 				sim.set_paused(t, command.paused)
 			case:

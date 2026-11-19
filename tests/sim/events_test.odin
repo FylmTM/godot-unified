@@ -18,12 +18,13 @@ names_derive_from_the_types :: proc(t: ^testing.T) {
 	commands := names(toy.Cmd, sim.COMMAND_PREFIX)
 	testing.expect(
 		t,
-		len(commands) == 5 &&
+		len(commands) == 6 &&
 		commands[0] == "bump" &&
 		commands[1] == "mark" &&
 		commands[2] == "clear_bumps" &&
 		commands[3] == "travel" &&
-		commands[4] == "pause",
+		commands[4] == "pause" &&
+		commands[5] == "trail",
 	)
 	events := names(toy.Event, sim.EVENT_PREFIX)
 	testing.expect(

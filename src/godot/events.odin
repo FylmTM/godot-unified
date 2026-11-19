@@ -49,18 +49,36 @@ to_sim :: #force_inline proc "contextless" (point: [3]f32) -> [3]f32 {
 	return point / api.view_scale
 }
 
-// The offsets of a struct's sim.Position fields, in nested structs too (what crosses between sim and view units).
+// The offsets of a type's sim.Positions, in nested structs and in every slot of an array, a List or a Queue too (what
+// crosses between sim and view units).
 position_offsets :: proc(type: ^runtime.Type_Info, base: int, out: ^[dynamic]int) {
-	info, is_struct := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
-	if !is_struct do return
-	for i in 0 ..< int(info.field_count) {
-		field, offset := info.types[i], base + int(info.offsets[i])
-		if field.id == sim.Position {
-			append(out, offset)
-		} else if !is_handle(field) && field.id != sim.Player {
-			position_offsets(field, offset, out)
-		}
+	if type.id == sim.Position {
+		append(out, base)
+		return
 	}
+	if is_handle(type) || type.id == sim.Player || !holds_position(type) do return
+	#partial switch info in runtime.type_info_base(type).variant {
+	case runtime.Type_Info_Struct:
+		for i in 0 ..< int(info.field_count) do position_offsets(info.types[i], base + int(info.offsets[i]), out)
+	case runtime.Type_Info_Array:
+		for i in 0 ..< info.count do position_offsets(info.elem, base + i * info.elem_size, out)
+	case runtime.Type_Info_Enumerated_Array:
+		for i in 0 ..< info.count do position_offsets(info.elem, base + i * info.elem_size, out)
+	}
+}
+
+// Whether a type holds a sim.Position anywhere (a big array of anything else is skipped whole).
+holds_position :: proc(type: ^runtime.Type_Info) -> bool {
+	if type.id == sim.Position do return true
+	#partial switch info in runtime.type_info_base(type).variant {
+	case runtime.Type_Info_Struct:
+		for i in 0 ..< int(info.field_count) do if holds_position(info.types[i]) do return true
+	case runtime.Type_Info_Array:
+		return holds_position(info.elem)
+	case runtime.Type_Info_Enumerated_Array:
+		return holds_position(info.elem)
+	}
+	return false
 }
 
 is_integer :: proc(type: ^runtime.Type_Info) -> bool {
@@ -74,8 +92,9 @@ is_integer :: proc(type: ^runtime.Type_Info) -> bool {
 // element type ("int", "Vector2", "DataHudPlayer"; "": untyped, an array of arrays). By shape: [2]/[3]/[4]f32 a
 // Vector2/3/4, [2]/[3]/[4]i32 a Vector2i/3i/4i, Color a Color, Quat a Quaternion, a sim.Position a Vector2 (2D) or
 // Vector3; a handle or a sim.Player an int (its key), a sim.Entity an int (its index, -1: none), an enum an int, a
-// bit_set an Array[int], a nested struct an object of its class (a Dictionary when it has none: a struct only view
-// data uses).
+// bit_set an Array[int], a sim.List or sim.Queue an Array of its items, a sim.Bits an Array[int] of its indices
+// (collections.odin), a nested struct an object of its class (a Dictionary when it has none: a struct only view data
+// uses).
 field_kind :: proc(type: ^runtime.Type_Info) -> (kind: gdi.VariantType, class_name: string) {
 	switch {
 	case type.id == sim.Position:
@@ -86,6 +105,9 @@ field_kind :: proc(type: ^runtime.Type_Info) -> (kind: gdi.VariantType, class_na
 		return .COLOR, ""
 	case type.id == Quat:
 		return .QUATERNION, ""
+	}
+	if collection, is_collection := collection_of(type); is_collection {
+		return .ARRAY, element_type_name(collection.elem) // a List's or Queue's items, a Bits' indices (collections.odin)
 	}
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Integer, runtime.Type_Info_Enum:
@@ -162,6 +184,9 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, units: Units) -> gd
 		return gd.to_variant(gd.Color{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2), f32_at(bytes, 3)})
 	case type.id == Quat:
 		return gd.to_variant(gd.Quaternion{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2), f32_at(bytes, 3)})
+	}
+	if collection, is_collection := collection_of(type); is_collection {
+		return collection_variant(type, collection, bytes, units)
 	}
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Integer:
@@ -276,8 +301,9 @@ typed_array :: proc(type: ^runtime.Type_Info) -> gd.Array {
 	return array
 }
 
-// The element type of an array, enumerated array or bit_set (a bit_set's elements are ints).
+// The element type of an array, enumerated array, sim collection or bit_set (a bit_set's elements are ints).
 array_elem :: proc(type: ^runtime.Type_Info) -> ^runtime.Type_Info {
+	if collection, is_collection := collection_of(type); is_collection do return collection.elem
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Array:
 		return info.elem
