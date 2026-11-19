@@ -5,13 +5,15 @@
 // A pile: boxes stacked like bricks (each layer offset by half a box), so every box rests on four below and contacts
 // cross the whole pile; kept awake. Every tick: a step, a save into a ring slot, the deep hash (the ticks peers
 // compare), the awake-bodies hash (the other ticks), a restore of that slot (it must give the same hash back), and a
-// batch of rays down onto the pile. Every IMAGE_EVERY ticks: a portable image of the slot as of a past tick (the world
-// swapped out and back) and as the live tick (no swap; the same bytes), and its load into a second world (a late
-// join; the loaded world must hash the same). Then 64 characters on a slab: their character_updates per
-// tick, apart from the step. Then the capacity against the frame budget: a smaller pile (ROLLBACK_SIDE³ boxes, sized
-// to the bench's time; the bodies that would fit the budget scale from it) steps and, every tick, rolls back as the netcode does at its prediction cap (a restore,
-// CAP steps with a save every 2nd tick, a deep hash: it must hash as the forward tick did), on 1 and 4 workers. Then a
-// large generated level (level.odin). One JSON line.
+// batch of rays down onto the pile, then the same batch rewound REWIND_TICKS (world_cast_ray_closest_rewound: every
+// box of the awake pile moves a little, its worst case). Every IMAGE_EVERY ticks: a portable image of the slot as of
+// a past tick (the world swapped out and back) and as the live tick (no swap; the same bytes), and its load into a
+// second world (a late join; the loaded world must hash the same). Then 64 characters on a slab: their
+// character_updates per tick, apart from the step. Then the capacity against the frame budget: a smaller pile
+// (ROLLBACK_SIDE³ boxes, sized to the bench's time; the bodies that would fit the budget scale from it) steps and,
+// every tick, rolls back as the netcode does at its prediction cap (a restore, CAP steps with a save every 2nd tick, a
+// deep hash: it must hash as the forward tick did), on 1 and 4 workers. Then a large generated level (level.odin).
+// One JSON line.
 package physics_bench
 
 import "core:fmt"
@@ -29,6 +31,7 @@ HALF :: f32(0.25)
 SETTLE_TICKS :: 64 // not measured: the pile lands
 TICKS :: 600
 RAYS :: 64 // per tick, straight down onto the pile
+REWIND_TICKS :: 2 // the rewound rays' rewind: a shot's usual delay
 RING :: 16
 IMAGE_EVERY :: 16
 CHARACTERS :: 64
@@ -96,14 +99,14 @@ main :: proc() {
 	late_extra := physics.extra(late, No_State)
 	for _ in 0 ..< SETTLE_TICKS do physics.step(world)
 
-	step_us, save_us, deep_us, shallow_us, restore_us, rays_us: [TICKS]f64
+	step_us, save_us, deep_us, shallow_us, restore_us, rays_us, rewound_us: [TICKS]f64
 	image_us, image_live_us, load_us: [(TICKS + IMAGE_EVERY - 1) / IMAGE_EVERY]f64
 	deep, again, loaded, past: [dynamic]u8
 	defer delete(deep)
 	defer delete(again)
 	defer delete(loaded)
 	defer delete(past)
-	mismatches, hits, image_bytes := 0, 0, 0
+	mismatches, hits, rewound_hits, image_bytes := 0, 0, 0, 0
 	for tick in 0 ..< TICKS {
 		slot := tick % RING
 		start := time.tick_now()
@@ -122,6 +125,12 @@ main :: proc() {
 			if _, ok := physics.world_cast_ray_closest(world, origin, {0, -30, 0}); ok do hits += 1
 		}
 		rays_done := time.tick_now()
+		for ray in 0 ..< RAYS {
+			origin := [3]f32{f32(ray % 8) * 0.5 - 2, 20, f32(ray / 8) * 0.5 - 2}
+			rewind_s := f32(REWIND_TICKS) / TICK_HZ
+			if _, ok := physics.world_cast_ray_closest_rewound(world, origin, {0, -30, 0}, rewind_s); ok do rewound_hits += 1
+		}
+		rewound_done := time.tick_now()
 		if !restored_ok || !slice.equal(hash_of(extra, 0, &again), deep[:]) {
 			mismatches += 1 // a restore that doesn't give the saved world back
 		}
@@ -131,6 +140,7 @@ main :: proc() {
 		shallow_us[tick] = micros(deep_hashed, shallow_hashed)
 		restore_us[tick] = micros(shallow_hashed, restored)
 		rays_us[tick] = micros(restored, rays_done)
+		rewound_us[tick] = micros(rays_done, rewound_done)
 		if tick % IMAGE_EVERY == 0 {
 			image_start := time.tick_now()
 			swapped := extra.image(extra.data, slot, false)
@@ -157,7 +167,7 @@ main :: proc() {
 	large_level := run_large_levels()
 	mismatches += one_mismatches + four_mismatches
 	fmt.printfln(
-		`{{"mode":"physics-bench","bodies":%d,"ticks":%d,"rays":%d,"characters":%d,"step_us":%s,"save_us":%s,"hash_deep_us":%s,"hash_us":%s,"restore_us":%s,"rays_us":%s,"image_us":%s,"image_live_us":%s,"load_us":%s,"characters_us":%s,"snapshot_bytes":%d,"image_bytes":%d,"ray_hits":%d,"rollback":{{"bodies":%d,"cap":%d,"workers_1":%s,"workers_4":%s}},"large_level":%s,"mismatches":%d}}`,
+		`{{"mode":"physics-bench","bodies":%d,"ticks":%d,"rays":%d,"characters":%d,"step_us":%s,"save_us":%s,"hash_deep_us":%s,"hash_us":%s,"restore_us":%s,"rays_us":%s,"rays_rewound_us":%s,"image_us":%s,"image_live_us":%s,"load_us":%s,"characters_us":%s,"snapshot_bytes":%d,"image_bytes":%d,"ray_hits":%d,"rewound_ray_hits":%d,"rollback":{{"bodies":%d,"cap":%d,"workers_1":%s,"workers_4":%s}},"large_level":%s,"mismatches":%d}}`,
 		BODIES,
 		TICKS,
 		RAYS,
@@ -168,6 +178,7 @@ main :: proc() {
 		stat_json(shallow_us[:]),
 		stat_json(restore_us[:]),
 		stat_json(rays_us[:]),
+		stat_json(rewound_us[:]),
 		stat_json(image_us[:]),
 		stat_json(image_live_us[:]),
 		stat_json(load_us[:]),
@@ -175,6 +186,7 @@ main :: proc() {
 		snapshot_bytes,
 		image_bytes,
 		hits,
+		rewound_hits,
 		ROLLBACK_SIDE * ROLLBACK_SIDE * ROLLBACK_SIDE,
 		CAP,
 		one,

@@ -29,6 +29,8 @@ MIRRORS := [][2]typeid {
 	{physics.Sphere, box3d.Sphere},
 	{physics.Capsule, box3d.Capsule},
 	{physics.Shape_Proxy, box3d.ShapeProxy},
+	{physics.Collision_Plane, box3d.CollisionPlane},
+	{physics.Plane_Solver_Result, box3d.PlaneSolverResult},
 	{physics.Mesh_Def, box3d.MeshDef},
 	{physics.Mesh, box3d.Mesh},
 	{physics.Height_Field_Def, box3d.HeightFieldDef},
