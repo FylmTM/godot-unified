@@ -2,5 +2,6 @@
 
 [resource]
 metadata/views = {
-"player": "res://game/views/player.tscn"
+"card": "res://game/views/card.tscn",
+"enemy": "res://game/views/enemy.tscn"
 }

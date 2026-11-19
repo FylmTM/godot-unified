@@ -14,7 +14,7 @@ SCRIPT_START_EVERY :: 128 // ticks between slot 0's start of a run (at the camp)
 
 // Each slot plays a hero of either class.
 scripted_profile :: proc(seed: u64, slot: int) -> Profile {
-	return {class = Hero_Class((u64(slot) + seed) % 2)}
+	return {hero_class = Hero_Class((u64(slot) + seed) % 2)}
 }
 
 // The slot's commands for a tick: a play every SCRIPT_PLAY_EVERY ticks (a starter of its own deck at an enemy and an

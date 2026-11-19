@@ -52,7 +52,7 @@ Card :: struct {
 // and while they are away it sleeps (README, Heroes).
 Hero :: struct {
 	controller:     sim.Player,
-	class:          Hero_Class,
+	hero_class:     Hero_Class,
 	in_run:         bool,
 	ready:          bool, // ended their turn
 	down:           bool, // at 0 HP in this fight
@@ -157,7 +157,7 @@ Player_Data :: struct {
 
 // What a player chose before joining: the class of the hero a new run gives them.
 Profile :: struct {
-	class: Hero_Class,
+	hero_class: Hero_Class, // not `class`: GDScript reads it as Unified.profile.hero_class
 	_pad:  [3]u8,
 }
 
@@ -177,7 +177,7 @@ Saved_Card :: struct {
 
 // A hero of a saved run.
 Saved_Hero :: struct {
-	class:  Hero_Class,
+	hero_class: Hero_Class,
 	in_run: bool,
 	relics: Relics,
 	_pad:   u8,

@@ -85,7 +85,7 @@ Hero_Row :: struct {
 	awake:      bool, // their player is here (else they sleep)
 	ready:      bool,
 	down:       bool,
-	class:      g.Hero_Class,
+	hero_class: g.Hero_Class, // not `class`: a GDScript keyword names no property
 	energy:     u8,
 	strength:   i8,
 	weak:       u8,
@@ -219,7 +219,7 @@ fill_heroes :: proc(f: ^Frame, local: int) {
 			awake      = present,
 			ready      = hero.ready,
 			down       = hero.down,
-			class      = hero.class,
+			hero_class = hero.hero_class,
 			energy     = hero.energy,
 			strength   = hero.strength,
 			weak       = hero.weak,

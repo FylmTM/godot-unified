@@ -16,10 +16,10 @@ start_run :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for data, player in sim.next(&players) {
 		hero := &t.state.heroes[count]
-		class := sim.player_profile(t, player).class
+		class := sim.player_profile(t, player).hero_class
 		hero^ = {
 			controller = player,
-			class      = class,
+			hero_class = class,
 			in_run     = true,
 		}
 		hero.max_hp = ARCANIST_HP if class == .Arcanist else VANGUARD_HP
@@ -44,7 +44,7 @@ continue_run :: proc(t: ^Tick) {
 		if !saved.in_run do continue
 		hero := &t.state.heroes[index]
 		hero^ = {
-			class  = saved.class,
+			hero_class = saved.hero_class,
 			in_run = true,
 			hp     = saved.hp,
 			max_hp = saved.max_hp,
@@ -176,7 +176,7 @@ save_point :: proc(t: ^Tick) {
 		if !hero.in_run do continue
 		saved := &run.heroes[index]
 		saved^ = {
-			class  = hero.class,
+			hero_class = hero.hero_class,
 			in_run = true,
 			relics = hero.relics,
 			hp     = hero.hp,

@@ -20,7 +20,7 @@ run_of :: proc(decks: ..[]g.Card_Id) -> (setup: g.Setup) {
 	for deck, index in decks {
 		hero := &setup.heroes[index]
 		hero^ = {
-			class  = .Vanguard,
+			hero_class = .Vanguard,
 			in_run = true,
 			hp     = g.VANGUARD_HP,
 			max_hp = g.VANGUARD_HP,
