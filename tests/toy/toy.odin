@@ -15,7 +15,7 @@ Input :: struct {
 	dx:      i8,
 	dy:      i8,
 	buttons: Buttons, // held (sim.buttons: down, pressed, released)
-	_pad:    u8,
+	seen:    sim.Seen, // the Godot host stamps it (tests/godot_driver); scripts leave it 0
 }
 
 Button :: enum u8 {

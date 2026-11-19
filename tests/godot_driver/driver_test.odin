@@ -147,6 +147,13 @@ recording_replays :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(input_log.ticks), int(info.to - info.from))
 	testing.expect_value(t, input_log.from, info.from)
 	testing.expect_value(t, len(input_log.checkpoints), info.checkpoints)
+	// The session thread stamps every input it samples with its Seen (netcode.client_seen) once its sim exists.
+	stamped := 0
+	for &logged in input_log.ticks {
+		if logged.input[0].seen != 0 do stamped += 1
+		testing.expect(t, logged.input[0].seen != 0 || stamped == 0, "a Seen once stamped stays stamped")
+	}
+	testing.expectf(t, stamped > 0, "%v of %v inputs carry a Seen", stamped, len(input_log.ticks))
 	result, ok := headless.run_replay(&toy.GAME, &input_log, snapshot = snapshot[:])
 	testing.expectf(t, ok && result.checkpoints == info.checkpoints && result.diverged_tick == 0, "%v", result)
 	testing.expect_value(t, result.final_tick, info.to)

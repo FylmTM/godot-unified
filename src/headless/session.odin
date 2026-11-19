@@ -88,7 +88,7 @@ scripted_hooks :: proc(scripted: ^Scripted_User($G)) -> netcode.Hooks(G) {
 			scripted := (^Scripted_User(G))(user)
 			// Churn wraps after ~1M ticks (4.5 h at 64 Hz): still a fresh draw every tick.
 			asked := scripted.churn ? tick * CHURN_SPREAD + u32(slot) : tick
-			return scripted.game.scripted_input(scripted.seed, slot, asked, state)
+			return sim.scripted_player_input(scripted.game, scripted.seed, slot, asked, state)
 		}
 	}
 	if scripted.game.scripted_commands != nil {

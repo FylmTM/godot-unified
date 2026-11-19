@@ -75,7 +75,7 @@ clock_violation :: proc(state: ^runtime.Type_Info) -> string {
 	for i in 0 ..< int(info.field_count) {
 		if info.types[i].id == Clock {
 			clocks += 1
-		} else if holds_clock(info.types[i]) {
+		} else if holds_type(info.types[i], Clock) {
 			return fmt.tprintf(
 				"the State's field `%s` holds a sim.Clock inside it: the Clock must be a field of the State itself",
 				info.names[i],
@@ -85,19 +85,20 @@ clock_violation :: proc(state: ^runtime.Type_Info) -> string {
 	return "the State holds more than one sim.Clock" if clocks > 1 else ""
 }
 
-// Whether a value of `type` is or holds a Clock anywhere (fields, arrays, enumerated arrays).
+// Whether a value of `type` is or holds a `target` anywhere (fields, arrays, enumerated arrays): a Clock in a State, a
+// Seen in an Input.
 @(private)
-holds_clock :: proc(type: ^runtime.Type_Info) -> bool {
-	if type.id == Clock do return true
+holds_type :: proc(type: ^runtime.Type_Info, target: typeid) -> bool {
+	if type.id == target do return true
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Struct:
 		for i in 0 ..< int(info.field_count) {
-			if holds_clock(info.types[i]) do return true
+			if holds_type(info.types[i], target) do return true
 		}
 	case runtime.Type_Info_Array:
-		return holds_clock(info.elem)
+		return holds_type(info.elem, target)
 	case runtime.Type_Info_Enumerated_Array:
-		return holds_clock(info.elem)
+		return holds_type(info.elem, target)
 	}
 	return false
 }

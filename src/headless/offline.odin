@@ -164,9 +164,7 @@ scripted :: proc(
 		}
 		sim.seat(&inputs, simulation, slot, member, scripted_profile(game, simulation.seed, slot, commands))
 		// No scripted player: one who sends zero Inputs (as the Godot driver plays it).
-		if game.scripted_input != nil {
-			inputs.input[slot] = game.scripted_input(simulation.seed, slot, tick, &simulation.state)
-		}
+		inputs.input[slot] = sim.scripted_player_input(game, simulation.seed, slot, tick, &simulation.state)
 		if game.scripted_commands == nil {
 			continue
 		}

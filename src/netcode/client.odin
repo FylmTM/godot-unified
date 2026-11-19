@@ -463,6 +463,15 @@ client_finished :: proc(client: ^Client($G)) -> bool {
 	return client.status == .Disconnected || client.status == .Failed
 }
 
+// The usim.Seen a host stamps into a local input it samples for `tick` (its `sample` hook): usim.seen_of from the newest
+// predicted tick, the one on its way to the screen. An input is sampled for the tick `delay` past the one about to be
+// predicted, so that is the input delay plus two, plus any stall; 0 before the sim exists. It follows the delay, which
+// rises at once and falls a tick at a time, so it changes only when the delay does and never makes an idle player's
+// inputs differ (a misprediction for every peer).
+client_seen :: proc(client: ^Client($G), tick: u32) -> usim.Seen {
+	return usim.seen_of(tick, client.predicted) if client.sim != nil && client.predicted > 0 else 0
+}
+
 // The latest predicted state (nil before the sim exists).
 @(private)
 client_state :: proc(client: ^Client($G)) -> ^usim.part(G, usim.GAME_STATE) {

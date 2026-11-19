@@ -1087,10 +1087,11 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 			driver := (^This_Driver)(user)
 			if driver.req.scripted && driver.game.scripted_input != nil {
 				// a joiner before its snapshot has no state: the script is never handed a nil one
-				return state != nil ? driver.game.scripted_input(driver.req.seed, slot, tick, state) : {}
+				return state != nil ? sim.scripted_player_input(driver.game, driver.req.seed, slot, tick, state) : {}
 			}
 			input: Input
 			input_sample_take(local, ([^]u8)(&input)[:size_of(Input)])
+			sim.seen_stamp(&input, netcode.client_seen(driver.client, tick))
 			return input
 		},
 		// Commands sent from GDScript (send_command), in order; what the client can't take yet stays queued.
