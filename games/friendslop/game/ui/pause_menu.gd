@@ -1,7 +1,7 @@
 extends CanvasLayer
 ## The in-game menu (the `menu` action, Esc or Start): Resume, Back to hub (friendslop's own: the team leaves the route),
-## Invite friends (a single-player session opens to friends on the LAN port and keeps running: the join code shows on
-## the HUD's session panel; Stop inviting lets nobody new in), Settings, Leave to menu. In single player it pauses the
+## Invite friends (a single-player session opens to friends, online when the build can, else on the LAN port, and keeps
+## running: the join code shows on the HUD's session panel; Stop inviting lets nobody new in), Settings, Leave to menu. In single player it pauses the
 ## session (UnifiedSession.paused; inviting friends ends the pause); with other players it is an overlay only (online
 ## a pause would be the game's own state). Game input is off while it is open (UnifiedSession.game_input: its clicks
 ## and keys don't reach the sim). A play scene instances pause_menu.tscn as
@@ -43,7 +43,7 @@ func open() -> void:
 	Unified.session.paused = true  # single player: the game stops; with others it is an overlay (reads back false)
 	var session := Unified.session
 	var single := session.mode == UnifiedSession.MODE_SINGLE
-	var opened := Game.invited and session.mode == UnifiedSession.MODE_HOST_DIRECT
+	var opened := Game.invited and session.mode in [UnifiedSession.MODE_HOST_ONLINE, UnifiedSession.MODE_HOST_DIRECT]
 	(%Invite as Button).visible = single or (opened and session.join_code == "")
 	(%StopInviting as Button).visible = opened and session.join_code != ""
 	visible = true
@@ -71,11 +71,9 @@ func _back_to_hub() -> void:
 	close()
 
 
-## Opens the running single-player session to friends (the session goes on; nobody waits): the join code arrives
-## with join_code_changed, the new mode with mode_changed (or why it could not open).
+## Opens the running single-player session to friends (the session goes on; nobody waits): Game.invite_friends.
 func _invite() -> void:
-	if Unified.session.open_direct(Game.lan_port):
-		Game.invited = true
+	Game.invite_friends()
 	close()
 
 

@@ -17,8 +17,8 @@ WASD / left stick to move (camera-relative), mouse / right stick to look, Space 
 and drop, RMB or Q / LT held to charge a throw (release throws), Esc / Start for the menu, F1 for the dev UI. Grab a
 friend to carry them; mash jump to break free.
 
-**Invite friends**: a single-player session opens to friends from the pause menu (on the LAN port, the code on the
-session panel) and keeps running, the hub and route as they are; Stop inviting lets nobody new in while the friends
+**Invite friends**: a single-player session opens to friends from the pause menu (online when the build has online
+play, else on the LAN port; the code on the session panel) and keeps running, the hub and route as they are; Stop inviting lets nobody new in while the friends
 playing stay.
 
 ## Loop
@@ -106,19 +106,19 @@ Solo finishes every beat; co-op is faster or opens a shortcut.
 
 ## Systems (`tick`, in this order)
 
-1. `update_presence`: leaves (let go, body gone) and arrivals (a body, `spawned`).
-2. `use_hands`: per player, the aim; a held player struggles (`broke_free`); a free one grabs, drops, catches,
-   charges and throws.
+1. `update_presence`: leaves (let go, body gone) and arrivals (a body, `Event_Spawned`).
+2. `use_hands`: per player, the aim; a held player struggles (`Event_Broke_Free`); a free one grabs, drops, catches,
+   charges and throws (`Event_Grabbed`, `Event_Dropped`, `Event_Thrown`).
 3. `update_holds`: hold points follow facing and aim; holds whose target went away end.
-4. `move_players`: the stick, the jump press (`jumped`), facing and the hold's slowdown.
-5. `move_platforms`, then `launch_from_pads` (`launched`) and `bump_players` (`hit`).
+4. `move_players`: the stick, the jump press (`Event_Jumped`), facing and the hold's slowdown.
+5. `move_platforms`, then `launch_from_pads` (`Event_Launched`) and `bump_players` (`Event_Hit`).
 6. The physics step.
-7. `apply_hits`: item hits on players (`hit`) and bells (`bell_rung`); `age_throws`.
-8. `press_triggers`: plates (`plate_on`, `plate_off`), switches and locks (`switch_on`).
-9. `recover_from_stuns`, `respawn_fallen` (`fell`, `respawned`), `return_fallen_items`.
-10. `advance_phase`: the start gate (`run_started`, the route), checkpoints (`checkpoint`), the finish
-    (`run_finished`), the return to the hub (`respawned`).
-11. `travel`: the players' travel commands, the first that goes somewhere.
+7. `apply_hits`: item hits on players (`Event_Hit`) and bells (`Event_Bell_Rung`); `age_throws`.
+8. `press_triggers`: plates (`Event_Plate_On`, `Event_Plate_Off`), switches and locks (`Event_Switch_On`).
+9. `recover_from_stuns`, `respawn_fallen` (`Event_Fell`, `Event_Respawned`), `return_fallen_items`.
+10. `advance_phase`: the start gate (`Event_Run_Started`, the route), checkpoints (`Event_Checkpoint`), the finish
+    (`Event_Run_Finished`), the return to the hub (`Event_Respawned`).
+11. `travel`: the players' travel commands (`Cmd_Travel`), the first that goes somewhere.
 
 ## Events
 
@@ -139,9 +139,10 @@ replay and reference run crosses level changes.
 Two levels, in `Level_Id` order: `game/levels/hub.tscn` and `route.tscn` (each instances its part from
 `game/levels/parts/` with the sky and sun), baked to `.level` files (`src/level/README.md`), which the game embeds.
 Each has a spawn per slot; the hub's `start` marker is the door to the route, the route's `finish` its end. The World
-reads every level's markers once (`Places`, by level); tick code reads the active level's (`places(t)`). Geometry is Godot's static bodies; the rest are markers: `item` (kind
-crate, ball, cube, key, heavy, trophy), `platform` (with a path), `pad`, `bumper`, `plate`, `bell`, `switch`, `lock`,
-`checkpoint`, `spawn`, `start`, `finish`. At runtime each sim view adopts its marker's visuals.
+reads every level's markers once (`Places`, by level); tick code reads the active level's (`places(t)`). Geometry is
+Godot's static bodies; the rest are markers: `item` (kind crate, ball, cube, key, heavy, trophy), `platform` (with a
+path), `pad`, `bumper`, `plate`, `bell`, `switch`, `lock`, `checkpoint`, `spawn`, `start`, `finish`. At runtime
+each sim view adopts its marker's visuals.
 
 A marker property's default lives in its marker script (`game/levels/markers/`), never in the sim: the bake writes
 every exported property, so the sim reads them without defaults and asserts what its rules need (a volume's size, a

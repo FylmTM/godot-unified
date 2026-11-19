@@ -8,7 +8,8 @@ import "unified:sim"
 launch_from_pads :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
-		if sim.timer_running(t, character.respawn) || character.held_by != {} || sim.timer_running(t, character.pad_cooldown) do continue
+		if sim.timer_running(t, character.respawn) || character.held_by != {} do continue
+		if sim.timer_running(t, character.pad_cooldown) do continue
 		feet := player_pos(t, player) - {0, FEET - PAD_PROBE_UP, 0}
 		for &pad in sim.slice(&places(t).pads) {
 			if !in_volume(pad.volume, feet) do continue
@@ -19,18 +20,16 @@ launch_from_pads :: proc(t: ^Tick) {
 			break
 		}
 	}
-	for i in 0 ..< places(t).item_count {
+	for def, i in sim.slice(&places(t).items) {
 		item := &t.state.items[i]
 		if item.holders != {} || sim.timer_running(t, item.pad_cooldown) do continue
-		bottom :=
-			physics.body_position(t.world.phys, item.body) -
-			{0, ITEM_SPECS[places(t).items[i].kind].radius * PAD_ITEM_PROBE, 0}
+		bottom := physics.body_position(t.world.phys, item.body) - {0, ITEM_SPECS[def.kind].radius * PAD_ITEM_PROBE, 0}
 		for &pad in sim.slice(&places(t).pads) {
 			if !in_volume(pad.volume, bottom) do continue
 			launch(t.world, &pad, item.body)
 			sim.timer_start_ticks(t, &item.pad_cooldown, u32(PAD_COOLDOWN_TICKS))
 			sim.emit(t, Event_Launched {
-				entity   = sim.entity(places(t).items[i].marker),
+				entity   = sim.entity(def.marker),
 				position = sim.Position(pad.volume.pos),
 			})
 			break

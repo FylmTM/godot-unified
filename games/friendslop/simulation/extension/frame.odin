@@ -53,20 +53,20 @@ fill_frame :: proc(f: ^Frame) {
 	}
 	// The active level's things: a marker index names a marker of the level active at this tick.
 	places := &f.world.places[f.state.level.id]
-	for i in 0 ..< places.item_count {
+	for def, i in sim.slice(&places.items) {
 		item := &f.state.items[i]
-		push_body(f, item.body, places.items[i].marker, item.warp, held_by_one(item, places.items[i].kind))
+		push_body(f, item.body, def.marker, item.warp, held_by_one(item, def.kind))
 	}
-	for i in 0 ..< places.platform_count do push_body(f, f.state.platforms[i].body, places.platforms[i].marker)
-	for i in 0 ..< places.trigger_count {
-		marker := places.triggers[i].marker
+	for def, i in sim.slice(&places.platforms) do push_body(f, f.state.platforms[i].body, def.marker)
+	for def in sim.slice(&places.triggers) {
+		marker := def.marker
 		godot.push_view(f, sim.entity(marker), {
 			kind = .Marker,
-			pos  = sim.Position(places.triggers[i].volume.pos),
+			pos  = sim.Position(def.volume.pos),
 			rot  = physics.level_data(f.world.phys, f.state.level.id).markers[marker].rot,
 		}, Marker_View{})
 	}
-	godot.push_data(f, hud_of(f.state, f.tick))
+	godot.push_data(f, hud_of(f))
 }
 
 // The marker view's data: an item's holder, whom the view follows when that is the local player (marker_view.gd).

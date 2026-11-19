@@ -132,8 +132,8 @@ levels_start_at_one :: proc(t: ^testing.T) {
 
 // The `play` tuning played by the bot (bot.odin) over 8 seeds: guards the tuning's targets as a population, so one
 // unlucky seed can't fail it or pass it: on average the first level-up comes in 15..40 s (every seed's within 60 s),
-// the bot survives past 120 s and reaches wave 3.5. A balance check, not a correctness one: `uni test --long` only. On the
-// bare sim, not a sync-tested run: 8 matches of up to 200 s re-simulated every tick would cost minutes.
+// the bot survives past 120 s and reaches wave 3.5. A balance check, not a correctness one: `uni test --long` only.
+// On the bare sim, not a sync-tested run: 8 matches of up to 200 s re-simulated every tick would cost minutes.
 when scenarios.LONG {
 	@(test)
 	play_tuning_with_the_bot :: proc(t: ^testing.T) {

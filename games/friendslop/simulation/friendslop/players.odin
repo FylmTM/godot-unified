@@ -71,7 +71,7 @@ move_players :: proc(t: ^Tick) {
 		speed_scale: f32 = 1
 		if holding {
 			speed_scale = HOLD_SLOW
-			if character.held_kind == .Item && places(t).items[character.held_item].kind == .Heavy {
+			if character.held_kind == .Item && sim.slice(&places(t).items)[character.held_item].kind == .Heavy {
 				speed_scale = HOLD_SLOW_HEAVY
 			}
 		}

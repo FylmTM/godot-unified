@@ -2,9 +2,9 @@
 // on pads, carry and throw things and each other, and take the trophy along a route of physics puzzles.
 //
 // The files, by feature: game (this: the descriptor and the tick), tuning (every rule number), input, state, events,
-// world (the physics world, what the sim reads from each level, init and the level change), players (arrivals, movement, stuns, falls),
-// hands (grab, hold, drop, throw, break free), items, platforms, pads, hits (knockback, bumpers, bells), triggers
-// (plates, switches, locks), phase (the run), and the scripted inputs (script).
+// world (the physics world, what the sim reads from each level, init and the level change), players (arrivals,
+// movement, stuns, falls), hands (grab, hold, drop, throw, break free), items, platforms, pads, hits (knockback,
+// bumpers, bells), triggers (plates, switches, locks), phase (the run), and the scripted inputs (script).
 package friendslop
 
 import "unified:physics"

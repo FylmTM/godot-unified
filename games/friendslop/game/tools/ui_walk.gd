@@ -13,6 +13,8 @@ extends MenuTool
 ## (`uni tool friendslop tour`).
 
 const Steering := preload("res://game/tools/steering.gd")
+## The modes of a session opened to friends.
+const HOSTING: Array[UnifiedSession.Mode] = [UnifiedSession.MODE_HOST_ONLINE, UnifiedSession.MODE_HOST_DIRECT]
 
 
 func _run() -> void:
@@ -184,10 +186,11 @@ func _walk_pause_menu() -> void:
 	expect(not session.paused and session.tick > held, "the ticks go on once it closes")
 	await press_action(&"menu")
 	step("Esc menu")
-	# open to friends: the single-player session hosts on the LAN port and keeps running
+	# open to friends: the single-player session hosts (online when this build can, else on the LAN port) and keeps
+	# running
 	var tick1: int = session.tick
 	await click(find(pause, ^"%Invite") as Control)
-	await wait_for(func() -> bool: return session.mode == UnifiedSession.MODE_HOST_DIRECT and session.join_code != "", 5.0,
+	await wait_for(func() -> bool: return session.mode in HOSTING and session.join_code != "", 10.0,
 		"the session opens to friends")
 	if failed():
 		return
@@ -195,7 +198,8 @@ func _walk_pause_menu() -> void:
 	await wait_for(func() -> bool: return session.tick > tick1, 2.0, "the session goes on after opening")
 	expect(not session.paused, "opening to friends ends the single-player pause")
 	expect(session.tick > tick1 and session.status == UnifiedSession.STATUS_CONNECTED, "the session went on")
-	expect(game.mode == game.Mode.HOST_LAN, "the flow follows: hosting on LAN")
+	expect(game.mode == (game.Mode.HOST if session.mode == UnifiedSession.MODE_HOST_ONLINE else game.Mode.HOST_LAN),
+		"the flow follows: hosting")
 	await press_action(&"menu")
 	expect((find(pause, ^"%StopInviting") as Control).visible, "the menu offers to stop inviting")
 	step("invited friends: %s" % session.join_code)

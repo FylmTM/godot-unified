@@ -7,8 +7,7 @@ import "unified:sim"
 // threshold, and a switch (a player in it) or a lock (the key in it) latches on. Bells ring on hits (apply_hits); their
 // cooldown runs out here.
 press_triggers :: proc(t: ^Tick) {
-	for i in 0 ..< places(t).trigger_count {
-		def := &places(t).triggers[i]
+	for &def, i in sim.slice(&places(t).triggers) {
 		trigger := &t.state.triggers[i]
 		entity, position := sim.entity(def.marker), sim.Position(def.volume.pos)
 		switch def.kind {
@@ -38,7 +37,7 @@ press_triggers :: proc(t: ^Tick) {
 			physics.shape_sensor_data(t.world.phys, t.state.triggers[i].sensor, &t.world.overlaps)
 			for visitor in t.world.overlaps {
 				index := int(visitor.tag)
-				if places(t).items[index].kind != .Key do continue
+				if sim.slice(&places(t).items)[index].kind != .Key do continue
 				trigger.active = true
 				sim.emit(t, Event_Switch_On{entity = entity, position = position})
 				break

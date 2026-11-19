@@ -41,7 +41,7 @@ func _process(delta: float) -> void:
 
 
 ## Effects, sounds, shake and rumble play when an event is emitted, a prediction too, so the horde answers at once;
-## one a rollback cancels is left as it played. Banners and the best time wait for the confirmation (hud.gd).
+## one a rollback cancels is left as it played. Banners and the record wait for the confirmation (hud.gd).
 func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_EMITTED:
 		return

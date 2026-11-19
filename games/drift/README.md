@@ -46,33 +46,33 @@ The arena is a level drawn in Godot's 2D editor (`game/levels/arena.tscn`, baked
 ## Phases
 
 - **lobby** (tick 0, and after every reset): ships fly, no rocks.
-- **match** (after `start`): waves of rocks; the match is over when the station's HP is 0 (`match_over`).
-- **over**: the station stops turning and takes no hits. After `OVER_HOLD_TICKS`, or on `restart`, the world resets
+- **match** (after `Cmd_Start`): waves of rocks; the match is over when the station's HP is 0 (`Event_Match_Over`).
+- **over**: the station stops turning and takes no hits. After `OVER_HOLD_TICKS`, or on `Cmd_Restart`, the world resets
   (`reset_world`) and the lobby begins again.
 - With nobody present: a reset.
 
 ## Systems (`tick`, in this order)
 
 1. `update_players`: a player who left loses their body; one who joined or came back gets one at their slot's spawn
-   (`spawned`).
-2. `apply_commands`: `start` and `restart`, in slot order.
+   (`Event_Spawned`).
+2. `apply_commands`: `Cmd_Start` and `Cmd_Restart`, in slot order.
 3. `fly_ships`: thrust (`THRUST_ACCEL`), turning toward the aim (`TURN_GAIN`, `TURN_MAX`), boost (`BOOST_SPEED`,
-   `BOOST_COOLDOWN_TICKS`) and fire (`FIRE_EVERY_TICKS`, `BULLET_SPEED`, `fired`).
+   `BOOST_COOLDOWN_TICKS`) and fire (`FIRE_EVERY_TICKS`, `BULLET_SPEED`, `Event_Fired`).
 4. `turn_station`: `STATION_SPIN`, 0 while over.
 5. The physics step.
 6. `move_bullets`: a bullet's ray (the level, rocks, the station) ends it on a hit; a rock hit costs it 1 HP and
-   pushes it (`BULLET_PUSH`, `rock_hit`); the station takes no damage from bullets. A bullet expires after
+   pushes it (`BULLET_PUSH`, `Event_Rock_Hit`); the station takes no damage from bullets. A bullet expires after
    `BULLET_LIFE_TICKS`.
-7. `hit_station` (not while over): a rock that reaches the station is gone (`station_hit`) and, during a match, costs
-   the station its size's station damage.
+7. `hit_station` (not while over): a rock that reaches the station is gone (`Event_Station_Hit`) and, during a match,
+   costs the station its size's station damage.
 8. `break_rocks`: a rock at 0 HP, large or medium, splits into two of the next size moving apart (`ROCK_SPLIT_GAP`,
-   `ROCK_SPLIT_SPEED`, `ROCK_SPLIT_SPIN`, `rock_split`). A small one is destroyed (`rock_destroyed`), and one in
-   `GEM_DROP_EVERY` drops a gem (`GEM_THROW`).
+   `ROCK_SPLIT_SPEED`, `ROCK_SPLIT_SPIN`, `Event_Rock_Split`). A small one is destroyed (`Event_Rock_Destroyed`), and
+   one in `GEM_DROP_EVERY` drops a gem (`GEM_THROW`).
 9. `warp_ships`: a ship within `GATE_RADIUS` of a charged gate comes out of its pair with its heading and velocity
-   (`warped`); both gates and the ship wait `GATE_CHARGE_TICKS`.
-10. `collect_gems`: gems drift and slow (`GEM_DRAG`); a ship within `GEM_PICK_RADIUS` picks one up (`gem_picked`):
+   (`Event_Warped`); both gates and the ship wait `GATE_CHARGE_TICKS`.
+10. `collect_gems`: gems drift and slow (`GEM_DRAG`); a ship within `GEM_PICK_RADIUS` picks one up (`Event_Gem_Picked`):
     +1 score, `GEM_REPAIR` station HP up to `STATION_HP`. A gem expires after `GEM_LIFE_TICKS`.
-11. `spawn_waves` (match only): a wave every `WAVE_EVERY_TICKS` (`wave`) brings `WAVE_ROCKS` large rocks,
+11. `spawn_waves` (match only): a wave every `WAVE_EVERY_TICKS` (`Event_Wave`) brings `WAVE_ROCKS` large rocks,
     `WAVE_ROCKS_MORE` more each wave, one every `ROCK_EVERY_TICKS`, from the `rock_spawn` markers in turn, at
     `ROCK_SPEED`, `ROCK_SPEED_PER_WAVE` faster each wave, along the marker's direction turned up to `ROCK_SPREAD_TURNS`,
     spinning up to `ROCK_SPIN_MAX`.
@@ -80,15 +80,16 @@ The arena is a level drawn in Godot's 2D editor (`game/levels/arena.tscn`, baked
 
 ## Events
 
-`spawned`, `fired`, `boosted`, `warped`, `rock_hit`, `rock_split`, `rock_destroyed`, `station_hit`, `gem_picked`,
-`wave`, `match_started` (who sent `start`), `match_over`, and the library's joins and leaves. Positions are in metres
-in the sim and in pixels in GDScript, like the views.
+`Event_Spawned`, `Event_Fired`, `Event_Boosted`, `Event_Warped`, `Event_Rock_Hit`, `Event_Rock_Split`,
+`Event_Rock_Destroyed`, `Event_Station_Hit`, `Event_Gem_Picked`, `Event_Wave`, `Event_Match_Started` (who sent
+`Cmd_Start`), `Event_Match_Over`, and the library's joins and leaves. Positions are in metres in the sim and in pixels
+in GDScript, like the views.
 
 ## Scripted inputs
 
-The game's scripted player (`script.odin`) is stateless: a hash of (seed, slot, `SCRIPT_PERIOD`-tick block) moves
-the ship in one of 8 directions or not at all, aims it in one of 8, fires most of the time and boosts now and then.
-Slot 0 sends `start` and `restart` on a fixed beat (`SCRIPT_COMMAND_EVERY`), so scripted runs play whole matches; a
+The game's scripted player (`script.odin`) is stateless: a hash of (seed, slot, `SCRIPT_PERIOD`-tick block) moves the
+ship in one of 8 directions or not at all, aims it in one of 8, fires most of the time and boosts now and then. Slot 0
+sends `Cmd_Start` and `Cmd_Restart` on a fixed beat (`SCRIPT_COMMAND_EVERY`), so scripted runs play whole matches; a
 session and an offline run agree.
 
 ## View contract (`simulation/extension`)
@@ -110,10 +111,10 @@ session and an offline run agree.
   rocks, the match time and the times to the next wave and to the reset.
 - Constants (`Unified.constants`, metres): the sizes, the station's full HP and spin (the menu's station), and the
   station's and rocks' shapes at radius 1, the ones the sim builds its bodies from.
-- Events go to the ship's view by `player`, `station_hit` to the station (`Glue.event_key`). Rock effects play when
-  an event is emitted (a prediction shows them at once), the rest, like the HUD's banners, once confirmed; a shot a
+- Events go to the ship's view by `player`, `Event_Station_Hit` to the station (`Glue.event_key`). Rock effects play
+  when an event is emitted (a prediction shows them at once), the rest, like the HUD's banners, once confirmed; a shot a
   rollback cancels loses its muzzle flash and sound (the ship view, by the event's `id`).
-- Input: the movement, fire and boost from the InputMap, and the aim the arena sets on every sample (`input_wanted`,
-  the input value `aim`): the mouse's world position relative to the local ship, else the right stick. A Camera2D
-  follows the local ship within the arena. The HUD sends `start` (`CommandStart`) in the lobby and `restart` when the
+- Input: the movement, fire and boost from the InputMap, and the aim the arena sets on every sample (`input_wanted`, the
+  input value `aim`): the mouse's world position relative to the local ship, else the right stick. A Camera2D follows
+  the local ship within the arena. The HUD sends `Cmd_Start` (`CommandStart`) in the lobby and `Cmd_Restart` when the
   match is over.

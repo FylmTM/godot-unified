@@ -34,7 +34,7 @@ each_pick_takes_one_pending_level_up :: proc(t: ^testing.T) {
 	run := headless.run_begin(&g.GAME, SEED, seated = 1)
 	defer headless.run_end(&run)
 	character := sim.slot_data(run.simulation, 0)
-	player := run.simulation.state.players.slots[0]
+	player := sim.player_in_slot(run.simulation, 0)
 	character.level = 4
 	character.pending_levelups = 3 // levels 2, 3 and 4
 	headless.run_pin(&run)

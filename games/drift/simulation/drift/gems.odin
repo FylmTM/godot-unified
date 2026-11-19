@@ -12,18 +12,16 @@ collect_gems :: proc(t: ^Tick) {
 		player: sim.Player,
 		pos:    [2]f32,
 	}
-	pickers: [PLAYERS]Picker
-	picker_count := 0
+	pickers: sim.List(Picker, PLAYERS)
 	ships := sim.iterate_present(t)
 	for ship, player in sim.next(&ships) {
-		pickers[picker_count] = {ship, player, physics.body_position_2d(t.world.phys, ship.body)}
-		picker_count += 1
+		sim.append(&pickers, Picker{ship, player, physics.body_position_2d(t.world.phys, ship.body)})
 	}
 	gems := sim.iterate(&t.state.gems)
 	each_gem: for gem, handle in sim.next(&gems) {
 		gem.pos += gem.vel * t.dt
 		gem.vel *= GEM_DRAG
-		for picker in pickers[:picker_count] {
+		for picker in sim.slice(&pickers) {
 			if dmath.dist_sq(picker.pos, gem.pos) > GEM_PICK_RADIUS * GEM_PICK_RADIUS do continue
 			picker.ship.gems += 1
 			t.state.score += 1

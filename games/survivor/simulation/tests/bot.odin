@@ -1,7 +1,7 @@
 // The bot: a player that reads the state, for the balance test (play_tuning_with_the_bot: a copy of g.GAME with these
 // as its scripted_input and scripted_commands). Not the game's own scripted player (g.scripted_input): a session
 // samples another tick's state than an offline run, so their inputs would differ. It orbits the arena, flees the
-// nearest enemies, collects nearby gems, dashes out of contact and picks level-up options round-robin (a command). It
+// nearest enemies, collects nearby gems, dashes out of contact and picks one of a level-up's offers (a command). It
 // reads only the state it is given and the level's item spots (bot_world), so it is a valid input source anywhere.
 package test_survivor
 
@@ -92,12 +92,14 @@ bot_input :: proc(seed: u64, slot: int, tick: u32, state: ^g.State) -> (input: g
 	return
 }
 
-// The bot's commands (a sim.Game.scripted_commands): a level-up pick while one is pending, round-robin over the
-// upgrades by level. In a session it sees a predicted state a few ticks old, so it may pick more than once for one
-// level-up: the sim ignores a pick with nothing pending.
+// The bot's commands (a sim.Game.scripted_commands): while a level-up is pending, one of the two upgrades its oldest
+// offers (g.upgrade_offers), alternating by level. In a session it sees a predicted state a few ticks old, so it may
+// pick more than once for one level-up: the sim ignores a pick with nothing pending or not offered.
 bot_commands :: proc(seed: u64, slot: int, tick: u32, state: ^g.State, out: ^sim.Command_Out(g.Cmd)) {
 	character := sim.slot_data(&state.players, slot)
 	if character != nil && character.alive && character.pending_levelups > 0 {
-		sim.send_command(out, g.Cmd_Pick{g.Upgrade((character.level + i32(slot)) % len(g.Upgrade))})
+		player := sim.player_in_slot(&state.players, slot)
+		offers := g.upgrade_offers(seed, player, g.oldest_pending_level(character))
+		sim.send_command(out, g.Cmd_Pick{offers[(character.level + i32(slot)) % len(offers)]})
 	}
 }

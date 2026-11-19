@@ -1,7 +1,8 @@
-// friendslop's rules (games/friendslop/README.md) as scenarios on the real level (the committed export of
-// game/levels/park.tscn), each driven by a director that reads the World and records its inputs, while every tick is
-// sync-tested (restore 8 ticks back, re-simulate with the recorded inputs, compare checksums). So platforms, carries,
-// two-person lifts, throws, hits, held friends and pads are all checked for determinism under rollback.
+// friendslop's rules (games/friendslop/README.md) as scenarios on the real levels (the committed exports of
+// game/levels/hub.tscn and route.tscn; the route's beats are in route_test.odin), each driven by a director that reads
+// the World and records its inputs, while every tick is sync-tested (restore 8 ticks back, re-simulate with the
+// recorded inputs, compare checksums). So platforms, carries, two-person lifts, throws, hits, held friends and pads are
+// all checked for determinism under rollback.
 package test_friendslop
 
 import "core:testing"
@@ -14,7 +15,7 @@ import "unified:sim"
 
 import g "../friendslop"
 
-// A sync-tested run on the park (g.GAME's level).
+// A sync-tested run, in the hub (g.GAME's first level) until it travels.
 Run :: headless.Run(g.Game)
 
 // The active level's places (the World's list for the level the team is in).
@@ -51,8 +52,8 @@ item_pos :: proc(run: ^Run, item: int) -> [3]f32 {
 // The nth item of a kind, in level order.
 item_of :: proc(run: ^Run, kind: g.Item_Kind, nth := 0) -> int {
 	seen := 0
-	for i in 0 ..< places_of(run).item_count {
-		if places_of(run).items[i].kind == kind {
+	for def, i in sim.slice(&places_of(run).items) {
+		if def.kind == kind {
 			if seen == nth do return i
 			seen += 1
 		}
@@ -84,10 +85,6 @@ idle :: proc(run: ^Run, ticks: int) {
 	for _ in 0 ..< ticks do step(run, {})
 }
 
-expect_clean :: proc(t: ^testing.T, run: ^Run, loc := #caller_location) {
-	scenarios.expect_synced(t, run, loc)
-}
-
 @(test)
 level_loads :: proc(t: ^testing.T) {
 	run := headless.run_begin(&g.GAME, 1, seated = 1)
@@ -96,7 +93,7 @@ level_loads :: proc(t: ^testing.T) {
 	// Players stand on the floor: centre at FEET above it.
 	testing.expectf(t, abs(player_pos(&run, 0).y - g.FEET) < 0.05, "standing at %v", player_pos(&run, 0))
 	testing.expect(t, physics.character_grounded(&sim.slot_data(run.simulation, 0).controller))
-	expect_clean(t, &run)
+	scenarios.expect_synced(t, &run)
 }
 
 // Two players lift the heavy crate together; one alone can only drag it.
@@ -148,7 +145,7 @@ heavy_needs_two :: proc(t: ^testing.T) {
 		})
 	}
 	testing.expectf(t, start_z - item_pos(&run, heavy).z > 3, "carried only %v m", start_z - item_pos(&run, heavy).z)
-	expect_clean(t, &run)
+	scenarios.expect_synced(t, &run)
 }
 
 // A charged throw of a crate at a friend knocks them over; they get up again.
@@ -190,7 +187,7 @@ throw_hits_friend :: proc(t: ^testing.T) {
 	idle(&run, 96)
 	testing.expect_value(t, sim.slot_data(run.simulation, 1).stun, 0)
 	testing.expect(t, .Limp not_in sim.slot_data(run.simulation, 1).controller.flags)
-	expect_clean(t, &run)
+	scenarios.expect_synced(t, &run)
 }
 
 // Ride the lift up and step off onto the ledge; ride the ferry sideways.
@@ -203,10 +200,10 @@ platforms_carry_players :: proc(t: ^testing.T) {
 	lift, ferry := platform_at_marker(&run, "Lift"), platform_at_marker(&run, "Ferry")
 	testing.expect(t, lift >= 0 && ferry >= 0)
 	if lift < 0 || ferry < 0 do return
-	lift_at := places.platforms[lift].origin
-	ferry_at := places.platforms[ferry].origin
+	lift_at := sim.slice(&places.platforms)[lift].origin
+	ferry_at := sim.slice(&places.platforms)[ferry].origin
 	// Wait at the bottom: the lift comes back down every cycle.
-	cycle := int(physics.path_duration_ticks(&places.platforms[lift].path, g.TICK_HZ))
+	cycle := int(physics.path_duration_ticks(&sim.slice(&places.platforms)[lift].path, g.TICK_HZ))
 	on_lift := false
 	top: f32 = 0
 	for _ in 0 ..< 2 * cycle {
@@ -225,7 +222,7 @@ platforms_carry_players :: proc(t: ^testing.T) {
 		ferry_x = {min(ferry_x[0], player_pos(&run, 1).x), max(ferry_x[1], player_pos(&run, 1).x)}
 	}
 	testing.expectf(t, ferry_x[1] - ferry_x[0] > 6, "the ferry moved its rider only %v m", ferry_x[1] - ferry_x[0])
-	expect_clean(t, &run)
+	scenarios.expect_synced(t, &run)
 }
 
 // The jump pad launches a player onto the high ledge.
@@ -247,7 +244,7 @@ pad_launches_player :: proc(t: ^testing.T) {
 	}
 	testing.expectf(t, peak > 5, "launched only to %v", peak)
 	testing.expectf(t, player_pos(&run, 0).y > 5, "did not land on the high ledge: %v", player_pos(&run, 0))
-	expect_clean(t, &run)
+	scenarios.expect_synced(t, &run)
 }
 
 // Grab a friend, carry them, they mash jump and break free; grab again and throw them.
@@ -313,7 +310,7 @@ hold_and_throw_friend :: proc(t: ^testing.T) {
 		player_pos(&run, 1),
 	)
 	testing.expect_value(t, headless.run_events(&run, g.Event_Fell), 0)
-	expect_clean(t, &run)
+	scenarios.expect_synced(t, &run)
 }
 
 
@@ -350,5 +347,5 @@ owners_follow_the_person :: proc(t: ^testing.T) {
 		sim.timer_running(sim.game_time(&run.simulation.state, run.simulation.tick), items[crate].thrown),
 	)
 	testing.expect_value(t, headless.run_events(&run, g.Event_Spawned), 4) // two at the start, the newcomer, the return
-	expect_clean(t, &run)
+	scenarios.expect_synced(t, &run)
 }
