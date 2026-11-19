@@ -9,7 +9,7 @@
 //	view_bench.odin     `view-bench`: the Godot host's view sync
 //	physics_bench.odin  `bench`'s physics row
 //	grid_bench.odin     `bench`'s grid row
-//	release.odin        `release`: playable builds (the `release` skill), and `release notes`
+//	release.odin        `release`: playable builds (the `release` skill), and a library release's game check
 //	board.odin          `board list|set`: the work board (GitHub Project 2) through gh (needs the `project` scope)
 //	selftest.odin       `selftest`: a fresh clone bootstrapped by its shim, `init` end to end, the test watchdog
 package main
@@ -44,9 +44,9 @@ private_commands :: proc() -> []cli.Command {
 		},
 		{
 			name      = "release",
-			summary   = "a playable build: export, version stamp, sign, zip, smoke test (macOS and Windows); `notes`: its release notes",
+			summary   = "playable builds of every game (or one) for this host: export, version stamp, sign, zip, smoke test (macOS and Windows)",
 			no_budget = "exports and downloads",
-			options   = cli.option_forms({"", Release_Opts}, {"notes", Release_Notes_Opts}),
+			options   = cli.option_types(Release_Opts),
 			run       = cmd_release,
 		},
 		{
