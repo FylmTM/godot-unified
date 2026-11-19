@@ -105,8 +105,9 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
 - **Local players.** A Hello asks for every seat the client has so far, all or nothing (`Full` and nobody is seated:
   the menu can retry with fewer). A local player added later sends a **Join** on the connection: it gets a join tick as
   a late joiner's and needs no snapshot, since the connection's sim has the session (`Seated` answers, or a `Reject`
-  naming that local player). A **Leave** names one local player, whose seat empties at once while the others play on;
-  the client's last one, or `ALL_LOCALS`, ends the connection. Each seat sends its own Inputs (so each keeps the whole
+  naming that local player; one that arrives after its join tick is final still seats it, its first inputs
+  replaced). A **Leave** names one local player, whose seat empties at once while the others play on; the client's
+  last one, or `ALL_LOCALS`, ends the connection, and one with no seat (its Join refused) changes nothing. Each seat sends its own Inputs (so each keeps the whole
   window of loss cover) and each Finalized carries every seat's input and command acks; the widths budget for a full
   couch's (`FINALIZED_HEAD_MAX`).
 - **Open and closed.** A relay starts open; closed (`relay_set_open`), a Hello or Join of a person it does not know is
@@ -279,10 +280,14 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
   replaced by another, asked for a snapshot no older than the one begun (the joiner keeps the finalized ticks it
   holds from it on, and acks of them may reach the relay after the new Snap_Begin). A provider asked again for a seat
   may still be sending its answer to the seat's previous occupant: what it sends before its new answer's Snap_Begin is
-  dropped, not held against it (a sign of life while the ticks from the new request's on are in the ring). How long a
-  snapshot may take to arrive: `FIN_RING`.
+  dropped, not held against it (a sign of life while the ticks from the new request's on are in the ring). The
+  request names the joiner by its lowest slot then, and the relay remembers that slot for the joiner: a joiner whose
+  lowest seat leaves meanwhile still gets the answer, and a new occupant of that seat asking the same provider shares
+  it. How long a snapshot may take to arrive: `FIN_RING`.
 - **The check**: the joiner restores and sends its checksum of S; the relay compares it with the majority of the
-  other players' checksums of S and answers `Snap_Ok` (the joiner plays) or asks another player. With nobody left to
+  other players' checksums of S and answers `Snap_Ok` (the joiner plays) or asks another player. The checksum covers
+  the state, not the seed or the Setup: a snapshot whose header carries others than the Welcome's fails the check on
+  purpose (the joiner sends a checksum no honest restore gives). With nobody left to
   ask the joiner is refused: `Bad_Snapshot` after a failed check, `No_Snapshot` when nobody could send one. There is
   no replay from tick 0.
 - When no other player's checksum of S comes within twice `CHECK_WAIT_MS` (its only other player, the provider,

@@ -268,6 +268,7 @@ Client :: struct($G: typeid) {
 	snap_tick:      u32,
 	snap_begin_us:  i64, // when the snapshot's Snap_Begin came
 	checking:       bool, // our restored snapshot waits for the relay's check (Snap_Ok)
+	snap_foreign:   bool, // ... and is of another session (load_snapshot): a Snap_Ok for it ends the join
 	received_work:  bool, // this step's messages restored a snapshot or encoded a kept tick (client_steps times it)
 	// The checksum ticks kept for a desync report (Welcome's Keep_Images), by the sim's keep slot (0: none): a copy
 	// of the tick (usim.snapshot_keep), encoded only when the relay asks for it, into image_buf.
@@ -538,7 +539,8 @@ on_welcome :: proc(client: ^Client($G), reader: ^wire.Reader) {
 	}
 }
 
-// A local player's seat granted (Welcome, Seated): present from its first tick on, its own inputs from there.
+// A local player's seat granted (Welcome, Seated): present from its first tick on, its own inputs from there, or
+// from after the ticks already final when the grant arrives late (those inputs were replaced, as for a late Welcome).
 @(private)
 seat_granted :: proc(client: ^Client($G), grant: Seat_Grant) {
 	seat := &client.locals[grant.local]
@@ -546,7 +548,7 @@ seat_granted :: proc(client: ^Client($G), grant: Seat_Grant) {
 	seat.slot = int(grant.slot)
 	seat.member = grant.member
 	seat.first_tick = grant.first_tick
-	seat.own_last = max(grant.first_tick - 1, client.verified)
+	seat.own_last = max(grant.first_tick - 1, client.fin_upto, client.verified)
 	seat.own_acked = seat.own_last
 	if grant.local == 0 {
 		client.slot = seat.slot
@@ -660,6 +662,7 @@ on_snap_begin :: proc(client: ^Client($G), reader: ^wire.Reader, now: i64) {
 		client.sim = nil
 		client.kept_ticks = {} // they were the old sim's
 		client.checking = false
+		client.snap_foreign = false
 		client.verified, client.predicted = 0, 0
 	}
 	// The relay streams finalized ticks (again) from the snapshot tick on. Those an earlier snapshot's stream left in
@@ -762,8 +765,9 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 		   grant.local < LOCAL_MAX &&
 		   client.locals[grant.local].state == .Asked &&
 		   int(grant.slot) < usim.part(G, usim.GAME_PLAYERS) &&
-		   grant.member != NO_MEMBER &&
-		   grant.first_tick > client.fin_upto {
+		   grant.member != NO_MEMBER {
+			// A Seated that comes after the finalized ticks past its join tick (a resend after an outage) still
+			// seats the player: its first inputs are already final, replaced, as every peer agrees (seat_granted).
 			seat_granted(client, grant)
 		}
 	case .Snap_Request:
@@ -806,6 +810,10 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 	case .Snap_Ok:
 		tick := wire.r_u32(&reader)
 		if reader.ok && client.checking && client.sim != nil && tick == client.sim.tick {
+			if client.snap_foreign {
+				set_status(client, .Failed, "the only snapshot for this player was of another session")
+				return
+			}
 			client.checking = false
 			if !client.leaving {
 				set_status(client, .Connected, "")
@@ -831,7 +839,10 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 }
 
 // Restores the received snapshot and sends its checksum: the relay compares it with the other players' checksum of
-// that tick (a checksum tick) and says Snap_Ok, or sends a snapshot from someone else. Until then the sim waits.
+// that tick (a checksum tick) and says Snap_Ok, or sends a snapshot from someone else. Until then the sim waits. A
+// snapshot of another session (its seed or Setup unlike the Welcome's, which the checksum does not cover: a hostile
+// provider) is answered with a checksum no honest restore gives, so the relay asks another player; if the relay takes
+// it unchecked (nobody else reported the tick), its Snap_Ok ends the join.
 @(private)
 load_snapshot :: proc(client: ^Client($G), now: i64) {
 	client.received_work = true
@@ -856,8 +867,15 @@ load_snapshot :: proc(client: ^Client($G), now: i64) {
 		seat.own_acked = max(seat.own_acked, client.verified) // finalized: nothing of them to send
 	}
 	client.checking = true
+	client.snap_foreign =
+		client.sim.seed != client.seed ||
+		string(usim.bytes_of(&client.sim.setup)) != string(usim.bytes_of(&client.setup))
 	tick := client.sim.tick
 	value := usim.checksum(client.sim)
+	if client.snap_foreign {
+		log.warnf("the snapshot of tick %d is of another session (seed or Setup): refused", tick)
+		value = ~value
+	}
 	client.chk[(tick / CHECKSUM_EVERY) % CHK_RING] = {tick, value}
 	writer := msg_begin(&client.w, .Checksum)
 	wire.w_u32(writer, tick)

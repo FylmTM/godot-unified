@@ -117,6 +117,7 @@ Relay_Conn :: struct {
 	sent_upto:   u32, // the newest tick a broadcast carried to this client (from its snapshot's on)
 	// late join: who sends the joiner its snapshot, and the check of the snapshot before the joiner plays
 	provider:    Peer, // the connection asked for it (-1: none pending)
+	snap_target: u8, // the slot the request named it by (its lowest then): what the provider's answer carries
 	snap_min:    u32, // the oldest tick the joiner's snapshot may be of
 	snap_total:  u32, // bytes of the snapshot being forwarded (from its Snap_Begin)
 	snap_sent:   u32, // bytes forwarded so far
@@ -794,16 +795,18 @@ pick_provider :: proc(relay: ^Relay($G), joiner: Peer, refused: Peers, leaving :
 	return -1
 }
 
-// Asks `provider` for a snapshot for `joiner` (a Snap_Request whose target is the joiner's lowest slot).
+// Asks `provider` for a snapshot for `joiner` (a Snap_Request whose target is the joiner's lowest slot, kept in
+// snap_target: the seat may empty, or take a new occupant, before the answer comes).
 @(private)
 request_snapshot :: proc(relay: ^Relay($G), joiner, provider: Peer, now: i64) {
 	conn := &relay.conns[joiner]
 	conn.provider = provider
+	conn.snap_target = u8(conn_slot(relay, joiner))
 	conn.snap_total = 0
 	conn.snap_sent = 0
 	conn.snap_us = now
 	writer := msg_begin(&relay.w, .Snap_Request)
-	wire.w_u8(writer, u8(conn_slot(relay, joiner)))
+	wire.w_u8(writer, conn.snap_target)
 	wire.w_u32(writer, conn.snap_min)
 	relay_send(relay, provider, writer, .Reliable, now)
 }
@@ -1458,17 +1461,22 @@ handle_relay_msg :: proc(relay: ^Relay($G), peer: Peer, data: []u8, now: i64) {
 		conn.done = true
 	case .Leave:
 		local := wire.r_u8(&reader)
-		if reader.ok && local < LOCAL_MAX && conn.locals[local] >= 0 {
+		if reader.ok && local < LOCAL_MAX {
+			// A local player with no seat (its Join refused, the Reject on its way): nobody leaves.
+			if conn.locals[local] < 0 do return
 			seat_left(relay, int(conn.locals[local]), "left (its connection plays on)", now)
 			if conn_slots(relay, peer) != {} do return
 		}
-		conn_left(relay, peer, "left", now) // the client, or its last local player
+		conn_left(relay, peer, "left", now) // the client (ALL_LOCALS), or its last local player
 		channel_drop(relay.ch, peer, now)
 	}
 }
 
 // Forwards a snapshot message from the provider the relay asked (anything else is dropped), or takes a desync
-// report's snapshot. Its target names the joiner by its lowest slot (request_snapshot).
+// report's snapshot. Its target names the joiners waiting on that provider by the slot their request named
+// (snap_target), not by who sits there now: a joiner's lowest seat may have emptied, or taken a new occupant whose own
+// request the provider answers with the same target. Every joiner it names gets it (one snapshot of a tick both may
+// take serves both).
 @(private)
 forward_snapshot :: proc(relay: ^Relay($G), from: Peer, kind: Msg, reader: ^wire.Reader, data: []u8, now: i64) {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
@@ -1477,32 +1485,48 @@ forward_snapshot :: proc(relay: ^Relay($G), from: Peer, kind: Msg, reader: ^wire
 		take_image(relay, from, kind, reader, now)
 		return
 	}
-	if !reader.ok || int(target) >= PLAYERS || relay.seats[target].conn < 0 || len(data) > MAX_MESSAGE {
+	if !reader.ok || int(target) >= PLAYERS || len(data) > MAX_MESSAGE {
 		return
 	}
-	joiner := relay.seats[target].conn
+	tick, total, offset: u32
+	if kind == .Snap_Begin {
+		tick = wire.r_u32(reader)
+		total = wire.r_u32(reader)
+	} else {
+		offset = wire.r_u32(reader)
+	}
+	size := u32(len(reader.data) - reader.pos)
+	for &conn, joiner in relay.conns {
+		if conn.connected && conn.provider == from && conn.snap_target == target {
+			forward_snapshot_to(relay, Peer(joiner), from, kind, reader.ok, tick, total, offset, size, data, now)
+		}
+	}
+}
+
+// One joiner's part of forward_snapshot: a Snap_Begin (`tick`, `total`) or a Snap_Chunk (`offset`, `size` bytes).
+@(private)
+forward_snapshot_to :: proc(
+	relay: ^Relay($G),
+	joiner, from: Peer,
+	kind: Msg,
+	ok: bool,
+	tick, total, offset, size: u32,
+	data: []u8,
+	now: i64,
+) {
 	conn := &relay.conns[joiner]
-	if conn.provider != from {
-		return
-	}
 	// Before its answer's Snap_Begin (snap_total 0), what the provider sends for this joiner is the rest of its answer
 	// to an earlier request (the seat's previous occupant's, sent before this request reached it), queued ahead of
 	// this one: a snapshot older than this request allows, or chunks of one. Dropped, not held against the provider,
 	// and a sign of life while the answer behind it can still be streamed from the ring.
 	if kind == .Snap_Begin {
-		tick := wire.r_u32(reader)
-		total := wire.r_u32(reader)
-		if reader.ok && conn.snap_total == 0 && tick < conn.snap_min {
+		if ok && conn.snap_total == 0 && tick < conn.snap_min {
 			stale_snapshot_message(relay, conn, now)
 			return
 		}
 		// A snapshot of a checksum tick (the joiner's checksum of it is compared with the others'), still in the
 		// ring (the ticks after it are streamed from there).
-		if !reader.ok ||
-		   tick < conn.snap_min ||
-		   tick % CHECKSUM_EVERY != 0 ||
-		   relay_tick(relay, tick) == nil ||
-		   total == 0 {
+		if !ok || tick < conn.snap_min || tick % CHECKSUM_EVERY != 0 || relay_tick(relay, tick) == nil || total == 0 {
 			conn.refused += {int(from)} // it would send the same again: ask another connection
 			restart_snapshot(
 				relay,
@@ -1526,15 +1550,18 @@ forward_snapshot :: proc(relay: ^Relay($G), from: Peer, kind: Msg, reader: ^wire
 		conn.client_ack = tick - 1
 		conn.sent_upto = tick - 1
 		conn.base_known = true
-		log.infof("forwarding slot %d's snapshot of tick %d to slot %d", conn_slot(relay, from), tick, target)
+		log.infof(
+			"forwarding slot %d's snapshot of tick %d to slot %d",
+			conn_slot(relay, from),
+			tick,
+			conn_slot(relay, joiner),
+		)
 	} else {
-		offset := wire.r_u32(reader)
-		size := u32(len(reader.data) - reader.pos)
-		if reader.ok && conn.snap_total == 0 {
+		if ok && conn.snap_total == 0 {
 			stale_snapshot_message(relay, conn, now)
 			return
 		}
-		if !reader.ok || offset != conn.snap_sent || size > conn.snap_total - offset {
+		if !ok || offset != conn.snap_sent || size > conn.snap_total - offset {
 			return
 		}
 		conn.snap_sent += size
