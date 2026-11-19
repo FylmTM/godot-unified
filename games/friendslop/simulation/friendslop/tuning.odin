@@ -36,7 +36,7 @@ RESPAWN_TICKS :: u32(RESPAWN_S * TICK_HZ)
 CHECKPOINT_SPREAD :: 0.9 // players respawn at a checkpoint this far apart along x, by slot
 PARK_Y :: -60 // a fallen player's body waits this far down ...
 PARK_SPACING :: 4 // ... this far apart along x, by slot
-STUN_TICKS :: u16(0.75 * TICK_HZ) // a hit player is limp this long
+STUN_TICKS :: u32(0.75 * TICK_HZ) // a hit player is limp this long
 TURN_STICK :: 0.1 // a player turns to face the stick when it is pushed further than this
 LANDING_PROBE :: 0.25 // a thrown player has landed when ground is within this below their feet
 
@@ -63,8 +63,8 @@ THROW_LIFT :: 1.5 // m/s up on top of the aim
 THROW_CHARGE_TICKS :: u16(0.5 * TICK_HZ)
 THROWN_TAG_TICKS :: u32(1.0 * TICK_HZ) // a thrown item counts as "thrown by P" this long
 THROW_CLEAR_DIST :: 2.0 // m: a thrown item passes through its thrower until this far from them (or its tag ends)
-THROWN_MAX_TICKS :: u16(1.0 * TICK_HZ) // a thrown or dropped player is limp until they land, at most this long
-THROWN_MIN_TICKS :: u16(0.25 * TICK_HZ) // and at least this long
+THROWN_MAX_TICKS :: u32(1.0 * TICK_HZ) // a thrown or dropped player is limp until they land, at most this long
+THROWN_MIN_TICKS :: sim.Game_Time(0.25 * TICK_HZ) // and at least this long
 
 // Holding a friend: the spring's cap is 2.5× a player's weight (a soft spring needs headroom to accelerate the body,
 // not just hold it: 1.4× only drags a friend along the floor).
@@ -73,7 +73,7 @@ PLAYER_LIFT :: 2.5
 // ---- breaking free
 
 BREAK_FREE_PRESSES :: 3 // jump presses ...
-BREAK_FREE_WINDOW_TICKS :: u16(1.0 * TICK_HZ) // ... within this break free
+BREAK_FREE_WINDOW_TICKS :: u32(1.0 * TICK_HZ) // ... within this break free
 BREAK_FREE_MIN_TICKS :: u16(0.5 * TICK_HZ) // not before this held
 BREAK_FREE_HOP :: 4.0 // m/s up on breaking free
 HELD_MAX_TICKS :: u16(4.0 * TICK_HZ) // then the holder lets go anyway
@@ -92,7 +92,7 @@ BELL_COOLDOWN_TICKS :: u32(1.0 * TICK_HZ)
 // ---- the run
 
 FINISH_HOLD_S :: 5.0 // the finish screen, before everyone is back in the hub
-FINISH_HOLD_TICKS :: sim.Game_Time(FINISH_HOLD_S * TICK_HZ)
+FINISH_HOLD_TICKS :: u32(FINISH_HOLD_S * TICK_HZ)
 
 // ---- items
 

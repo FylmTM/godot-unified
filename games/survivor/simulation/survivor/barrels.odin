@@ -9,7 +9,7 @@ import "unified:sim"
 // BLAST_PLAYER_RADIUS.
 explode_barrels :: proc(t: ^Tick) {
 	for &item, i in t.state.items[:t.world.items.count] {
-		if sim.slice(&t.world.items)[i].kind == .Barrel && !item.alive && item.respawn_tick == t.time {
+		if sim.slice(&t.world.items)[i].kind == .Barrel && !item.alive && sim.timer_fired(t, item.respawn) {
 			item_reset(t.state, t.world, i)
 		}
 	}
@@ -46,7 +46,7 @@ explode_barrels :: proc(t: ^Tick) {
 		physics.destroy_body(t.world.phys, &item.body)
 		sim.emit(t, Event_Barrel_Exploded{entity = sim.entity(i), position = sim.Position(center)})
 		item.alive = false
-		item.respawn_tick = t.time + BARREL_RESPAWN_TICKS
+		sim.timer_start_ticks(t, &item.respawn, BARREL_RESPAWN_TICKS)
 	}
 }
 

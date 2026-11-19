@@ -79,10 +79,10 @@ ROCK_SHAPES := [ROCK_VARIANTS][8]f32 {
 
 // ---- waves
 
-WAVE_EVERY_TICKS :: sim.Game_Time(20 * TICK_HZ)
+WAVE_EVERY_TICKS :: u32(20 * TICK_HZ)
 WAVE_ROCKS :: 3 // large rocks in the first wave
 WAVE_ROCKS_MORE :: 2 // ... and this many more in each wave after it
-ROCK_EVERY_TICKS :: sim.Game_Time(1.5 * TICK_HZ) // between a wave's rocks
+ROCK_EVERY_TICKS :: u32(1.5 * TICK_HZ) // between a wave's rocks
 ROCK_SPEED :: 2 // m/s in the first wave
 ROCK_SPEED_PER_WAVE :: 0.2 // m/s more in each wave after it
 ROCK_SPREAD_TURNS :: 0.04 // a rock's direction turns up to this either way from its spawn marker's (turns: 14.4°)
@@ -104,4 +104,4 @@ GEM_REPAIR :: 2 // station HP per gem, up to STATION_HP
 
 // ---- phases
 
-OVER_HOLD_TICKS :: sim.Game_Time(5 * TICK_HZ) // the match-over screen, before the world resets
+OVER_HOLD_TICKS :: u32(5 * TICK_HZ) // the match-over screen, before the world resets

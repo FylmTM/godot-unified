@@ -6,25 +6,25 @@ import "unified:sim"
 // The whole simulation state: one pointer-free block (checked by sim.create). The bodies are Box3D's, which
 // physics.extra snapshots with it.
 State :: struct {
-	level:          sim.Active_Level(Level_Id), // the arena, entered by init
-	station:        physics.Body_Ref,
-	station_hp:     i32,
-	phase:          Phase,
-	_pad:           u8,
-	waves:          u16, // waves started this match
-	match_tick:     sim.Game_Time, // the tick the current match started
-	over_tick:      sim.Game_Time, // the tick it ended
-	next_wave_tick: sim.Game_Time,
-	next_rock_tick: sim.Game_Time,
-	rocks_left:     u32, // of the current wave
-	spawner:        u32, // the next rock_spawn marker, in turn
-	score:          u32, // gems picked this match
-	gems_dropped:   u32, // small rocks destroyed, for GEM_DROP_EVERY
-	players:        sim.Players(Ship, sim.No_Profile, Input, PLAYERS),
-	gates:          [MAX_GATES]Gate,
-	rocks:          sim.Table(Rock, MAX_ROCKS),
-	bullets:        sim.Table(Bullet, MAX_BULLETS),
-	gems:           sim.Table(Gem, MAX_GEMS),
+	level:        sim.Active_Level(Level_Id), // the arena, entered by init
+	station:      physics.Body_Ref,
+	station_hp:   i32,
+	phase:        Phase,
+	_pad:         u8,
+	waves:        u16, // waves started this match
+	match_tick:   sim.Game_Time, // the tick the current match started
+	over_hold:    sim.Timer, // over: the match-over screen (its start: when the match ended)
+	next_wave:    sim.Timer, // match: until the next wave
+	next_rock:    sim.Timer, // match: until the current wave's next rock
+	rocks_left:   u32, // of the current wave
+	spawner:      u32, // the next rock_spawn marker, in turn
+	score:        u32, // gems picked this match
+	gems_dropped: u32, // small rocks destroyed, for GEM_DROP_EVERY
+	players:      sim.Players(Ship, sim.No_Profile, Input, PLAYERS),
+	gates:        [MAX_GATES]Gate,
+	rocks:        sim.Table(Rock, MAX_ROCKS),
+	bullets:      sim.Table(Bullet, MAX_BULLETS),
+	gems:         sim.Table(Gem, MAX_GEMS),
 }
 
 // lobby: ships fly, no rocks; `start` begins a match. match: waves of rocks. over: the station's HP reached 0; after

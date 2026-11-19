@@ -5,7 +5,6 @@
 // padding-free (`_pad`).
 package extension
 
-import "unified:dmath"
 import "unified:sim"
 
 import g "../friendslop"
@@ -41,11 +40,8 @@ hud_of :: proc(f: ^Frame) -> (hud: Data_Hud) {
 	case .Run:
 		hud.run_s = sim.seconds(f.time - f.state.run_tick, g.TICK_HZ)
 	case .Finished:
-		hud.run_s = sim.seconds(f.state.finish_tick - f.state.run_tick, g.TICK_HZ)
-		hud.reset_in_s = sim.seconds(
-			g.FINISH_HOLD_TICKS - dmath.min(f.time - f.state.finish_tick, g.FINISH_HOLD_TICKS),
-			g.TICK_HZ,
-		)
+		hud.run_s = sim.seconds(f.state.finish_hold.start - f.state.run_tick, g.TICK_HZ)
+		hud.reset_in_s = sim.timer_remaining_s(f.time, f.state.finish_hold, g.TICK_HZ)
 	}
 	for slot in 0 ..< g.PLAYERS {
 		character := sim.slot_data(&f.state.players, slot)
@@ -53,7 +49,7 @@ hud_of :: proc(f: ^Frame) -> (hud: Data_Hud) {
 		hud.players[slot] = {
 			holding = character.held_kind,
 			held    = character.held_by != {},
-			stunned = character.stun > 0,
+			stunned = sim.timer_running(f.time, character.stun),
 			fallen  = sim.timer_running(f.time, character.respawn),
 			charge  = f32(character.charge) / f32(g.THROW_CHARGE_TICKS),
 		}

@@ -58,7 +58,7 @@ player_pos :: proc(t: ^Tick, player: sim.Player) -> [3]f32 {
 move_players :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
-		if sim.timer_running(t, character.respawn) || character.held_by != {} || character.stun > 0 do continue
+		if sim.timer_running(t, character.respawn) || character.held_by != {} || sim.timer_running(t, character.stun) do continue
 		input := sim.input(t, player)
 		move := dmath.stick(input.move_x, input.move_z)
 		holding := character.held_kind != .None
@@ -89,24 +89,24 @@ move_players :: proc(t: ^Tick) {
 	}
 }
 
-// Counts down stuns; a thrown player gets up as soon as they land. A player whose stun ends stops being limp.
+// Ends stuns: a thrown player gets up as soon as they land (after THROWN_MIN_TICKS), any other when the stun runs out.
+// A player whose stun ends stops being limp.
 recover_from_stuns :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
-		if character.held_by != {} || character.stun == 0 do continue
-		character.stun -= 1
-		if character.thrown && character.stun <= THROWN_MAX_TICKS - THROWN_MIN_TICKS {
-			if _, ok := physics.world_cast_ray_closest(
+		if character.held_by != {} || character.stun == {} do continue
+		over := sim.timer_done(t, character.stun)
+		if !over && character.thrown && t.time - character.stun.start >= THROWN_MIN_TICKS {
+			_, over = physics.world_cast_ray_closest(
 				t.world.phys,
 				player_pos(t, player),
 				{0, -(FEET + LANDING_PROBE), 0},
 				{},
 				physics.link(character.controller.body),
-			); ok {
-				character.stun = 0
-			}
+			)
 		}
-		if character.stun == 0 {
+		if over {
+			character.stun = {}
 			character.thrown = false
 			physics.character_set_limp(t.world.phys, &character.controller, false)
 		}
@@ -129,7 +129,7 @@ respawn_fallen :: proc(t: ^Tick) {
 		pos := player_pos(t, player)
 		if pos.y >= KILL_Y do continue
 		release_all(t, player)
-		character.stun = 0
+		character.stun = {}
 		character.thrown = false
 		sim.timer_start_ticks(t, &character.respawn, RESPAWN_TICKS)
 		physics.character_set_limp(t.world.phys, &character.controller, true)

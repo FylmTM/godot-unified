@@ -138,5 +138,5 @@ fill_frame :: proc(f: ^Frame) {
 			custom = {age, 0, 0, 0},
 		})
 	}
-	godot.push_data(f, hud_of(f.state, f.time))
+	godot.push_data(f, hud_of(f))
 }

@@ -12,7 +12,7 @@ State :: struct {
 	platforms:   [MAX_PLATFORMS]Platform,
 	triggers:    [MAX_TRIGGERS]Trigger,
 	run_tick:    sim.Game_Time, // the tick the current run started
-	finish_tick: sim.Game_Time, // the tick the trophy arrived (Finished)
+	finish_hold: sim.Timer, // Finished: the hold before the team is back in the hub (its start: the trophy's arrival)
 	best_ticks:  u32, // the best run (0: none)
 	checkpoint:  i32, // the team's last checkpoint index (-1: the hub)
 	phase:       Phase,
@@ -41,10 +41,10 @@ Character :: struct {
 	aim:           [3]f32, // unit look direction from the last input
 	held_player:   sim.Player, // the player this one holds (held_kind .Player)
 	held_by:       sim.Player, // the player holding this one ({}: free)
-	stun:          u16, // ticks left limp (hit, thrown)
+	stun:          sim.Timer, // limp while it runs (hit, thrown; a thrown player gets up on landing)
+	break_window:  sim.Timer, // a break-free's jump presses count while it runs
 	charge:        u16, // ticks the throw button has been held while holding something
 	held_ticks:    u16, // ticks this player has been held
-	break_window:  u16, // ticks left to finish a break-free
 	respawn:       sim.Timer, // fallen while it runs (RESPAWN_TICKS): parked far below, back when it fires
 	pad_cooldown:  sim.Timer, // no pad launch while it runs (PAD_COOLDOWN_TICKS)
 	held_kind:     Held_Kind,

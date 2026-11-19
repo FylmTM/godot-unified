@@ -36,7 +36,7 @@ State :: struct {
 	phase:       Phase,
 	_pad:        [3]u8,
 	match_tick:  sim.Game_Time, // the tick the current match started (0: lobby)
-	over_tick:   sim.Game_Time, // the tick it ended (0: not over)
+	over_hold:   sim.Timer, // over: the hold before the reset (its start: when the match ended)
 	wave:        u32, // 0-based wave of the current match
 	best_wave:   u32, // the most waves survived: the Setup's record, raised when a match ends past it
 	tuning:      Tuning, // the match's pace: a preset (init), lowered by the bench
@@ -85,11 +85,11 @@ Item_Kind :: enum u8 {
 
 // A crate or barrel the level placed (its kind and spot: World.items); the body's index tag is the item's.
 Item :: struct {
-	body:         physics.Body_Ref,
-	hp:           i32, // barrels
-	respawn_tick: sim.Game_Time, // barrels: the tick a destroyed one comes back (0: none pending)
-	alive:        bool,
-	_pad:         [3]u8,
+	body:    physics.Body_Ref,
+	hp:      i32, // barrels
+	respawn: sim.Timer, // barrels: a destroyed one comes back when it fires
+	alive:   bool,
+	_pad:    [3]u8,
 }
 
 Enemy_Kind :: enum u8 {

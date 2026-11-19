@@ -46,7 +46,7 @@ fill_frame :: proc(f: ^Frame) {
 			rot  = dmath.quat_yaw(character.facing),
 			warp = physics.body_warp(f.world.phys, character.controller.body),
 		}, Player_View {
-			limp    = character.stun > 0 || character.held_by != {},
+			limp    = sim.timer_running(f.time, character.stun) || character.held_by != {},
 			holding = character.held_kind != .None,
 			charge  = f32(character.charge) / f32(g.THROW_CHARGE_TICKS),
 		})

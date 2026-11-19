@@ -24,7 +24,7 @@ World :: struct {
 	// faces are from the centre, which enemies stay inside.
 	pillars:     sim.List(Box2, MAX_PILLARS),
 	arena_inner: f32,
-	// Where the level puts things: each slot's start spot (its `spawn` markers, in scene order) and each item (its
+	// Where the level puts things: each slot's start spot (its `spawn` marker, by its `slot`) and each item (its
 	// `item` markers, in scene order: the item's index, as in State.items).
 	spawns:      [PLAYERS][3]f32,
 	items:       sim.List(Item_Spot, MAX_ITEMS),
@@ -87,13 +87,14 @@ world_create :: proc(seed: u64, levels: []sim.Level_File, _: Setup) -> ^World {
 			world.arena_inner = dmath.min(world.arena_inner, abs(box.center.x) - box.half.x)
 		}
 	}
-	spawn_count := 0
+	spawned: [PLAYERS]bool
 	for &marker in arena.markers {
 		switch marker.kind {
 		case "spawn":
-			assert(spawn_count < PLAYERS, "survivor: more spawn markers than slots")
-			world.spawns[spawn_count] = marker.pos
-			spawn_count += 1
+			slot := level.prop_int(&marker, "slot")
+			assert(slot >= 0 && slot < PLAYERS && !spawned[slot], "survivor: a spawn's slot is out of range or taken")
+			spawned[slot] = true
+			world.spawns[slot] = marker.pos
 		case "item":
 			// prop_view.gd's export_enum: the names, lowercased
 			kind, known := level.prop_enum(&marker, "kind", Item_Kind.Crate)
@@ -102,7 +103,7 @@ world_create :: proc(seed: u64, levels: []sim.Level_File, _: Setup) -> ^World {
 			assert(added, "survivor: more item markers than MAX_ITEMS")
 		}
 	}
-	assert(spawn_count == PLAYERS, "survivor: the level needs a spawn marker per slot")
+	for slot_spawned in spawned do assert(slot_spawned, "survivor: the level needs a spawn marker per slot")
 	return world
 }
 
@@ -142,7 +143,7 @@ item_reset :: proc(state: ^State, world: ^World, i: int) {
 	spot := &sim.slice(&world.items)[i]
 	item.alive = true
 	item.hp = spot.kind == .Barrel ? BARREL_HP : 0
-	item.respawn_tick = 0
+	item.respawn = {}
 	body_def := physics.body_def(.Dynamic, spot.pos, spot.rot)
 	if spot.kind == .Barrel {
 		shape_def := physics.shape_def(CAT_BARREL)

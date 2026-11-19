@@ -121,7 +121,8 @@ never flags in an Input.
 Timers are state with nothing to decrement: a `Timer` holds the game time it started and the one it ends, and every
 read compares them with the tick's `t.time`, so a rollback restores it with the block, a system that skips a tick
 misses nothing and no loop counts down. A counter that only counts down, or a stored "tick it happens at", is a Timer;
-a count-up meter stays an integer.
+a count-up meter stays an integer. One exception: a row of a big table (an enemy's contact cooldown in a crowd of
+thousands) keeps a small countdown, as a Timer is 8 bytes a row and every byte is in each tick's snapshot.
 
 Game time is the tick number unless the State holds a `Clock`. Then the harness advances the clock before every tick
 that isn't paused and gives the tick `t.time` and `t.paused`, so every timer, `due` and stamp in that game holds

@@ -119,14 +119,17 @@ script = ExtResource("spawn")
 [node name="Spawn1" type="Marker2D" parent="Markers"]
 position = Vector2(96, 192)
 script = ExtResource("spawn")
+slot = 1
 
 [node name="Spawn2" type="Marker2D" parent="Markers"]
 position = Vector2(-96, -192)
 script = ExtResource("spawn")
+slot = 2
 
 [node name="Spawn3" type="Marker2D" parent="Markers"]
 position = Vector2(96, -192)
 script = ExtResource("spawn")
+slot = 3
 
 [node name="GateWest" type="Marker2D" parent="Markers"]
 position = Vector2(-640, 320)
