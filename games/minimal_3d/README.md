@@ -8,15 +8,17 @@ it.
 
 ## Controls
 
-Arrow keys / d-pad or left stick to move, Space or Enter / pad A to throw a ball: Godot's `ui_*` actions, so the
-project has no InputMap of its own.
+Arrow keys / d-pad or left stick to move, Space or Enter / pad A to throw a ball, Esc to pause or resume the game for
+everyone: Godot's `ui_*` actions, so the project has no InputMap of its own.
 
 ## What it shows
 
 - **State and players.** A pointer-free `State`: the players in a `sim.Players` (per-player data by handle) and the
   balls in a `sim.Table`.
-- **Commands and events.** One command (`Cmd_Throw_Ball`) and one game event (`Event_Ball_Thrown`) next to the
-  library's join and leave events.
+- **Commands and events.** Two commands (`Cmd_Throw_Ball`, `Cmd_Set_Paused`) and two game events
+  (`Event_Ball_Thrown`, `Event_Paused`) next to the library's join and leave events.
+- **Game time and the co-op pause.** A `sim.Clock` in the State: anyone pauses the game for everyone with a command,
+  `tick` returns early while paused, and the throw cooldown (a `sim.Timer` on game time) waits the pause out.
 - **Views and data.** A scene view per player, a MultiMesh view for the balls, and the HUD's session data
   (`Data_Hud`, read by an ordinary scene as `Unified.data.hud`).
 - **Co-op.** Players are handles, so someone who leaves and comes back gets their capsule and balls back in whatever
@@ -45,18 +47,25 @@ people (the library's 2 × `PLAYERS`). A ball keeps its thrower (`sim.Player`), 
 
 - `Input`: a stick. A player moves at up to `MOVE_SPEED` in its direction.
 - `Cmd_Throw_Ball {speed}`: the sender throws a ball from their position, `HAND_HEIGHT` up, at `speed` straight up,
-  at most `THROW_SPEED_MAX` (a faster throw is thrown at the cap).
+  at most `THROW_SPEED_MAX` (a faster throw is thrown at the cap), at most once per `THROW_COOLDOWN_S` (a throw
+  sooner is dropped).
+- `Cmd_Set_Paused {paused}`: pauses or resumes the game for everyone (a value, not a toggle: two players pausing at
+  once agree).
 
 ## Systems (`tick`, in this order)
 
-1. `place_new_players`: someone new starts at x = their slot; someone who comes back keeps their position.
-2. `move_players`: the present players by their input.
-3. `throw_balls`: each `Cmd_Throw_Ball` spawns a ball owned by its thrower; with `MAX_BALLS` in the air a throw is
+1. `place_new_players`: someone new starts at x = their slot; someone who comes back keeps their position (paused
+   or not: people come and go during a pause).
+2. `apply_pause`: each `Cmd_Set_Paused` that changes the pause sets it from the next tick (`Event_Paused`). While
+   paused, `tick` stops here: the other commands of a paused tick are dropped.
+3. `move_players`: the present players by their input.
+4. `throw_balls`: each `Cmd_Throw_Ball` spawns a ball owned by its thrower; with `MAX_BALLS` in the air a throw is
    lost, and no event says so.
-4. `move_balls`: balls fall at `GRAVITY` and despawn on landing (`BALL_RADIUS`).
+5. `move_balls`: balls fall at `GRAVITY` and despawn on landing (`BALL_RADIUS`).
 
 ## Events
 
+- `Event_Paused {player, paused}`: who paused or resumed.
 - `Event_Ball_Thrown {player, speed}`: a throw, at the speed thrown. The thrower's view gets it (its `player`), and
   so does the session's `sim_event` signal.
 - `sim.Event_Player_Joined` and `sim.Event_Player_Left`: the library's join and leave events (`main.gd` prints the
@@ -65,7 +74,8 @@ people (the library's 2 × `PLAYERS`). A ball keeps its thrower (`sim.Player`), 
 ## Scripted inputs
 
 Every slot steers one of 8 directions, drawn again every `SCRIPT_PERIOD` ticks, and throws every
-`SCRIPT_THROW_EVERY` ticks, each slot at its own tick (`script.odin`).
+`SCRIPT_THROW_EVERY` ticks, each slot at its own tick; slot 0 pauses the game for `SCRIPT_PAUSE_TICKS` of every
+`SCRIPT_PAUSE_EVERY` (`script.odin`).
 
 ## View contract (`simulation/extension`)
 
@@ -73,5 +83,6 @@ Every slot steers one of 8 directions, drawn again every `SCRIPT_PERIOD` ticks, 
   data: `color`). It squashes on its player's `EventBallThrown` on EMITTED (predicted, at once).
 - **`ball`**: a MultiMesh instance per ball (the `Balls` node in `main.tscn`), coloured by its thrower's slot, or
   grey once the thrower has left.
-- **`Data_Hud`** (`Unified.data.hud`): the players present, the balls in the air, and the local player's colour.
+- **`Data_Hud`** (`Unified.data.hud`): the players present, the balls in the air, the local player's colour and
+  whether the game is paused (the HUD shows "Paused"; `main.gd` sends `CommandSetPaused` on Esc).
   `game/hud.tscn`, a Control in the main scene, redraws on its `changed` signal.

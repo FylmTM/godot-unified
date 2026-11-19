@@ -18,7 +18,14 @@ Cmd_Throw_Ball :: struct {
 	speed: u8,
 }
 
+// `set_paused` (GDScript: CommandSetPaused): pauses or resumes the game for everyone. A value, not a toggle, so two
+// players pausing at once agree.
+Cmd_Set_Paused :: struct {
+	paused: bool,
+}
+
 // Every command a player can send.
 Cmd :: union {
 	Cmd_Throw_Ball,
+	Cmd_Set_Paused,
 }
