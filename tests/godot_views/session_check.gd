@@ -148,6 +148,8 @@ func _run() -> void:
 	check("open_direct", s.open_direct(PORT + 1))
 	if not await _wait_for(func() -> bool: return s.mode == UnifiedSession.MODE_HOST_DIRECT and s.join_code != "", 5.0, "the session hosts on the port"):
 		return _finish()
+	# (opening can take less than a tick: wait for the next one rather than look at once)
+	await _wait_for(func() -> bool: return s.tick > ticked, 2.0, "a tick after opening")
 	check("the session went on, its ticks kept", s.tick > ticked, [ticked, s.tick])
 	check("mode_changed said so", modes.has("%d:" % UnifiedSession.MODE_HOST_DIRECT), modes)
 	check("close_online", s.close_online())
