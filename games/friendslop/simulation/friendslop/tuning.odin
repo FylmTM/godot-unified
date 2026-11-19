@@ -11,7 +11,7 @@ MAX_TRIGGERS :: 16
 MAX_PADS :: 16
 MAX_BUMPERS :: 8
 MAX_CHECKPOINTS :: 16
-PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
+PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically (the suite checks), more take CPU from Godot
 
 // ---- the world
 

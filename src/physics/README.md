@@ -29,6 +29,10 @@ fit, on 1 and 4 workers (the cost per body is about flat). One worker is the def
 CPU from Godot and the netcode and help only worlds several times that size, so a physics-heavy game measures before
 it raises it.
 
+Any worker count steps to the same bits, and a game proves it on its own content: its suite runs the reference run
+again on the other count (`world_set_worker_count` on the World `world_create` made), in the long tier while it ships
+one worker and in every run once it ships more.
+
 ## The boundary
 
 Physics is the only package that imports Box3D's bindings (`box3d:bindings`, upstream's C API 1:1; the lint allows

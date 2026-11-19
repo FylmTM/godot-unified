@@ -10,7 +10,7 @@ MAX_BULLETS :: 256
 MAX_GEMS :: 64
 MAX_GATES :: 8
 MAX_SPAWNERS :: 16 // rock_spawn markers
-PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically, more take CPU from Godot and the netcode
+PHYSICS_WORKERS :: 1 // Box3D's step threads: any count steps identically (the suite checks), more take CPU from Godot
 BODY_DEPTH :: 1 // the station's and the rocks' thickness across the plane (m)
 
 // ---- ships
