@@ -205,13 +205,15 @@ func press_fires(at: Vector2) -> bool:
 
 
 ## The level exporter, mirrored here as into a game (res://addons/unified/) and run in its own Godot process: the 2D
-## fixture exports to the committed file (tests/level reads it), and an unsupported shape fails naming the node.
+## and 3D fixtures export to their committed files (tests/level reads them), and an unsupported shape or a bad
+## navigation region fails naming the node.
 func check_level_export() -> void:
 	var out: Array = []
 	var code := OS.execute(OS.get_executable_path(), ["--headless", "--path", ProjectSettings.globalize_path("res://"),
 			"-s", "res://addons/unified/level_export.gd", "--", "--check", "--scene=res://levels/level_2d.tscn",
 			"--scene=res://levels/bad_2d.tscn", "--scene=res://levels/shapes_3d.tscn",
-			"--scene=res://levels/bad_3d.tscn"], out, true)
+			"--scene=res://levels/bad_3d.tscn", "--scene=res://levels/bad_nav.tscn",
+			"--scene=res://levels/bad_nav_empty.tscn"], out, true)
 	var data: Variant = null
 	for line: String in "".join(out).split("\n"):
 		if line.begins_with("UNIFIED_RESULT "):
@@ -224,9 +226,9 @@ func check_level_export() -> void:
 			"res://levels/level_2d.tscn" and not levels[0]["changed"] and levels[1]["scene"] ==
 			"res://levels/shapes_3d.tscn" and not levels[1]["changed"], levels)
 	var errs: Array = data["errors"]
-	check("unsupported 2D shape fails with the node's name", errs.size() == 5 and errs[0].begins_with("Rail/Edge: ")
+	check("unsupported 2D shape fails with the node's name", errs.size() == 9 and errs[0].begins_with("Rail/Edge: ")
 			and "SegmentShape2D" in errs[0], errs)
-	if errs.size() != 5:
+	if errs.size() != 9:
 		return
 	check("a convex shape past 44 points fails with the node's name", errs[1].begins_with("Rough/Dense: ")
 			and "45 points" in errs[1], errs[1])
@@ -236,6 +238,14 @@ func check_level_export() -> void:
 			and "backface_collision" in errs[3], errs[3])
 	check("a rough material fails with the body's name", errs[4].begins_with("Rough: ") and "rough" in errs[4],
 			errs[4])
+	check("a second navigation region fails with its name", errs[5].begins_with("Second: ")
+			and "a second NavigationRegion3D" in errs[5], errs[5])
+	check("a non-convex navigation polygon fails with its region and index", errs[6].begins_with(
+			"First: navigation polygon 0: ") and "not convex at its vertex 2" in errs[6], errs[6])
+	check("a degenerate navigation polygon fails with its region and index", errs[7].begins_with(
+			"First: navigation polygon 1: ") and "degenerate" in errs[7], errs[7])
+	check("a navigation region without a bake fails with its name", errs[8].begins_with("Empty: ")
+			and "without a saved bake" in errs[8], errs[8])
 
 
 ## Godot's own trimesh of an upward plane is clockwise seen from above ((b - a) x (c - a) points down): the exporter

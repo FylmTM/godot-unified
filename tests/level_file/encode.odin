@@ -5,8 +5,8 @@ package level_file
 import "unified:level"
 import "unified:wire"
 
-// Encodes bodies and markers (their `index` fields are ignored; Ref props hold marker indices, Curve props their
-// samples), in the current version. `px_per_m`: a 2D level's pixels per metre (Level.px_per_m), 0 for a 3D
+// Encodes bodies, markers (their `index` fields are ignored; Ref props hold marker indices, Curve props their
+// samples) and a navigation mesh (Level.nav_vertices, nav_polygons: as given), in the current version. `px_per_m`: a 2D level's pixels per metre (Level.px_per_m), 0 for a 3D
 // level. A shape whose surface is zero or its body's is written as having none of its own; a mesh's extra surfaces
 // are its materials past the first.
 encode :: proc(
@@ -14,6 +14,8 @@ encode :: proc(
 	markers: []level.Marker,
 	px_per_m: f32 = 0,
 	scene := "",
+	nav_vertices: [][3]f32 = nil,
+	nav_polygons: [][]u32 = nil,
 	allocator := context.allocator,
 ) -> []u8 {
 	string_table := make([dynamic]string, 0, 64, context.temp_allocator)
@@ -147,6 +149,13 @@ encode :: proc(
 			}
 		}
 		write_points(&writer, marker.path)
+	}
+	wire.w_u32(&writer, u32(len(nav_vertices)))
+	for vertex in nav_vertices do write_vec3(&writer, vertex)
+	wire.w_u32(&writer, u32(len(nav_polygons)))
+	for polygon in nav_polygons {
+		wire.w_u8(&writer, u8(len(polygon)))
+		for index in polygon do wire.w_u32(&writer, index)
 	}
 	return writer.buf[:]
 }

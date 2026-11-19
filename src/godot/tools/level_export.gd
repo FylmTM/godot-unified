@@ -17,12 +17,14 @@ extends SceneTree
 ## TileMapLayers (one body each, the tiles' physics layer 0 polygons).
 ## Markers: nodes whose script has `const UNIFIED_KIND` (or a `unified_kind` property, or metadata): kind, name,
 ## global transform, every exported script property, the points of a Path3D / Path2D child.
+## Navigation (a 3D level): one NavigationRegion3D's saved bake, its vertices in level space and its polygons turned
+## counter-clockwise seen from above. Never baked here: the bytes are what the author baked in the editor and saved.
 ## Prints one `UNIFIED_RESULT {ok, check, levels: [{scene, level, bytes, changed}], errors}` line; each error names its
 ## node. A plain SceneTree script, not a UnifiedTool: it also runs in projects without unified's extension (the 2D
 ## fixture in tests/godot).
 
 const MAGIC := "UNLV"
-const VERSION := 3
+const VERSION := 4
 const MAX_POLYGON := 32  # points of one 2D convex part: extruded, a prism of 64 points and 96 edges
 ## Points of a 3D convex shape: a hull of V points has at most 3V - 6 edges, so 44 always fit Box3D's 128.
 const MAX_HULL := 44
@@ -66,6 +68,7 @@ var errors: Array[String] = []
 var _root: Node
 var _scene_path := ""
 var _ppm := 0.0  # a 2D level's pixels per metre; 0: a 3D level
+var _navs: Array[Node] = []  # the level's NavigationRegion3Ds, in scene-tree order (one is allowed)
 var _depth := 0.0  # a 2D level's extrusion depth, metres
 
 
@@ -138,6 +141,7 @@ func export_scene(path: String) -> PackedByteArray:
 	_root = scene
 	_scene_path = path
 	_ppm = 0.0
+	_navs = []
 	if scene is Node2D:
 		# pixels per metre: the game's Glue.view_scale (Unified.view_scale); a level baked without a game (a fixture)
 		# says it in its root's metadata. Both, and they differ: a finding (the views would draw it at another scale).
@@ -198,6 +202,11 @@ func _collect(n: Node, bodies: Array[Node], markers: Array[Node]) -> void:
 			_error(_where(n), "a %s body in a %s level" % ["3D" if is_2d else "2D", "2D" if is_2d else "3D"])
 		else:
 			bodies.append(n)
+	if n is NavigationRegion3D:
+		if is_2d:
+			_error(_where(n), "a NavigationRegion3D in a 2D level (navigation is exported for 3D levels)")
+		else:
+			_navs.append(n)
 	if _kind(n) != "":
 		if not (n is Node2D if is_2d else n is Node3D):
 			_error(_where(n), "a marker in a %s level must be a %s" % ["2D" if is_2d else "3D",
@@ -280,7 +289,84 @@ func _encode(bodies: Array[Node], markers: Array[Node], marker_index: Dictionary
 	w.put_u32(markers.size())
 	for i in markers.size():
 		_marker(w, markers[i], marker_props[i], marker_index, strings)
+	_nav(w)
 	return w.data_array
+
+
+## The navigation section: the level's NavigationRegion3D's saved bake (none: empty), its vertices in level space,
+## each polygon checked (3 to 255 distinct vertices, not degenerate, convex: unified:nav relies on it) and turned
+## counter-clockwise seen from above (Godot's are clockwise; a mirroring region turns them back).
+func _nav(w: StreamPeerBuffer) -> void:
+	var vertices := PackedVector3Array()
+	var polygons: Array[PackedInt32Array] = []
+	if not _navs.is_empty():
+		var region := _navs[0] as NavigationRegion3D
+		for k in range(1, _navs.size()):
+			_error(_where(_navs[k]), "a second NavigationRegion3D (a level has one: %s)" % _where(region))
+		var mesh := region.navigation_mesh
+		if mesh == null or mesh.get_polygon_count() == 0:
+			_error(_where(region), "a NavigationRegion3D without a saved bake (bake it in the editor, then save)")
+		else:
+			var xf := _xf(region)
+			for v in mesh.get_vertices():
+				vertices.append(xf * v)
+			for i in mesh.get_polygon_count():
+				var polygon := _nav_polygon(mesh.get_polygon(i), vertices, "%s: navigation polygon %d" %
+						[_where(region), i])
+				if not polygon.is_empty():
+					polygons.append(polygon)
+	w.put_u32(vertices.size())
+	for v in vertices:
+		_v3(w, v)
+	w.put_u32(polygons.size())
+	for polygon in polygons:
+		w.put_u8(polygon.size())
+		for index in polygon:
+			w.put_u32(index)
+
+
+## A navigation polygon counter-clockwise seen from above (empty, with an error at `where`, when it is degenerate or
+## not convex), checked in doubles on its XZ projection.
+func _nav_polygon(polygon: PackedInt32Array, vertices: PackedVector3Array, where: String) -> PackedInt32Array:
+	var n := polygon.size()
+	var distinct := {}
+	for index in polygon:
+		if index < 0 or index >= vertices.size():
+			_error(where, "a vertex index out of range")
+			return PackedInt32Array()
+		distinct[index] = true
+	if n < 3 or n > 255 or distinct.size() != n:
+		_error(where, "degenerate (%d vertices, %d distinct)" % [n, distinct.size()])
+		return PackedInt32Array()
+	# twice the signed area seen from above: the y of the cross products, positive counter-clockwise
+	var area := 0.0
+	for k in range(1, n - 1):
+		area += _cross_y(vertices[polygon[0]], vertices[polygon[k]], vertices[polygon[k + 1]])
+	if absf(area) <= 1e-8:
+		_error(where, "degenerate (no area seen from above)")
+		return PackedInt32Array()
+	var out := polygon.duplicate()
+	if area < 0.0:
+		out.reverse()
+	for k in n:
+		var a := vertices[out[k]]
+		var b := vertices[out[(k + 1) % n]]
+		var c := vertices[out[(k + 2) % n]]
+		var turn := _cross_y(a, b, c)
+		var scale := Vector2(b.x - a.x, b.z - a.z).length() * Vector2(c.x - b.x, c.z - b.z).length()
+		if turn < -1e-6 * scale:
+			_error(where, "not convex at its vertex %d" % out[(k + 1) % n])
+			return PackedInt32Array()
+	return out
+
+
+## The y of (b - a) x (c - a), in doubles: positive when a, b, c turn counter-clockwise seen from above.
+func _cross_y(a: Vector3, b: Vector3, c: Vector3) -> float:
+	var ux := float(b.x) - float(a.x)
+	var uz := float(b.z) - float(a.z)
+	var vx := float(c.x) - float(a.x)
+	var vz := float(c.z) - float(a.z)
+	return uz * vx - ux * vz
 
 
 ## One body: its pose as Box3D sees it (no scale: scale is baked into the shapes), its material, filter and shapes.

@@ -41,6 +41,14 @@ marker's node by its index (`Unified.level_markers`).
   are in scene-tree order (depth-first, parents first); at run time `Unified.level_markers(level_root)` returns the
   nodes in that order.
 
+- **Navigation:** one `NavigationRegion3D` per 3D level, baked in the editor and saved with the scene. The exporter
+  writes its `NavigationMesh` as it was saved and never bakes it: the bytes are what the author committed, the same
+  on every platform, and a stale bake stays stale until the author bakes again (Godot's bake depends on the
+  geometry, so rebake after moving it). Vertices are written in level space and each polygon counter-clockwise seen
+  from above (Godot winds them clockwise). Export errors name the node: a second region, a region without a saved
+  bake, and a polygon that is degenerate or not convex (`Level.nav_polygons` promises convex ones). The mesh the
+  editor draws for the region is the one the sim gets.
+
 The exporter is unified's (`src/godot/tools/level_export.gd`, mirrored into every project as `addons/unified/`);
 scenes depend on no library script.
 

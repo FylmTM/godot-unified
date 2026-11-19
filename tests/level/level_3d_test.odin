@@ -11,6 +11,24 @@ import "unified:physics"
 // tests/godot/levels/shapes_3d.tscn as exported.
 FIXTURE_3D :: #load("../godot/levels/shapes_3d.level")
 
+// The fixture's NavigationRegion3D (Yard, at (0, 0.5, -10)): its saved bake in level space, Godot's clockwise polygons
+// turned counter-clockwise seen from above.
+@(test)
+fixture_3d_navigation :: proc(t: ^testing.T) {
+	loaded, ok := level.load(FIXTURE_3D)
+	defer level.destroy(&loaded)
+	testing.expect(t, ok)
+	if !ok do return
+	testing.expect_value(t, len(loaded.nav_vertices), 6)
+	testing.expect_value(t, len(loaded.nav_polygons), 2)
+	if len(loaded.nav_vertices) != 6 || len(loaded.nav_polygons) != 2 do return
+	testing.expect_value(t, loaded.nav_vertices[0], [3]f32{0, 0.5, -10})
+	testing.expect_value(t, loaded.nav_vertices[5], [3]f32{8, 0.5, -6})
+	square, beside := loaded.nav_polygons[0], loaded.nav_polygons[1]
+	testing.expect(t, len(square) == 4 && square[0] == 3 && square[1] == 2 && square[2] == 1 && square[3] == 0)
+	testing.expect(t, len(beside) == 4 && beside[0] == 2 && beside[1] == 5 && beside[2] == 4 && beside[3] == 1)
+}
+
 @(test)
 fixture_3d_records :: proc(t: ^testing.T) {
 	loaded, ok := level.load(FIXTURE_3D)

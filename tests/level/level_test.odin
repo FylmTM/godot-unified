@@ -9,6 +9,17 @@ import "unified:dmath"
 import "unified:level"
 import "unified:physics"
 
+// The fixture's navigation mesh: a square and a triangle beside it, sharing an edge.
+NAV_VERTICES := [5][3]f32{{0, 0, 0}, {0, 0, 4}, {4, 0, 4}, {4, 0, 0}, {8, 0, 2}}
+
+nav_polygons :: proc() -> [][]u32 {
+	@(static) square := [4]u32{0, 1, 2, 3}
+	@(static) triangle := [3]u32{3, 2, 4}
+	@(static) polygons: [2][]u32
+	polygons = {square[:], triangle[:]}
+	return polygons[:]
+}
+
 fixture :: proc() -> []u8 {
 	hull := [][3]f32{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 1, 1}}
 	mesh_points := [][3]f32{{10, 0, -2}, {14, 2, -2}, {14, 2, 2}, {10, 0, 2}}
@@ -118,7 +129,13 @@ fixture :: proc() -> []u8 {
 			scale = {1, 1, 1},
 		},
 	}
-	return encode(bodies, markers, scene = "res://levels/fixture.tscn")
+	return encode(
+		bodies,
+		markers,
+		scene = "res://levels/fixture.tscn",
+		nav_vertices = NAV_VERTICES[:],
+		nav_polygons = nav_polygons(),
+	)
 }
 
 // A curve's samples rising from 0 to 1.
@@ -207,8 +224,21 @@ round_trip :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, len(platforms), 2)
 	if len(platforms) == 2 do testing.expect_value(t, platforms[1], "Ferry")
+	testing.expect_value(t, len(loaded.nav_vertices), 5)
+	testing.expect_value(t, len(loaded.nav_polygons), 2)
+	if len(loaded.nav_polygons) == 2 {
+		testing.expect(t, loaded.nav_vertices[4] == {8, 0, 2})
+		testing.expect(t, slice_equal(loaded.nav_polygons[0], []u32{0, 1, 2, 3}))
+		testing.expect(t, slice_equal(loaded.nav_polygons[1], []u32{3, 2, 4}))
+	}
 	// Encoding what was read gives the same bytes.
-	again := encode(loaded.bodies, loaded.markers, scene = loaded.scene)
+	again := encode(
+		loaded.bodies,
+		loaded.markers,
+		scene = loaded.scene,
+		nav_vertices = loaded.nav_vertices,
+		nav_polygons = loaded.nav_polygons,
+	)
 	defer delete(again)
 	testing.expect(t, string(again) == string(data))
 }
@@ -265,6 +295,15 @@ bad_files :: proc(t: ^testing.T) {
 		defer delete(encoded)
 		loaded, loaded_ok := level.load(encoded)
 		testing.expectf(t, loaded_ok == (broken == 0), "case %d loaded: %v", broken, loaded_ok)
+		level.destroy(&loaded)
+	}
+	// A navigation polygon under 3 vertices, naming a vertex past the table, or one vertex twice.
+	nav_vertices := [][3]f32{{0, 0, 0}, {0, 0, 1}, {1, 0, 1}, {1, 0, 0}}
+	for polygon, broken in ([][]u32{{0, 1, 2, 3}, {0, 1}, {0, 1, 4}, {0, 1, 1, 2}}) {
+		encoded := encode(nil, nil, nav_vertices = nav_vertices, nav_polygons = [][]u32{polygon})
+		defer delete(encoded)
+		loaded, loaded_ok := level.load(encoded)
+		testing.expectf(t, loaded_ok == (broken == 0), "navigation case %d loaded: %v", broken, loaded_ok)
 		level.destroy(&loaded)
 	}
 	// Trailing bytes are refused too.
@@ -491,4 +530,11 @@ a_marker_ref_out_of_range_is_refused :: proc(t: ^testing.T) {
 		level.destroy(&loaded)
 		delete(data)
 	}
+}
+
+@(private = "file")
+slice_equal :: proc(a, b: []u32) -> bool {
+	if len(a) != len(b) do return false
+	for value, i in a do if value != b[i] do return false
+	return true
 }
