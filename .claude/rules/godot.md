@@ -30,5 +30,5 @@ paths:
 - GDScript belongs to the view layer only. It reads the sim and never writes it: input and commands are the only way
   in. Anything performance-critical is Odin.
 - After editing a level scene in `game/levels/`, run `./uni bake <game>` and commit both files.
-- After any change here, `./uni test <game> --suite godot --only validate` (the `godot-game` skill has the rest of
+- After any change here, `./uni test <game> --suite godot --only validate` (the `unified-godot` skill has the rest of
   the loop).

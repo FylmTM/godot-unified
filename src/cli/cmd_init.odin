@@ -117,7 +117,7 @@ init_game_repo :: proc(dir, name, typed_dir, source_arg, ref: string) -> Result 
 	}
 	count := write_game(submodule, dir, name, repo = true)
 	if os.exists(join(submodule, AGENTS_SECTION)) { 	// an older unified pin ships no agent guidance
-		count += write_agents(submodule, dir)
+		write_agents(submodule, dir)
 	}
 	write_text(join(dir, "tools", ".gdignore"), "")
 	for shim in ([]string{"uni", "uni.cmd"}) {

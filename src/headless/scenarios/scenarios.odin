@@ -40,7 +40,7 @@ game_ok :: proc(t: ^testing.T, game: ^$G) -> bool {
 
 // A run every platform must reproduce, pinned by hashes: the game's scripted run of `ticks` ticks with `players`
 // players and `seed` (run_sim). A game's tests keep it as a constant (`REFERENCE :: scenarios.Reference{...}`);
-// reference_reproduces prints the literal to paste when a deliberate sim change moves it (the sim-change skill).
+// reference_reproduces prints the literal to paste when a deliberate sim change moves it (the unified-sim-change skill).
 Reference :: struct {
 	seed:          u64,
 	players:       int,
@@ -149,7 +149,7 @@ replays_reproduce :: proc(t: ^testing.T, game: ^$G, dir: string) {
 			testing.expectf(
 				t,
 				false,
-				"replays_reproduce: %s: %s; if the change was meant: ./uni test %s --bless (the sim-change skill)",
+				"replays_reproduce: %s: %s; if the change was meant: ./uni test %s --bless (the unified-sim-change skill)",
 				name,
 				result.report,
 				game.name,
@@ -292,7 +292,7 @@ late_join_agrees :: proc(t: ^testing.T, suite: ^Suite($G), profile: netcode.Netw
 // The reference run reproduces on this platform: run_sim gives its checkpoints and every tick's checksums (`trace`),
 // the input log it records encodes to the same bytes and replays to the same checksums, and the snapshot at
 // `snapshot_tick` encodes to the same bytes and resumes to the same checksums. A mismatch prints the new literal: paste
-// it only for a deliberate sim change (the sim-change skill). To find the first tick that differs between two builds,
+// it only for a deliberate sim change (the unified-sim-change skill). To find the first tick that differs between two builds,
 // run `uni headless <game> -- sim --trace FILE` on both and compare the files. A reference with only its four
 // parameters set (seed, players, ticks, snapshot_tick: a new game's, the template's) is not pinned yet: the run warns
 // with the literal to paste instead of failing, and its replay and resume checks still hold.

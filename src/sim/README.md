@@ -99,7 +99,7 @@ game with other `levels` (a headless run's, from a file); a re-baked level rebui
 version, its levels' hash and the library's part (`LIBRARY_VERSION`, the unified-box3d pin). The netcode's hello,
 input logs and snapshots carry it, so builds that would compute differently refuse each other instead of desyncing. A
 change a layout doesn't show bumps a version by hand: `Game.version` for the game's rules, `LIBRARY_VERSION` for the
-library's (the `sim-change` and `library-sim-change` skills).
+library's (the `unified-sim-change` and `library-sim-change` skills).
 
 ## The tick
 

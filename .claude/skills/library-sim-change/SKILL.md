@@ -1,18 +1,18 @@
 ---
 name: library-sim-change
-description: What a change to what unified's own deterministic code computes needs on top of the sim-change skill - the Box3D golden traces, the toy game's reference run, the library, protocol, snapshot, log and level format versions, the net suite and the cross-platform CI check. Use before committing any change to src/sim, src/dmath, src/physics, src/netcode, src/level or the unified-box3d pin, and whenever uni test reports a golden trace mismatch.
+description: What a change to what unified's own deterministic code computes needs on top of the unified-sim-change skill - the Box3D golden traces, the toy game's reference run, the library, protocol, snapshot, log and level format versions, the net suite and the cross-platform CI check. Use before committing any change to src/sim, src/dmath, src/physics, src/netcode, src/level or the unified-box3d pin, and whenever uni test reports a golden trace mismatch.
 ---
 
 # Changing what the library computes
 
-The `sim-change` skill is how any game's reference run and replay regressions are re-pinned, and the long suites and
+The `unified-sim-change` skill is how any game's reference run and replay regressions are re-pinned, and the long suites and
 the benchmark; it holds here for every example game. This is what only this repo adds.
 
 ## The golden traces and the toy's reference run
 
 `./uni test` also runs the toy's reference run (`REFERENCE` in `tests/scenarios/suite_test.odin`) and checks the
 golden traces in `tests/physics` (`BOX3D_GOLDEN`, Box3D alone; `GOLDEN_CHARACTERS`, `GOLDEN_FIELD` and
-`GOLDEN_TERRAIN`). A mismatch means the library computes differently: the same questions as a game's (`sim-change`),
+`GOLDEN_TERRAIN`). A mismatch means the library computes differently: the same questions as a game's (`unified-sim-change`),
 and after a meant change the printed literals are pasted in the same commit, `BOX3D_GOLDEN` in
 `tests/physics/box3d_test.odin` for a Box3D change. A library change moves every example's reference run too: re-pin
 each one it moves.

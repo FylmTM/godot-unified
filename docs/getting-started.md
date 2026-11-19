@@ -38,9 +38,7 @@ From the repo root (`uni.cmd` on Windows):
 ```
 
 Both copy [`examples/minimal_3d`](../examples/minimal_3d/), which passes its own `verify` at once. A game repo runs
-the same `./uni` from its own root. For coding agents it also gets unified's section of its `AGENTS.md` and unified's
-skills in `.claude/skills/`, from the submodule; `./uni agents` rewrites them after a bump (`src/cli/README.md`, Agent
-guidance).
+the same `./uni` from its own root. Coding agents: [`agents.md`](agents.md).
 
 ## Next
 

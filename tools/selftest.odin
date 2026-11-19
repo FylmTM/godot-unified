@@ -305,20 +305,19 @@ download_env :: proc(work, cache: string) -> []string {
 // The game `init --in-repo` makes inside the clone, at examples/<it>.
 IN_REPO_GAME :: "selftest_game"
 
-// Makes the game repo's agent guidance stale as a submodule bump would (an edited section, a changed skill, a skill
-// unified no longer ships in the stamp), then: `vet` must fail naming `uni agents`, `agents` must pass, and the
+// Makes the game repo's agent guidance stale as a submodule bump would (an edited section, a changed skill, a
+// unified-* skill unified no longer ships), then: `vet` must fail naming `uni agents`, `agents` must pass, and the
 // guidance must be the submodule's again, the retired skill gone and the game's own skill kept ("": all held).
 check_agents_refresh :: proc(game: string, env, vet, agents: []string) -> string {
 	skills := cli.join(game, cli.SKILLS_DIR)
 	agents_md := cli.join(game, "AGENTS.md")
 	text := cli.must_read(agents_md)
-	edited, _ := strings.replace(text, "## unified", "## unified (an older section)", 1)
+	edited, _ := strings.replace(text, "This game is built on unified", "This game was built on unified", 1)
 	cli.write_text(agents_md, edited)
-	cli.write_text(cli.join(skills, cli.GAME_SKILLS[0], "SKILL.md"), "an older skill\n")
-	cli.write_text(cli.join(skills, "retired", "SKILL.md"), "a skill unified no longer ships\n")
+	cli.write_text(cli.join(skills, cli.unified_skills(game)[0], "SKILL.md"), "an older skill\n")
+	retired := cli.aprintf("%sretired", cli.SKILL_PREFIX)
+	cli.write_text(cli.join(skills, retired, "SKILL.md"), "a skill unified no longer ships\n")
 	cli.write_text(cli.join(skills, "own", "SKILL.md"), "the game's own skill\n")
-	stamp := cli.join(skills, cli.SKILLS_STAMP)
-	cli.write_text(stamp, cli.aprintf("%sretired\n", cli.must_read(stamp)))
 	vetted := cli.run_proc({cmd = vet, dir = game, env = env, capture = true, quiet = true})
 	if vetted.ok || !strings.contains(strings.concatenate({vetted.stdout, vetted.stderr}), "uni agents") {
 		return cli.aprintf("vet passed, or failed without naming uni agents (exit %d)", vetted.exit_code)
@@ -329,7 +328,7 @@ check_agents_refresh :: proc(game: string, env, vet, agents: []string) -> string
 	if problems := cli.agents_problems(cli.join(game, "unified"), game); len(problems) > 0 {
 		return cli.aprintf("still stale after agents: %s", strings.join(problems, "; "))
 	}
-	if os.exists(cli.join(skills, "retired")) || !os.is_file(cli.join(skills, "own", "SKILL.md")) {
+	if os.exists(cli.join(skills, retired)) || !os.is_file(cli.join(skills, "own", "SKILL.md")) {
 		return "agents left the retired skill or removed the game's own"
 	}
 	os.remove_all(cli.join(skills, "own"))
@@ -368,10 +367,19 @@ check_init :: proc(game, head: string) -> string {
 	if problems := cli.agents_problems(cli.join(game, "unified"), game); len(problems) > 0 {
 		return cli.aprintf("the agent guidance is not the submodule's: %s", strings.join(problems, "; "))
 	}
-	for name in cli.GAME_SKILLS {
+	skills := cli.unified_skills(game)
+	if len(skills) == 0 {
+		return cli.aprintf("no %s* skill in %s", cli.SKILL_PREFIX, cli.SKILLS_DIR)
+	}
+	for name in skills {
 		if !os.is_file(cli.join(game, cli.SKILLS_DIR, name, "SKILL.md")) {
 			return cli.aprintf("%s/%s/SKILL.md is missing", cli.SKILLS_DIR, name)
 		}
+	}
+	agents_md := cli.must_read(cli.join(game, "AGENTS.md"))
+	if !strings.contains(agents_md, "unified/docs/agents.md") ||
+	   !os.is_file(cli.join(game, "unified/docs/agents.md")) {
+		return "AGENTS.md doesn't point at unified/docs/agents.md, or the submodule has none"
 	}
 	STALE :: []string{"./unified", "unified.cmd", "`unified ", "unified init", "github.com/FylmTM/unified)"}
 	for file in cli.find_files(game, "") {

@@ -145,22 +145,8 @@ project's own rows, into `.out/bench.json`, reported and never gated by time (`u
 
 `init` makes a game from `examples/minimal_3d`, the smallest complete game, which CI builds, tests and runs on every
 push: a new game passes its own `verify` at once. In a game repo it adds `unified` as a submodule pinned at a pushed
-commit, never a local one, so the repo clones anywhere, and writes the game, the shims and the agent guidance (below)
+commit, never a local one, so the repo clones anywhere, and writes the game, the shims and the agent guidance (`docs/agents.md`)
 from that submodule, never from this checkout, so they always match the library they build against (`cmd_init`).
-
-## Agent guidance
-
-What unified ships for coding agents reaches a game repo from its submodule (`agents.odin`): a section of the repo's
-`AGENTS.md` between markers (its text lives once, in `template/agents.md`: the rules that always apply and where to
-read), and unified's game-facing skills (`GAME_SKILLS`, written for a game repo and run by this repo too) copied whole
-into `.claude/skills/` beside a stamp naming them. `init` writes both; after a submodule bump `vet` fails while either
-differs from the submodule's, and `agents` rewrites them. Only the marked section and the stamped skills are unified's:
-the game's own text and skills beside them are never touched.
-
-The skills are copies, not a Claude Code plugin loaded from the submodule as a directory marketplace: Claude Code
-registers marketplaces per user by name, so every checkout of unified (each game repo, each worktree) would share one
-registration, and a session starts with the skills of whichever checkout registered last (another version, or none
-once that checkout is deleted).
 
 ## Dependencies
 

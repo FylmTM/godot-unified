@@ -36,37 +36,38 @@ agents_written_then_current_then_stale :: proc(t: ^testing.T) {
 	testing.expect(t, temp_err == nil)
 	defer os.remove_all(root)
 	skills := cli.join(root, cli.SKILLS_DIR)
+	shipped := cli.unified_skills(UNIFIED_ROOT)
+	testing.expect(t, len(shipped) >= 3, "unified ships its unified-* skills")
 	testing.expect(t, len(cli.agents_problems(UNIFIED_ROOT, root)) > 0, "an empty repo has no guidance")
 
-	// a game's own skill and AGENTS.md text stay; a skill an older unified shipped goes
+	// a game's own skill and AGENTS.md text stay; a unified-* skill unified no longer ships goes
 	cli.write_text(cli.join(root, "AGENTS.md"), "# game\n\nown rules\n")
 	cli.write_text(cli.join(skills, "own", "SKILL.md"), "the game's own\n")
-	cli.write_text(cli.join(skills, "retired", "SKILL.md"), "an older unified's\n")
-	cli.write_text(cli.join(skills, cli.SKILLS_STAMP), "# stamp\nretired\n")
+	cli.write_text(cli.join(skills, "unified-retired", "SKILL.md"), "an older unified's\n")
 	cli.write_agents(UNIFIED_ROOT, root)
 	testing.expect_value(t, len(cli.agents_problems(UNIFIED_ROOT, root)), 0)
 	testing.expect(t, os.is_file(cli.join(skills, "own", "SKILL.md")))
-	testing.expect(t, !os.exists(cli.join(skills, "retired")))
+	testing.expect(t, !os.exists(cli.join(skills, "unified-retired")))
 	agents, _ := cli.read_text(cli.join(root, "AGENTS.md"))
 	testing.expect(t, strings.has_prefix(agents, "# game\n\nown rules\n\n"))
-	for name in cli.GAME_SKILLS {
+	for name in shipped {
 		testing.expect(t, os.is_file(cli.join(skills, name, "SKILL.md")), name)
 	}
 
 	// each kind of drift is named, and a write fixes them all
-	cli.write_text(cli.join(skills, cli.GAME_SKILLS[0], "SKILL.md"), "edited\n")
-	cli.write_text(cli.join(skills, cli.GAME_SKILLS[1], "extra.md"), "not unified's\n")
-	os.remove(cli.join(skills, cli.GAME_SKILLS[2], "SKILL.md"))
-	edited, _ := strings.replace(agents, "## unified", "## unified, edited", 1)
+	cli.write_text(cli.join(skills, shipped[0], "SKILL.md"), "edited\n")
+	cli.write_text(cli.join(skills, shipped[1], "extra.md"), "not unified's\n")
+	os.remove(cli.join(skills, shipped[2], "SKILL.md"))
+	cli.write_text(cli.join(skills, "unified-retired", "SKILL.md"), "an older unified's\n")
+	edited, _ := strings.replace(agents, "This game is built on unified", "This game was built on unified", 1)
 	cli.write_text(cli.join(root, "AGENTS.md"), edited)
-	cli.write_text(cli.join(skills, cli.SKILLS_STAMP), "# stamp\n")
 	problems := cli.agents_problems(UNIFIED_ROOT, root)
 	wants := []string {
 		"AGENTS.md: the unified section differs",
 		"SKILL.md: differs from unified's",
 		"extra.md: not unified's",
 		"SKILL.md: missing",
-		"unified.txt: missing or not current",
+		"unified-retired: unified no longer ships it",
 	}
 	testing.expect_value(t, len(problems), len(wants))
 	for want in wants {
@@ -74,6 +75,7 @@ agents_written_then_current_then_stale :: proc(t: ^testing.T) {
 	}
 	cli.write_agents(UNIFIED_ROOT, root)
 	testing.expect_value(t, len(cli.agents_problems(UNIFIED_ROOT, root)), 0)
+	testing.expect(t, os.is_file(cli.join(skills, "own", "SKILL.md")))
 }
 
 // Whether one of `problems` contains `want`.
