@@ -234,8 +234,10 @@ collection_field :: proc(info: runtime.Type_Info_Struct, bytes: []u8, name: stri
 	return 0
 }
 
-// A collection's differences: a List's or a Queue's count ("bag: 2 vs 3 items"), then its items, a List's by index
-// and a Queue's oldest first, up to the larger count; a Bits as the indices each holds ("open: {3, 64} vs {3}").
+// A collection's differences: a List's or a Queue's count ("bag: 2 vs 3 items"), a Queue's head ("inbox: head 0 vs
+// 1": the same items at other places are other bytes), then its items, a List's by index and a Queue's oldest first,
+// up to the larger count; a Bits as the indices each holds ("open: {3, 64} vs {3}"). A count or head past the capacity
+// (bytes from another machine) is noted and read as the capacity, so the walk stays inside the array.
 @(private)
 diff_collection :: proc(diff: ^Diff, path: string, kind: Collection, type: ^runtime.Type_Info, a, b: []u8) {
 	info := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
@@ -248,7 +250,16 @@ diff_collection :: proc(diff: ^Diff, path: string, kind: Collection, type: ^runt
 	}
 	count_a, count_b := collection_field(info, a, "count"), collection_field(info, b, "count")
 	head_a, head_b := collection_field(info, a, "head"), collection_field(info, b, "head")
+	fields := [4]^int{&count_a, &count_b, &head_a, &head_b}
+	for field, k in fields {
+		limit := array.count if k < 2 else array.count - 1
+		if field^ > limit {
+			diff_note(diff, "%s: %s %d past its capacity %d", path, k < 2 ? "count" : "head", field^, array.count)
+			field^ = limit
+		}
+	}
 	if count_a != count_b do diff_note(diff, "%s: %d vs %d items", path, count_a, count_b)
+	if head_a != head_b do diff_note(diff, "%s: head %d vs %d", path, head_a, head_b)
 	size := array.elem_size
 	for k in 0 ..< dmath.max(count_a, count_b) {
 		at_a, at_b := (head_a + k) % array.count, (head_b + k) % array.count

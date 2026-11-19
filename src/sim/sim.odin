@@ -41,6 +41,7 @@ LIBRARY_VERSION :: 6
 Library :: struct {
 	version: u32, // LIBRARY_VERSION
 	box3d:   string, // box3d_pin()
+	public:  bool, // a build without the dev UI (sim.DEV false), which applies no dev command: tests, from a dev build
 }
 
 // The unified-box3d release the build is pinned to: `[box3d] tag` of unified's pins.cfg (src/cli/README.md, Pins),
@@ -318,6 +319,9 @@ Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	setup:        part(G, GAME_SETUP), // the session's, fixed at create: outside the block, never rolled back
 	content_hash: u64, // content_hash(game.levels): recorded in input logs and snapshots
 	compat:       u64, // compat_of(game): recorded in snapshots
+	// Whether a step applies the union's dev commands: sim.DEV, as compat's dev bit says. A test clears it, with
+	// compat_of's Library.public, to run a public build's filter in a dev build (no second compile).
+	dev_commands: bool,
 	layout:       u64, // layout_hash(State): recorded in snapshots (a constant of the type, derived once)
 	tick:         u32,
 	state:        part(G, GAME_STATE),
@@ -347,7 +351,7 @@ hash_bytes :: proc(bytes: []u8) -> u64 {
 // The game build's identity for netcode (Hello's compat): the state, input, inputs and Setup layouts (the Profile's
 // is in the State's and the inputs'), the command and event types, the player count, the tick rate, the game's name (each variant, e.g. a
 // tuning, has its own) and version, the library's (LIBRARY_VERSION) and the unified-box3d pin (box3d_pin):
-// `library` overrides those two (tests: another build's compat; zero fields: this build's). Two builds with the same value run
+// `library` overrides those two, and the dev bit (tests: another build's compat; zero fields: this build's). Two builds with the same value run
 // the same simulation, as far as the build can tell. Every level's hash goes in too (content_hash), so peers with
 // different levels refuse to play together, and nothing is checked when a session changes level.
 compat_of :: proc(game: ^$G, library := Library{}) -> u64 where intrinsics.type_is_specialization_of(G, Game) {
@@ -385,7 +389,7 @@ compat_with :: proc(
 		players  = u32(PLAYERS),
 		tick_hz  = u32(game.tick_hz),
 		library  = library.version != 0 ? library.version : LIBRARY_VERSION,
-		dev      = DEV && has_dev_commands(Cmd) ? 1 : 0,
+		dev      = DEV && !library.public && has_dev_commands(Cmd) ? 1 : 0,
 	}
 	return dmath.max(hash_bytes(([^]u8)(&ids)[:size_of(Ids)]), 1) // never 0 ("any")
 }
@@ -473,7 +477,7 @@ choices_violation :: proc(name: string, setup, profile: ^runtime.Type_Info, defa
 	if reason := choice_violation(setup, SETUP_MAX); reason != "" {
 		return fmt.tprintf("%s: the Setup %s", name, reason)
 	}
-	if reason := choice_violation(profile, PROFILE_MAX); reason != "" {
+	if reason := choice_violation(profile, PROFILE_MAX, zero_enums = true); reason != "" {
 		return fmt.tprintf("%s: the Profile %s", name, reason)
 	}
 	if reason := choice_reads(default_setup, setup); reason != "" {
@@ -483,13 +487,15 @@ choices_violation :: proc(name: string, setup, profile: ^runtime.Type_Info, defa
 }
 
 // Why a type can't be a Setup or a Profile ("" when it can): it is a plain struct (bools and f32 allowed) without
-// padding, of at most `max_size` bytes.
+// padding, of at most `max_size` bytes; `zero_enums` (a Profile): every enum declares a member of value 0, the value a
+// malformed Profile reads as (Input's rule).
 @(private)
-choice_violation :: proc(type: ^runtime.Type_Info, max_size: int) -> string {
+choice_violation :: proc(type: ^runtime.Type_Info, max_size: int, zero_enums := false) -> string {
 	if _, is_struct := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct); !is_struct {
 		return fmt.tprintf("%v is not a struct", type.id)
 	}
-	if reason := plain_violation(type, fmt.tprint(type.id)); reason != "" {
+	if reason := plain_check(type, fmt.tprint(type.id), bools = true, floats = true, zero_enums = zero_enums);
+	   reason != "" {
 		return fmt.tprintf("is not plain data: %s", reason)
 	}
 	if type.size > max_size {
@@ -597,6 +603,7 @@ create_with_setup :: proc(
 	simulation.content_hash = content_hash(game.levels)
 	simulation.layout = layout_hash(State)
 	simulation.compat = compat_with(game, simulation.layout, {})
+	simulation.dev_commands = DEV
 	simulation.input_check = wire_check_make(type_info_of(Input))
 	simulation.ring = make([]Ring_Slot(State), ring_size(game.tick_hz))
 	for &slot in simulation.ring {
@@ -678,7 +685,7 @@ step :: proc(simulation: ^Sim($G), inputs: ^Inputs(G), save := true) {
 		joined  = changes.joined[:changes.joined_count],
 		left    = changes.left[:changes.left_count],
 	}
-	commands_decode(&simulation.commands, read)
+	commands_decode(&simulation.commands, read, simulation.dev_commands)
 	simulation.game.tick(&tick)
 	dev_step_end(simulation.dev, started)
 	players_remember(&simulation.state.players, read)

@@ -273,6 +273,11 @@ grid_order :: proc(t: ^testing.T) {
 		low_column, low_row := cell_of(probe - 3)
 		high_column, high_row := cell_of(probe + 3)
 		expect_cells(t, boxed[:], points[:], {low_column, high_column}, {low_row, high_row})
+		// the corners the other way round: the same box
+		clear(&boxed)
+		swapped := sim.grid_box(&grid, {probe.x + 3, probe.y - 3}, {probe.x - 3, probe.y + 3})
+		for run in sim.next(&swapped) do append(&boxed, ..run)
+		expect_cells(t, boxed[:], points[:], {low_column, high_column}, {low_row, high_row})
 	}
 	sim.grid_begin(&grid, {0, 0}, 1, 1, 1)
 	for i in 0 ..< 200 do sim.grid_add(&grid, i32(i), {})
@@ -347,4 +352,19 @@ roll_peek_matches_the_tick :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, sim.roll_f32(&tick, Swarm_Roll.Kick, 0, 3), peeked)
 	testing.expect_value(t, sim.roll_below(&tick, 1000, Swarm_Roll.Kick, 9, 2), peeked_below)
+}
+
+// Clearing a queue whose live run wraps past the array's end leaves the zero value, as a fresh queue (clear zeroes
+// the live items only: the rest is zero already).
+@(test)
+clearing_a_wrapped_queue_leaves_the_zero_value :: proc(t: ^testing.T) {
+	queue: sim.Queue(i32, 4)
+	for value in 1 ..= 4 do sim.append(&queue, i32(value))
+	sim.pop_front(&queue)
+	sim.pop_front(&queue)
+	sim.pop_front(&queue)
+	sim.append(&queue, 5)
+	sim.append(&queue, 6) // head 3: items 4, 5, 6 across the end
+	sim.clear(&queue)
+	testing.expect(t, queue == {})
 }

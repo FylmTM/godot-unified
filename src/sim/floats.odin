@@ -21,7 +21,7 @@ find_nan :: proc(simulation: ^Sim($G), floats: ^[dynamic]u32) -> string {
 			return fmt.tprintf(
 				"tick %d: %s is a NaN (%08x)",
 				simulation.tick,
-				field_path(type_info_of(State), int(offset)),
+				field_path(type_info_of(State), block[:size_of(State)], int(offset)),
 				bits,
 			)
 		}
@@ -70,14 +70,16 @@ has_float :: proc(type: ^runtime.Type_Info) -> bool {
 	return false
 }
 
-// The path of the leaf field at byte `offset` of a value of `type`, named as the desync report names it
-// (snapshot_diff): "enemies[12].pos.x", a table read by item index. Temp-allocated.
+// The path of the leaf field at byte `offset` of `value` (the bytes of a value of `type`), named as the desync report
+// names it (snapshot_diff): "enemies[12].pos.x", a table and a List read by item index, a Queue's items oldest first.
+// Temp-allocated.
 @(private)
-field_path :: proc(type: ^runtime.Type_Info, offset: int, path := "") -> string {
+field_path :: proc(type: ^runtime.Type_Info, value: []u8, offset: int, path := "") -> string {
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Struct:
 		// A sim.Table (items and slots, as snapshot_diff tells), List or Queue: its items read as its own elements.
-		table := collection_kind(type) == .List || collection_kind(type) == .Queue
+		kind := collection_kind(type)
+		table := kind == .List || kind == .Queue
 		for i in 0 ..< int(info.field_count) {
 			array, is_array := info.types[i].variant.(runtime.Type_Info_Array)
 			table ||= info.names[i] == "slots" && is_array && array.elem.id == Slot
@@ -85,18 +87,32 @@ field_path :: proc(type: ^runtime.Type_Info, offset: int, path := "") -> string 
 		for i in 0 ..< int(info.field_count) {
 			start := int(info.offsets[i])
 			if offset < start || offset >= start + info.types[i].size do continue
+			field := value[start:][:info.types[i].size]
+			if kind == .Queue && info.names[i] == "items" {
+				array := runtime.type_info_base(info.types[i]).variant.(runtime.Type_Info_Array)
+				k := (offset - start) / array.elem_size
+				oldest_first := (k - collection_field(info, value, "head")) %% array.count
+				return field_path(
+					array.elem,
+					field[k * array.elem_size:][:array.elem_size],
+					offset - start - k * array.elem_size,
+					fmt.tprintf("%s[%d]", path, oldest_first),
+				)
+			}
 			if table && info.names[i] == "items" {
-				return field_path(info.types[i], offset - start, path)
+				return field_path(info.types[i], field, offset - start, path)
 			}
 			name := info.names[i] if path == "" else fmt.tprintf("%s.%s", path, info.names[i])
-			return field_path(info.types[i], offset - start, name)
+			return field_path(info.types[i], field, offset - start, name)
 		}
 	case runtime.Type_Info_Array:
 		k := offset / info.elem_size
-		return field_path(info.elem, offset - k * info.elem_size, fmt.tprintf("%s[%d]", path, k))
+		item := value[k * info.elem_size:][:info.elem_size]
+		return field_path(info.elem, item, offset - k * info.elem_size, fmt.tprintf("%s[%d]", path, k))
 	case runtime.Type_Info_Enumerated_Array:
 		k := offset / info.elem_size
-		return field_path(info.elem, offset - k * info.elem_size, fmt.tprintf("%s[%d]", path, k))
+		item := value[k * info.elem_size:][:info.elem_size]
+		return field_path(info.elem, item, offset - k * info.elem_size, fmt.tprintf("%s[%d]", path, k))
 	}
 	return path
 }

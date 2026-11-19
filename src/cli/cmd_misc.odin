@@ -60,10 +60,8 @@ Bench_Report :: struct {
 	snapshot_bytes:     int,
 	save_bytes:         int, // what each tick's save copies (the block and the extras' saves)
 	mismatches:         int,
-	// The game's zones (sim.zone): each one's self time per forward step, from a second pass with the zones timed; and
-	// that pass's step (its mean less step_us's: what timing them costs).
+	// The game's zones (sim.zone): each one's self time per forward step, from a second pass with the zones timed.
 	zones:              map[string]Bench_Stat,
-	zoned_step_us:      Bench_Stat,
 	frame_p99_us:       f64, // the target's measure: step + restore + re-sim + deep checksum, each at its p99
 	within_target:      bool,
 }
@@ -107,7 +105,7 @@ Net_Rows :: struct {
 @(private)
 BENCH_CHURN_TICKS :: "600"
 
-// A game's zone row: its zones' mean self times per step, the largest first, and what timing them costs.
+// A game's zone row: its zones' mean self times per step, the largest first.
 @(private)
 zones_row :: proc(bench: Bench_Report) -> string {
 	Zone :: struct {
@@ -119,11 +117,7 @@ zones_row :: proc(bench: Bench_Report) -> string {
 	slice.sort_by(zones[:], proc(a, b: Zone) -> bool {return a.us > b.us || (a.us == b.us && a.name < b.name)})
 	parts := make([dynamic]string, context.temp_allocator)
 	for zone in zones do append(&parts, aprintf("%s %.1f", zone.name, zone.us))
-	return aprintf(
-		"zones (us per step, self time): %s; timing them: %+.1f us",
-		strings.join(parts[:], ", ", context.temp_allocator),
-		bench.zoned_step_us.mean - bench.step_us.mean,
-	)
+	return aprintf("zones (us per step, self time): %s", strings.join(parts[:], ", ", context.temp_allocator))
 }
 
 // .out/bench.json.

@@ -452,7 +452,7 @@ other_build_is_refused :: proc(t: ^testing.T) {
 @(test)
 other_library_build_is_refused :: proc(t: ^testing.T) {
 	this := sim.compat_of(&toy.GAME)
-	testing.expect_value(t, sim.compat_of(&toy.GAME, {sim.LIBRARY_VERSION, sim.box3d_pin()}), this)
+	testing.expect_value(t, sim.compat_of(&toy.GAME, {version = sim.LIBRARY_VERSION, box3d = sim.box3d_pin()}), this)
 	others := []sim.Library{{version = sim.LIBRARY_VERSION + 1}, {box3d = "another-release"}}
 	for library, i in others {
 		compat := sim.compat_of(&toy.GAME, library)

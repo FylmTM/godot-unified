@@ -1,5 +1,5 @@
 // Inline fixed-capacity collections for the block (src/sim/README.md, Collections): List, Queue and Bits, plain data
-// with no padding for any element type and capacity, each zeroing what it vacates so equal contents hash equal. Their
+// with no padding for any element type of alignment at most 8 and any capacity, each zeroing what it vacates so equal contents hash equal. Their
 // verbs are Odin's own for dynamic arrays and bit_sets; inside package sim the builtins are `builtin.append` and
 // `builtin.clear`.
 package sim
@@ -9,12 +9,14 @@ import "base:intrinsics"
 // Up to N items in order, inline: a small bag kept in the block or the World (a level's pillars, a hand of cards, a
 // wave's spawns). Indices are not stable (unordered_remove moves the last item in): anything a handle names across
 // ticks is a Table. The zero value is empty. The count is as wide as the element's alignment, so a 1-byte element
-// allows up to 255 items and a 2-byte one up to 65535.
+// allows up to 255 items and a 2-byte one up to 65535; an element aligned past 8 bytes (u128, a #align(16) struct)
+// would leave padding before the items, so it does not compile.
 List :: struct(
 	$T: typeid,
 	$N: int,
 ) where N > 0 &&
 	N <= 1 << 30 &&
+	align_of(T) <= 8 &&
 	(align_of(T) > 1 || N <= 255) &&
 	(align_of(T) > 2 || N <= 65535) {
 	count: (u8 when align_of(T) == 1 else u16 when align_of(T) == 2 else u32 when align_of(T) == 4 else u64),
@@ -28,6 +30,7 @@ Queue :: struct(
 	$N: int,
 ) where N > 0 &&
 	N <= 1 << 30 &&
+	align_of(T) <= 8 &&
 	(align_of(T) > 1 || N <= 255) &&
 	(align_of(T) > 2 || N <= 65535) {
 	head:  (u8 when align_of(T) == 1 else u16 when align_of(T) == 2 else u32 when align_of(T) == 4 else u64),
@@ -108,7 +111,9 @@ unordered_remove :: proc(list: ^List($T, $N), index: int) {
 
 // clear's list form.
 list_clear :: proc(list: ^List($T, $N)) {
-	list^ = {}
+	// The live items only: the rest is zero already (every remove zeroes what it vacates).
+	if list.count > 0 do intrinsics.mem_zero(&list.items[0], int(list.count) * size_of(T))
+	list.count = 0
 }
 
 // append's queue form: the item becomes the newest.
@@ -131,7 +136,13 @@ queue_pop_front :: proc(queue: ^Queue($T, $N)) -> (item: T, ok: bool) {
 
 // clear's queue form.
 queue_clear :: proc(queue: ^Queue($T, $N)) {
-	queue^ = {}
+	// The live run only, in its one or two pieces: the rest is zero already.
+	head, count := int(queue.head), int(queue.count)
+	first := N - head
+	if count < first do first = count
+	if first > 0 do intrinsics.mem_zero(&queue.items[head], first * size_of(T))
+	if count > first do intrinsics.mem_zero(&queue.items[0], (count - first) * size_of(T))
+	queue.head, queue.count = 0, 0
 }
 
 // The queue's k-th oldest item (0: the next pop_front's), or nil past its count.

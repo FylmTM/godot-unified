@@ -293,7 +293,9 @@ Synctest_Result :: struct {
 
 // A sync-tested run its caller steps: each step is a forward tick and a NaN scan of its block (sim.find_nan), then a
 // restore `window` ticks back (never before a pinned tick), the extra's check (sim.check_extra) and a re-simulation
-// with the recorded inputs, each tick's checksum and events compared with the forward one's. A game test drives it
+// with the recorded inputs, each tick's checksum and events compared with the forward one's. A Dev is attached (a
+// dev build): the forward ticks keep no draw group and the re-simulations every one, so state that depends on
+// sim.drawing (or anything a draw does) shows as a mismatch, as a dev UI showing draws would desync. A game test drives it
 // with the game's scripted player (run_scripted) or its own inputs (run_inputs, then run_step), seats and unseats
 // members (run_seat), changes the state between steps (run_pin) and asserts `mismatches == 0`, `check == ""`,
 // `problem == ""` (scenarios.expect_synced) and its own facts. `simulation` is at the newest tick between steps.
@@ -329,6 +331,7 @@ run_begin :: proc(game: ^$G, seed: u64, window: u32 = 8, seated := 0) -> (run: R
 	assert(window >= 1 && int(window) <= max_window(game))
 	assert(seated >= 0 && seated <= sim.part(G, sim.GAME_PLAYERS), "seated: 0 to the game's player count")
 	run.simulation = sim.create(game, seed)
+	sim.dev_attach(run.simulation) // draws on in the re-simulations only (run_step)
 	run.window = window
 	append(&run.recorded, sim.Inputs(G){})
 	append(&run.forward, sim.checksum(run.simulation))
@@ -354,6 +357,7 @@ run_end :: proc(run: ^Run($G)) {
 run_step :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
 	simulation := run.simulation
 	append(&run.recorded, inputs^)
+	sim.dev_enable(simulation, 0)
 	sim.step(simulation, inputs)
 	tick := simulation.tick
 	append(&run.forward, sim.checksum(simulation))
@@ -378,6 +382,8 @@ run_step :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
 	if reason := sim.check_extra(simulation); reason != "" && run.check == "" {
 		run.check, run.check_tick = reason, from
 	}
+	sim.dev_enable(simulation, max(u64))
+	defer sim.dev_enable(simulation, 0)
 	for resim in from + 1 ..= tick {
 		sim.step(simulation, &run.recorded[resim])
 		run.resimulated += 1

@@ -17,7 +17,7 @@ levels_violation :: proc(name: string, state: ^runtime.Type_Info, levels: []Leve
 	found := -1
 	for i in 0 ..< int(fields.field_count) {
 		named, is_named := fields.types[i].variant.(runtime.Type_Info_Named)
-		if !is_named || !strings.has_prefix(named.name, "Active_Level") do continue
+		if !is_named || named.pkg != "sim" || !strings.has_prefix(named.name, "Active_Level(") do continue
 		if found >= 0 do return fmt.tprintf("%s: the State has two sim.Active_Level fields", name)
 		found = i
 		if fields.names[i] != "level" {
@@ -91,8 +91,8 @@ Level_File :: struct {
 // Which of the game's levels is active, and since which tick: a field of the State named `level`
 // (`level: sim.Active_Level(Level_Id)`), where Level_Id is the game's `enum u8` of its levels in Game.levels' order. Only
 // level_enter changes it (physics.level_change for a physics game), so a rollback, a snapshot and a replay carry the
-// level like any other state.
-Active_Level :: struct($Id: typeid) where intrinsics.type_is_enum(Id) {
+// level like any other state. A wider enum does not compile (it would leave padding in the block).
+Active_Level :: struct($Id: typeid) where intrinsics.type_is_enum(Id) && size_of(Id) == 1 {
 	since: u32, // the tick whose step entered it (0: init)
 	id:    Id,
 	_pad:  [3]u8,
