@@ -7,8 +7,5 @@ import "unified:headless/modes"
 import g "../friendslop"
 
 main :: proc() {
-	modes.run(&g.GAME, bench = {
-			what  = "friendslop in the hub and the route (Box3D characters and joints, two level changes)",
-			ticks = 600,
-		})
+	modes.run(&g.GAME)
 }

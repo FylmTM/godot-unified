@@ -157,8 +157,8 @@ token: each running copy claims its own) is there, kept between such runs, clear
 run of a game, and with `.out/`. `run` and `editor` are the developer's own, with the real one: an agent play-checks
 with `drive`.
 
-Benchmarks are no suite: `bench` runs each game's standard benchmark and its sessions on the virtual clock, plus the
-project's own rows, into `.out/bench.json`, reported and never gated by time (`uni bench -h`, `BENCH_TARGET_US`).
+Benchmarks are no suite: `bench` runs each game's standard benchmarks (a row each) and its sessions on the virtual
+clock, plus the project's own rows, into `.out/bench.json`, reported and never gated by time (`uni bench -h`, `BENCH_TARGET_US`).
 
 ## The template game
 

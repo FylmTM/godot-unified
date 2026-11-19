@@ -50,7 +50,7 @@ example games in `examples/` prove it.
   Don't dispatch extra runs as routine: `gh workflow run ci.yml --ref <branch>` is only for re-checking something on
   demand. macOS never blocks a merge (its runners are often out of capacity): the run on `main` after the merge is
   the macOS check, and a red macOS on `main` is fixed before anything else merges.
-- CI must stay fast. Every platform runs `uni bench` (each game's standard benchmark; reported, not gated).
+- CI must stay fast. Every platform runs `uni bench` (each game's standard benchmarks; reported, not gated).
 - Commit messages end with the co-author line. Docs stay lean: fold what we learn into the right doc, delete what
   stops being true. History lives in git.
 - **Never disturb the developer's main screen or keyboard.** Any game window an agent opens (to look at it or as a

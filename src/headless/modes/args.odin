@@ -6,17 +6,14 @@ import "core:os"
 import "core:reflect"
 import "core:strings"
 
-import uheadless "unified:headless"
 import "unified:netcode"
 
 // What a mode gets: its name, the words of its options (the command line after the mode's name, less the options any
-// mode takes: --game, --level, --setup, --player-profile), the lobby service of a lobby mode and the game's standard
-// benchmark.
+// mode takes: --game, --level, --setup, --player-profile), and the lobby service of a lobby mode.
 Args :: struct {
 	mode:  string,
 	argv:  []string,
 	lobby: ^netcode.Lobby, // <name>-host and <name>-client: the service they run on
-	bench: uheadless.Bench, // the game's standard benchmark (run's `bench`), for the `bench` mode
 }
 
 // Prints a formatted error to stderr and exits with code 2, the way every mode (and a game's own modes) rejects a bad

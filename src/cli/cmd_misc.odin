@@ -21,10 +21,11 @@ Bench_Opts :: struct {
 @(private)
 bench_details :: proc() -> string {
 	return aprintf(
-		"A game's benchmark (its headless `bench` mode) steps its standard setup and, every tick, rolls back to the\n" +
-		"prediction cap and re-simulates (the worst case the netcode makes: a bound, not a typical frame); the first\n" +
-		"window + 64 ticks run untimed. The target: a step, a restore, that re-sim and a deep checksum within %.0f ms at\n" +
-		"their p99. A re-sim whose checksum differs fails the run. Then its `session` on the virtual clock, 4 clients:\n" +
+		"Each of a game's standard benchmarks (its headless `bench` mode, a row each: one per level or scene, say)\n" +
+		"steps its setup and, every tick, rolls back to the prediction cap and re-simulates (the worst case the\n" +
+		"netcode makes: a bound, not a typical frame); the first window + 64 ticks run untimed. The target: a step, a\n" +
+		"restore, that re-sim and a deep checksum within %.0f ms at their p99. A re-sim whose checksum differs fails\n" +
+		"the run. Then the game's `session` on the virtual clock, 4 clients:\n" +
 		"on the game's own script for the bytes a session moves, under `bad` (the stress case) and under `wan` (the\n" +
 		"common case) with the 4th connecting halfway and joining as a player does (the join: Hello to playing, the\n" +
 		"bytes it took, the snapshot's transfer and the joiner's catch-up step); then a shorter one under `bad` whose\n" +
@@ -40,9 +41,16 @@ Bench_Stat :: struct {
 	mean, p99: f64,
 }
 
-// A game's `bench` report (the headless mode's JSON line), with the target check added.
+// What a game's `bench` mode prints (its JSON line): a report per benchmark it ran (none: the game has no standard
+// benchmark).
+Bench_Run :: struct {
+	benches: []Bench_Report,
+}
+
+// One benchmark's report, with the target check added.
 Bench_Report :: struct {
-	skipped:            bool, // the game has no standard benchmark
+	name:               string, // "": the game's row; else the row <game>/<name> (headless.Bench.name)
+	setup:              string, // the Setup it played, in --setup's text form ("": the game's)
 	what:               string,
 	entities:           int,
 	window:             int,
@@ -159,25 +167,24 @@ cmd_bench :: proc(args: []string) -> Result {
 	failed: [dynamic]string
 	for game in games {
 		// alone: nothing else runs meanwhile, so the timings are clean
-		bench: Bench_Report
-		if !run_report(headless_path(game.name, .release), {"bench"}, join(work, game.name), 900, &bench) {
+		run: Bench_Run
+		if !run_report(headless_path(game.name, .release), {"bench"}, join(work, game.name), 900, &run) {
 			append(&failed, game.name)
 			continue
 		}
-		if bench.skipped {
+		if len(run.benches) == 0 {
 			// no standard benchmark: its sessions still run below
-			log(
-				"%-12s no standard benchmark (modes.run's `bench`: src/headless/README.md); its sessions only",
-				game.name,
-			)
-		} else {
+			log("%-12s no standard benchmark (sim.Game.benches: src/headless/README.md); its sessions only", game.name)
+		}
+		for &bench in run.benches {
+			row := bench.name == "" ? game.name : aprintf("%s/%s", game.name, bench.name)
 			bench.frame_p99_us =
 				bench.step_us.p99 + bench.restore_us.p99 + bench.resim_us.p99 + bench.checksum_deep_us.p99
 			bench.within_target = bench.frame_p99_us <= BENCH_TARGET_US
-			summary.benchmarks[game.name] = bench
+			summary.benchmarks[row] = bench
 			log(
 				"%-12s step %5.0f us + restore %3.0f us + %d-tick re-sim %5.0f us + deep checksum %3.0f us = %5.2f ms at p99 (target <= %.0f ms: %s; means %.0f + %.0f us); final ticks %.0f us; save %.0f us (%d bytes), restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes (encode %.0f us, keep %.0f us)",
-				game.name,
+				row,
 				bench.step_us.p99,
 				bench.restore_us.p99,
 				bench.window,
@@ -200,7 +207,7 @@ cmd_bench :: proc(args: []string) -> Result {
 			)
 			if len(bench.zones) > 0 do log("%-12s %s", "", zones_row(bench))
 			if bench.mismatches > 0 {
-				append(&failed, game.name) // a re-sim that disagrees is a bug, whatever the timing
+				append(&failed, row) // a re-sim that disagrees is a bug, whatever the timing
 			}
 		}
 		rows: Net_Rows
@@ -295,7 +302,7 @@ cmd_bench :: proc(args: []string) -> Result {
 	return {
 		ok      = true,
 		summary = aprintf(
-			"bench: %d game(s) (%d with a standard benchmark), the sim and netcode benchmarks%s, reported in .out/bench.json",
+			"bench: %d game(s) (%d standard benchmark row(s)), the sim and netcode benchmarks%s, reported in .out/bench.json",
 			len(games),
 			len(summary.benchmarks),
 			len(state.config.bench) > 0 ? " and the project's own" : "",

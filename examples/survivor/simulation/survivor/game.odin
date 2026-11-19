@@ -60,6 +60,7 @@ GAME_STRESS := Game {
 	scripted_input    = scripted_input,
 	scripted_commands = scripted_commands,
 	scripted_profile  = scripted_profile,
+	benches           = {{what = "survivor (stress tuning) holding 1000 enemies", entities = 1000, ticks = 600}},
 	bench_prepare     = bench_prepare,
 	save              = save,
 }

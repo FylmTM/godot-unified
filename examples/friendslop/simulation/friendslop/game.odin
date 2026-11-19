@@ -43,6 +43,9 @@ GAME := Game {
 	tick              = tick,
 	scripted_input    = scripted_input,
 	scripted_commands = scripted_commands,
+	benches           = {
+		{what = "friendslop in the hub and the route (Box3D characters and joints, two level changes)", ticks = 600},
+	},
 }
 
 // One tick: the systems in their order (examples/friendslop/README.md, Systems).

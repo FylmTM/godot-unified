@@ -10,15 +10,6 @@ import "core:strings"
 
 import "unified:sim"
 
-// A benchmark's setup: `entities` entities held (with Game.bench_prepare), a `window`-tick rollback every tick, for
-// `ticks` ticks. `what` says what it measures.
-Bench :: struct {
-	what:     string,
-	entities: int,
-	window:   int, // 0: prediction_window(game), the deepest rollback the netcode makes
-	ticks:    int,
-}
-
 // The longest rollback window a game's ring allows (sim.ring_size(tick_hz) - 1).
 max_window :: proc(game: ^$G) -> int {
 	return sim.ring_size(game.tick_hz) - 1

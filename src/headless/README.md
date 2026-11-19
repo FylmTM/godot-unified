@@ -24,8 +24,9 @@ it, and the binary's `help` lists every mode and its options. The modes:
 - `session`: a relay and scripted clients in process on the virtual clock behind a network profile (`session_run`);
   `uni bench` runs it;
 - `relay`, `client`: separate processes over local UDP on the real clock (`uni test --suite net`);
-- `bench`: the game's standard benchmark (`modes.run`'s `bench`, `sim.Game.bench_prepare` holding its population);
-  `uni bench` runs it;
+- `bench`: the game's standard benchmarks (`sim.Game.benches`, a `uni bench` row each: one per level, scene or
+  population, each on its own Setup in `--setup`'s text form, `sim.Game.bench_prepare` holding a population);
+  `uni bench` runs them;
 - `<lobby>-host`, `<lobby>-client` when the game opts into a lobby service: a scripted session over it, two processes
   (`src/eos/README.md`);
 - the game's own modes (`modes.Mode`): the one way a game's repo adds a mode. Each mode's options are a struct parsed
