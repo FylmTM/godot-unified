@@ -184,6 +184,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	finished:        bool, // atomic
 	stopping:        bool,
 	stop_at:         i64,
+	slow:            bool, // the client's link was slow when last posted (Message.Link_Slow)
 	frames:          Triple(Frame_Data),
 	poses:           Pose_Memory, // every keyed item's pose at the fill before (session thread)
 	// Appear-on-verified (api.appear_verified): the keys of the last verified tick filled, and that fill's Frame
@@ -1360,6 +1361,10 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 		}
 		sync.atomic_add(&driver.step_seq, 1)
 		if driver.host != nil ? netcode.host_finished(driver.host) : netcode.client_finished(driver.client) do break
+		if driver.client.slow != driver.slow {
+			driver.slow = driver.client.slow
+			post(driver, Message{kind = .Link_Slow, tick = u32(driver.slow)})
+		}
 		goodbye: i64 = sync.atomic_load(&driver.hurry) ? HURRY_US : GOODBYE_US
 		if driver.stopping && now - driver.stop_at > goodbye do break
 		if driver.online do wake = min(wake, now + 4_000)

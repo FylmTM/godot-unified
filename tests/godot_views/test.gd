@@ -158,6 +158,11 @@ func _initialize() -> void:
 	var me := session.local_player
 	check("status and tick properties", session.status == UnifiedSession.STATUS_CONNECTED and session.running \
 		and session.tick > 0, [session.status, session.tick])
+	check("the link in single player: the floor's delay, the game's ceiling, never slow, the host heard from",
+		session.input_delay_ticks == 1 and session.round_trip_ceiling_ms > 200.0 and not session.link_slow \
+		and session.round_trip_ms < 5.0 and session.host_silent_ms < 1000.0,
+		[session.input_delay_ticks, session.round_trip_ceiling_ms, session.link_slow, session.round_trip_ms,
+		session.host_silent_ms])
 	check("the marker: kind from the scene, player and key from the host (the player's)", me != 0 \
 		and marker.player == me and marker.kind == "typed2d" and marker.key == me,
 		[me, marker.player, marker.kind, marker.key])
