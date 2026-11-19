@@ -1,6 +1,7 @@
 // A level as a physics game's only level, entered by init: what the tests that look at a level's built geometry use.
 package test_level
 
+import level_file "../level_file"
 import "unified:physics"
 import "unified:sim"
 
@@ -55,3 +56,6 @@ show_end :: proc(session: ^sim.Sim(Show_Game)) {
 	delete(game.levels)
 	free(game)
 }
+
+// A level file from Odin values (the shared oracle, tests/level_file).
+encode :: level_file.encode

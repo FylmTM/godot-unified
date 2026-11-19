@@ -100,7 +100,7 @@ character_golden :: proc(t: ^testing.T, workers: i32) {
 // checksummed on the deep-checksum ticks (the whole world, its baked geometry included): the pin that every platform
 // collides with mesh BVHs and height fields alike, which no box-only golden or shipped level covers. Update it in
 // the same commit as a change that is meant to alter it.
-GOLDEN_TERRAIN :: [4]u64{0x8faece850c419414, 0x8184beb3d6dec314, 0xd2274cd1b34c28c7, 0x94e4bcd27aad5368}
+GOLDEN_TERRAIN :: [4]u64{0x126fdfe35cb664a0, 0x4e51cb692363fa65, 0xe1380bfbb7e87203, 0x5d3e061d849dee69}
 
 @(test)
 terrain_golden_trace :: proc(t: ^testing.T) {

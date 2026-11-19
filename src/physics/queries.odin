@@ -21,7 +21,7 @@ Overlap :: struct {
 // A ray or shape cast's hit.
 Hit :: struct {
 	using overlap: Overlap,
-	material:      u64, // the shape's user material id
+	material:      u64, // the user material id at the hit (a mesh triangle's, a compound child's)
 	point:         [3]f32,
 	normal:        [3]f32,
 	fraction:      f32, // along `translation`
@@ -449,7 +449,8 @@ body_collide_mover :: proc(
 
 // When the mover capsule (relative to `origin`) swept by `translation` first touches this body moving from `pose1` to
 // `pose2` (nil: where it is); shapes the mover starts inside are skipped. Not ok: no hit. The hit's normal points
-// from the body to the mover.
+// from the body to the mover. The material is the shape's first (Box3D names no triangle or child here): a ray
+// (shape_ray_cast) names a mesh triangle's or a compound child's, as on a level.
 body_time_of_impact_mover :: proc(
 	world: ^World,
 	ref: Body_Ref,
@@ -488,7 +489,7 @@ pose_of :: proc(id: box3d.BodyId, pose: Maybe(Transform)) -> box3d.Transform {
 // ---- per-shape queries
 
 // A ray from `origin` along `translation` against this shape alone; not ok: no hit. The material is the hit
-// triangle's on a mesh or height field.
+// triangle's on a mesh or height field, the child's on a compound.
 shape_ray_cast :: proc(world: ^World, shape: Shape_Ref, origin, translation: [3]f32) -> (hit: Hit, ok: bool) {
 	id := shape_id(world, shape)
 	output := box3d.Shape_RayCast(id, transmute(box3d.Vec3)origin, transmute(box3d.Vec3)translation)
