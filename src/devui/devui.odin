@@ -61,6 +61,7 @@ State :: struct {
 	events:       Log_Panel,
 	commands:     Log_Panel,
 	cond:         Conditions_Panel,
+	timeline:     Timeline_Panel,
 	note:         Note,
 	stats:        [dynamic][2]string, // this frame's stat lines: key, value
 	ui_ms:        f32,
@@ -103,6 +104,7 @@ init :: proc(shown: bool, on_feedback: Feedback_Proc = nil) {
 	build_log(&s.events, .Events, "Events", {8, 520, 480, 170})
 	build_log(&s.commands, .Commands, "Commands", {496, 520, 480, 170})
 	build_note()
+	build_timeline()
 	// deferred: init usually runs inside a node's _ready, while the root is busy adding children
 	gd.Object_call_deferred(s.root, "add_child", s.layer)
 	// F1 / F3 (and the cursor) before anything else sees them, also while hidden

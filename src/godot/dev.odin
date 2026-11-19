@@ -56,6 +56,62 @@ when DEVUI {
 		steps_us:     i64,
 		per_second:   [3]f32, // the last full second's
 		zone_ns:      [sim.ZONES_MAX + 1]i64, // the last frame's cumulative zone times (Frame_Data.zone_ns)
+		changes:      Changes_View, // the op log's Inspector root
+		changes_seen: u32, // the shown tick it was computed for
+		replaying:    bool, // the Timeline panel shows a replay
+	}
+
+	// A replay's Timeline panel (dev_frame): its state in, its requests out as the replay's controls.
+	dev_timeline :: proc(session: ^Session_Node) {
+		frame := session.frame
+		active := frame != nil && frame.replay.active && session.mode == .Replay
+		if !active {
+			if dev.replaying do devui.timeline_end()
+			dev.replaying = false
+			return
+		}
+		dev.replaying = true
+		view := frame.replay
+		request := devui.timeline({
+			tick        = frame.tick,
+			first       = view.first,
+			last        = view.last,
+			paused      = view.paused,
+			speed       = view.speed,
+			checkpoints = view.checkpoints,
+			agreed      = view.agreed,
+			diverged    = view.diverged,
+			other_build = view.other_build,
+		})
+		if request.toggle_pause do replay_control({kind = view.paused ? .Play : .Pause})
+		if request.step != 0 do replay_control({kind = .Step, value = i64(request.step)})
+		if request.seek >= 0 do replay_control({kind = .Seek, value = request.seek})
+		if request.speed != 0 do replay_control({kind = .Speed, speed = request.speed})
+	}
+
+	// The op log as the Inspector shows it: what the shown tick changed against the tick before, a line per leaf field
+	// ("rocks[3].pos (1, 2) vs (1, 3)"), at most CHANGES_SHOWN.
+	CHANGES_SHOWN :: 64
+	Changes_View :: struct {
+		tick:   u32,
+		before: u32, // the tick compared against (the tick itself: none in the ring, nothing shown)
+		total:  int, // the differences there are
+		lines:  [CHANGES_SHOWN]string,
+	}
+
+	// The op log (dev_frame, while the Inspector shows): recomputed when the shown tick changes.
+	dev_changes :: proc(shown: u32) {
+		if shown != dev.changes_seen {
+			dev.changes_seen = shown
+			lines, total, tick, before := api.changes(CHANGES_SHOWN)
+			for &line in dev.changes.lines {
+				delete(line)
+				line = ""
+			}
+			dev.changes.tick, dev.changes.before, dev.changes.total = tick, before, total
+			for line, i in lines do dev.changes.lines[i] = strings.clone(line)
+		}
+		devui.inspect("changes (the shown tick against the one before)", any{&dev.changes, typeid_of(Changes_View)})
 	}
 
 	dev: Dev
@@ -89,6 +145,7 @@ when DEVUI {
 			}
 		}
 		devui.shutdown()
+		for line in dev.changes.lines do delete(line)
 		dev = {}
 	}
 
@@ -189,6 +246,7 @@ when DEVUI {
 				api.events_dropped(),
 			)
 			if state := api.state(); state != nil do devui.inspect("predicted state (read-only)", state)
+			if devui.wants_state() do dev_changes(frame.tick)
 			if inputs := api.inputs(); inputs != nil do devui.inputs("inputs", inputs)
 		} else if devui.visible {
 			devui.stat("session", "%s", STATUS_NAMES[session.status])
@@ -213,6 +271,7 @@ when DEVUI {
 			)
 		}
 		if session.frame != nil do dev_sim_graphs(session.frame, dt)
+		dev_timeline(session)
 		devui.frame(dt)
 		dev.prev_sync_us = session.sync_us
 		_, dev.prev_ui_ms = devui.frame_stats()

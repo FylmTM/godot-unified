@@ -65,6 +65,9 @@ Api :: struct {
 	// The session thread's frame hook since the last call (events tracked, fill_frame, the Frame published), reset.
 	take_fill_stats: proc() -> Fill_Stats,
 	state:           proc() -> any, // the newest predicted state, for the inspector (while want_state)
+	// What the shown tick changed against the tick before (sim.state_changes; the Inspector's op log): its lines (at
+	// most `limit`, temp-allocated), how many there are, and the two ticks (0: nothing published yet).
+	changes:         proc(limit: int) -> (lines: []string, total: int, tick, before: u32),
 	inputs:          proc() -> any, // an Inputs_View of the newest frame, for the Input panel (while want_state)
 	// The oldest command a verified tick carried that the dev UI hasn't logged yet, taken (dev UI builds).
 	next_confirmed:  proc() -> (note: Command_Note, ok: bool),
@@ -183,7 +186,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	// Appear-on-verified (api.appear_verified): the keys of the last verified tick filled, and that fill's Frame
 	verified_poses:  Pose_Memory,
 	verified_out:    Frame_Data,
-	states:          Triple(sim.part(G, sim.GAME_STATE)),
+	states:          Triple(State_Pair(sim.part(G, sim.GAME_STATE))),
 	queue:           Queue(Message, 64), // statuses, the join code, desync reports, the result: never full in practice
 	events:          Queue(Event_Message, 4096), // full: dropped and counted
 	dropped:         int, // atomic: events that found `events` full
@@ -221,6 +224,15 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	replay:          ^Replay(G),
 	replay_controls: Queue(Replay_Control, 16),
 	epoch:           u32,
+}
+
+// The Inspector's state and the tick before it (the op log), copied while the dev UI shows them.
+@(private)
+State_Pair :: struct($State: typeid) {
+	tick:   u32,
+	before: u32,
+	state:  State,
+	prev:   State,
 }
 
 // What the dev UI's Input panel shows: the local player's newest input and the newest verified tick's.
@@ -597,8 +609,16 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	api.state = proc() -> any {
 		if g_driver == nil do return nil
 		driver := (^This_Driver)(g_driver)
-		state, _ := triple_front(&driver.states)
-		return state^
+		pair, _ := triple_front(&driver.states)
+		return pair.state
+	}
+	api.changes = proc(limit: int) -> (lines: []string, total: int, tick, before: u32) {
+		if g_driver == nil do return
+		driver := (^This_Driver)(g_driver)
+		pair, _ := triple_front(&driver.states)
+		if pair.tick == 0 do return
+		lines, total = sim.state_changes(type_info_of(State), &pair.prev, &pair.state, limit)
+		return lines, total, pair.tick, pair.before
 	}
 	api.inputs = proc() -> any {
 		if g_driver == nil do return nil
@@ -1123,7 +1143,12 @@ publish_frame :: proc(
 	triple_publish(&driver.frames)
 	fill_stats_add(&driver.fill, time.tick_since(started))
 	if sync.atomic_load(&want_state) {
-		triple_back(&driver.states)^ = current^
+		pair := triple_back(&driver.states)
+		pair.tick, pair.state = info.tick, current^
+		// the tick before as the ring has it (live: after a rollback, the corrected one; none: no change shown)
+		before := sim.state_at(simulation, info.tick - 1)
+		pair.before = before != nil ? info.tick - 1 : info.tick
+		pair.prev = before != nil ? before^ : current^
 		triple_publish(&driver.states)
 		if client != nil {
 			fill_inputs_view(triple_back(&driver.inputs), client, info, slots[:])

@@ -218,6 +218,11 @@ loads the nearest portable snapshot it kept of a tick it passed (at most 64) and
 the ticks between. Such a jump starts a new epoch in the Frame: every view snaps, and the events of ticks entered
 again going forward arrive again. A note starts some seconds before its tick and pauses on it.
 
+The dev UI's Timeline panel drives a replay, and the Inspector's `changes` root is the op log: what the shown tick
+changed in the State against the tick before, a line per leaf field (`sim.state_changes`), computed on the main
+thread from the two states the session thread copies while the Inspector shows (live, after a rollback, the
+corrected tick before).
+
 ## The view index
 
 `uni bake <game>` scans the game's scenes for `UnifiedView` markers and writes `res://unified_index.tres` (each kind

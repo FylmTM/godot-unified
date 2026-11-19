@@ -1032,6 +1032,11 @@ drain_messages :: proc(session: ^Session_Node) {
 		switch message.kind {
 		case .Status:
 			emit_status(session, message.status, text)
+			if message.status == .Failed && session.quit_at_end && session.mode == .Replay {
+				// a replay that can't start has no result to wait for: say why and quit (a tool run fails)
+				fmt.eprintfln("unified: the replay failed: %s", text)
+				gd.SceneTree_quit(gd.Node_get_tree(node_of(session)), 1)
+			}
 		case .Join_Code:
 			fmt.printfln("unified: join code %s", text)
 			set_join_code(session, text)

@@ -12,6 +12,7 @@ Panel_Kind :: enum {
 	Events,
 	Commands,
 	Note,
+	Timeline, // a replay session (timeline.odin)
 }
 
 @(private)
