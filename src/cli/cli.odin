@@ -110,7 +110,7 @@ Test_Options :: struct {
 	long:                bool, // `--long`: the suites' long variants (README.md, Test suites)
 	bless:               bool, // `--bless`: the odin suite re-pins what moved (src/headless/README.md, Re-pinning)
 	game:                string, // the game `test` names ("": every game): the odin suite compiles that game's tests only
-	// The library test package `test` names instead of a game (test_package: a directory of a test root), its path
+	// The library test package `test` names instead of a game (test_package: one a test root imports), its path
 	// ("": none): the odin suite compiles it alone, unoptimised when it is under the unoptimised root.
 	library_tests:       string,
 	library_unoptimized: bool,

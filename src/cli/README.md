@@ -126,7 +126,8 @@ with a long variant (by hand, never in CI). `test` passes each the run's options
 child's log is cut to its warnings (`child_log`).
 
 - `odin`: every test package, or the named game's tests only (the inner loop of game work), or one library test package
-  alone (`uni test dmath`: tests/dmath, in its root's mode; the odin and box3d-debug suites only), built through their
+  alone (`uni test dmath`: one the test roots import, in the mode of the root that does; the odin and box3d-debug
+  suites only), built through their
   manifests so an unchanged tree only runs (`suite_odin`). The test root compiles optimised: the sim tests need it.
   A project's unoptimised root (`Project_Config.unoptimized_tests`: this repo's tooling tests) compiles beside it on
   a quarter of the cores, since its tests run as fast without optimisation and optimising them would be a third of

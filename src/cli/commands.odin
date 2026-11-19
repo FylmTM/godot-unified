@@ -160,7 +160,7 @@ public_suites :: proc() -> []Suite {
 // `test`'s options (the command table names them: -h lists them).
 @(private)
 Test_Opts :: struct {
-	game:  string `args:"pos=0" usage:"a game (default: every game), whose tests the odin suite then compiles alone; or a library test package by name (dmath: tests/dmath), which the odin suites then compile and run alone"`,
+	game:  string `args:"pos=0" usage:"a game (default: every game), whose tests the odin suite then compiles alone; or a library test package a test root imports (dmath: tests/dmath), which the odin suites then compile and run alone, in that root's mode"`,
 	suite: string `hint:"s,..." usage:"suites, comma-separated, or all (default: odin); listed below"`,
 	only:  string `hint:"name,..." usage:"tests (odin: name or package.name, picked when the binary runs, so no recompile; a name no test has fails) or steps (godot), comma-separated"`,
 	long:  bool `usage:"the long variants: every standard scenario at full length (odin), 960 ticks (net), a 256-tick session (godot)"`,
@@ -186,16 +186,19 @@ cmd_test :: proc(args: []string) -> Result {
 	}
 	// a library test package instead of a game: the odin suites only
 	if opts.game != "" && !has_game(opts.game) {
-		dir, unoptimized := test_package(opts.game)
-		if dir == "" {
-			usage("no game or library test package %q", opts.game)
+		tests, found := test_package(opts.game)
+		if !found {
+			valid: [dynamic]string
+			for game in state.project.games do append(&valid, game.name)
+			for package_tests in library_test_packages() do append(&valid, package_tests.name)
+			usage("no game or library test package %q (have: %s)", opts.game, strings.join(valid[:], ", "))
 		}
 		for name in names {
 			if name != "odin" && name != "box3d-debug" {
 				usage("%s is a library test package: the odin and box3d-debug suites run it, not %s", opts.game, name)
 			}
 		}
-		test_opts.game, test_opts.library_tests, test_opts.library_unoptimized = "", dir, unoptimized
+		test_opts.game, test_opts.library_tests, test_opts.library_unoptimized = "", tests.dir, tests.unoptimized
 	}
 	suites: [dynamic]^Suite
 	for name in names {
