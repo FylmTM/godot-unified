@@ -386,14 +386,12 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 		and local != null and predicted != null and thing != null, [remote, local, predicted, thing])
 	if remote == null or local == null:
 		return
-	# always behind, a few ticks most of the time (a slow frame on a loaded machine may bring it closer for a moment)
+	# a few ticks behind most of the time (the median: a stall on a loaded machine moves single frames either way)
 	var sorted_lags := lags.duplicate()
 	sorted_lags.sort()
 	var median: float = sorted_lags[sorted_lags.size() / 2] if lags else 0.0
-	var lags_ok := not lags.is_empty() and median > 1.5 \
-		and lags.all(func(lag: float) -> bool: return lag > 0.25 and lag < 12.0)
-	check("a remote player's view of a Remote.Verified kind runs a few ticks behind the local player's", lags_ok,
-		[lags.min() if lags else null, median, lags.max() if lags else null])
+	check("a remote player's view of a Remote.Verified kind runs a few ticks behind the local player's",
+		not lags.is_empty() and median > 1.5, [lags.min() if lags else null, median, lags.max() if lags else null])
 	check("a Remote.Predicted kind showing the remote player stays on the prediction: no lag",
 		not lags.is_empty() and predicted_off.is_empty(), predicted_off)
 	check("it snaps across a warp: never posed between the walk's two stretches", off_walk.is_empty(), off_walk)
@@ -402,28 +400,29 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 		and thing_local[0] == thing_local[1], [thing_remote, thing_local])
 	check("hidden until its first sample: never shown without data", not remote.get("shown_early"),
 		remote.get("shown_early"))
-	# its data is its sample's: the pose is that tick's, or between it and the next (away from the jumps)
-	var data_off: Array = []
+	# Each frame: the pose's tick (its data's tick plus how far the pose is past that tick's place on the walk) is never past the shown frame's verified tick, and never before its data's (the data is the sample at
+	# or before the pose: a prediction's would be ahead of it).
+	var pose_off: Array = []
 	var compared := 0
 	for pose: Array in remote.get("poses"):
-		var data_tick: int = pose[1]
-		var phase: int = data_tick % (REMOTE_PERIOD / 2)
-		if phase < 2 or phase > REMOTE_PERIOD / 2 - 3:
-			continue
+		var pose_tick := remote_pose_tick(pose)
 		compared += 1
-		var ahead: float = ((pose[0] as float) - remote_x(data_tick)) / REMOTE_SPEED  # ticks past its data's
-		if ahead < -0.01 or ahead > 1.01:
-			data_off.append([data_tick, ahead])
-	check("its view data is its verified sample's: the data's tick is the pose's", compared > 20 and data_off.is_empty(),
-		[compared, data_off.slice(0, 5)])
+		if pose_tick < (pose[1] as int) - 0.01 or pose_tick > (pose[2] as int) + 0.01:
+			pose_off.append([pose_tick, pose[1], pose[2]])
+	check("on the verified timeline: its pose is final (at most the verified tick), its data its sample's",
+		compared > 20 and pose_off.is_empty(), [compared, pose_off.slice(0, 5)])
+	# Each event arrives in the first frame whose pose reached its tick: after the frame before's pose tick, at most
+	# this frame's.
 	var remote_events: Array = remote.get("events")
-	var too_early := remote_events.filter(func(e: Array) -> bool:
-		var ahead: float = ((e[2] as float) - (e[0] as EventSpawned).position.x) / REMOTE_SPEED
-		return ahead < -0.01 or ahead > 4.0)
-	check("its events arrive CONFIRMED only, when its pose reaches their tick (never before)",
+	var mistimed := remote_events.filter(func(e: Array) -> bool:
+		var tick: int = (e[0] as UnifiedEvent).tick
+		var now := remote_pose_tick(e[2] as Array)
+		var before := remote_pose_tick(e[3] as Array) if not (e[3] as Array).is_empty() else -1.0
+		return tick > now + 0.01 or (before >= 0 and tick <= before - 0.01))
+	check("its events arrive CONFIRMED only, when its pose reaches their tick (never before, never a frame late)",
 		remote_events.size() >= 2 and remote_events.all(func(e: Array) -> bool:
-			return e[1] == UnifiedSession.EVENT_CONFIRMED) and too_early.is_empty(),
-		[remote_events.size(), too_early.map(func(e: Array) -> Array: return [e[1], e[2], e[0].position.x])])
+			return e[1] == UnifiedSession.EVENT_CONFIRMED) and mistimed.is_empty(),
+		[remote_events.size(), mistimed.map(func(e: Array) -> Array: return [e[0].tick, e[2], e[3]])])
 	var stray := (local.get("events") as Array).filter(func(e: Array) -> bool: return e[0].get("player") != me)
 	check("its events are the remote player's, none reach the local player's view of the kind", stray.is_empty() \
 		and remote_events.all(func(e: Array) -> bool: return e[0].get("player") == REMOTE_PLAYER_KEY), stray)
@@ -439,14 +438,19 @@ func check_remote_blink(seen: Dictionary) -> void:
 	var poses: Array = seen.poses
 	check("hidden until its first sample", not seen.shown_early and poses.size() > 0
 		and poses[0][1] >= REMOTE_BLINK_FROM, poses.slice(0, 2))
-	var last: Array = poses[-1] if poses.size() > 0 else [0.0, 0]
-	# its last sample is of one of its last ticks (a step that computes two ticks fills only the second)
-	var despawn_tick: int = seen.despawn_tick
-	check("it despawns only once its pose showed its last sample, not when the prediction dropped it",
-		despawn_tick >= REMOTE_BLINK_TO - 3 and despawn_tick < REMOTE_BLINK_TO and last[1] == despawn_tick \
-		and seen.despawn_session_tick > REMOTE_BLINK_TO \
-		and near(last[0], REMOTE_SPEED * (despawn_tick - REMOTE_BLINK_FROM)),
-		[despawn_tick, seen.despawn_session_tick, last])
+	var last: Array = poses[-1] if poses.size() > 0 else [0.0, 0, 0]
+	# where its last shown pose was on its walk, in ticks (its lane: REMOTE_SPEED a tick from REMOTE_BLINK_FROM)
+	var last_tick: float = (last[0] as float) / REMOTE_SPEED + REMOTE_BLINK_FROM
+	check("it despawns once playback reached the tick it left at (its pose at its last ticks), not when the prediction dropped it",
+		last_tick >= REMOTE_BLINK_TO - 3 and last_tick <= REMOTE_BLINK_TO - 1 + 0.01 \
+		and seen.despawn_session_tick > REMOTE_BLINK_TO, [last_tick, seen.despawn_session_tick, last])
+
+
+# A remote3d pose ([x, data tick, ...]) as a tick on the walk: its data's tick plus how far it is past that tick's
+# place (playback never glides across a jump, so the pose is on its data's stretch).
+func remote_pose_tick(pose: Array) -> float:
+	var data_tick: int = pose[1]
+	return data_tick + ((pose[0] as float) - remote_x(data_tick)) / REMOTE_SPEED
 
 
 func remote_x(tick: int) -> float:

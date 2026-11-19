@@ -3,8 +3,8 @@ extends Node3D
 @onready var marker: UnifiedView = $UnifiedView
 var tick := 0  # Remote3D_Data.tick: the tick its data is of (on the verified timeline, its sample's)
 var shown_early := false  # visible before it had data: posed without a sample
-var poses: Array[Array] = []  # [x, data tick] each frame it shows, until it despawns
-var events: Array[Array] = []  # [event, state, x it showed in the frame the event arrived]
+var poses: Array[Array] = []  # [x, data tick, the session's verified tick] each frame it shows, until it despawns
+var events: Array[Array] = []  # [event, state, the frame's pose ([x, data tick]), the frame before's (or [])]
 var despawns := 0
 var despawn_tick := -1  # its data tick when it despawned
 var despawn_session_tick := -1  # the session's newest tick then
@@ -17,10 +17,11 @@ func _process(_delta: float) -> void:
 		return
 	if tick == 0:
 		shown_early = true
+	var before: Array = poses[-1] if not poses.is_empty() else []
 	if despawns == 0:
-		poses.append([position.x, tick])
+		poses.append([position.x, tick, Unified.session.verified_tick])
 	for e in arrived:
-		events.append([e[0], e[1], position.x])
+		events.append([e[0], e[1], [position.x, tick], before])
 	arrived.clear()
 
 

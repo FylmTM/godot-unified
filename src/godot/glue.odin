@@ -217,8 +217,9 @@ View_Policy :: struct {
 	remote:    Remote, // a scene view of another player: from the prediction or the verified timeline
 }
 
-// How a scene view that shows a player who isn't local is posed (View_Policy.remote). The local players' views, the
-// views of things, and MultiMesh instances are always posed from the prediction.
+// How a scene view that shows a player who isn't local is posed (View_Policy.remote). The local players' views,
+// data-only views (a Control: no pose to delay), the views of things that show no player, MultiMesh instances and every
+// view in a replay (all its ticks are final) always follow the prediction.
 Remote :: enum u8 {
 	// From the prediction, like every view: at once, corrected when a rollback says otherwise. The default.
 	Predicted,

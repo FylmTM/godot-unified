@@ -76,7 +76,8 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 		sync.atomic_add(&seen.extracted, 1)
 	},
 	view_scale = 10, // event positions stay in sim units across the hand-off: the main thread maps them
-	view_policy = {.Dot = {appear = .Verified}}, // the driver also fills verified ticks (fill_verified)
+	// the driver also fills verified ticks (fill_verified) and samples them (verified_players.odin)
+	view_policy = {.Dot = {appear = .Verified, remote = .Verified}},
 }
 
 @(private = "file")
@@ -195,6 +196,7 @@ replay_wait :: proc(ms: int, done: proc(frame: ^godot.Frame_Data) -> bool) -> (f
 replay_plays :: proc(t: ^testing.T) {
 	ok, err := godot.api.start({mode = .Replay, arg = REPLAY_DIR, name = "viewer"})
 	if !testing.expectf(t, ok, "replay start: %s", err) do return
+	testing.expect(t, godot.api.sampler() == nil, "a replay plays nothing late: every tick it shows is final")
 	first, last := recorded_range[0], recorded_range[1]
 	_, at_end := replay_wait(5000, proc(frame: ^godot.Frame_Data) -> bool {
 		return frame.replay.active && frame.replay.paused && frame.tick == frame.replay.last
@@ -249,6 +251,7 @@ driver_sessions :: proc(t: ^testing.T) {
 			scripted = false,
 		})
 		testing.expect(t, ok, err)
+		testing.expect(t, godot.api.sampler() != nil, "a .Verified kind: the session samples the verified timeline")
 		godot.api.sample_input() // the main thread's sample (the session took none yet: a start clears it)
 		for amount in ([]i32{3, -1, 8}) {
 			command := sim.command_make(toy.Cmd, toy.Cmd_Bump{amount})

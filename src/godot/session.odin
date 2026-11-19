@@ -241,6 +241,12 @@ register_session_class :: proc() {
 	)
 	gd.bind_property(
 		class,
+		"verified_tick",
+		proc(session: ^Session_Node) -> i64 {return session.frame != nil ? i64(session.frame.verified) : 0},
+		doc = "The newest verified tick at the shown frame: every tick up to it is final (0: none yet).",
+	)
+	gd.bind_property(
+		class,
 		"round_trip_ms",
 		proc(session: ^Session_Node) -> f64 {return session.frame != nil ? session.frame.net.rtt_ms : 0},
 		doc = "The round trip to the host the input delay is computed from, in milliseconds, at the shown frame (next to 0 in single player and for the host: its relay is in-process).",

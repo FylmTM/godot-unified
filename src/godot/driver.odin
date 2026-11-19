@@ -493,8 +493,8 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 			pose_memory_init(&driver.verified_poses, FRAME_VIEWS, FRAME_MULTIS)
 			driver.verified_out.alloc = context.allocator
 		}
-		// the dev UI can force it on for every kind
-		if api.remote_verified || DEVUI {
+		// the dev UI can force it on for every kind; a replay has none: every tick it shows is final
+		if (api.remote_verified || DEVUI) && request.mode != .Replay {
 			kinds := make([dynamic]u8, context.temp_allocator)
 			for policy, kind in api.view_policy do if policy.remote == .Verified do append(&kinds, u8(kind))
 			driver.sampler = verified_sampler_new(kinds[:])

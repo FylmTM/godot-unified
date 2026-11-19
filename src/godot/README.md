@@ -129,8 +129,8 @@ such a view is never cancelled.
 
 **Remote players on the verified timeline** (`Remote.Verified`, `verified_players.odin`): a kind whose views of other
 players must never snap back, at the price of showing them late. Only that: a view of such a kind that shows a player
-who isn't local plays final ticks; the local players' views, the things a remote player carries and MultiMesh
-instances stay on the prediction (a game wanting a carried thing late too gives it a kind of its own that shows the
+who isn't local plays final ticks; the local players' views, data-only views, the things a remote player carries and
+MultiMesh instances stay on the prediction (a game wanting a carried thing late too gives it a kind of its own that shows the
 player). Such a view's data and events follow its pose: an event reaches it when playback reaches the event's tick,
 CONFIRMED only, never ahead of the body it belongs to, while the session's `sim_event` signal still has it on the
 prediction. A view whose player becomes local, or stops being, snaps between the timelines. Predicted is the default:

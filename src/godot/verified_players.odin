@@ -1,9 +1,10 @@
 // Other players on the verified timeline (View_Policy.remote = .Verified): a scene view of such a kind that shows a
-// player who isn't local is posed from final ticks only, played back VERIFIED_DELAY_TICKS behind the newest verified
-// tick, instead of from the prediction: it never corrects, and it lags by about the round trip plus that delay. Its
-// view data comes from the same samples and its events are delivered when playback reaches their tick, CONFIRMED only
-// (the timeline is final: nothing is cancelled), so an effect lines up with the late body. It stays hidden until its
-// first sample, and lingers after its key is gone until playback has shown its last one. Dev UI builds can force it on
+// player who isn't local is posed from final ticks only, played back a few ticks behind the newest verified tick
+// (VERIFIED_DELAY_TICKS, adapting to the gaps between samples), instead of from the prediction: it never corrects, and
+// it lags by about the round trip plus that delay. Its view data comes from the same samples and its events are
+// delivered when its pose reaches their tick, CONFIRMED only (the timeline is final: nothing is cancelled), so an effect
+// lines up with the late body. It stays hidden until its first sample, and when its key leaves it stays until playback
+// reaches the tick it left at. A replay has no sampler (every tick it shows is final). Dev UI builds can force it on
 // for every kind (the Conditions panel, `--verified-players`), to compare with the prediction.
 //
 // The session thread keeps a sample of each such view per verified tick: a tick stepped as final is filled once more
@@ -22,8 +23,13 @@ import gd "unified:gdext"
 import "unified:netcode"
 import "unified:sim"
 
-// How far behind the newest verified tick the playback clock aims (ticks): room for verified ticks arriving unevenly.
+// How far behind the newest verified tick the playback clock aims (ticks), at least: room for verified ticks arriving
+// unevenly. It adapts to the gaps between samples (a tick no fill showed has none, so the newest sample can be a few
+// ticks behind the newest verified tick): the delay is the widest recent gap (Verified_Gaps), between this and
+// VERIFIED_DELAY_MAX, so playback doesn't run past the newest sample and stall.
 VERIFIED_DELAY_TICKS :: 4
+// The most the playback delay grows to (ticks), however far apart samples come.
+VERIFIED_DELAY_MAX :: 10
 // A playback clock this far from its target (ticks) jumps to it instead of drifting there.
 VERIFIED_WINDOW_TICKS :: 12
 // The most the playback clock runs faster or slower than the tick rate to reach its target (a fraction): a short stall
@@ -111,13 +117,40 @@ verified_pose_at :: proc(
 }
 
 // The playback clock (a fractional tick) after a render frame of `dt_s`: it runs at `tick_hz` toward the target
-// `verified` - VERIFIED_DELAY_TICKS, at most VERIFIED_RATE_MAX faster or slower, and never past `verified` (the newest
-// verified tick). Not `started`, or VERIFIED_WINDOW_TICKS or more from the target, it is the target.
-verified_clock_step :: proc(play: f64, started: bool, verified: u32, dt_s: f32, tick_hz: u32) -> f64 {
-	target := f64(verified) - VERIFIED_DELAY_TICKS
+// `verified` - `delay` (verified_delay), at most VERIFIED_RATE_MAX faster or slower, and never past `verified` (the
+// newest verified tick). Not `started`, or VERIFIED_WINDOW_TICKS or more from the target, it is the target.
+verified_clock_step :: proc(play: f64, started: bool, verified: u32, delay: f64, dt_s: f32, tick_hz: u32) -> f64 {
+	target := f64(verified) - delay
 	if !started || abs(target - play) >= VERIFIED_WINDOW_TICKS do return target
 	rate := 1 + clamp((target - play) * 0.05, -VERIFIED_RATE_MAX, VERIFIED_RATE_MAX)
 	return min(play + f64(max(dt_s, 0)) * f64(tick_hz) * rate, f64(verified))
+}
+
+// The widest recent gap between a view's consecutive samples (ticks; 1: none missing), which the playback delay covers:
+// it widens at once and narrows a tick per second.
+Verified_Gaps :: struct {
+	peak:    u32,
+	decay_s: f32, // since it last narrowed
+}
+
+// A gap of `gap` ticks between two samples of a view. One wider than VERIFIED_RING is a view coming back after a while,
+// not a run of unsampled ticks: ignored.
+verified_gaps_see :: proc(gaps: ^Verified_Gaps, gap: u32) {
+	if gap <= VERIFIED_RING && gap > gaps.peak do gaps.peak, gaps.decay_s = gap, 0
+}
+
+// A render frame of `dt_s`: the peak narrows by a tick each second.
+verified_gaps_step :: proc(gaps: ^Verified_Gaps, dt_s: f32) {
+	gaps.decay_s += max(dt_s, 0)
+	for gaps.decay_s >= 1 {
+		gaps.decay_s -= 1
+		if gaps.peak > 0 do gaps.peak -= 1
+	}
+}
+
+// The playback delay for these gaps (ticks): the widest, within VERIFIED_DELAY_TICKS ..= VERIFIED_DELAY_MAX.
+verified_delay :: proc(gaps: Verified_Gaps) -> f64 {
+	return f64(clamp(gaps.peak, VERIFIED_DELAY_TICKS, VERIFIED_DELAY_MAX))
 }
 
 // Whether views of `kind` play on the verified timeline when they show a remote player: its policy says so, or the dev
@@ -147,6 +180,7 @@ Verified_Sampler :: struct {
 	queue:      Queue(Verified_Sample, 2048), // full: dropped (the main thread takes them every frame)
 	was_on:     bool,
 	overflow:   bool, // atomic: a fill had more views than VERIFIED_PER_TICK (the main thread reports it once)
+	dropped:    bool, // atomic: the queue was full (the main thread reports it once)
 	too_big:    u8, // atomic: a kind (+1) whose data is past VERIFIED_DATA_MAX (0: none)
 	out:        Frame_Data, // a final tick's fill (the driver's)
 	poses:      Pose_Memory, // left empty: a final tick's fill remembers no poses
@@ -247,7 +281,11 @@ verified_sampler_verified :: proc(sampler: ^Verified_Sampler, tick: u32, final: 
 	} else if !fill.valid || fill.tick != tick {
 		return
 	}
-	for sample in fill.samples[:fill.count] do if !queue_push(&sampler.queue, sample) do break
+	for sample in fill.samples[:fill.count] {
+		if queue_push(&sampler.queue, sample) do continue
+		sync.atomic_store(&sampler.dropped, true)
+		break
+	}
 }
 
 // The driver's verified hook: a tick stepped as final is filled once more (a second fill_frame for that tick).
@@ -272,16 +310,18 @@ verified_sampler_tick :: proc(driver: ^Driver($G, $View, $MultiView), simulation
 @(private)
 VP: struct {
 	forced:     bool, // the dev UI's switch, this frame
-	wanted:     bool, // forced, or some kind asks for it
+	wanted:     bool, // a session samples (not a replay), and the switch or some kind asks for it
+	overflowed: bool, // the session thread dropped views past VERIFIED_PER_TICK: a view without samples stays predicted
 	generation: u64, // the session's sampler whose samples the histories hold (0: none)
 	histories:  map[View_Id]Verified_History,
+	gaps:       Verified_Gaps,
 	play:       f64, // the playback clock (a fractional tick)
 	started:    bool,
 	locals:     [LOCAL_MAX]u64, // the shown frame's local players (keys)
-	pending:    [dynamic]Verified_Event, // events waiting for playback to reach their tick, in arrival order
+	pending:    [dynamic]Verified_Event, // events waiting for their view's pose to reach their tick, in arrival order
 }
 
-// A remote view's event, held until playback reaches its tick.
+// A remote view's event, held until its pose reaches its tick.
 @(private)
 Verified_Event :: struct {
 	view:  View_Id,
@@ -297,11 +337,12 @@ verified_players_want :: proc(on: bool) {
 }
 
 // Main thread, every frame before the views are posed: the session thread's samples into each view's history, the
-// playback clock, and the held events playback has reached to their views.
+// playback clock, and the held events their views' poses reached. No sampler (a replay, where every tick is final; no
+// session): nothing plays late.
 @(private)
 verified_players_sync :: proc(frame: ^Frame_Data, fresh: bool, dt_s: f32) {
-	VP.wanted = VP.forced || api.remote_verified
 	sampler := api.installed && api.sampler != nil ? api.sampler() : nil
+	VP.wanted = (VP.forced || api.remote_verified) && sampler != nil
 	generation := sampler != nil ? sampler.generation : 0
 	if !VP.wanted || generation != VP.generation {
 		verified_players_forget()
@@ -309,13 +350,20 @@ verified_players_sync :: proc(frame: ^Frame_Data, fresh: bool, dt_s: f32) {
 	}
 	if sampler == nil do return
 	VP.locals = frame.local_players
-	if sync.atomic_load(&sampler.overflow) {
+	VP.overflowed = sync.atomic_load(&sampler.overflow)
+	if VP.overflowed {
 		report_once(
 			"verified-overflow",
 			fmt.tprintf(
-				"unified: more than %d views of .Verified kinds in one tick: the rest show late without samples",
+				"unified: more than %d views of .Verified kinds in one tick: the rest stay on the prediction",
 				VERIFIED_PER_TICK,
 			),
+		)
+	}
+	if sync.atomic_load(&sampler.dropped) {
+		report_once(
+			"verified-dropped",
+			"unified: the verified timeline's samples came faster than the main thread took them: some were dropped",
 		)
 	}
 	if kind := sync.atomic_load(&sampler.too_big); kind > 0 {
@@ -333,7 +381,12 @@ verified_players_sync :: proc(frame: ^Frame_Data, fresh: bool, dt_s: f32) {
 		if !VP.wanted do continue // samples of before it was switched off
 		id := View_Id{sample.kind, sample.key}
 		if id not_in VP.histories do VP.histories[id] = {}
-		verified_history_push(&VP.histories[id], sample)
+		history := &VP.histories[id]
+		if history.count > 0 {
+			newest := verified_history_at(history, history.count - 1).tick
+			if sample.tick > newest do verified_gaps_see(&VP.gaps, sample.tick - newest)
+		}
+		verified_history_push(history, sample)
 	}
 	if !VP.wanted do return
 	if fresh {
@@ -347,25 +400,44 @@ verified_players_sync :: proc(frame: ^Frame_Data, fresh: bool, dt_s: f32) {
 		}
 		for id in gone do delete_key(&VP.histories, id)
 	}
-	VP.play = verified_clock_step(VP.play, VP.started, frame.verified, dt_s, frame.tick_hz)
+	verified_gaps_step(&VP.gaps, dt_s)
+	VP.play = verified_clock_step(VP.play, VP.started, frame.verified, verified_delay(VP.gaps), dt_s, frame.tick_hz)
 	VP.started = true
-	// the held events playback reached, in order, to their views if they are still there
-	delivered := 0
+	// the held events whose view's pose reached their tick, in order (a view gone: dropped; one now on the prediction:
+	// at once)
+	kept := 0
 	for &held in VP.pending {
-		if f64(held.tick) > VP.play do break
-		if entry := set_get(&V.set, held.view); entry != nil do call_sim_event_now(entry.view, held.event, i64(Event_Action.Confirmed))
+		entry := set_get(&V.set, held.view)
+		if entry != nil && entry.view != nil && verified_players_applies(entry.view) {
+			if f64(held.tick) > verified_shown_tick(held.view) {
+				VP.pending[kept] = held
+				kept += 1
+				continue
+			}
+		}
+		if entry != nil do call_sim_event_now(entry.view, held.event, i64(Event_Action.Confirmed))
 		gd.variant_destroy(&held.event)
-		delivered += 1
 	}
-	if delivered > 0 do remove_range(&VP.pending, 0, delivered)
+	resize(&VP.pending, kept)
 }
 
-// Whether a scene view plays on the verified timeline now: its kind does, and it shows a player who isn't local.
+// The tick a view's verified pose shows: the playback clock, or its newest sample's tick when playback is past it.
+@(private)
+verified_shown_tick :: proc(id: View_Id) -> f64 {
+	history, has := &VP.histories[id]
+	if !has || history.count == 0 do return -1
+	return min(VP.play, f64(verified_history_at(history, history.count - 1).tick))
+}
+
+// Whether a scene view plays on the verified timeline now: its kind does, it has a pose (a data-only view, a Control,
+// has none to delay: it stays on the prediction), and it shows a player who isn't local. While the session thread
+// drops views past VERIFIED_PER_TICK, one with no samples stays on the prediction.
 @(private)
 verified_players_applies :: proc(scene_view: ^Scene_View) -> bool {
-	if !VP.wanted || scene_view.player == 0 || !verified_kind(scene_view.kind, VP.forced) do return false
+	if !VP.wanted || scene_view.player == 0 || scene_view.mode == .Other do return false
+	if !verified_kind(scene_view.kind, VP.forced) do return false
 	for local in VP.locals do if local == scene_view.player do return false
-	return true
+	return !VP.overflowed || View_Id{scene_view.kind, scene_view.key} in VP.histories
 }
 
 // How a scene view is posed this frame: from the prediction (`applies` false), hidden (it plays on the verified
@@ -383,16 +455,31 @@ verified_players_pose :: proc(scene_view: ^Scene_View) -> (pose: Pose, applies: 
 	return
 }
 
-// Whether a view whose key is gone from the frame keeps showing: it plays on the verified timeline and playback isn't
-// a tick past its last sample yet (it lingers until its late pose got there and showed).
+// Whether a view whose key is missing from the frame keeps showing: it plays on the verified timeline and playback
+// hasn't reached `gone_tick`, the tick of the first frame that lacked its key (it lingers until its late pose got
+// there).
 @(private)
-verified_players_keeps :: proc(scene_view: ^Scene_View) -> bool {
-	if scene_view == nil || !verified_players_applies(scene_view) do return false
-	history, has := &VP.histories[View_Id{scene_view.kind, scene_view.key}]
-	return has && history.count > 0 && f64(verified_history_at(history, history.count - 1).tick) + 1 > VP.play
+verified_players_keeps :: proc(scene_view: ^Scene_View, gone_tick: u32) -> bool {
+	return scene_view != nil && verified_players_applies(scene_view) && f64(gone_tick) > VP.play
 }
 
-// An event for a view that plays on the verified timeline: held until playback reaches `tick` and delivered CONFIRMED
+// A view on the verified timeline leaves: its held events are delivered now (its pose showed what it got to).
+@(private)
+verified_players_flush :: proc(id: View_Id, scene_view: ^Scene_View) {
+	kept := 0
+	for &held in VP.pending {
+		if held.view != id {
+			VP.pending[kept] = held
+			kept += 1
+			continue
+		}
+		call_sim_event_now(scene_view, held.event, i64(Event_Action.Confirmed))
+		gd.variant_destroy(&held.event)
+	}
+	resize(&VP.pending, kept)
+}
+
+// An event for a view that plays on the verified timeline: held until its pose reaches `tick` and delivered CONFIRMED
 // then (true); an EMITTED or CANCELLED one is dropped (true: the final timeline has neither). False: the view is on the
 // prediction, deliver it now.
 @(private)
@@ -404,18 +491,24 @@ verified_players_hold :: proc(scene_view: ^Scene_View, event: gd.Variant, state:
 	return true
 }
 
-// Forgets every history and held event (main thread: another session, the views cleared, the option off).
+// Forgets every history, and delivers the held events to their views now (main thread: another session, the session
+// ended, the option off).
 @(private)
 verified_players_forget :: proc() {
 	clear(&VP.histories)
-	for &held in VP.pending do gd.variant_destroy(&held.event)
+	for &held in VP.pending {
+		if entry := set_get(&V.set, held.view); entry != nil do call_sim_event_now(entry.view, held.event, i64(Event_Action.Confirmed))
+		gd.variant_destroy(&held.event)
+	}
 	clear(&VP.pending)
-	VP.started = false
+	VP.started, VP.gaps, VP.overflowed = false, {}, false
 }
 
-// Frees what the verified timeline holds (main thread: the views were cleared).
+// Frees what the verified timeline holds (main thread: the views were cleared, so the held events go undelivered).
 @(private)
 verified_players_clear :: proc() {
+	for &held in VP.pending do gd.variant_destroy(&held.event)
+	clear(&VP.pending)
 	verified_players_forget()
 	delete(VP.histories)
 	delete(VP.pending)

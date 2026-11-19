@@ -50,6 +50,7 @@ Scene_View :: struct {
 	shown:       Pose, // the pose last set on the root (view units), so an unchanged one isn't set again
 	posed:       bool,
 	held_back:   bool, // hidden by the host: a verified-timeline view with no sample yet (verified_players.odin)
+	gone_tick:   u32, // the tick of the first frame that lacked its key while it plays late (0: in the frame)
 	using hooks: View_Hooks, // the root's script's
 	data:        []u8, // the data last set as properties
 }
@@ -694,6 +695,7 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 			}
 			scene_view := entry.view
 			if scene_view == nil do continue
+			scene_view.gone_tick = 0 // in the frame (again, if a rollback brought it back)
 			if frame.verified >= scene_view.spawn_tick do scene_view.verified = true
 			if revived && scene_view.gone { 	// a rollback brought it back during its linger
 				scene_view.gone = false
@@ -719,10 +721,18 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 			track_push_prev(&scene_view.track, frame.tick, {item.prev_pos, item.prev_rot}, item.has_prev, smoothing)
 			track_push(&scene_view.track, frame.tick, {item.pos, item.rot}, smoothing)
 		}
-		// on the verified timeline, a view whose key is gone lingers until playback reaches its last sample
+		// on the verified timeline, a view whose key left stays until playback reaches the tick it left at; leaving, its
+		// held events are delivered
 		kept := make([dynamic]View_Id, context.temp_allocator)
 		for id, entry in V.set.entries {
-			if entry.seen != V.set.frame && entry.phase == .Alive && verified_players_keeps(entry.view) do append(&kept, id)
+			if entry.seen == V.set.frame || entry.phase != .Alive || entry.view == nil do continue
+			if !verified_players_applies(entry.view) do continue
+			if entry.view.gone_tick == 0 do entry.view.gone_tick = frame.tick
+			if verified_players_keeps(entry.view, entry.view.gone_tick) {
+				append(&kept, id)
+			} else {
+				verified_players_flush(id, entry.view)
+			}
 		}
 		for id in kept do set_see(&V.set, id)
 		// gone before their spawn tick was ever verified: cancelled spawns, freed at once

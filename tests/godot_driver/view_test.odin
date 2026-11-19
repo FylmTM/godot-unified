@@ -655,22 +655,45 @@ verified_pose_interpolates_between_final_ticks :: proc(t: ^testing.T) {
 
 @(test)
 verified_clock_follows_the_verified_tick :: proc(t: ^testing.T) {
-	play := godot.verified_clock_step(0, false, 100, 1.0 / 60, 60)
-	testing.expect_value(t, play, f64(100 - godot.VERIFIED_DELAY_TICKS)) // starts at the target
-	steady := godot.verified_clock_step(play, true, 100, 1.0 / 60, 60)
+	D :: f64(godot.VERIFIED_DELAY_TICKS)
+	play := godot.verified_clock_step(0, false, 100, D, 1.0 / 60, 60)
+	testing.expect_value(t, play, 100 - D) // starts at the target
+	steady := godot.verified_clock_step(play, true, 100, D, 1.0 / 60, 60)
 	testing.expect(t, math.abs(steady - (play + 1)) < 1e-6) // on target: a tick per tick's time
-	behind := godot.verified_clock_step(play, true, 106, 1.0 / 60, 60)
+	behind := godot.verified_clock_step(play, true, 106, D, 1.0 / 60, 60)
 	testing.expect(t, behind > play + 1.01 && behind < play + 1 + godot.VERIFIED_RATE_MAX + 1e-6) // catches up gently
-	stalled := godot.verified_clock_step(99.5, true, 100, 1.0, 60)
+	stalled := godot.verified_clock_step(99.5, true, 100, D, 1.0, 60)
 	testing.expect_value(t, stalled, 100) // never past the newest verified tick
-	far := godot.verified_clock_step(play, true, 200, 1.0 / 60, 60)
-	testing.expect_value(t, far, f64(200 - godot.VERIFIED_DELAY_TICKS)) // out of the window: jumps
+	far := godot.verified_clock_step(play, true, 200, D, 1.0 / 60, 60)
+	testing.expect_value(t, far, 200 - D) // out of the window: jumps
 	// a short stall: 10 ticks behind (inside the window) is made up within 2 s of frames at 60 fps
-	caught, verified := f64(90 - godot.VERIFIED_DELAY_TICKS), u32(100)
+	caught, verified := 90 - D, u32(100)
 	frames := 0
-	for ; frames < 600 && f64(verified) - godot.VERIFIED_DELAY_TICKS - caught > 0.5; frames += 1 {
-		caught = godot.verified_clock_step(caught, true, verified, 1.0 / 60, 60)
+	for ; frames < 600 && f64(verified) - D - caught > 0.5; frames += 1 {
+		caught = godot.verified_clock_step(caught, true, verified, D, 1.0 / 60, 60)
 		verified += 1 // the verified tick moves on at the tick rate
 	}
 	testing.expectf(t, frames <= 120, "a 10-tick stall took %v frames to make up", frames)
+}
+
+// The playback delay covers the widest recent gap between samples: at least VERIFIED_DELAY_TICKS, at most
+// VERIFIED_DELAY_MAX; it widens at once and narrows a tick per second; a view coming back after a while isn't a gap.
+@(test)
+verified_delay_follows_the_gaps :: proc(t: ^testing.T) {
+	gaps: godot.Verified_Gaps
+	testing.expect_value(t, godot.verified_delay(gaps), f64(godot.VERIFIED_DELAY_TICKS))
+	godot.verified_gaps_see(&gaps, 2)
+	testing.expect_value(t, godot.verified_delay(gaps), f64(godot.VERIFIED_DELAY_TICKS))
+	godot.verified_gaps_see(&gaps, 7)
+	testing.expect_value(t, godot.verified_delay(gaps), 7)
+	godot.verified_gaps_see(&gaps, 5) // narrower: the widest holds
+	testing.expect_value(t, godot.verified_delay(gaps), 7)
+	godot.verified_gaps_see(&gaps, 30)
+	testing.expect_value(t, godot.verified_delay(gaps), f64(godot.VERIFIED_DELAY_MAX))
+	godot.verified_gaps_see(&gaps, 1000) // a view back after a while
+	testing.expect_value(t, gaps.peak, 30)
+	for _ in 0 ..< 4 * 21 do godot.verified_gaps_step(&gaps, 0.25) // 21 s: 30 -> 9
+	testing.expect_value(t, godot.verified_delay(gaps), 9)
+	for _ in 0 ..< 60 * 30 do godot.verified_gaps_step(&gaps, 1.0 / 60)
+	testing.expect_value(t, godot.verified_delay(gaps), f64(godot.VERIFIED_DELAY_TICKS))
 }
