@@ -13,35 +13,39 @@ update_presence :: proc(t: ^Tick) {
 		physics.character_destroy(t.world.phys, &character.controller)
 		character^ = {}
 	}
-	for player in t.player_changes.arrived {
-		character := sim.player_data(t, player)
-		character^ = {
-			facing = {0, 1},
-			aim    = {0, 0, 1},
-		}
-		at := respawn_point(t, sim.player_slot(t, player))
-		physics.character_create(
-			t.world.phys,
-			&character.controller,
-			t.world.character_def,
-			at,
-			tag = sim.player_key(player),
-		)
-		sim.emit(t, Event_Spawned{position = sim.Position(at), player = player})
-	}
+	for player in t.player_changes.arrived do spawn_character(t, player)
 }
 
-// Where a player in `slot` (re)appears: their place at the team's last checkpoint during a run, else their hub spawn.
+// A fresh body for a present player at their respawn point (an arrival, or every player when the team enters a level).
+spawn_character :: proc(t: ^Tick, player: sim.Player) {
+	character := sim.player_data(t, player)
+	character^ = {
+		facing = {0, 1},
+		aim    = {0, 0, 1},
+	}
+	at := respawn_point(t, sim.player_slot(t, player))
+	physics.character_create(
+		t.world.phys,
+		&character.controller,
+		t.world.character_def,
+		at,
+		tag = sim.player_key(player),
+	)
+	sim.emit(t, Event_Spawned{position = sim.Position(at), player = player})
+}
+
+// Where a player in `slot` (re)appears: their place at the team's last checkpoint during a run, else their spawn in
+// the active level.
 respawn_point :: proc(t: ^Tick, slot: int) -> [3]f32 {
 	if t.state.checkpoint >= 0 {
-		for &checkpoint in sim.slice(&t.world.checkpoints) {
+		for &checkpoint in sim.slice(&places(t).checkpoints) {
 			if checkpoint.index == int(t.state.checkpoint) {
 				spread := f32(slot) * CHECKPOINT_SPREAD - CHECKPOINT_SPREAD * (PLAYERS - 1) / 2
 				return checkpoint.volume.pos + {spread, 0, 0}
 			}
 		}
 	}
-	return t.world.spawns[slot]
+	return places(t).spawns[slot]
 }
 
 // The centre of the player's capsule.
@@ -67,7 +71,7 @@ move_players :: proc(t: ^Tick) {
 		speed_scale: f32 = 1
 		if holding {
 			speed_scale = HOLD_SLOW
-			if character.held_kind == .Item && t.world.items[character.held_item].kind == .Heavy {
+			if character.held_kind == .Item && places(t).items[character.held_item].kind == .Heavy {
 				speed_scale = HOLD_SLOW_HEAVY
 			}
 		}

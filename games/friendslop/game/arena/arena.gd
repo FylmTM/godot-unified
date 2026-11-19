@@ -1,25 +1,26 @@
 class_name Arena
 extends Node3D
-## The play scene: the level (its meshes are the visuals; markers lend theirs to the sim's views), the views root
-## handed to the session, the third-person camera and the HUD. Routes sim events to sounds and camera shake.
-
-## The level's markers in the level file's order (Unified.level_markers): marker views look themselves up here.
-var markers: Array[Node] = []
+## The play scene: the level root the session instances the active level under (the hub or the route; their meshes are
+## the visuals, their markers lend theirs to the sim's views), the views root handed to the session, the third-person
+## camera, the HUD and a loading view while a level's scene loads. Routes sim events to sounds and camera shake.
 
 @onready var camera_rig: CameraRig = $CameraRig
 @onready var _views: Node3D = $Views
 @onready var _level: Node3D = $Level
+@onready var _loading: CanvasLayer = $Loading
 
 
 func _ready() -> void:
-	markers = Unified.level_markers(_level)
 	Unified.session.view_root = _views
+	Unified.session.level_root = _level
+	Unified.session.level_changing.connect(func(_to: int) -> void: _loading.visible = true)
+	Unified.session.level_changed.connect(func(_level_id: int) -> void: _loading.visible = false)
 	Unified.session.sim_event.connect(_on_sim_event)
 
 
-## The marker node for a marker view's key (its marker index), or null.
+## The marker node for a marker view's key (its marker index in the level on screen), or null.
 func marker(index: int) -> Node3D:
-	return markers[index] as Node3D if index >= 0 and index < markers.size() else null
+	return Unified.session.level_marker(index) as Node3D
 
 
 ## Verified events only (predictions are the views' business).

@@ -1,7 +1,6 @@
 [gd_scene format=3]
 
 [ext_resource type="Script" path="res://game/arena/arena.gd" id="1_arena"]
-[ext_resource type="PackedScene" path="res://game/levels/park.tscn" id="2_level"]
 [ext_resource type="Script" path="res://game/arena/camera_rig.gd" id="3_camera"]
 [ext_resource type="PackedScene" path="res://game/ui/hud.tscn" id="4_hud"]
 [ext_resource type="PackedScene" path="res://game/ui/pause_menu.tscn" id="5_pause"]
@@ -9,7 +8,7 @@
 [node name="Arena" type="Node3D"]
 script = ExtResource("1_arena")
 
-[node name="Level" parent="." instance=ExtResource("2_level")]
+[node name="Level" type="Node3D" parent="."]
 
 [node name="Views" type="Node3D" parent="."]
 
@@ -24,3 +23,17 @@ current = true
 
 [node name="PauseMenu" parent="." instance=ExtResource("5_pause")]
 visible = false
+
+[node name="Loading" type="CanvasLayer" parent="."]
+visible = false
+
+[node name="Label" type="Label" parent="Loading"]
+anchors_preset = 8
+anchor_left = 0.5
+anchor_top = 0.5
+anchor_right = 0.5
+anchor_bottom = 0.5
+grow_horizontal = 2
+grow_vertical = 2
+theme_override_font_sizes/font_size = 32
+text = "Loading…"

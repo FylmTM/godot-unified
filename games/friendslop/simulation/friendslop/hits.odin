@@ -10,7 +10,7 @@ bump_players :: proc(t: ^Tick) {
 	for character, player in sim.next(&players) {
 		if character.stun > 0 || character.respawn > 0 || character.held_by != {} do continue
 		pos := player_pos(t, player)
-		for &bumper in sim.slice(&t.world.bumpers) {
+		for &bumper in sim.slice(&places(t).bumpers) {
 			if !in_volume(bumper.volume, pos) do continue
 			direction := dmath.normalize(pos.xz - bumper.volume.pos.xz)
 			if direction == {} do direction = -character.facing
@@ -51,7 +51,7 @@ hit_player :: proc(t: ^Tick, index: int, player: sim.Player, hit: ^physics.Conta
 
 // A hit on trigger `index`: a bell rings when the hit is fast enough and it is not cooling down.
 ring_bell :: proc(t: ^Tick, index: int, hit: ^physics.Contact_Event) {
-	def := &t.world.triggers[index]
+	def := &places(t).triggers[index]
 	trigger := &t.state.triggers[index]
 	if def.kind != .Bell || hit.speed < BELL_SPEED || trigger.cooldown > 0 do return
 	trigger.active = true

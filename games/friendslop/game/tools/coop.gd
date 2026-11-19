@@ -1,6 +1,7 @@
 extends UnifiedCoop
 ## friendslop's co-op play (the flow is the library's, UnifiedCoop): the host walks over to the friend and picks
-## them up; the friend mashes jump and breaks free.
+## them up; the friend mashes jump and breaks free. Then the host takes the team to the route and back to the hub
+## (travel commands), and the friend's game follows both level changes.
 
 const Steering := preload("res://game/tools/steering.gd")
 
@@ -19,6 +20,13 @@ func _host_play() -> void:
 	step("holding the friend")
 	await wait_for(func() -> bool: return not _held(friend), 20.0, "the friend breaks free")
 	step("the friend broke free")
+	await _travel(EnumLevelId.ROUTE)
+	await seconds(1.0)
+	await shot("c04_route")
+	await _travel(EnumLevelId.HUB)
+	await seconds(0.5)
+	await shot("c05_hub_again")
+	step("the team went to the route and back")
 
 
 func _join_play() -> void:
@@ -29,6 +37,18 @@ func _join_play() -> void:
 		await hold(&"jump", 0.08)
 		await seconds(0.1)
 	step("broke free")
+	await wait_for(func() -> bool: return session.level == EnumLevelId.ROUTE, 30.0, "the host takes us to the route")
+	step("followed to the route")
+	await wait_for(func() -> bool: return session.level == EnumLevelId.HUB, 30.0, "the host takes us back to the hub")
+	step("followed back to the hub")
+
+
+## The host's travel command, and the level on screen once it is verified (the scene loaded).
+func _travel(to: int) -> void:
+	var travel := CommandTravel.new()
+	travel.to = to
+	session.send_command(travel)
+	await wait_for(func() -> bool: return session.level == to, 15.0, "level %d on screen" % to)
 
 
 ## Someone holds this player (false while they hold no slot).

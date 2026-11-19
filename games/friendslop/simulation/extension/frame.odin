@@ -50,14 +50,16 @@ fill_frame :: proc(f: ^Frame) {
 			charge  = f32(character.charge) / f32(g.THROW_CHARGE_TICKS),
 		})
 	}
-	for i in 0 ..< f.world.item_count do push_body(f, f.state.items[i].body, f.world.items[i].marker)
-	for i in 0 ..< f.world.platform_count do push_body(f, f.state.platforms[i].body, f.world.platforms[i].marker)
-	for i in 0 ..< f.world.trigger_count {
-		marker := f.world.triggers[i].marker
+	// The active level's things: a marker index names a marker of the level active at this tick.
+	places := &f.world.places[f.state.level.id]
+	for i in 0 ..< places.item_count do push_body(f, f.state.items[i].body, places.items[i].marker)
+	for i in 0 ..< places.platform_count do push_body(f, f.state.platforms[i].body, places.platforms[i].marker)
+	for i in 0 ..< places.trigger_count {
+		marker := places.triggers[i].marker
 		godot.push_view(f, sim.entity(marker), {
 			kind = .Marker,
-			pos  = sim.Position(f.world.triggers[i].volume.pos),
-			rot  = physics.level_data(f.world.phys, g.Level_Id.Park).markers[marker].rot,
+			pos  = sim.Position(places.triggers[i].volume.pos),
+			rot  = physics.level_data(f.world.phys, f.state.level.id).markers[marker].rot,
 		})
 	}
 	godot.push_data(f, hud_of(f.state, f.tick))

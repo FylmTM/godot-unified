@@ -1,5 +1,6 @@
 extends CanvasLayer
-## The in-game menu (the `menu` action, Esc or Start): Resume, Settings, Leave to menu. The sim never pauses (online
+## The in-game menu (the `menu` action, Esc or Start): Resume, Back to hub (friendslop's own: the team leaves the route),
+## Settings, Leave to menu. The sim never pauses (online
 ## it can't; offline the session has no pause either), so this is an overlay only, with game input off while it is
 ## open (UnifiedSession.game_input: its clicks and keys don't reach the sim). A play scene instances pause_menu.tscn as
 ## `PauseMenu`.
@@ -16,6 +17,7 @@ var _settings: SettingsPanel
 func _ready() -> void:
 	tree_exiting.connect(func() -> void: Unified.session.game_input = true)  # left to the menu while open
 	_resume.pressed.connect(_click.bind(close))
+	(%Hub as Button).pressed.connect(_click.bind(_back_to_hub))
 	(%Settings as Button).pressed.connect(_click.bind(_open_settings))
 	(%Leave as Button).pressed.connect(_click.bind(Game.leave_to_menu.bind("")))
 
@@ -49,6 +51,14 @@ func close() -> void:
 func _click(action: Callable) -> void:
 	Sfx.play(&"click")
 	action.call()
+
+
+## The whole team goes back to the hub (a travel command: the sim decides, every peer follows).
+func _back_to_hub() -> void:
+	var travel := CommandTravel.new()
+	travel.to = EnumLevelId.HUB
+	Unified.session.send_command(travel)
+	close()
 
 
 func _open_settings() -> void:

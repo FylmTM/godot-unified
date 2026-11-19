@@ -2,10 +2,11 @@
 
 A third-person co-op physics sandbox, unified's example of a physics-heavy game: 1–4 wobbly capsule characters ride
 platforms, bounce on jump pads, push, carry, stack and throw things (and each other), knock each other over and haul
-heavy things together. A hub yard to mess around in, and a short route that strings every interaction into beats. A
-Godot project (this folder is `res://`): the sim, its tests, the headless binary and the GDExtension in `simulation/`
-(Odin), everything Godot in `game/`; the level is a Godot scene (`game/levels/park.tscn`). `uni run friendslop` plays
-it.
+heavy things together. A hub yard to mess around in, and a short route that strings every interaction into beats: two
+levels, and the team moves between them inside one session (unified's example of a level change). A Godot project
+(this folder is `res://`): the sim, its tests, the headless binary and the GDExtension in `simulation/` (Odin),
+everything Godot in `game/`; the levels are Godot scenes (`game/levels/hub.tscn`, `route.tscn`). `uni run friendslop`
+plays it.
 
 Metres, seconds and kilograms at `TICK_HZ`, Y up. Every rule number is a named constant in
 `simulation/friendslop/tuning.odin`; the level's own numbers (sizes, launches, paths) are its markers' properties.
@@ -18,14 +19,21 @@ friend to carry them; mash jump to break free.
 
 ## Loop
 
-- **Hub** (spawn, late join): loose items, a lift, a ferry, a jump pad and a bumper. No goals.
-- **Run:** walking through the start gate starts the team's run timer. Each beat's exit is a team **checkpoint**.
+- **Hub** level (spawn, late join): loose items, a lift, a ferry, a jump pad and a bumper. No goals.
+- **Run:** walking through the hub's start gate takes the whole team to the **route** level (everyone at the route's
+  spawns, by slot) and starts the run timer. Each beat's exit is a team **checkpoint**.
 - **Falling** (below `KILL_Y`): the player's body is parked out of the way for `RESPAWN_S`, then they respawn at
   the team's last checkpoint (spread by slot, `CHECKPOINT_SPREAD`), or their hub spawn. A fallen item goes back where
   the level placed it.
-- **Finish:** the trophy in the finish volume ends the run (the best time is kept); after `FINISH_HOLD_S` everyone
-  is back at their hub spawn and every item, platform and trigger is as the level made it. When the last player
-  leaves, a run ends there the same way.
+- **Finish:** the trophy in the finish volume ends the run (the best time is kept); after `FINISH_HOLD_S` the team is
+  back in the hub level, everyone at their hub spawn and every item, platform and trigger as the hub makes them. When
+  the last player leaves, a run ends there the same way.
+- **Travel:** the pause menu's "Back to hub" (`Cmd_Travel`) takes the team to the hub, ending a run; a travel to the
+  route starts one.
+- **A level change** (`enter_level`): everyone lets go and their bodies go, the old level's items, platforms and
+  trigger sensors go, the static geometry is swapped (`physics.level_change`), the new level's things are made in
+  level order, and every present player gets a fresh body at their spawn. The players, the phase and the best time
+  are the block's and carry over.
 
 No health, no fail state: getting hit or dropped costs time, not a life.
 
@@ -104,8 +112,9 @@ Solo finishes every beat; co-op is faster or opens a shortcut.
 7. `apply_hits`: item hits on players (`hit`) and bells (`bell_rung`); `age_throws`.
 8. `press_triggers`: plates (`plate_on`, `plate_off`), switches and locks (`switch_on`).
 9. `recover_from_stuns`, `respawn_fallen` (`fell`, `respawned`), `return_fallen_items`.
-10. `advance_phase`: the start gate (`run_started`), checkpoints (`checkpoint`), the finish (`run_finished`), the
-    reset (`respawned`).
+10. `advance_phase`: the start gate (`run_started`, the route), checkpoints (`checkpoint`), the finish
+    (`run_finished`), the return to the hub (`respawned`).
+11. `travel`: the players' travel commands, the first that goes somewhere.
 
 ## Events
 
@@ -117,13 +126,16 @@ too.
 ## Input
 
 A world-space stick (the client rotates it by its camera), the camera's look direction as the aim, and jump, grab and
-throw, held (presses and releases from `sim.buttons`). No angles cross the wire, so the sim needs no trig. No
-commands.
+throw, held (presses and releases from `sim.buttons`). No angles cross the wire, so the sim needs no trig. One
+command, `Cmd_Travel` (the pause menu's "Back to hub"); the scripted player sends it too, so every scripted session,
+replay and reference run crosses level changes.
 
-## Level
+## Levels
 
-One level, `game/levels/park.tscn` (the hub and the route are parts it instances), baked to `park.level`
-(`src/level/README.md`), which the game embeds. Geometry is Godot's static bodies; the rest are markers: `item` (kind
+Two levels, in `Level_Id` order: `game/levels/hub.tscn` and `route.tscn` (each instances its part from
+`game/levels/parts/` with the sky and sun), baked to `.level` files (`src/level/README.md`), which the game embeds.
+Each has a spawn per slot; the hub's `start` marker is the door to the route, the route's `finish` its end. The World
+reads every level's markers once (`Places`, by level); tick code reads the active level's (`places(t)`). Geometry is Godot's static bodies; the rest are markers: `item` (kind
 crate, ball, cube, key, heavy, trophy), `platform` (with a path), `pad`, `bumper`, `plate`, `bell`, `switch`, `lock`,
 `checkpoint`, `spawn`, `start`, `finish`. At runtime each sim view adopts its marker's visuals.
 
@@ -133,8 +145,11 @@ plate's mass, a spawn per slot, an item kind or platform mode the sim knows).
 
 ## View contract (`simulation/extension`)
 
+- The play scene's `Level` is the session's `level_root`: the session instances the active level's scene there,
+  loading it on a thread behind a loading label, and a marker view finds its marker with
+  `UnifiedSession.level_marker`.
 - Scene views: `player` (keyed by `sim.player_key`; data `limp`, `holding`, `charge`) and `marker`, every sim object
-  the level placed (items, platforms, bells, plates, switches, locks), keyed by its level marker index. An event about
+  the active level placed (items, platforms, bells, plates, switches, locks), keyed by its level marker index. An event about
   a player goes to that player's view, so grabbed, dropped and thrown stay with the holder; one about a marker alone
   goes to that marker's view.
 - Session data `Data_Hud` (`Unified.data.hud`): the phase, the run's and best times, the checkpoint, the reset

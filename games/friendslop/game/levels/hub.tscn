@@ -1,7 +1,7 @@
 [gd_scene format=3]
 
 [ext_resource type="PackedScene" path="res://game/levels/parts/hub.tscn" id="1_hub"]
-[ext_resource type="PackedScene" path="res://game/levels/parts/route.tscn" id="2_route"]
+[ext_resource type="Script" path="res://game/levels/markers/volumes.gd" id="2_volumes"]
 
 [sub_resource type="Environment" id="env"]
 background_mode = 1
@@ -14,7 +14,7 @@ glow_enabled = true
 glow_intensity = 0.5
 glow_hdr_threshold = 1.0
 
-[node name="Park" type="Node3D"]
+[node name="HubLevel" type="Node3D"]
 
 [node name="Env" type="WorldEnvironment" parent="."]
 environment = SubResource("env")
@@ -27,4 +27,8 @@ directional_shadow_max_distance = 80.0
 
 [node name="Hub" parent="." instance=ExtResource("1_hub")]
 
-[node name="Route" parent="." instance=ExtResource("2_route")]
+[node name="Start" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.5, -14.6)
+script = ExtResource("2_volumes")
+unified_kind = "start"
+size = Vector3(3, 1.5, 0.4)

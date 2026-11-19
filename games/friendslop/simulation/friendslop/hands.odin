@@ -95,7 +95,7 @@ try_grab :: proc(t: ^Tick, player: sim.Player, only_thrown: bool) {
 			if distance > GRAB_ANYWHERE && dmath.dot(dmath.normalize(offset.xz), forward) < GRAB_CONE_COS do return
 			if distance < best.distance do best^ = {body, grab_point, distance}
 		}
-		for i in 0 ..< t.world.item_count {
+		for i in 0 ..< places(t).item_count {
 			item := Body {
 				kind = .Item,
 				item = i,
@@ -105,7 +105,7 @@ try_grab :: proc(t: ^Tick, player: sim.Player, only_thrown: bool) {
 				item,
 				grabbable(t, player, item, chest, only_thrown),
 				physics.body_position(t.world.phys, t.state.items[i].body) - chest,
-				ITEM_SPECS[t.world.items[i].kind].radius,
+				ITEM_SPECS[places(t).items[i].kind].radius,
 				forward,
 			)
 		}
@@ -135,7 +135,7 @@ grabbable :: proc(t: ^Tick, player: sim.Player, target: Body, chest: [3]f32, onl
 	case .Item:
 		item := &t.state.items[target.item]
 		if only_thrown && item.thrown_ticks == 0 do return -1
-		kind := t.world.items[target.item].kind
+		kind := places(t).items[target.item].kind
 		spec := &ITEM_SPECS[kind]
 		best, best_distance_sq := -1, max(f32)
 		for point in 0 ..< int(spec.grab_points) {
@@ -183,7 +183,7 @@ grab :: proc(t: ^Tick, player: sim.Player, target: Target) {
 	case .Item:
 		held_kind = .Item
 		item := &t.state.items[target.item]
-		kind := t.world.items[target.item].kind
+		kind := places(t).items[target.item].kind
 		spec := &ITEM_SPECS[kind]
 		held_body = item.body
 		joint_def.base.local_frame_b = {grab_point_offset(kind, target.grab_point), {0, 0, 0, 1}}
@@ -193,7 +193,7 @@ grab :: proc(t: ^Tick, player: sim.Player, target: Target) {
 		item.thrown_ticks = 0
 		item.thrown_by = {}
 		physics.stop_ignoring(t.world.phys, &item.thrower_ignore)
-		entity = sim.entity(t.world.items[target.item].marker)
+		entity = sim.entity(places(t).items[target.item].marker)
 	case .Player:
 		held_kind = .Player
 		held := sim.player_data(t, target.player)
@@ -247,7 +247,7 @@ drop :: proc(t: ^Tick, player: sim.Player) {
 	switch character.held_kind {
 	case .Item:
 		t.state.items[character.held_item].holders[character.grab_point] = {}
-		entity = sim.entity(t.world.items[character.held_item].marker)
+		entity = sim.entity(places(t).items[character.held_item].marker)
 	case .Player:
 		held := sim.player_data(t, held_player)
 		held.held_by = {}
@@ -273,7 +273,7 @@ drop :: proc(t: ^Tick, player: sim.Player) {
 throw :: proc(t: ^Tick, player: sim.Player) {
 	character := sim.player_data(t, player)
 	kind, index, held_player := character.held_kind, int(character.held_item), character.held_player
-	if kind == .Item && !ITEM_SPECS[t.world.items[index].kind].throwable {
+	if kind == .Item && !ITEM_SPECS[places(t).items[index].kind].throwable {
 		drop(t, player)
 		return
 	}
@@ -297,7 +297,7 @@ throw :: proc(t: ^Tick, player: sim.Player) {
 			physics.link(item.body),
 		)
 		body = item.body
-		entity = sim.entity(t.world.items[index].marker)
+		entity = sim.entity(places(t).items[index].marker)
 	} else {
 		body = sim.player_data(t, held_player).controller.body
 	}

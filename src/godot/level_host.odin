@@ -24,6 +24,7 @@ NO_LEVEL :: Level_Stamp {
 Level_Host :: struct {
 	root:     gd.Node, // where the active level's scene is instanced (UnifiedSession.level_root)
 	root_id:  u64,
+	synced:   u64, // the instance id of the level_root `shown` was shown under (0: none)
 	shown:    Level_Stamp, // the level on screen (NO_LEVEL: none yet)
 	target:   Level_Stamp, // the verified level it goes to (shown when it is there)
 	loading:  string, // the scene being loaded for `target` ("": none)
@@ -52,6 +53,14 @@ level_host_process :: proc(session: ^Session_Node, frame: ^Frame_Data) -> (hold:
 	host := &session.level
 	target := frame.verified_level
 	if target.id < 0 do return false
+	// A level_root set (or replaced) after a level was shown without it (a play scene that sets it in _ready, after
+	// the session's first frames): show the level again, its scene under the new root.
+	root := level_root_of(session)
+	root_id := root.ptr != nil ? host.root_id : 0
+	if root_id != host.synced {
+		host.synced = root_id
+		if root_id != 0 do host.shown, host.target = NO_LEVEL, NO_LEVEL
+	}
 	if target != host.target {
 		host.target = target
 		host.loading = ""
