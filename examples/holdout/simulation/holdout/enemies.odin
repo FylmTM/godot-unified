@@ -187,7 +187,7 @@ enemy_attacks :: proc(t: ^Tick) {
 				at = core_mid
 			}
 			if aimed && dmath.length_sq(at - from) <= SPIT_REACH * SPIT_REACH {
-				attacked = fire_bolt(t, from, at, spec.damage)
+				attacked = fire_bolt(t, from, at, enemy.target != {} ? spec.damage : spec.core_damage)
 			}
 		} else if enemy.target != {} {
 			offset := player_center(t, enemy.target) - (enemy.pos + {0, spec.radius + spec.half_height, 0})
@@ -198,7 +198,7 @@ enemy_attacks :: proc(t: ^Tick) {
 			}
 		}
 		if !attacked && enemy.target == {} && at_core(t, enemy.pos, spec.radius) && enemy.kind != .Spitter {
-			hurt_core(t, i32(spec.damage))
+			hurt_core(t, i32(spec.core_damage))
 			attacked = true
 		}
 		if attacked do sim.timer_start(t, &enemy.attack, spec.attack_s)

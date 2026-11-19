@@ -50,7 +50,8 @@ Enemy_Spec :: struct {
 	head_radius: f32, // the head sphere on top
 	speed:       f32,
 	hp:          i16,
-	damage:      i16, // per attack (a bolt's, for a spitter)
+	damage:      i16, // per attack on a player (a bolt's, for a spitter)
+	core_damage: i16, // per attack on the core
 	attack_s:    f32, // between attacks
 	reach:       f32, // a melee attack lands within this of its target's surface
 	chases:      bool, // goes for players it sees (a brute doesn't)
@@ -65,6 +66,7 @@ ENEMY_SPECS := [Enemy_Kind]Enemy_Spec {
 		speed       = 5.2,
 		hp          = 45,
 		damage      = 9,
+		core_damage = 3,
 		attack_s    = 0.7,
 		reach       = 0.6,
 		chases      = true,
@@ -76,6 +78,7 @@ ENEMY_SPECS := [Enemy_Kind]Enemy_Spec {
 		speed       = 2.4,
 		hp          = 300,
 		damage      = 30,
+		core_damage = 30,
 		attack_s    = 1.2,
 		reach       = 0.8,
 	},
@@ -86,6 +89,7 @@ ENEMY_SPECS := [Enemy_Kind]Enemy_Spec {
 		speed       = 3.4,
 		hp          = 70,
 		damage      = 11,
+		core_damage = 11,
 		attack_s    = 1.6,
 		reach       = 0.6,
 		chases      = true,
