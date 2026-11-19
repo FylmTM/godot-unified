@@ -313,7 +313,16 @@ views_test_init :: proc "c" (
 ) -> godot.Init_Result {
 	GAME = toy.GAME
 	GAME.bench_prepare = bench_prepare
+	GAME.tick = drawn_tick
 	return godot.init(&GAME, GLUE, get_proc_address, library, init, constants = constants)
+}
+
+// The toy's tick with two debug draws (outside any zone: the "other" group). Never state: the session's checksums stay
+// the offline binary's.
+drawn_tick :: proc(t: ^toy.Tick) {
+	toy.tick(t)
+	sim.debug_line(t, sim.Position{0, 0, 0}, sim.Position{1, 1, 0}, .Green)
+	sim.debug_text(t, sim.Position{1, 1, 0}, "tick %d", t.number)
 }
 
 // Rotation about +Y by `yaw` radians (Godot's up axis).

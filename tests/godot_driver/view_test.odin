@@ -512,6 +512,29 @@ pose_memory_forgets_across_a_warp :: proc(t: ^testing.T) {
 	}
 }
 
+// A view at rest stays unchanged (within float noise) across frames the main thread skipped: the glide that starts
+// from the last shown pose leaves a correction of a few ulps, which must not re-pose a script-posed view every frame
+// (the cold-start flake of the godot_views check "an unchanged pose is not handed over again").
+@(test)
+track_at_rest_across_skipped_frames :: proc(t: ^testing.T) {
+	smoothing := godot.SMOOTHING_DEFAULT
+	rest := godot.Pose{{1, 2, 3}, godot.qmul(quat_yaw_angle(0.75), [4]f32{0.149, 0, 0, 0.989})}
+	track: godot.Track
+	godot.track_push(&track, 1, rest, smoothing)
+	godot.track_push_prev(&track, 2, rest, true, smoothing)
+	godot.track_push(&track, 2, rest, smoothing)
+	shown := godot.track_sample(&track, 2, 1, 0.016, smoothing)
+	for tick in u32(5) ..< 40 {
+		if tick % 3 != 0 do continue // the main thread skipped two of every three ticks
+		godot.track_push_prev(&track, tick, rest, true, smoothing)
+		godot.track_push(&track, tick, rest, smoothing)
+		for alpha in ([]f32{0, 0.5, 1}) {
+			pose := godot.track_sample(&track, tick, alpha, 0.016, smoothing)
+			testing.expectf(t, godot.pose_unchanged(pose, shown), "tick %d: %v vs %v", tick, pose, shown)
+		}
+	}
+}
+
 // A zero policy is the default; tau_s < 0 snaps; teleport_dist defaults on its own.
 @(test)
 smoothing_of_fills_defaults :: proc(t: ^testing.T) {

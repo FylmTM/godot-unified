@@ -53,6 +53,7 @@ Args :: struct {
 	bench:     int, // single player sessions hold this many entities (Game.bench_prepare)
 	online:    bool, // host_online at once
 	join_code: string, // join_online this code at once
+	draw:      string, // the debug draw groups shown (UnifiedSession.debug_draw)
 }
 
 @(private)
@@ -146,6 +147,19 @@ register_session_class :: proc() {
 		proc(session: ^Session_Node) -> bool {return dev_visible()},
 		proc(session: ^Session_Node, visible: bool) {dev_set_visible(visible)},
 		doc = "The dev UI is shown (F1 toggles it; always false in a build without it).",
+	)
+	gd.bind_property(
+		class,
+		"debug_draw",
+		proc(session: ^Session_Node) -> string {return debug_draw_wanted()},
+		proc(session: ^Session_Node, groups: string) {debug_draw_want(groups)},
+		doc = "The sim's debug draw groups shown besides the dev UI's toggles: \"all\", or group names, comma-separated (a zone's lowercased name, \"other\", a library's such as \"physics_shapes\"); \"\": none. [code]--draw[/code] sets it. A build without the dev UI draws nothing.",
+	)
+	gd.bind_property(
+		class,
+		"debug_draw_count",
+		proc(session: ^Session_Node) -> i64 {return i64(debug_draw_count())},
+		doc = "How many debug draws (shapes and texts) the shown tick has on screen.",
 	)
 	// the running session, at the shown tick
 	gd.bind_property(
@@ -455,6 +469,7 @@ session_ready :: proc(session: ^Session_Node) {
 		if session.args.ticks != 0 do session.ticks = i64(session.args.ticks)
 		session.quit_at_end = session.args.quit
 		if session.args.lag_ms > 0 do set_netsim(lag_settings(session.args.lag_ms))
+		if session.args.draw != "" do debug_draw_want(session.args.draw)
 		read_app_version()
 	}
 	dev_init(session.args.devui, session.args.lag_ms > 0 ? lag_settings(session.args.lag_ms) : {})
@@ -631,6 +646,7 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 			view_space_check(root)
 		}
 		views_sync(root, frame, fresh, alpha, f32(dt))
+		debug_draw_sync(root, frame, fresh)
 		if fresh && !session.ended do data_sync(frame) // data went back to zero at the Result
 	}
 	delivering := time.tick_now()
@@ -793,6 +809,7 @@ FLAGS := [?]struct {
 	{"--devui", false, true},
 	{"--lag", true, true},
 	{"--bench", true, true},
+	{"--draw", true, true},
 }
 
 // Reads unified:godot's flags from the user args (after `--`; strings are cloned or temp-allocated). `problems`:
@@ -863,6 +880,8 @@ parse_command_line :: proc(
 			args.seed = number(&found_problems, flag.name, value, min(i64), max(i64))
 		case "--bench":
 			args.bench = int(number(&found_problems, flag.name, value, 0, 1 << 31 - 1))
+		case "--draw":
+			args.draw = value
 		case "--lag":
 			args.lag_ms = int(number(&found_problems, flag.name, value, 0, 10_000))
 		case "--host-port":

@@ -32,14 +32,25 @@ FRAME_HIST :: 4096 // frames kept (> FRAME_SPAN_MS at 2000 fps)
 @(private)
 MAX_W :: 600 // graph width cap (points)
 @(private)
-MAX_PARTS :: 4
+MAX_PARTS :: 8 // a stack's parts or a graph's lines (the sim's zones: seven and the rest)
+@(private)
+MARK_LANES :: 4 // a marks strip's lanes
 @(private)
 HIST_STEP_MS :: 0.1 // the frame-time histogram's bucket width
 @(private)
 HIST_BUCKETS :: 2000 // 0 to 200 ms; longer frames count in the last bucket (the max is kept exactly)
 
 @(private)
-PALETTE := [MAX_PARTS]gd.Color{{0.36, 0.62, 0.95, 1}, {0.95, 0.6, 0.25, 1}, {0.45, 0.8, 0.45, 1}, {0.75, 0.5, 0.9, 1}}
+PALETTE := [MAX_PARTS]gd.Color {
+	{0.36, 0.62, 0.95, 1},
+	{0.95, 0.6, 0.25, 1},
+	{0.45, 0.8, 0.45, 1},
+	{0.75, 0.5, 0.9, 1},
+	{0.95, 0.85, 0.3, 1},
+	{0.3, 0.85, 0.85, 1},
+	{0.95, 0.45, 0.6, 1},
+	{0.65, 0.65, 0.65, 1},
+}
 
 @(private)
 Graph_Kind :: enum u8 {
@@ -78,6 +89,8 @@ Overlay :: struct {
 	buttons:       gd.VBoxContainer, // the toggle rows (the only part of the overlay that takes clicks)
 	toggles:       [Panel_Kind]gd.Button,
 	gbar:          gd.HBoxContainer, // the group toggles
+	dbar:          gd.GridContainer, // the draw-group toggles (draw_groups), hidden until the sim has a group
+	draws:         [dynamic]Draw_Toggle, // by name, kept between sessions
 	corner:        int, // where the overlay sits: 0 top right, 1 top left, 2 bottom left, 3 bottom right
 	grid:          gd.GridContainer, // the stat lines: key, value
 	keys:          [dynamic]gd.Label,
@@ -154,6 +167,11 @@ build_overlay :: proc() {
 	overlay.gbar = add(overlay.buttons, gd.HBoxContainer_new())
 	gd.BoxContainer_set_alignment(overlay.gbar, .ALIGNMENT_END)
 	gd.Control_set_mouse_filter(overlay.gbar, .MOUSE_FILTER_IGNORE)
+	overlay.dbar = add(overlay.buttons, gd.GridContainer_new())
+	gd.GridContainer_set_columns(overlay.dbar, 4)
+	gd.Control_set_mouse_filter(overlay.dbar, .MOUSE_FILTER_IGNORE)
+	gd.Control_set_h_size_flags(overlay.dbar, .SIZE_SHRINK_END)
+	gd.CanvasItem_set_visible(overlay.dbar, false)
 	overlay.grid = add(overlay.box, gd.GridContainer_new())
 	gd.GridContainer_set_columns(overlay.grid, 2)
 	gd.Control_set_mouse_filter(overlay.grid, .MOUSE_FILTER_IGNORE)
@@ -195,6 +213,8 @@ overlay_shutdown :: proc() {
 	delete(overlay.graphs)
 	for entry in overlay.groups do delete(entry.name)
 	delete(overlay.groups)
+	for entry in overlay.draws do delete(entry.name)
+	delete(overlay.draws)
 	delete(overlay.keys)
 	delete(overlay.vals)
 	gd.PackedVector2Array_destroy(&overlay.points)
@@ -300,6 +320,46 @@ overlay_sync_toggles :: proc() {
 	for kind in Panel_Kind do gd.BaseButton_set_pressed_no_signal(s.overlay.toggles[kind], s.panels[kind].open)
 }
 
+// A debug draw group's toggle (draw_groups).
+@(private)
+Draw_Toggle :: struct {
+	name:   string,
+	shown:  bool,
+	toggle: gd.Button,
+}
+
+// The sim's debug draw groups (by group index, "" for none: the zones, "other", the libraries'), as toggles in the
+// overlay's "draw" rows; returns the shown ones as a mask by the same index. A group's toggle is remembered by name
+// while the dev UI lives, so a new session shows what the last one did. 0 without the dev UI.
+draw_groups :: proc(names: []string) -> (shown: u64) {
+	if !s.inited do return
+	overlay := &s.overlay
+	for name, i in names {
+		if name == "" do continue
+		index := -1
+		for entry, k in overlay.draws do if entry.name == name do index = k
+		if index < 0 {
+			index = len(overlay.draws)
+			entry := Draw_Toggle {
+				name = strings.clone(name),
+			}
+			entry.toggle = button(overlay.dbar, name, proc(user: rawptr, _: []^gd.Variant) -> gd.Variant {
+					entry := &s.overlay.draws[int(uintptr(user))]
+					entry.shown = !entry.shown
+					gd.BaseButton_set_pressed_no_signal(entry.toggle, entry.shown)
+					return {}
+				}, rawptr(uintptr(index)))
+			gd.BaseButton_set_toggle_mode(entry.toggle, true)
+			gd.Control_set_theme_type_variation(entry.toggle, "DevToggle")
+			gd.Control_set_tooltip_text(entry.toggle, "debug draws of this group (sim.debug_*, physics.debug_draw)")
+			append(&overlay.draws, entry)
+			gd.CanvasItem_set_visible(overlay.dbar, true)
+		}
+		if overlay.draws[index].shown do shown |= 1 << uint(i)
+	}
+	return
+}
+
 // ---- graphs: creation and samples
 
 @(private)
@@ -372,7 +432,7 @@ graph_h :: proc(graph: ^Graph) -> f32 {
 	case .Frame:
 		return LEGEND_H + FRAME_H
 	case .Marks:
-		return LEGEND_H + f32(MAX_PARTS) * LANE_H
+		return LEGEND_H + f32(MARK_LANES) * LANE_H
 	case .Lines, .Stack:
 	}
 	return LEGEND_H + GRAPH_H
@@ -427,7 +487,7 @@ graph_mark :: proc(strip, lane: string, group: string) {
 	i := 0
 	for i < graph.n && graph.names[i] != lane do i += 1
 	if i == graph.n {
-		if graph.n == MAX_PARTS do return
+		if graph.n == MARK_LANES do return
 		graph.names[i] = strings.clone(lane)
 		graph.n += 1
 	}

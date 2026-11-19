@@ -107,6 +107,7 @@ dev_attach :: proc(simulation: ^Sim($G), clock: proc "contextless" () -> i64 = n
 		simulation.dev = new(Dev)
 		simulation.dev.allocator = context.allocator
 		simulation.dev.groups[DEBUG_GROUP_OTHER] = "other"
+		simulation.dev.group_seq = 1 // a reader that starts at 0 copies the names once
 	}
 	if clock != nil do simulation.dev.clock = clock
 	return simulation.dev

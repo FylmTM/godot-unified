@@ -4,7 +4,8 @@
 // The host feeds the dev UI's graphs, in groups the overlay toggles:
 //   frame  the frame time; the main thread split: views (this session's _process: input and view sync, the dev UI's
 //          own share shown apart), game (every other node's _process up to drawing), render (the RenderingServer's draw)
-//   sim    the sim thread's time per frame (verified, re-run in a rollback, newly predicted), ticks ahead (predicted
+//   sim    the sim thread's time per frame (verified, re-run in a rollback, newly predicted), the zones' self times
+//          (sim.zone, the game's systems), ticks ahead (predicted
 //          past the verified tick), and marks: rollback, late input (the relay replaced ours), stall (the prediction
 //          cap held the sim back), desync (the relay's report; its detail goes to the Events panel); with it, the
 //          `ticks/s` line: ticks stepped per second, new (each tick's first step: about the tick rate while the
@@ -52,6 +53,7 @@ when DEVUI {
 		steps:        [3]i64, // ticks stepped in the current second: verified (catch-up), re-run, predicted (new)
 		steps_us:     i64,
 		per_second:   [3]f32, // the last full second's
+		zone_ns:      [sim.ZONES_MAX + 1]i64, // the last frame's cumulative zone times (Frame_Data.zone_ns)
 	}
 
 	dev: Dev
@@ -95,6 +97,9 @@ when DEVUI {
 	// The session thread copies the newest state and inputs only while a panel shows them.
 	dev_wants_state :: proc() -> bool {return devui.wants_state()}
 	dev_set_visible :: proc(visible: bool) {devui.visible = visible}
+
+	// The dev UI's draw-group toggles, as a mask by group index (debug_draw.odin).
+	dev_draw_toggles :: proc(names: []string) -> u64 {return devui.draw_groups(names)}
 
 	// A session starts: the frames line (p50, p99, max) starts over.
 	dev_session_started :: proc() {devui.frames_reset()}
@@ -252,6 +257,7 @@ when DEVUI {
 			dev.steps, dev.steps_us = {}, 0
 		}
 		devui.stack("sim", "sim thread ms", step_ms[:], {"verified", "rollback", "predicted"})
+		dev_zone_graph(frame)
 		devui.plot("sim", "ticks ahead", f32(frame.tick) - f32(frame.verified))
 		if net.rollbacks > prev.rollbacks do devui.mark("sim", "sim events", "rollback")
 		if net.own_replaced > prev.own_replaced do devui.mark("sim", "sim events", "late input")
@@ -271,6 +277,29 @@ when DEVUI {
 		since: f32
 		if net.last_msg_us != 0 do since = f32(netcode.now_us() - net.last_msg_us) / 1000
 		devui.plot("net", "relay silence ms", since)
+	}
+
+	// The sim's zones (sim.zone) as a stacked graph: each zone's self time this frame, in enum order, "other" last;
+	// past the graph's parts the last one is the rest.
+	dev_zone_graph :: proc(frame: ^Frame_Data) {
+		MAX_SHOWN :: 8
+		count := frame.zone_count
+		if count == 0 do return
+		ns := frame.zone_ns
+		prev := dev.zone_ns
+		if ns[sim.ZONES_MAX] < prev[sim.ZONES_MAX] do prev = ns // a new session (or sim)
+		dev.zone_ns = ns
+		parts: [MAX_SHOWN]f32
+		names: [MAX_SHOWN]string
+		shown := min(count + 1, MAX_SHOWN)
+		for i in 0 ..= count {
+			index := i < count ? i : sim.ZONES_MAX
+			part := min(i, MAX_SHOWN - 1)
+			parts[part] += f32(ns[index] - prev[index]) / 1e6
+			names[part] = i < count ? draw_view.names[i] : "other"
+		}
+		if count + 1 > MAX_SHOWN do names[MAX_SHOWN - 1] = "rest"
+		devui.stack("sim", "zones ms", parts[:shown], names[:shown])
 	}
 
 	// devui's on_feedback (main thread, a note was just written to `dir`): the session's recording, so the note
@@ -340,4 +369,5 @@ when DEVUI {
 	dev_command :: proc(tick: u32, state: devui.Log_State, player: u64, command: ^sim.Raw_Command) {}
 	dev_begin :: proc() {}
 	dev_frame :: proc(session: ^Session_Node, dt: f64) {}
+	dev_draw_toggles :: proc(names: []string) -> u64 {return 0}
 }

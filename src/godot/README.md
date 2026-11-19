@@ -187,6 +187,13 @@ that every `View` member has a scene and every indexed kind is a member.
   feeds its panels. Dev UI builds also record the session as it is verified (a portable snapshot of the first saved
   verified tick, then every verified tick's inputs), so an F3 note carries what `uni headless <game> -- replay`
   replays to the noted checksum.
+- **Debug draws and zones** (dev UI builds; `src/sim/README.md`, Debug draws and zones). The session's sim gets a
+  Dev timed on the netcode's clock. The groups shown (the dev UI's draw toggles, `UnifiedSession.debug_draw`,
+  `--draw`) go to the session thread as one mask, applied to the sim before each step, so only shown groups are kept;
+  the frame hook copies the shown tick's draws and the zones' totals into the Frame. The main thread draws them in
+  view space under `view_root` on every fresh frame (`debug_draw.odin`: 3D, one line mesh over everything and
+  billboard texts; 2D, a canvas item on top), so `uni tool --shots` captures them, and the zones are the `sim`
+  group's stacked graph. They show the tick the views interpolate toward, as predicted.
 - **Leave, then host or join.** `leave` asks the session to end; it says goodbye on its thread, up to 3 s (a host
   waiting for peers that don't answer). A start during the goodbye waits and starts as soon as the old session is
   gone (the goodbye cut to 1 s); a `leave` before that cancels it.
