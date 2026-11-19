@@ -129,7 +129,7 @@ func _setup() -> UnifiedSetup:
 
 
 func _saved_best_wave(difficulty: int) -> int:
-	return Settings.best_wave_hard if difficulty == Settings.Difficulty.HARD else Settings.best_wave_normal
+	return Settings.best_wave_hard if difficulty == EnumDifficulty.HARD else Settings.best_wave_normal
 
 
 ## A match ended: whoever hosts (single player included) saves the session's record once it is final.
@@ -140,7 +140,7 @@ func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> voi
 	var difficulty := session.setup.difficulty
 	if best <= _saved_best_wave(difficulty):
 		return
-	if difficulty == Settings.Difficulty.HARD:
+	if difficulty == EnumDifficulty.HARD:
 		Settings.best_wave_hard = best
 	else:
 		Settings.best_wave_normal = best
