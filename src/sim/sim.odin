@@ -249,6 +249,13 @@ Game :: struct(
 	// less far back (as many guesses are wrong; src/netcode/README.md, Timing). At most the netcode's delay ceiling
 	// (netcode.game_violation). Not part of compat_of: it changes when a client samples, never what a tick computes.
 	input_delay_min_ticks: int,
+	// Optional, never called by the sim: a client's guess of a remote player's input `ticks_ahead` (>= 1) ticks after
+	// `last`, the newest of theirs it knows (nil: `last` again). Only a guess: a wrong one is corrected by a rollback
+	// like any other, peers need not agree on it, and the relay still repeats `last` for a missing input. Pure and
+	// cheap: it runs for every remote player on every predicted and re-simulated tick, and must give the same guess
+	// for the same arguments. Measure before adopting one: `predict-stats` (src/headless/README.md) scores it on a
+	// recorded log.
+	predict_input:         proc(last: Input, ticks_ahead: u32) -> Input,
 }
 
 // The command union of a game that has no commands: sim.Game(State, Input, World, Event, sim.No_Commands, ...).

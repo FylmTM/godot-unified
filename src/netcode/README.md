@@ -205,9 +205,10 @@ line below (`tests/netcode/delay_test.odin` and `policy_test.odin` pin them at 3
 ## Client
 
 - Frames: V (newest verified), P (newest predicted), L (the clock). Predicted ticks use own inputs and commands and
-  the others' last finalized inputs repeated. A finalized tick that differs from its prediction (presence, input
-  bytes, commands; `sim.inputs_same`) restores the tick before it and re-simulates to P. What is saved for that:
-  `PREDICTED_SAVE_EVERY`.
+  the others' last finalized inputs repeated, or the game's guess from them (`sim.Game.predict_input`; the relay
+  still repeats a missing input whatever the game guesses). A finalized tick that differs from its prediction
+  (presence, input bytes, commands; `sim.inputs_same`) restores the tick before it and re-simulates to P. What is
+  saved for that: `PREDICTED_SAVE_EVERY`.
 
 ## Hooks
 

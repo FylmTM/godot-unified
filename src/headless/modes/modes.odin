@@ -53,6 +53,11 @@ run :: proc(
 		help    = "replays an input log (from a snapshot's tick with --snapshot, as in an F3 note); fails on another build's",
 		run     = mode_replay,
 	}, Mode(G) {
+		name    = "predict-stats",
+		options = "--log F [--depth N]",
+		help    = "scores sim.Game.predict_input on an input log (an F3 note's inputs.unil is real play): the rollbacks a client N ticks deep (default: a 100 ms round trip's) would have had, guessing the others' inputs by repeating the last one and by the game's hook",
+		run     = mode_predict_stats,
+	}, Mode(G) {
 		name    = "session",
 		options = "[--clients N] [--ticks T] [--profile ideal|wan|bad] [--latency MS [--jitter MS] [--loss PERMILLE]] [--late-join P@T] [--script steady|churn] [--log F] [--seed S]",
 		help    = "a relay and scripted clients in this process on a virtual clock behind a network profile: rollbacks, stalls, step times, each client step's time (p99, worst), bytes per second; --late-join P@T: slot P connects at tick T and joins as a player does (its join, snapshot transfer and catch-up); --script churn: every slot's input changes every tick (rollbacks on most ticks)",
@@ -269,6 +274,35 @@ mode_replay :: proc(game: ^$G, args: ^Args) -> bool {
 		ok,
 	)
 	return ok
+}
+
+// The `predict-stats` mode: headless.prediction_stats on a log.
+@(private)
+mode_predict_stats :: proc(game: ^$G, args: ^Args) -> bool {
+	log_path := opt_str(args, "log", required = true)
+	input_log, log_ok := uheadless.log_read(log_path, G)
+	if !log_ok {
+		die("predict-stats: cannot read input log %s (or it is for another game build)", log_path)
+	}
+	defer sim.log_destroy(&input_log)
+	timing := netcode.timing_of(game.tick_hz)
+	depth := opt_int(
+		args,
+		"depth",
+		int(netcode.ceil_ticks(100_000 + netcode.DELAY_MARGIN_US, timing.tick_us)),
+		low = 1,
+		high = int(timing.prediction_cap),
+	)
+	stats := uheadless.prediction_stats(game, &input_log, u32(depth))
+	fmt.printfln(
+		`{{"mode":"predict-stats","ticks":%d,"depth":%d,"hook":%v,"rollbacks_repeat_last":%d,"rollbacks_predict_input":%d,"ok":true}}`,
+		stats.ticks,
+		stats.depth,
+		game.predict_input != nil,
+		stats.repeat_last,
+		stats.predict_input,
+	)
+	return true
 }
 
 // The `bench` mode: times step, save, restore and re-sim with `--entities` held (the game's standard benchmark
