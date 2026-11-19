@@ -105,6 +105,35 @@ godot_errors :: proc(text: string) -> []string {
 	return lines_with(text, "ERROR", "Parse Error")
 }
 
+// What fails a Godot run besides its exit code, each with what it is: an error line, a leak at exit, a GDScript
+// warning, and a warning a game's own script raised (its backtrace names a res://game/ frame; the engine's warnings
+// and the library's pass).
+godot_problems :: proc(text: string) -> []string {
+	problems: [dynamic]string
+	lines := strings.split_lines(text)
+	for line, i in lines {
+		if strings.contains(line, "leaked at exit") || strings.contains(line, "still in use at exit") {
+			append(&problems, aprintf("leak at exit: %s", strings.trim_space(line)))
+		}
+		if !strings.has_prefix(line, "WARNING:") do continue
+		if i + 1 < len(lines) && strings.contains(lines[i + 1], "GDScript::reload") {
+			append(&problems, aprintf("GDScript warning: %s", strings.trim_space(line)))
+			continue
+		}
+		for next in lines[i + 1:] { 	// the warning's indented "at:" line and backtrace
+			if len(next) == 0 || (next[0] != ' ' && next[0] != '\t') do break
+			if strings.contains(next, "res://game/") {
+				append(&problems, aprintf("game warning: %s", strings.trim_space(line)))
+				break
+			}
+		}
+	}
+	for error_line in godot_errors(text) {
+		append(&problems, aprintf("error line: %s", strings.trim_space(error_line)))
+	}
+	return problems[:]
+}
+
 // --- the import cache -------------------------------------------------------------------------------------------
 
 // What Godot imports: an import is needed when it changes.
@@ -302,8 +331,8 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 		output  = out,
 	}
 	problems: [dynamic]string
-	lines := strings.split_lines(out)
-	for line, i in lines {
+	append(&problems, ..godot_problems(out))
+	for line in strings.split_lines(out) {
 		if strings.has_prefix(line, RESULT_MARKER) {
 			value, err := json.parse_string(line[len(RESULT_MARKER):])
 			if err == nil {
@@ -312,17 +341,6 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 		} else if echo && strings.trim_space(line) != "" && !strings.has_prefix(line, "Godot Engine v") {
 			log("%s", line)
 		}
-		if strings.contains(line, "leaked at exit") || strings.contains(line, "still in use at exit") {
-			append(&problems, aprintf("leak at exit: %s", strings.trim_space(line)))
-		}
-		if strings.has_prefix(line, "WARNING:") &&
-		   i + 1 < len(lines) &&
-		   strings.contains(lines[i + 1], "GDScript::reload") {
-			append(&problems, aprintf("GDScript warning: %s", strings.trim_space(line)))
-		}
-	}
-	for error_line in godot_errors(out) {
-		append(&problems, aprintf("error line: %s", strings.trim_space(error_line)))
 	}
 	if ran.timed_out {
 		append(&problems, aprintf("timed out after %.0fs", ran.seconds))

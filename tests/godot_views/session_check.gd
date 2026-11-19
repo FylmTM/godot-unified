@@ -7,6 +7,8 @@
 # 4. a session that ends on its own (its ticks ran out) stops answering from its last frame: no local player.
 # 5. a session's Setup (start_single(setup), session.setup, the default again) and a second local player.
 # 6. open to friends: a running single-player session hosts on a port and closes; a failed open leaves it running.
+# Every run ends with UnifiedSession.quit while a sound plays: the quit stops it first, so no playback leaks at exit
+# (the suite fails on a leak).
 # (The LAN token's claim, each copy of a game a slot and a token of its own, is tested in tests/godot_driver.)
 #   godot --path tests/godot_views --headless -s res://session_check.gd -- [--sections 1,2,...] [--idle-end S]
 # --sections: only these, in order (default: all). Most of the time is spent waiting on purpose (goodbyes, timers),
@@ -237,9 +239,24 @@ func _wait_for(cond: Callable, timeout_s: float, what: String) -> bool:
 
 
 func _finish() -> void:
-	s.leave()
 	print("SESSION TESTS: %d failed" % failed)
-	quit(failed)
+	_play_a_sound()
+	s.quit(failed)
+
+
+## A looping sound, playing as the run quits.
+func _play_a_sound() -> void:
+	var wav := AudioStreamWAV.new()
+	wav.mix_rate = 8000
+	var silence := PackedByteArray()
+	silence.resize(1600)
+	wav.data = silence
+	wav.loop_mode = AudioStreamWAV.LOOP_FORWARD
+	wav.loop_end = 800
+	var player := AudioStreamPlayer.new()
+	player.stream = wav
+	root.add_child(player)
+	player.play()
 
 
 func _status_name(status: UnifiedSession.Status) -> String:

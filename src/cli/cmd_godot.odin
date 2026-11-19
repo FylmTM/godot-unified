@@ -255,7 +255,7 @@ editor_check :: proc(game: Game) -> bool {
 		editor_env(game.dir),
 	)
 	out := strings.concatenate({result.stdout, result.stderr})
-	errs := godot_errors(out)
+	errs := godot_problems(out)
 	loaded := strings.contains(out, "unified: extension initialized (editor)")
 	for line in errs {
 		log("uni: %s editor: %s", game.name, line)
@@ -284,7 +284,7 @@ session_vs_offline :: proc(game: Game, ticks, seed: int) -> bool {
 			"--seed",
 			aprintf("%d", seed),
 		}, f64(ticks) / 64 + 30)
-	errs := godot_errors(strings.concatenate({result.stdout, result.stderr}))
+	errs := godot_problems(strings.concatenate({result.stdout, result.stderr}))
 	report := last_json_after(result.stdout, "unified: result ")
 	obj, has := report.(json.Object)
 	if !has {

@@ -39,6 +39,7 @@ Session_Node :: struct {
 	mode:        Mode, // the session started last (UnifiedSession.mode; the dev UI: no netsim in single player)
 	level:       Level_Host, // the level on screen and its scene (level_host.odin)
 	locals_seen: [LOCAL_MAX]u64, // the local players' keys when local_players_changed was last emitted
+	quitting:    Quit_Wait, // a quit the session asked for, waiting for the sounds it stopped (quit.odin)
 }
 
 @(private)
@@ -398,15 +399,15 @@ register_session_class :: proc() {
 	gd.bind_method(
 		class,
 		"leave",
-		proc(session: ^Session_Node) {
-			if session.has_pending { 	// the waiting session never started
-				clear_pending(session)
-				emit_status(session, .Left, "")
-			}
-			if api.installed do api.stop()
-		},
+		session_leave,
 		doc = "Ends the session: it says goodbye on its own thread, then the status is [constant STATUS_LEFT]. A start right after waits for it.",
 	)
+	gd.bind_method(class, "quit", proc(session: ^Session_Node, exit_code: i64) {
+			session_leave(session)
+			quit_when_quiet(session, int(exit_code))
+		}, {
+			"exit_code",
+		}, doc = "Quits the app with [param exit_code]: ends the session as [method leave] does, stops every sound in the tree and quits once the AudioServer has freed their playbacks (at most a second later), so none is reported as leaked at exit. The session's own quit at the end of a [code]--quit-at-end[/code] run is this one. Stop the app's own sound sources first, or a sound started meanwhile is stopped too.")
 	gd.bind_dynamic_method(class, "send_command", proc(_: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
 			command, _ := gd.from_variant(gd.Object, args[0])
 			local, _ := gd.from_variant(i64, args[1])
@@ -942,9 +943,20 @@ emit_status :: proc(session: ^Session_Node, status: Status_Kind, detail: string)
 	gd.emit_signal(session.obj, gd.sn("status_changed"), i64(status), detail)
 }
 
+// UnifiedSession.leave: the waiting session never starts; the running one says goodbye on its thread.
+@(private)
+session_leave :: proc(session: ^Session_Node) {
+	if session.has_pending {
+		clear_pending(session)
+		emit_status(session, .Left, "")
+	}
+	if api.installed do api.stop()
+}
+
 @(private)
 session_process :: proc(session: ^Session_Node, dt: f64) {
 	if is_editor() || active != session do return
+	if quit_step(session) do return // the run ended and the app quits once its sounds are stopped
 	level_host_collect(&session.level, wait = false)
 	dev_begin()
 	input_sample_begin(dev_wants_keyboard())
@@ -1039,7 +1051,7 @@ drain_messages :: proc(session: ^Session_Node) {
 			if message.status == .Failed && session.quit_at_end && session.mode == .Replay {
 				// a replay that can't start has no result to wait for: say why and quit (a tool run fails)
 				fmt.eprintfln("unified: the replay failed: %s", text)
-				gd.SceneTree_quit(gd.Node_get_tree(node_of(session)), 1)
+				quit_when_quiet(session, 1)
 			}
 		case .Join_Code:
 			fmt.printfln("unified: join code %s", text)
@@ -1060,7 +1072,7 @@ drain_messages :: proc(session: ^Session_Node) {
 				set_join_code(session, "")
 				session.ended = true
 			}
-			if session.quit_at_end do gd.SceneTree_quit(gd.Node_get_tree(node_of(session)), 0)
+			if session.quit_at_end do quit_when_quiet(session, 0)
 		}
 	}
 }

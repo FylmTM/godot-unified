@@ -321,3 +321,27 @@ level_scenes_are_found_wherever_a_game_keeps_them :: proc(t: ^testing.T) {
 		"res://game/levels/arena.tscn res://maps/yard.tscn",
 	)
 }
+
+// What fails a Godot run: a game script's warning (its backtrace names res://game/), a leak at exit and an error line;
+// the engine's own warnings pass.
+@(test)
+godot_problems_name_game_warnings_and_leaks :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	out :=
+		"WARNING: marker view: no level marker 4\r\n" +
+		"     at: push_warning (core/variant/variant_utility.cpp:1118)\r\n" +
+		"     GDScript backtrace (most recent call first):\r\n" +
+		"         [0] _ready (res://game/views/marker_view.gd:31)\r\n" +
+		"WARNING: an engine warning\r\n" +
+		"     at: some_engine_function (scene/main/node.cpp:10)\r\n" +
+		"WARNING: 2 ObjectDB instances were leaked at exit (run with --verbose for details).\r\n" +
+		"ERROR: something broke\r\n"
+	problems := cli.godot_problems(out)
+	testing.expect_value(t, len(problems), 3)
+	if len(problems) == 3 {
+		testing.expect(t, strings.has_prefix(problems[0], "game warning: WARNING: marker view"), problems[0])
+		testing.expect(t, strings.has_prefix(problems[1], "leak at exit:"), problems[1])
+		testing.expect(t, strings.has_prefix(problems[2], "error line: ERROR: something broke"), problems[2])
+	}
+	testing.expect_value(t, len(cli.godot_problems("WARNING: an engine warning\n     at: f (a.cpp:1)\n")), 0)
+}

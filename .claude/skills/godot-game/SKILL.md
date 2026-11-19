@@ -19,7 +19,8 @@ headless main (`games/minimal_3d/README.md`, What a new game takes from where).
 ## The loop, cheapest first
 
 `./uni test <game> --suite godot` runs these steps in order (`--only validate,walk` picks some). An `ERROR` line, a
-leak at exit or a GDScript warning fails a step.
+leak at exit, a GDScript warning or a warning the game's own scripts raise (`push_warning` from `res://game/`) fails
+a step.
 
 - `import`, `editor`: the project imports and the extension loads in a headless editor.
 - `session`: a headless Godot session's checksums equal the offline binary's. After a change to the extension,
