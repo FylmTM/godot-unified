@@ -158,7 +158,7 @@ sender_hooks :: proc(sender: ^Sender, watch: ^Watch) -> Hooks {
 			sender.sent = tick
 		}
 	}
-	hooks.frame, hooks.verified, hooks.status = nil, nil, nil
+	hooks.frame, hooks.verified, hooks.status, hooks.verified_state = nil, nil, nil, nil // they take user as a ^Watch
 	return hooks
 }
 
@@ -272,7 +272,7 @@ an_empty_command_crosses_the_relay :: proc(t: ^testing.T) {
 	ticks_in: int
 	hooks := quiet_hooks(&session.watch[1])
 	hooks.user = &ticks_in
-	hooks.frame, hooks.verified, hooks.status = nil, nil, nil
+	hooks.frame, hooks.verified, hooks.status, hooks.verified_state = nil, nil, nil, nil // they take user as a ^Watch
 	hooks.commands = proc(
 		user: rawptr,
 		local, slot: int,
