@@ -183,9 +183,12 @@ value order).
 A scene view's scene holds a **`UnifiedView`** marker as a direct child of its root, its kind set in the scene by the
 member's lowercased name (which stays right when the enum is reordered); the root's class decides how it is posed: a
 Node3D gets position and rotation, a Node2D position and angle, and any other root (a `Control`: a card in a hand, a
-panel) only its data, never a pose, so its container lays it out. Its events, `_sim_despawned` and its linger are a
-posed view's. View data is set as the root's properties, so a field never takes a name the root's class has
-(`owner`, `size`, `position`). A
+panel) only its data, never a pose. Its events, `_sim_despawned` and its linger are a posed view's. A kind's views
+spawn under `view_root`, or under the node its marker's `parent_path` names from there (a hand's `HBoxContainer`,
+which lays its cards out): the views are added at the end, so their order is the game's (a card's script moves
+itself with `move_child` when its data changes), and a posed kind there is posed in that parent's space. A view
+whose parent was freed under it spawns again on the next frame, under that parent if it is back, else under
+`view_root` (an error, once). A
 MultiMeshInstance3D / 2D holding a **`UnifiedMultiView`** marker shows one MultiView kind. Views and their data are
 set before any other node's `_process` (the session runs at priority −1000), so a view's own `_process` sees the
 frame's pose. A `view_root` that leaves the tree holds no views, so a play scene needs no teardown. Unset, it is
@@ -315,7 +318,8 @@ that every `View` member has a scene and every indexed kind is a member.
   it back: it is revived, not respawned). Re-simulations of ticks at or below the verified one are ignored, since
   they are final.
 - **Data.** A view's data is set after the view entered the tree (setters may use `@onready` nodes), then only for
-  fields whose bytes changed; a root without a property for a field is an error (once per kind and field).
+  fields whose bytes changed; a root without a property for a field is an error (once per kind and field). A field
+  named like one of the root's own properties sets it (`visible` on purpose, `owner` or `size` by mistake).
 - **Remote links** go through a live netsim (`netcode.netsim_live`) the dev UI's Conditions panel impairs.
 - **The dev UI** (`dev.odin`, the only file that reaches `unified:devui`) graphs the frame, the sim and the net, and
   feeds its panels. Dev UI builds also record the session as it is verified (a portable snapshot of the first saved

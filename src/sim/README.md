@@ -285,9 +285,11 @@ every view (`Frame.seed`). So every client holds every player's hand, every enem
 the block or a keyed roll will make. What a player sees is what the game's views show: a hand is hidden by a view
 that shows it face down, never by the sim, and a modified client shows itself everything.
 
-What a modified client cannot do is change the shared state: it acts only through inputs and commands that every peer
-reads and applies alike (Bytes from another machine), the relay decides their order, and a client whose state
-differs is reported by the checksums peers compare (a desync, never a new truth).
+**Integrity holds against a modified guest**, not the host. A guest acts only through its inputs and commands, which
+every peer reads and applies alike (Bytes from another machine), and a guest whose state differs is found by the
+relay's checksum check (`src/netcode/README.md`, Checksums and desyncs), never a new truth. **The host is trusted**: it
+runs the relay, which orders and finalizes every slot's input (it may stand in for a late one), and its state wins
+a two-player tie.
 
 That suits co-op, where nobody gains by peeking. A game where a secret matters (versus play, a hidden role, a
 traitor) needs a server that holds the secret and reveals it, which unified does not have. Secrets inside a shared

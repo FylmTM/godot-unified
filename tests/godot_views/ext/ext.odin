@@ -260,7 +260,7 @@ fill_frame :: proc(f: ^Frame) {
 		godot.push_view(
 			f,
 			decoy,
-			{kind = .Card},
+			{kind = .Card, pos = {5, 5, 0}}, // never shown: a data-only view is not posed
 			Card_Data{life = item.life, shape = toy.Shape(item.life % 3), holder = item.owner},
 		)
 	}
