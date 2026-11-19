@@ -1,23 +1,28 @@
-# Playable game builds (the `release` skill, .claude/skills/release/). A tag `<game>-v<version>` (e.g.
-# survivor-v0.1.0) builds that game for windows-x64 and macos-arm64 with `uni release --tag`, which takes the game
-# and the version from the tag, stamps the version into the export (and fails if the export doesn't carry it),
-# builds it without EOS (`--no-eos`: CI has no EOS SDK and no EOS credentials, so these packages play single
-# player and LAN only; online-capable builds are made with `uni release` on a developer's machine), and smoke-tests
-# the export on its runner (the variant without the dev UI too, `--no-devui`, which is not published); then a
-# GitHub prerelease gets both zips and SHA256SUMS.txt. Manual runs (workflow_dispatch) validate the pipeline:
-# Windows only (macOS runners are often out of capacity), any game, no release.
-# The build jobs have `contents: read` and no secrets; only the publish job writes (the prerelease). Actions, runner
-# images and downloads are pinned, and Odin comes through the uni shim (see ci.yml).
+# A release of the library (the `release` skill, .claude/skills/release/): one version, one tag on main,
+# `v<major>.<minor>.<patch>` or `v<major>.<minor>.<patch>-rc.<n>`. The tag runs the full check, all or nothing:
+#   check    everything CI runs (ci.yml, called: fmt and vet, the four test platforms with macOS, the godot job)
+#   games    every game with an export_presets.cfg exported and smoke-tested on windows-x64 and macos-arm64, one job
+#            per platform building the games in turn (`uni release --tag`, with and without the dev UI; no EOS: CI
+#            has no SDK and no credentials). The zips are thrown away: no game builds are published, the exports
+#            only prove the pipeline works.
+#   publish  only when both pass: a GitHub release titled `unified v<version>` (a prerelease while the major version
+#            is 0, and for a release candidate) with generated notes (the PRs merged since the last tag) and GitHub's
+#            source archives. No binaries. Game repos pin the unified submodule to the tag.
+# Manual runs (workflow_dispatch) check the pipeline on any branch without publishing: windows-x64 only unless
+# `macos` (its runners are often out of capacity), the games stamped dev-<commit>.
+# Every job but publish reads only and holds no secrets; publish writes the release. Actions, runner images and
+# downloads are pinned, and Odin comes through the uni shim (see ci.yml).
 name: release
 
 on:
   push:
-    tags: ["*-v*"]
+    tags: ["v*"]
   workflow_dispatch:
     inputs:
-      game:
-        description: Game (a directory under games/ with export_presets.cfg)
-        default: survivor
+      macos:
+        description: "Also check macos-arm64 (CI's macOS job and the macOS exports)"
+        type: boolean
+        default: false
 
 concurrency:
   group: release-${{ github.ref }}
@@ -28,27 +33,59 @@ permissions:
 
 jobs:
   meta:
-    name: what to build
+    name: the tag
     runs-on: ubuntu-24.04
     timeout-minutes: 5
     outputs:
       matrix: ${{ steps.m.outputs.matrix }}
+      prerelease: ${{ steps.m.outputs.prerelease }}
     steps:
+      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
+        with:
+          fetch-depth: 0 # the tag must be on main
       - id: m
+        env:
+          MACOS: ${{ inputs.macos }}
         run: |
           win='{"os":"windows-2025","platform":"windows-x64","uni":"./uni.cmd"}'
           mac='{"os":"macos-15","platform":"macos-arm64","uni":"./uni"}'
           if [ "$GITHUB_REF_TYPE" = tag ]; then
+            # the rule `uni release --tag` checks too (tools/release.odin, release_version)
+            n='(0|[1-9][0-9]*)'
+            if ! [[ "$GITHUB_REF_NAME" =~ ^v$n\.$n\.$n(-rc\.$n)?$ ]]; then
+              echo "::error::$GITHUB_REF_NAME is not a release tag: v<major>.<minor>.<patch>, optionally -rc.<n>"
+              exit 1
+            fi
+            if ! git merge-base --is-ancestor "$GITHUB_SHA" origin/main; then
+              echo "::error::$GITHUB_REF_NAME is not on main"
+              exit 1
+            fi
+            prerelease=false
+            if [ "${BASH_REMATCH[1]}" = 0 ] || [ -n "${BASH_REMATCH[4]}" ]; then prerelease=true; fi
+            echo "prerelease=$prerelease" >> "$GITHUB_OUTPUT"
+            echo "matrix={\"include\":[$win,$mac]}" >> "$GITHUB_OUTPUT"
+          elif [ "$MACOS" = true ]; then
             echo "matrix={\"include\":[$win,$mac]}" >> "$GITHUB_OUTPUT"
           else
             echo "matrix={\"include\":[$win]}" >> "$GITHUB_OUTPUT"
           fi
 
-  build:
-    name: build / ${{ matrix.platform }}
+  # Everything CI runs on a push to main (a tag push is a push: all four platforms), the same workflow.
+  check:
+    name: check
+    needs: meta
+    uses: ./.github/workflows/ci.yml
+    with:
+      macos: ${{ inputs.macos == true }}
+    permissions:
+      contents: read
+      actions: read # ci.yml's nightly job (skipped here) asks for it
+
+  games:
+    name: games / ${{ matrix.platform }}
     needs: meta
     runs-on: ${{ matrix.os }}
-    timeout-minutes: 40
+    timeout-minutes: 60
     strategy:
       fail-fast: false
       matrix: ${{ fromJSON(needs.meta.outputs.matrix) }}
@@ -68,64 +105,32 @@ jobs:
             ~/AppData/Local/unified/odin
             ~/AppData/Local/unified/godot
           key: release-${{ matrix.platform }}-${{ hashFiles('pins.cfg') }}
-      # The public variant first (#33): built and smoke-tested without the dev UI, then removed, not published (the
-      # prerelease is for playtests, which keep it: F3 notes).
-      - name: uni release --no-devui (checked, not published)
-        env:
-          GAME: ${{ inputs.game }}
+      # Extension, version stamp, import, export, sign, zip, smoke test, for every game; no EOS (single player and
+      # LAN). Playtest builds keep the dev UI (F3 notes); a public build drops it: both are checked.
+      - name: uni release --no-eos (every game)
         run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            ${{ matrix.uni }} release --no-eos --no-devui --tag "$GITHUB_REF_NAME"
-          else
-            [[ "$GAME" =~ ^[a-z0-9_]+$ ]] || { echo "::error::bad game name: $GAME"; exit 1; }
-            ${{ matrix.uni }} release --no-eos --no-devui "$GAME"
-          fi
-          rm -f games/*/.out/release/*-nodevui.zip games/*/.out/release/*-nodevui.zip.sha256
-      # Extension, version stamp, import, export, sign, zip, smoke test; no EOS (single player and LAN).
-      - name: uni release
-        env:
-          GAME: ${{ inputs.game }}
+          if [ "$GITHUB_REF_TYPE" = tag ]; then tag=(--tag "$GITHUB_REF_NAME"); else tag=(); fi
+          ${{ matrix.uni }} release --no-eos "${tag[@]}"
+      - name: uni release --no-eos --no-devui (every game)
         run: |
-          if [ "$GITHUB_REF_TYPE" = tag ]; then
-            ${{ matrix.uni }} release --no-eos --tag "$GITHUB_REF_NAME"
-          else
-            [[ "$GAME" =~ ^[a-z0-9_]+$ ]] || { echo "::error::bad game name: $GAME"; exit 1; }
-            ${{ matrix.uni }} release --no-eos "$GAME"
-          fi
-      # One artifact per platform; the publish job downloads them all.
-      - uses: actions/upload-artifact@cf430e030ddbb5b0abf93d22962f4752f3646cd9 # v7.0.2
-        with:
-          name: release-${{ matrix.platform }}
-          path: |
-            games/*/.out/release/*.zip
-            games/*/.out/release/*.sha256
-          if-no-files-found: error
-          include-hidden-files: true # .out/ is hidden, and a wildcard path skips hidden directories without this
-          retention-days: 14
+          if [ "$GITHUB_REF_TYPE" = tag ]; then tag=(--tag "$GITHUB_REF_NAME"); else tag=(); fi
+          ${{ matrix.uni }} release --no-eos --no-devui "${tag[@]}"
 
   publish:
-    name: prerelease
+    name: publish
     if: github.ref_type == 'tag'
-    needs: [meta, build]
+    needs: [meta, check, games]
     runs-on: ubuntu-24.04
-    timeout-minutes: 10
+    timeout-minutes: 5
     permissions:
       contents: write
-    env:
-      GH_TOKEN: ${{ github.token }}
     steps:
-      - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      - uses: actions/download-artifact@9000827ccba6bdab643e8b6fd33ac0654aef8333 # v8.0.2
-        with:
-          path: dist
-          merge-multiple: true
       - name: gh release create
+        env:
+          GH_TOKEN: ${{ github.token }}
+          TAG: ${{ github.ref_name }}
+          PRERELEASE: ${{ needs.meta.outputs.prerelease }}
         run: |
-          cd dist
-          cat *.sha256 | tr -d '\r' > SHA256SUMS.txt   # LF only: macOS `shasum -c` rejects CRLF lines
-          sha256sum -c SHA256SUMS.txt
-          cd ..
-          ./uni release notes --no-eos --tag "$GITHUB_REF_NAME" > notes.md
-          tag="$GITHUB_REF_NAME"
-          gh release create "$tag" --verify-tag --prerelease --title "${tag%-v*} ${tag##*-v}" --notes-file notes.md \
-            dist/*.zip dist/SHA256SUMS.txt
+          flags=(--verify-tag --generate-notes --title "unified $TAG")
+          if [ "$PRERELEASE" = true ]; then flags+=(--prerelease); fi
+          gh release create "$TAG" -R "$GITHUB_REPOSITORY" "${flags[@]}"

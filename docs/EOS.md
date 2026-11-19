@@ -5,9 +5,9 @@ a short code, and P2P sockets that fall back to Epic's relays. This is the one-t
 that builds or runs online play. Without it everything else works: games build and play single player and LAN.
 
 The SDK is Epic's, under the EOS Developer Agreement, so it is never in the repo, fetched by `uni`, or in CI. CI has
-no SDK and no EOS credentials: its tests skip the two that need the real SDK, and its release packages are single
-player and LAN only (`uni release --no-eos`). Online-capable packages come from `uni release` on a machine set up as
-below.
+no SDK and no EOS credentials: its tests skip the two that need the real SDK, and a library release's game exports
+are checked single player and LAN only (`uni release --no-eos`). Online-capable packages come from `uni release` on a
+machine set up as below.
 
 1. **Product.** At <https://dev.epicgames.com/portal>, create a product (e.g. "unified survivor"). One product per
    repo: the games in this repo share one (their lobbies are kept apart by game name and build); a game you ship

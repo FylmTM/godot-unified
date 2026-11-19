@@ -8,10 +8,12 @@ import "core:time"
 
 import "unified:cli"
 
-// A playable game build (the `release` skill): the host platform's package (macOS arm64 on a Mac, Windows x64 on
-// Windows) in <game>/.out/release/: <game>-v<version>-<platform>.zip (local builds: <game>-dev-<sha>-<platform>.zip)
-// unpacking to one folder of the same name with the app, and its .sha256. The same command runs locally and in
-// .github/workflows/release.yml (tag builds). Steps, each failing loudly:
+// Playable game builds (the `release` skill): for each game with export_presets.cfg (or the one named), the host
+// platform's package (macOS arm64 on a Mac, Windows x64 on Windows) in <game>/.out/release/:
+// <game>-v<version>-<platform>.zip (local builds: <game>-dev-<sha>-<platform>.zip) unpacking to one folder of the same
+// name with the app, and its .sha256. Locally, it is how someone gets a playable build; in
+// .github/workflows/release.yml it is part of a library release's check (every game, on both platforms; the zips are
+// thrown away: no game builds are published). Steps, per game, each failing loudly:
 //   1. the game's extension in release mode; when it imports unified:eos, the EOS SDK (UNIFIED_EOS_SDK) and the EOS
 //      IDs (UNIFIED_EOS_*, the environment or .env) must be there, and their values must end up in the library;
 //      with --no-eos (CI, which has neither) the package is single player and LAN only: no IDs, no SDK library (the
@@ -60,17 +62,14 @@ SMOKE_TICKS :: 256 // the smoke test's session: ~4 s at 64 Hz
 SMOKE_FRAMES :: 1200 // at --max-fps 60, ~20 s: the session must have ended (and quit) well before
 
 Release_Opts :: struct {
-	game:     string `args:"pos=0" usage:"the game (default: the tag's, or the only one)"`,
+	game:     string `args:"pos=0" usage:"a game (default: every game with export_presets.cfg, in turn)"`,
 	version:  string `usage:"the version to stamp (default: the tag's, or dev-<commit>)"`,
-	tag:      string `hint:"<game>-v<version>" usage:"a release tag: the game and version come from it"`,
+	tag:      string `hint:"v<version>" usage:"a library release tag (v1.2.3 or v1.2.3-rc.1): its version is stamped into every game"`,
 	no_eos:   bool `usage:"no online play: no EOS SDK or IDs in the package (CI has neither); single player and LAN"`,
 	no_devui: bool `usage:"no dev UI (overlay, panels, F3 notes): the build for the public; playtest builds keep it"`,
 }
 
 cmd_release :: proc(args: []string) -> cli.Result {
-	if len(args) > 0 && args[0] == "notes" {
-		return release_notes(args[1:])
-	}
 	opts: Release_Opts
 	cli.parse(&opts, args)
 	when ODIN_OS != .Darwin && ODIN_OS != .Windows {
@@ -78,35 +77,77 @@ cmd_release :: proc(args: []string) -> cli.Result {
 	} else when ODIN_OS == .Darwin && ODIN_ARCH != .arm64 {
 		cli.fatal("macOS builds are arm64 and need an Apple Silicon host")
 	}
-	game_name, version := opts.game, opts.version
+	version := opts.version
 	if opts.tag != "" {
-		tag_game, tag_version := split_tag(opts.tag)
-		if game_name != "" && game_name != tag_game {
-			cli.usage("the tag %s is for %s, not %s", opts.tag, tag_game, game_name)
+		if len(opts.tag) < 2 || opts.tag[0] != 'v' || !release_version(opts.tag[1:]) {
+			cli.usage(
+				"a release tag is v<major>.<minor>.<patch>, optionally -rc.<n>: v0.1.0, v0.2.0-rc.1 (got %s)",
+				opts.tag,
+			)
 		}
-		if version != "" && version != tag_version {
-			cli.usage("the tag %s is version %s, not %s", opts.tag, tag_version, version)
+		if version != "" && version != opts.tag[1:] {
+			cli.usage("the tag %s is version %s, not %s", opts.tag, opts.tag[1:], version)
 		}
-		game_name, version = tag_game, tag_version
+		version = opts.tag[1:]
 	}
-	game := cli.game(game_name)
+	games: [dynamic]cli.Game
+	if opts.game != "" {
+		append(&games, cli.game(opts.game))
+	} else {
+		for game in cli.state.project.games {
+			if os.is_file(cli.join(game.dir, "export_presets.cfg")) do append(&games, game)
+		}
+		if len(games) == 0 {
+			cli.fatal("no game has an export_presets.cfg")
+		}
+	}
 	if version == "" {
-		commit := short_commit(game.dir)
+		commit := short_commit(cli.state.project.root)
 		version = cli.aprintf("dev-%s", commit != "" ? commit : "local")
 	}
 	if !valid_version(version) {
 		cli.usage("bad version %q (letters, digits, . + - only)", version)
 	}
-	return release_build(game, version, opts.no_eos, opts.no_devui)
+	zips: [dynamic]string
+	for game in games {
+		append(&zips, release_build(game, version, opts.no_eos, opts.no_devui))
+	}
+	return {ok = true, summary = strings.join(zips[:], "\n"), data = cli.box(zips[:])}
 }
 
-// <game>-v<version> -> game, version
-split_tag :: proc(tag: string) -> (game, version: string) {
-	index := strings.last_index(tag, "-v")
-	if index <= 0 || index + 2 >= len(tag) {
-		cli.usage("a release tag is <game>-v<version>, e.g. survivor-v0.1.0 (got %s)", tag)
+// A library release's version, its tag without the `v`: <major>.<minor>.<patch>, optionally -rc.<n>, the numbers
+// without leading zeros (release.yml checks a tag by the same rule).
+release_version :: proc(version: string) -> bool {
+	numbers, separator, candidate := strings.partition(version, "-rc.")
+	if separator == "" && strings.contains(version, "-") {
+		return false
 	}
-	return tag[:index], tag[index + 2:]
+	if separator != "" && !plain_number(candidate) {
+		return false
+	}
+	parts := strings.split(numbers, ".", context.temp_allocator)
+	if len(parts) != 3 {
+		return false
+	}
+	for part in parts {
+		if !plain_number(part) {
+			return false
+		}
+	}
+	return true
+}
+
+// Digits without a leading zero ("0" itself is one).
+plain_number :: proc(text: string) -> bool {
+	if text == "" || len(text) > 1 && text[0] == '0' {
+		return false
+	}
+	for char in text {
+		if char < '0' || char > '9' {
+			return false
+		}
+	}
+	return true
 }
 
 valid_version :: proc(version: string) -> bool {
@@ -131,8 +172,13 @@ release_label :: proc(version: string) -> string {
 }
 
 // What goes into the platforms' numeric version fields (macOS CFBundle*Version, Windows file version): the version
-// itself when it is numeric (tags: 0.1.1), else 0.0.0 (local builds).
+// itself when it is numeric (a tag's: 0.1.1), a release candidate's numbers (0.2.0-rc.1: 0.2.0), else 0.0.0 (local
+// builds: dev-<commit>).
 platform_version :: proc(version: string) -> string {
+	if release_version(version) {
+		numbers, _, _ := strings.partition(version, "-")
+		return numbers
+	}
 	parts := strings.split(version, ".")
 	if len(parts) > 4 {
 		return "0.0.0"
@@ -164,7 +210,8 @@ step :: proc(name: string) -> time.Tick {
 	return time.tick_now()
 }
 
-release_build :: proc(game: cli.Game, version: string, no_eos: bool, no_devui := false) -> cli.Result {
+// One game's package; the zip's path.
+release_build :: proc(game: cli.Game, version: string, no_eos: bool, no_devui := false) -> string {
 	start := time.tick_now()
 	if !os.is_file(cli.join(game.dir, "export_presets.cfg")) {
 		cli.fatal("%s has no export_presets.cfg", game.name)
@@ -240,12 +287,8 @@ release_build :: proc(game: cli.Game, version: string, no_eos: bool, no_devui :=
 	)
 	sign_and_zip(target, zip)
 	smoke(zip, game.name, no_devui)
-	cli.log("release: done in %.1fs", cli.seconds_since(start))
-	return {
-		ok      = true,
-		summary = zip,
-		data    = cli.box(zip),
-	}
+	cli.log("release: %s done in %.1fs", game.name, cli.seconds_since(start))
+	return zip
 }
 
 // Every GDExtension library this host's export ships.
@@ -726,76 +769,6 @@ smoke :: proc(zip, name: string, no_devui: bool) {
 		cli.fatal("smoke test failed: %s", strings.join(problems[:], ", "))
 	}
 	cli.log("release: smoke test ok (%d ticks, exit 0, no errors) in %.1fs", SMOKE_TICKS, cli.seconds_since(started))
-}
-
-// --- notes ------------------------------------------------------------------------------------------------------
-
-NOTES ::
-	`Test build of **%[0]s %[1]s** (commit ` +
-	"`%[2]s`" +
-	`). Unsigned prerelease for playtesting only.%[5]s
-
-## Download
-
-- **macOS** (Apple Silicon): ` +
-	"`%[0]s-%[3]s-macos-arm64.zip`" +
-	`
-- **Windows** (x64): ` +
-	"`%[0]s-%[3]s-windows-x64.zip`" +
-	`
-
-Each zip unpacks to a folder of the same name with the game inside.
-
-` +
-	"`SHA256SUMS.txt`" +
-	` has the checksums (` +
-	"`shasum -a 256 -c SHA256SUMS.txt` / `certutil -hashfile <zip> SHA256`" +
-	`).
-
-## Opening it
-
-- **macOS:** unzip and open ` +
-	"`%[0]s.app`" +
-	` in the ` +
-	"`%[0]s-%[3]s-macos-arm64`" +
-	` folder. The app is ad-hoc signed,
-  not notarized, so macOS blocks the first launch: click **Done**, open System Settings → Privacy & Security,
-  scroll down to the message about ` +
-	"`%[0]s`" +
-	`, click **Open Anyway** and confirm. (On macOS 14 and older, right-click the app → **Open** → **Open** also works.)
-  Last resort, in Terminal: ` +
-	"`xattr -dr com.apple.quarantine %[0]s-%[3]s-macos-arm64`" +
-	`.
-- **Windows:** unzip, run ` +
-	"`%[0]s.exe`" +
-	` in the ` +
-	"`%[0]s-%[3]s-windows-x64`" +
-	` folder. If SmartScreen says
-  "Windows protected your PC", click **More info** → **Run anyway**.
-%[4]s`
-
-Release_Notes_Opts :: struct {
-	game:   string `args:"pos=0" usage:"the game (default: the tag's)"`,
-	tag:    string `args:"required" hint:"<game>-v<version>" usage:"the release tag"`,
-	no_eos: bool `usage:"the packages were built with --no-eos: say they have no online play"`,
-}
-
-// The prerelease notes (markdown) for a tag.
-release_notes :: proc(args: []string) -> cli.Result {
-	opts: Release_Notes_Opts
-	cli.parse(&opts, args)
-	name, version := split_tag(opts.tag)
-	if opts.game != "" && opts.game != name {
-		cli.usage("the tag %s is for %s, not %s", opts.tag, name, opts.game)
-	}
-	game := cli.game(name)
-	extra := ""
-	if text, ok := cli.read_text(cli.join(game.dir, "RELEASE_NOTES.md")); ok {
-		extra = cli.aprintf("\n%s", text)
-	}
-	lan := opts.no_eos ? "\n\n**Single player and LAN only:** this build has no online play (no EOS)." : ""
-	notes := cli.aprintf(NOTES, game.name, version, short_commit(game.dir), release_label(version), extra, lan)
-	return {ok = true, summary = strings.trim_right(notes, "\n")}
 }
 
 // --no-eos: the export holds no EOS SDK library, under any platform's name. The IDs can't be looked for without

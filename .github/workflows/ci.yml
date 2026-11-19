@@ -14,6 +14,8 @@
 #                                safety net when a push's macOS job never got a runner
 #   manual dispatch              all on main; elsewhere the four above, plus macos-arm64 with `-f macos=true`
 #                                (sim changes and dependency upgrades)
+#   release tag (release.yml)    all: release.yml calls this workflow as the check of a library release (a tag push
+#                                is a push); its manual runs pass `macos` through
 # macOS never gates a PR: its runners are often out of capacity. One job per platform and the Godot job keep a run
 # to five runners (GitHub Free runs 20 jobs at once, 5 of them on macOS).
 #
@@ -42,10 +44,17 @@ on:
         description: "Also test macos-arm64 (always on for main; agents pass it for sim changes and upgrades)"
         type: boolean
         default: false
+  workflow_call:
+    inputs:
+      macos:
+        description: "Also test macos-arm64 (a tag push tests it anyway)"
+        type: boolean
+        default: false
 
-# The nightly has its own group: a push to main must not cancel it.
+# The nightly has its own group: a push to main must not cancel it. A call from release.yml (github.workflow is the
+# caller's) has its own too: it neither cancels nor waits for CI on the same ref.
 concurrency:
-  group: ci-${{ github.event_name == 'schedule' && 'nightly' || github.event.pull_request.number || github.ref }}
+  group: ci-${{ github.workflow }}-${{ github.event_name == 'schedule' && 'nightly' || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
 
 permissions:

@@ -306,7 +306,7 @@ command_help :: proc(command: Command) -> string {
 		}
 		seen := false
 		for row in rows {
-			seen ||= row.label == label // a form repeats an option another has (release notes: --tag)
+			seen ||= row.label == label // a form repeats an option another form has
 		}
 		if !seen {
 			append(&rows, Row{label, option.usage})
