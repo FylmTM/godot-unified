@@ -45,8 +45,11 @@ they are; `local_players_changed` says when that changes, and `local_player_refu
 **Setup and Profile** (`src/sim/README.md`, Setup and Profile) are GDScript classes built from the game's types, as a
 command's: a host passes a `UnifiedSetup` to `start_single`, `host_online` or `host_direct` (none: the game's default),
 `session.setup` reads the running session's (a joiner's is the host's; `fill_frame` reads it as `Frame.setup`), and
-`Unified.profile` is what the local player joins with. A game's saved progress is its own file, which the host turns
-into the next session's Setup.
+`Unified.profile` is what the local player joins with. A save (`src/sim/README.md`, Saves) comes as a `UnifiedSetup`:
+`session.save_changed` hands every player the newest one with the frame it shows (two saves verified between two
+frames come as the second; one verified in a step that computed no new tick comes with the next frame), `to_json`
+makes it the game's save file, and the static `UnifiedSetup.from_json` reads it back for the next session's start,
+also on a later build (`json_problem` says why one does not read).
 
 **Open to friends.** A running single-player session becomes a hosted one (`UnifiedSession.open_online`,
 `open_direct`): the session thread opens the lobby or the socket and adds it to the running host

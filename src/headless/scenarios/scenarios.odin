@@ -568,7 +568,9 @@ check_session :: proc(
 	}
 }
 
-// The relay's input log of a session replays offline to every checksum each client verified.
+// The relay's input log of a session replays offline to every checksum each client verified, and every client saved
+// (Game.save on its verified ticks) what the replay saves: the same newest save, and from the session's start the same
+// number of changes (a late joiner counts from its snapshot).
 @(private)
 expect_log_replays :: proc(t: ^testing.T, what: string, suite: ^Suite($G), result: ^headless.Session_Result(G)) {
 	if !testing.expectf(
@@ -582,11 +584,22 @@ expect_log_replays :: proc(t: ^testing.T, what: string, suite: ^Suite($G), resul
 	}
 	trace: headless.Trace
 	defer headless.trace_destroy(&trace)
-	if _, ok := headless.run_replay(suite.game, &result.log, &trace);
-	   !testing.expectf(t, ok, "%s: the relay's log does not replay", what) {
+	replay, ok := headless.run_replay(suite.game, &result.log, &trace)
+	if !testing.expectf(t, ok, "%s: the relay's log does not replay", what) {
 		return
 	}
 	for client in result.clients {
+		testing.expectf(
+			t,
+			client.save_hash == replay.save_hash && (client.snapshot_bytes > 0 || client.saves == replay.saves),
+			"%s: client %d saved %d times (newest %016x), the replay %d times (newest %016x)",
+			what,
+			client.slot,
+			client.saves,
+			client.save_hash,
+			replay.saves,
+			replay.save_hash,
+		)
 		for verified in client.checksums {
 			got, _ := headless.trace_at(&trace, u32(verified[0]))
 			if got != verified[1] {

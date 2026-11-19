@@ -242,6 +242,56 @@ fuzz_inputs_read_as_declared :: proc(t: ^testing.T) {
 	}
 }
 
+// An Input's collections, through the check compiled at create: a List past its capacity reads as empty, a Bits bit
+// past its size as clear; valid ones as sent.
+Listed_Input :: struct {
+	moves:    sim.List(u8, 2),
+	_pad:     [5]u8,
+	unlocked: sim.Bits(10),
+}
+
+Listed_State :: struct {
+	players: sim.Players(Mixed_Data, sim.No_Profile, Listed_Input, 2),
+}
+
+Listed :: sim.Game(
+	Listed_State,
+	Listed_Input,
+	sim.No_World,
+	Mixed_Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	2,
+)
+
+LISTED := Listed {
+	name = "listed",
+	version = "1",
+	tick_hz = 64,
+	tick = proc(t: ^sim.Tick(Listed)) {},
+}
+
+@(test)
+input_collections_read_as_declared :: proc(t: ^testing.T) {
+	simulation := sim.create(&LISTED, 1)
+	defer sim.destroy(simulation)
+	inputs: sim.Inputs(Listed)
+	sim.join(&inputs, 0, 1)
+	sim.append(&inputs.input[0].moves, 7)
+	sim.incl(&inputs.input[0].unlocked, 9)
+	valid := inputs.input[0]
+	sim.step(simulation, &inputs)
+	testing.expect_value(t, simulation.state.players.before[0], valid)
+	inputs.joins = {}
+	inputs.input[0].moves.count = 200
+	inputs.input[0].unlocked.words[0] |= 1 << 40
+	sim.step(simulation, &inputs)
+	got := simulation.state.players.before[0]
+	testing.expect_value(t, got.moves.count, 0)
+	testing.expect(t, sim.has(&got.unlocked, 9) && got.unlocked.words[0] == 1 << 9, "the bit past 10 cleared")
+}
+
 // An Input's enum must declare a member of value 0: an undeclared value reads as 0, and an absent player's input is
 // all zeros. Without one, `tick` would read a value of no member (indexing an enumerated array with it is out of
 // bounds), so the game is refused. The state's enums may start anywhere.

@@ -43,6 +43,7 @@ Session_Node :: struct {
 	locals_seen: [LOCAL_MAX]u64, // the local players' keys when local_players_changed was last emitted
 	quitting:    Quit_Wait, // a quit the session asked for, waiting for the sounds it stopped (quit.odin)
 	link_slow:   bool, // UnifiedSession.link_slow
+	saves_seen:  u32, // the shown frame's save count when save_changed was last emitted
 }
 
 @(private)
@@ -482,6 +483,12 @@ register_session_class :: proc() {
 	gd.bind_signal(class, "link_slow_changed", {{"slow", .BOOL, ""}}, doc = "[member link_slow] changed.")
 	gd.bind_signal(
 		class,
+		"save_changed",
+		{{"setup", .OBJECT, SETUP_CLASS}},
+		doc = "The game's save changed: [param setup] is the newest Setup that continues this session in a new one (Game.save, from a verified tick, so never a mispredicted one; src/sim/README.md, Saves), handed over with the frame shown (two saves verified between two frames come as the second). Every player gets it, so any of them can host the continuation: keep it ([method UnifiedSetup.to_json]) and pass it to a start method later.",
+	)
+	gd.bind_signal(
+		class,
 		"desync",
 		{{"tick", .INT, ""}, {"detail", .STRING, ""}},
 		doc = "The players' checksums of [param tick] differ.",
@@ -909,6 +916,7 @@ session_start :: proc(session: ^Session_Node, request: Start) -> bool {
 session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	session.frame = nil // it points into the finished session, which wait frees
 	session.ended, session.over = false, false
+	session.saves_seen = 0
 	api.wait() // a finished session's thread
 	request := request
 	if request.mode == .Single do request.bench = session.args.bench
@@ -1073,6 +1081,12 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 		roster_moved = true
 	}
 	if roster_moved do gd.emit_signal(session.obj, gd.sn("roster_changed"))
+	if frame := session.frame; frame != nil && frame.saves != session.saves_seen && D.setup != nil {
+		session.saves_seen = frame.saves
+		save := nested_variant(D.setup, frame.save[:D.setup.layout.type.size], .View)
+		gd.emit_signal(session.obj, gd.sn("save_changed"), save)
+		gdi.variant_destroy(&save)
+	}
 	if session.frame != nil && session.frame.local_players != session.locals_seen {
 		session.locals_seen = session.frame.local_players
 		gd.emit_signal(session.obj, gd.sn("local_players_changed"))

@@ -67,8 +67,10 @@ end-to-end suite and the bench run (`GAME_STRESS`), `bench` an endless match hol
   (`HARD_SPAWN_PCT`, `HARD_HP_PCT_PER_WAVE`) and starts `State.best_wave` from the Setup; a match that ends past it
   raises it, and `Event_Match_Over` carries the waves reached and the record, which the match-over panel shows (`New
   best!` when the match raised it).
-- **The save** is the game's own settings file: whoever hosts (single player too) writes the record at that
-  difficulty when the match-over event is confirmed, and the next hosted session's Setup carries it back into the sim.
+- **The save** (`save`, the game's `Game.save`) is the session's Setup with the record: when a match raises it, every
+  player's session reports the new save once that tick is verified (`UnifiedSession.save_changed`), whoever hosts
+  (single player too) writes it into the game's settings file at that difficulty, and the next hosted session's
+  Setup carries it back into the sim.
 - **A player's role** (`Profile`): Gunner fires sooner (`ROLE_FIRE_TICKS`), Bruiser hits harder (`ROLE_DAMAGE`),
   Runner moves faster (`ROLE_SPEED`). A new player starts in it from their first tick; a reset keeps it. The scripted
   players take a role per slot, so the reference run covers each.
@@ -127,6 +129,6 @@ samples at another tick, and lives with the tests (`simulation/tests/bot.odin`).
   alive, the time until the reset, and each slot's player (with their oldest pending level-up's offers).
 - Constants (`Unified.constants`): `start_radius`, `blast_radius`, the three level-up cards.
 - Events: effects, sounds, shake and rumble on EMITTED (a prediction too; a cancelled one is left as it played);
-  banners and the record on CONFIRMED.
+  banners on CONFIRMED; the record from `save_changed`.
 - Input: the stick and the dash from the InputMap; the HUD sends the pick (`CommandPick`) on a key, pad button or
   click.

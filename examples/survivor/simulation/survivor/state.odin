@@ -17,6 +17,13 @@ Setup :: struct {
 	best_wave:  u32, // the host's saved record at this difficulty (waves survived; 0: none): progress enters the sim here
 }
 
+// The save (sim.Game.save): the session's Setup with its record, so the next session at this difficulty starts from
+// it. The host keeps it (game.gd).
+save :: proc(state: ^State, setup: ^Setup) -> bool {
+	setup.best_wave = state.best_wave
+	return true
+}
+
 // What a player plays as (the Profile's): ROLE_* perks on top of the shared start.
 Role :: enum u8 {
 	Gunner, // fires faster

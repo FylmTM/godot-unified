@@ -134,6 +134,8 @@ Frame_Data :: struct {
 	verified_level: Level_Stamp,
 	tick_hz:        u32,
 	setup:          [sim.SETUP_MAX]u8, // the session's Setup's bytes (UnifiedSession.setup)
+	save:           [sim.SETUP_MAX]u8, // the newest Setup Game.save gave on a verified tick (netcode.client_save)
+	saves:          u32, // how many times it changed this session (0: never): a new count is UnifiedSession.save_changed
 	due_us:         i64, // when `tick` was due on the session clock (netcode.now_us); for alpha
 	local_player:   u64, // local player 0's key at `tick` (0: nobody yet)
 	local_players:  [LOCAL_MAX]u64, // each local player's key at `tick`, by local index (0: nobody)

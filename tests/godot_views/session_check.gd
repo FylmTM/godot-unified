@@ -6,8 +6,9 @@
 #    closes to new players and opens again (close_online, open_direct).
 # 3. (after 2) leave, host at once, leave again before the old session is gone: the waiting start is dropped ("left").
 # 4. a session that ends on its own (its ticks ran out) stops answering from its last frame: no local player.
-# 5. a session's Setup (start_single(setup), session.setup, the default again) and a second local player (and
-#    local_players_changed saying so, and roster_changed once the shown tick has them present, and gone).
+# 5. a session's Setup (start_single(setup), session.setup, the default again; a save from save_changed) and a second
+#    local player (and local_players_changed saying so, and roster_changed once the shown tick has them present, and
+#    gone).
 # 6. open to friends: a running single-player session hosts on a port and closes; a failed open leaves it running.
 # 7. a replay: a 40-tick session's recording (user://recordings) played back, and every control a replay viewer uses
 #    (speed, seek, step, loop, the player it follows, the checkpoints it agreed with).
@@ -174,16 +175,25 @@ func _ended_session() -> bool:
 	return true
 
 
-# 5. the session's Setup, the player's Profile, a second local player
+# 5. the session's Setup, its save, the player's Profile, a second local player
 func _setup_and_locals() -> bool:
 	var setup := UnifiedSetup.new()
 	check("a new UnifiedSetup is the game's default", setup.life_bonus == 0, setup.life_bonus)
 	setup.life_bonus = 4
+	# The toy's save (Game.save) gives life_bonus from the things spawned: 0 at the start, which differs from this
+	# session's 4, so the first verified tick's save is a change.
+	var saves: Array[UnifiedSetup] = []
+	var keep_save := func(save: UnifiedSetup) -> void: saves.append(save)
+	s.save_changed.connect(keep_save)
 	Unified.profile.color = 9
 	check("start_single(setup) with a Setup", s.start_single(setup))
 	if not await _wait_for(func() -> bool: return s.local_player != 0, 5.0, "the Setup's session runs"):
 		return false
 	check("session.setup is the session's", s.setup.life_bonus == 4, s.setup.life_bonus)
+	if not await _wait_for(func() -> bool: return saves.size() > 0, 5.0, "save_changed"):
+		return false
+	check("save_changed gives the save", saves[0].life_bonus == 0, saves[0].life_bonus)
+	s.save_changed.disconnect(keep_save)
 	var changes: Array[int] = [0]
 	var count_change := func() -> void: changes[0] += 1
 	s.local_players_changed.connect(count_change)

@@ -308,7 +308,7 @@ json_array :: proc(out: ^strings.Builder, elem: ^runtime.Type_Info, elem_size, c
 }
 
 // The address `offset` bytes into a value: a zero-size element (sim.No_Profile) has an address but no bytes to index.
-@(private = "file")
+@(private)
 at :: proc(data: rawptr, offset: int) -> rawptr {
 	return rawptr(uintptr(data) + uintptr(offset))
 }

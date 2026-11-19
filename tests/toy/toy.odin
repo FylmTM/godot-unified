@@ -166,6 +166,16 @@ GAME := Game {
 	scripted_input = scripted_input,
 	scripted_commands = scripted_commands,
 	scripted_profile = scripted_profile,
+	save = save,
+}
+
+// The toy's save (Game.save): the next session's things live longer the more this one spawned. A save point is one
+// tick of every 7 of game time, so a client that missed a tick's save, or saved a predicted one, saves otherwise than
+// the relay's log replays to (every session scenario checks it).
+save :: proc(state: ^State, setup: ^Setup) -> bool {
+	if u64(state.clock.time) % 7 != 0 do return false
+	setup.life_bonus = u8(state.spawned / 4 % 8)
+	return true
 }
 
 // What the toy's keyed rolls are for (sim.roll_below).

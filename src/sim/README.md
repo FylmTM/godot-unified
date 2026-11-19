@@ -63,9 +63,7 @@ spawning as a default and swapping a tick later is a visible change and a mispre
   the session starts and lives **beside the seed**, outside the block: `Sim.setup`, never rolled back or hashed (a
   session has one). `world_create` gets it, and every tick (`init` too) gets a copy in `t.setup`, so a write there
   reaches nothing and read-only needs no rule. `Game.setup` is the Setup of a session started without one, so a
-  variant of the game is a copy of the descriptor with another Setup.
-  Progress a game saves is its own small file, which the host turns into the next session's Setup; a snapshot is
-  never a save, since it stops loading after every `compat` change.
+  variant of the game is a copy of the descriptor with another Setup. Progress comes back as a Setup too (Saves).
 - **Profile**: what a player chose before joining (a character, a colour). It rides beside the player's join record
   (`Inputs.profiles`) and the harness writes it into the State's Players by member on that tick, before the join
   event and `tick`: the player spawns as chosen on their first tick, the predicted one too. It is state: a rollback
@@ -75,6 +73,31 @@ spawning as a default and swapping a tick later is a visible change and a mispre
 Both are plain structs without padding, checked like commands (`game_violation`), at most `SETUP_MAX` and
 `PROFILE_MAX` bytes. A game without them names `sim.No_Setup` and `sim.No_Profile`, as it names `sim.No_World`: zero
 bytes everywhere, so its State is what it would be without them.
+
+### Saves
+
+**A save is the Setup that continues the session**, never a snapshot (a snapshot stops loading after every `compat`
+change). `Game.save` turns a tick's state into it: it gets the session's Setup and writes the progress in (a record,
+a run's heroes and floor), or says the tick has nothing new. `step` asks it after every tick it computes and keeps
+the answer beside the ring, and a save is **taken from verified ticks only**, every one in order (`save_changed`: the
+netcode client on each, an offline run on every tick), so a state a rollback replaces is never saved, and a save
+point one tick long is never missed. Every client saves, not only the host: any of them can host the continuation.
+The Godot host hands the newest save over with the frame it shows (`UnifiedSession.save_changed`), so two saves
+verified between two frames come as the second.
+
+"Verified" means the tick's inputs are final, not that the peers' checksums agreed: a client whose state diverged
+saves its diverged state before the desync is reported.
+
+**A save outlives the build** as JSON (`setup_to_json`, `setup_from_json`): fields by name, a List by its items, an
+enum by its member's name. A new build reads it over its own default Setup (`Game.setup`), so a field the save lacks
+keeps its default and a key it no longer has is skipped; what it can't hold (a value out of range, a member it lost)
+is refused, never guessed, with the reason (`setup_from_json`'s problem, `UnifiedSetup.json_problem`), so the game
+can tell the player, keep the old file or migrate it. A game that changes what an old save can't hold (an enum's
+members, a list's capacity) keeps a version in its save and migrates older ones. The game owns the file and where it
+lives; the library never touches files.
+
+What a save does not hold, a resumed session must be able to rebuild: a stream in the block restarted at the save
+point from names that include it (Random numbers) comes back by itself; one carried across it does not.
 
 ### Levels
 
@@ -356,7 +379,7 @@ counter the state keeps.
 - **A save and streams.** A stream restarted at each save point from names that include it (a floor, a fight) needs
   nothing in the save but the seed: a resumed run starts it again from the same names. A stream carried across a save
   point is not in the save, and a resumed run deals differently. What the run has won (a deck, a relic) is progress,
-  and lives in the Setup the save gives (Setup and Profile).
+  and lives in the Setup the save gives (Saves).
 
 Outside `tick` (level generation, tests, benchmarks) `rng_seed` starts a stream from any number.
 

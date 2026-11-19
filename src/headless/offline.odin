@@ -78,6 +78,25 @@ Run_Result :: struct {
 	checkpoints:    int,
 	agreed_tick:    u32,
 	diverged_tick:  u32,
+	// Game.save over the run (every tick is verified offline, sim.save_changed): how many times its Setup changed,
+	// and the newest one's bytes hashed (0: none), as a session's clients count theirs (netcode.Client_Result).
+	saves:          u32,
+	save_hash:      u64,
+}
+
+// A run's save after tick `tick` into its result (`saved`: the last one, the session's Setup before the first).
+@(private)
+run_save :: proc(
+	simulation: ^sim.Sim($G),
+	tick: u32,
+	saved: ^$Setup,
+	result: ^Run_Result,
+) where Setup ==
+	sim.part(G, sim.GAME_SETUP) {
+	if sim.save_changed(simulation, tick, saved) {
+		result.saves += 1
+		result.save_hash = sim.hash_bytes(sim.bytes_of(saved))
+	}
 }
 
 // A change of who holds a slot in a scripted run: from `tick` on, member `member` (the relay's id; 0: nobody).
@@ -193,12 +212,14 @@ run_sim :: proc(
 		input_log.content = simulation.content_hash
 		input_log.compat = sim.compat_of(game)
 	}
+	saved := simulation.setup
 	for tick in 1 ..= ticks {
 		inputs := scripted(game, simulation, tick, players, &commands)
 		if input_log != nil {
 			sim.log_append(input_log, &inputs)
 		}
 		sim.step(simulation, &inputs)
+		run_save(simulation, tick, &saved, &result)
 		result.final_checksum = sim.checksum(simulation)
 		if trace != nil {
 			trace_add(trace, tick, result.final_checksum)
@@ -649,9 +670,11 @@ run_replay :: proc(
 	copy(checkpoints, input_log.checkpoints[:])
 	slice.sort_by(checkpoints, proc(a, b: sim.Checkpoint) -> bool {return a.tick < b.tick})
 	next := 0
+	saved := simulation.setup
 	for k in 0 ..< len(input_log.ticks) {
 		inputs := sim.log_inputs(input_log, k)
 		sim.step(simulation, &inputs)
+		run_save(simulation, simulation.tick, &saved, &result)
 		result.final_checksum = sim.checksum(simulation)
 		if trace != nil {
 			trace_add(trace, simulation.tick, result.final_checksum)

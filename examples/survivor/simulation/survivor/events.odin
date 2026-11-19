@@ -50,7 +50,7 @@ Event_Match_Started :: struct {
 Event_Match_Over :: struct {
 	duration_s: f32, // the match's length in seconds
 	waves:      u32, // the waves it reached (survived and the one it ended in)
-	best_wave:  u32, // the session's record after it (State.best_wave): what the host saves
+	best_wave:  u32, // the session's record after it (State.best_wave): the match-over panel's
 }
 
 Event :: union {

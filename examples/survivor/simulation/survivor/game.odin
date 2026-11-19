@@ -41,6 +41,7 @@ GAME := Game {
 	scripted_commands = scripted_commands,
 	scripted_profile  = scripted_profile,
 	bench_prepare     = bench_prepare,
+	save              = save,
 }
 
 // The same game with the `stress` tuning and hash-driven scripted inputs: what the headless binary, the end-to-end
@@ -60,6 +61,7 @@ GAME_STRESS := Game {
 	scripted_commands = scripted_commands,
 	scripted_profile  = scripted_profile,
 	bench_prepare     = bench_prepare,
+	save              = save,
 }
 
 // The tick's timing zones (sim.zone): the dev UI's stacked graph and `uni bench`'s zone row; also the draw groups of

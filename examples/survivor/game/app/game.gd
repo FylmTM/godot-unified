@@ -77,7 +77,7 @@ func _ready() -> void:
 	session.local_name = Settings.player_name
 	Unified.profile.role = Settings.role
 	session.status_changed.connect(_on_status_changed)
-	session.sim_event.connect(_on_sim_event)
+	session.save_changed.connect(_on_save_changed)
 	session.join_code_changed.connect(_on_join_code)
 	add_child(session)
 
@@ -132,18 +132,15 @@ func _saved_best_wave(difficulty: int) -> int:
 	return Settings.best_wave_hard if difficulty == EnumDifficulty.HARD else Settings.best_wave_normal
 
 
-## A match ended: whoever hosts (single player included) saves the session's record once it is final.
-func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
-	if not event is EventMatchOver or state != UnifiedSession.EVENT_CONFIRMED or mode == Mode.JOIN:
+## The session's save changed (Game.save, from a verified tick: the record raised by a match that ended): whoever
+## hosts (single player included) keeps the record at its difficulty.
+func _on_save_changed(setup: UnifiedSetup) -> void:
+	if mode == Mode.JOIN or setup.best_wave <= _saved_best_wave(setup.difficulty):
 		return
-	var best := (event as EventMatchOver).best_wave
-	var difficulty := session.setup.difficulty
-	if best <= _saved_best_wave(difficulty):
-		return
-	if difficulty == EnumDifficulty.HARD:
-		Settings.best_wave_hard = best
+	if setup.difficulty == EnumDifficulty.HARD:
+		Settings.best_wave_hard = setup.best_wave
 	else:
-		Settings.best_wave_normal = best
+		Settings.best_wave_normal = setup.best_wave
 
 
 func join_online(code: String) -> void:
