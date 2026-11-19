@@ -337,6 +337,7 @@ Status_Kind :: enum u8 {
 	Disconnected,
 	Left,
 	Reconnecting, // netcode.Status's names (the driver's status hook maps them: STATUS_OF)
+	Recovering,
 }
 
 // The Godot status of each netcode.Status.
@@ -348,6 +349,7 @@ STATUS_OF := [netcode.Status]Status_Kind {
 	.Failed       = .Failed,
 	.Disconnected = .Disconnected,
 	.Reconnecting = .Reconnecting,
+	.Recovering   = .Recovering,
 }
 
 @(private)
@@ -359,6 +361,7 @@ STATUS_NAMES := [Status_Kind]string {
 	.Disconnected = "disconnected",
 	.Left         = "left",
 	.Reconnecting = "reconnecting",
+	.Recovering   = "recovering",
 }
 
 // Session thread -> main thread: an event in one of its states. Events have a queue of their own; one that finds it

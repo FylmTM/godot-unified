@@ -15,23 +15,26 @@ import "unified:wire"
 // A relay's session (relay_create) of game G: its seed, Setup, length, start players and build id, and the optional
 // recording and typed desync reports. Written as a literal at the call (`relay_create(&GAME, {seed = 7})`).
 Relay_Config :: struct($G: typeid) {
-	seed:          u64,
-	setup:         Maybe(sim.part(G, sim.GAME_SETUP)), // the session's Setup, sent in Welcome (nil: the game's, Game.setup)
-	ticks:         u32, // session length; 0: endless
-	start_players: int, // slots 0..start_players-1 must connect before the clock starts (>= 1)
-	compat:        u64, // build/game id a Hello must carry (0: sim.compat_of(game))
+	seed:           u64,
+	setup:          Maybe(sim.part(G, sim.GAME_SETUP)), // the session's Setup, sent in Welcome (nil: the game's, Game.setup)
+	ticks:          u32, // session length; 0: endless
+	start_players:  int, // slots 0..start_players-1 must connect before the clock starts (>= 1)
+	compat:         u64, // build/game id a Hello must carry (0: sim.compat_of(game))
 	// Every start player is in-process (a host's own client): tick 1 is due a tick after Welcome. Otherwise
 	// the clock starts START_LEAD_MS after Welcome, so a far start player's first inputs arrive in time.
-	local_start:   bool,
+	local_start:    bool,
 	// Optional: the session's input log, written tick by tick as ticks are finalized (sim/log.odin's format;
 	// sim.log_sink_memory, headless.log_sink_file). The relay owns the sink: relay_end_recording (or relay_destroy)
 	// writes the tick count and closes it; a recording that never ended still reads to its last tick. Without one, the
 	// session is kept only RELAY_RING ticks back. A shipped game leaves it off, or records to disk as an opt-in for bug
 	// reports.
-	recording:     sim.Log_Sink,
+	recording:      sim.Log_Sink,
 	// Typed desync reports (dev builds): clients keep the snapshots of their last checksum ticks, and a desync report
 	// carries what differs between two of them (a majority player's and a diverged one's, sim.snapshot_diff).
-	desync_detail: bool,
+	desync_detail:  bool,
+	// A connection the checksums show as diverged is reported and left as it is, not resynced (tests that need a
+	// provider that stays diverged).
+	leave_diverged: bool,
 }
 
 RELAY_RING :: 2048 // finalized ticks the relay keeps: a client further behind can't be streamed to (FIN_RING)
@@ -134,6 +137,8 @@ Relay_Conn :: struct {
 	snap_have:   bool,
 	refused:     Peers, // providers whose snapshot for this joiner failed the check, was unusable or never came
 	bad_check:   bool, // a snapshot for this joiner failed the check (refused: Bad_Snapshot, else No_Snapshot)
+	resync:      bool, // a playing client being resynced (checking: it restores a majority player's kept snapshot)
+	resyncs:     int, // times this connection was resynced (RESYNCS_MAX)
 }
 
 // What the relay keeps per slot: who sits there (a connection's local player), their Profile, inputs and commands. A
@@ -150,6 +155,26 @@ Seat :: struct($Input, $Profile: typeid) {
 	recv_upto:   u32, // every input up to this tick is in
 	cmd_recv:    u32, // the command ack: every seq up to this one is received
 	cmd_wait:    [dynamic]Wait_Command, // received, not finalized yet, in seq order (its buffer outlives resets)
+	// The newest command seq placed in a tick at or before tick T, at placed[T % PLACED_RING]: a resync tells its
+	// client which of its commands the snapshot's tick already holds.
+	placed:      [PLACED_RING]u32,
+}
+
+PLACED_RING :: 256 // finalized ticks back a resync's base may be (Seat.placed)
+#assert(PLACED_RING > DESYNC_IMAGES * CHECKSUM_EVERY + CHECKSUM_EVERY)
+
+// A resync's snapshot on its way through the relay: a majority player's kept snapshot of checksum tick `tick`, asked
+// of connection `from`, for the connections `targets` (resync_step).
+@(private)
+Resync_Fetch :: struct {
+	on:       bool,
+	tick:     u32,
+	from:     Peer,
+	targets:  Peers,
+	image:    [dynamic]u8,
+	total:    u32,
+	begun:    bool, // its Snap_Begin came
+	asked_us: i64, // when it was asked for, or its bytes last came
 }
 
 // The relay, generic over the game type G (only its Input, PLAYERS and tick rate matter).
@@ -193,6 +218,9 @@ Relay :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Ga
 	// Late join and rejoin).
 	unchecked_snapshots: int,
 	resumes:             int, // Hellos that resumed from the client's own verified tick (no snapshot)
+	resync_wanted:       Peers, // diverged or too-far-behind connections waiting for a resync (resync_step)
+	resync:              Resync_Fetch,
+	resynced:            int, // connections resynced (what they restored passed the check)
 	ending:              bool,
 	end_us:              i64,
 	finished:            bool,
@@ -350,6 +378,7 @@ relay_destroy :: proc(relay: ^Relay($G)) {
 		delete(pending.image)
 	}
 	delete(relay.first_desync.detail)
+	delete(relay.resync.image)
 	free(relay)
 }
 
@@ -423,7 +452,7 @@ send_welcome :: proc(relay: ^Relay($G), peer: Peer, start: bool, now: i64, resum
 		}
 		welcome.seat_count += 1
 	}
-	if relay.desync_diff != nil do welcome.flags += {.Keep_Images}
+	welcome.flags += {.Keep_Images} // every client: a resync starts from a kept tick (desync_detail: the diff too)
 	if start do welcome.flags += {.Start}
 	clear(&relay.w.buf)
 	write_welcome(&relay.w, &welcome)
@@ -1081,7 +1110,16 @@ judge_snapshots :: proc(relay: ^Relay($G), now: i64) {
 			majority = conn.snap_value
 			relay.unchecked_snapshots += 1
 		}
-		if conn.snap_value != majority {
+		if conn.resync {
+			if conn.snap_value != majority {
+				// It restored a majority player's snapshot to another checksum: it cannot hold the session's state.
+				refuse_conn(relay, Peer(joiner), .Desynced, now)
+				continue
+			}
+			conn.resync = false
+			relay.resynced += 1
+			log.infof("slot %d resynced from the snapshot of tick %d", conn_slot(relay, Peer(joiner)), tick)
+		} else if conn.snap_value != majority {
 			conn.refused += {int(conn.snap_from)}
 			conn.bad_check = true
 			from := conn_slot(relay, conn.snap_from)
@@ -1196,13 +1234,212 @@ send_reports :: proc(relay: ^Relay($G), now: i64) {
 			}
 		}
 		delete(report.detail)
+		if !relay.cfg.leave_diverged {
+			// Told, then recovered (resync_step): after the typed report's snapshots, so its request for the diverged
+			// client's kept image is ahead of anything that replaces its state.
+			for slot in report.diverged {
+				if peer := relay.seats[slot].conn; peer >= 0 do relay.resync_wanted += {int(peer)}
+			}
+		}
 	}
 	clear(&relay.reports)
+}
+
+// Why a connection that cannot be resynced is dropped: it fell behind the ring (only behind), or it diverged.
+@(private)
+resync_refusal :: proc(relay: ^Relay($G), peer: Peer) -> Reject_Reason {
+	return relay.finalized - relay.conns[peer].client_ack > RELAY_RING ? .Too_Far_Behind : .Desynced
+}
+
+// The recovery ladder (src/netcode/README.md, Checksums and desyncs), and the re-anchor of a client the ring no longer
+// reaches: each wanted connection is resynced in place. The relay asks a connection on the majority's side for its
+// kept snapshot of a recent judged checksum tick B, sends it to the targets (Resync, then Snap_Chunks), streams them
+// the finalized ticks from B + 1 again and checks what they restore like a joiner's snapshot. They keep their seats,
+// members and clocks; their inputs count throughout. One that cannot be resynced (nobody on the majority's side,
+// the snapshot never comes, what it restores fails the check, RESYNCS_MAX resyncs before) is dropped: Desynced, or
+// Too_Far_Behind for a client that only fell behind.
+@(private)
+resync_step :: proc(relay: ^Relay($G), now: i64) {
+	fetch := &relay.resync
+	// A target sent its snapshot that never answers with what it restored is not left checking for good.
+	for &conn, peer in relay.conns {
+		if conn.connected && conn.resync && !conn.snap_have && now - conn.snap_us > IMAGE_GIVE_UP_MS * 1000 {
+			log.warnf("slot %d never answered its resync", conn_slot(relay, Peer(peer)))
+			refuse_conn(relay, Peer(peer), .Desynced, now)
+		}
+	}
+	if !fetch.on && relay.resync_wanted != {} {
+		targets: Peers
+		for peer in relay.resync_wanted {
+			conn := &relay.conns[peer]
+			if !conn.connected || !conn.welcomed || !conn.base_known || conn.checking || conn.provider >= 0 {
+				continue // gone, or a joiner whose snapshot is on its way (checked before it plays)
+			}
+			if conn.resyncs >= RESYNCS_MAX {
+				log.warnf("slot %d: %d resyncs already", conn_slot(relay, Peer(peer)), conn.resyncs)
+				refuse_conn(relay, Peer(peer), resync_refusal(relay, Peer(peer)), now)
+				continue
+			}
+			targets += {peer}
+		}
+		relay.resync_wanted = {}
+		if targets == {} {
+			return
+		}
+		// B: the newest judged checksum tick (a provider keeps its last DESYNC_IMAGES) a connection outside the targets
+		// reported the majority's value of, still in every target's Seat.placed, that no target can still report from
+		// its old state (it reported B, or never received it).
+		base, provider := u32(0), Peer(-1)
+		order, count := conns_by_slot(relay)
+		newest := relay.finalized - relay.finalized % CHECKSUM_EVERY
+		for back in 0 ..< 2 * DESYNC_IMAGES {
+			tick := newest - u32(back) * CHECKSUM_EVERY
+			if tick < CHECKSUM_EVERY || relay.finalized - tick >= PLACED_RING - CHECKSUM_EVERY do break
+			check := &relay.checks[(tick / CHECKSUM_EVERY) % CHECK_RING]
+			if check.tick != tick || !check.judged {
+				continue
+			}
+			usable := true
+			for peer in targets {
+				usable &&= peer in check.have || tick > relay.conns[peer].client_ack
+			}
+			for k in 0 ..< count {
+				peer := order[k]
+				conn := &relay.conns[peer]
+				if usable &&
+				   int(peer) not_in targets &&
+				   int(peer) in check.have &&
+				   check.values[peer] == check.majority &&
+				   conn.connected &&
+				   conn.base_known &&
+				   !conn.checking {
+					base, provider = tick, peer
+					break
+				}
+			}
+			if provider >= 0 do break
+		}
+		if provider < 0 {
+			for peer in targets {
+				log.warnf(
+					"slot %d cannot be resynced: nobody keeps a snapshot it can take",
+					conn_slot(relay, Peer(peer)),
+				)
+				refuse_conn(relay, Peer(peer), resync_refusal(relay, Peer(peer)), now)
+			}
+			return
+		}
+		kept := fetch.image
+		clear(&kept)
+		fetch^ = {
+			on       = true,
+			tick     = base,
+			from     = provider,
+			targets  = targets,
+			image    = kept,
+			asked_us = now,
+		}
+		for peer in targets {
+			conn := &relay.conns[peer]
+			conn.resync = true
+			conn.resyncs += 1
+			conn.checking = true // its reports are of a state that is going: ignored, nobody waits for them
+			conn.snap_tick = base
+			conn.snap_have = false
+			conn.snap_from = provider
+			conn.snap_us = now
+		}
+		// Their reports not judged yet are of that state too (judged later, each would name them again).
+		for &check in relay.checks {
+			if !check.judged do check.have -= targets
+		}
+		writer := msg_begin(&relay.w, .Snap_Request)
+		wire.w_u8(writer, RELAY_TARGET)
+		wire.w_u32(writer, base)
+		relay_send(relay, provider, writer, .Reliable, now)
+		log.infof("resyncing %v from slot %d's snapshot of tick %d", targets, conn_slot(relay, provider), base)
+		return
+	}
+	if !fetch.on {
+		return
+	}
+	failed :=
+		!relay.conns[fetch.from].connected ||
+		(fetch.begun && fetch.total == 0) ||
+		now - fetch.asked_us > IMAGE_WAIT_MS * 1000
+	complete := fetch.begun && fetch.total != 0 && u32(len(fetch.image)) == fetch.total
+	if !failed && !complete {
+		return
+	}
+	for peer in fetch.targets {
+		conn := &relay.conns[peer]
+		if !conn.connected || !conn.resync {
+			continue
+		}
+		if !complete {
+			log.warnf("slot %d: the snapshot to resync it from never came", conn_slot(relay, Peer(peer)))
+			refuse_conn(relay, Peer(peer), resync_refusal(relay, Peer(peer)), now)
+			continue
+		}
+		// The stream starts over after the base: the client keeps the finalized ticks it holds past it.
+		conn.base_known = true
+		conn.client_ack = fetch.tick
+		conn.sent_upto = fetch.tick
+		conn.resume = 0
+		conn.snap_us = now
+		writer := msg_begin(&relay.w, .Resync)
+		wire.w_u32(writer, fetch.tick)
+		wire.w_u32(writer, fetch.total)
+		locals := u8(0)
+		for slot in conn.locals do locals += u8(slot >= 0)
+		wire.w_u8(writer, locals)
+		for slot, local in conn.locals {
+			if slot < 0 do continue
+			wire.w_u8(writer, u8(local))
+			wire.w_u32(writer, relay.seats[slot].placed[fetch.tick % PLACED_RING])
+		}
+		relay_send(relay, Peer(peer), writer, .Reliable, now)
+		for offset := 0; offset < len(fetch.image); offset += SNAP_CHUNK {
+			chunk_writer := msg_begin(&relay.w, .Snap_Chunk)
+			wire.w_u8(chunk_writer, RELAY_TARGET)
+			wire.w_u32(chunk_writer, u32(offset))
+			wire.w_bytes(chunk_writer, fetch.image[offset:min(offset + SNAP_CHUNK, len(fetch.image))])
+			relay_send(relay, Peer(peer), chunk_writer, .Reliable, now)
+		}
+	}
+	fetch.on = false
+	fetch.begun = false
+	fetch.total = 0
+	clear(&fetch.image)
 }
 
 // A typed desync report's snapshot coming in from one of the two connections asked.
 @(private)
 take_image :: proc(relay: ^Relay($G), peer: Peer, kind: Msg, reader: ^wire.Reader, now: i64) {
+	// A resync's snapshot (a typed report's, asked first, came first: resync_step starts only after it went out).
+	if fetch := &relay.resync; fetch.on && fetch.from == peer {
+		if kind == .Snap_Begin && !fetch.begun {
+			peek := reader^
+			if tick := wire.r_u32(&peek); peek.ok && tick == fetch.tick {
+				total := wire.r_u32(&peek)
+				fetch.begun = true
+				fetch.total = peek.ok && total <= IMAGE_MAX ? total : 0
+				fetch.asked_us = now
+				return
+			}
+		} else if kind == .Snap_Chunk && fetch.begun && u32(len(fetch.image)) < fetch.total {
+			offset := wire.r_u32(reader)
+			bytes := reader.data[reader.pos:]
+			if reader.ok &&
+			   int(offset) == len(fetch.image) &&
+			   u32(len(bytes)) <= fetch.total - offset &&
+			   len(bytes) > 0 {
+				append(&fetch.image, ..bytes)
+				fetch.asked_us = now
+			}
+			return
+		}
+	}
 	if !relay.pending_on {
 		return
 	}
@@ -1285,6 +1522,9 @@ finalize :: proc(relay: ^Relay($G)) {
 		}
 		assert(sim.join_count(tick_inputs.joins[:]) <= 1, "one new player per tick (free_join_tick)")
 		take_commands(relay, tick, tick_inputs)
+		for &seat in relay.seats {
+			if seat.conn >= 0 do seat.placed[tick % PLACED_RING] = seat.cmd_recv - u32(len(seat.cmd_wait))
+		}
 		sim.log_stream_tick(&relay.recording, tick_inputs)
 		relay.finalized = tick
 	}
@@ -1451,6 +1691,8 @@ conn_left :: proc(relay: ^Relay($G), peer: Peer, why: string, now: i64) {
 		if local >= 0 do seat_left(relay, int(local), why, now)
 	}
 	relay_conn_reset(conn)
+	relay.resync_wanted -= {int(peer)}
+	relay.resync.targets -= {int(peer)}
 	for &pending in relay.pending {
 		if relay.pending_on && pending.conn == peer {
 			pending.done = true
@@ -1642,10 +1884,16 @@ relay_step :: proc(relay: ^Relay($G), now: i64) -> (wake_us: i64) {
 		relay.beats = u32(f64(now - relay.welcome_us) / relay.tm.tick_us)
 		relay.clock = relay.beats > relay.lead ? relay.beats - relay.lead : 0
 		finalize(relay)
-		// A client whose unacked ticks left the ring can't be streamed to any more.
+		// A client whose unacked ticks left the ring can't be streamed to any more: a playing one is re-anchored (resynced
+		// from a recent tick, keeping its seat), a joiner refused.
 		for &conn, peer in relay.conns {
-			if conn.connected && conn.base_known && relay.finalized - conn.client_ack > RELAY_RING {
-				refuse_conn(relay, Peer(peer), .Too_Far_Behind, now)
+			if conn.connected && conn.base_known && !conn.resync && relay.finalized - conn.client_ack > RELAY_RING {
+				if conn.checking || conn.provider >= 0 {
+					refuse_conn(relay, Peer(peer), .Too_Far_Behind, now)
+				} else if peer not_in relay.resync_wanted && !(relay.resync.on && peer in relay.resync.targets) {
+					log.infof("slot %d fell behind the ring: re-anchoring it", conn_slot(relay, Peer(peer)))
+					relay.resync_wanted += {peer}
+				}
 			}
 		}
 		if broadcast_due(relay, now) {
@@ -1661,6 +1909,7 @@ relay_step :: proc(relay: ^Relay($G), now: i64) -> (wake_us: i64) {
 			}
 		}
 		send_reports(relay, now)
+		resync_step(relay, now)
 	}
 	if !relay.ending && relay.started && relay.cfg.ticks != 0 && relay.finalized == relay.cfg.ticks {
 		all_done := true

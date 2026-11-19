@@ -30,6 +30,7 @@ diverging_game :: proc() -> ^toy.Game {
 a_bad_snapshot_is_refused_and_another_player_sends_one :: proc(t: ^testing.T) {
 	session: Net
 	net_make_relay(&session, 3, 0)
+	session.relay.cfg.leave_diverged = true // player 0 stays diverged: the bad provider
 	defer net_destroy(&session)
 	net_join(&session, 0, game = diverging_game())
 	net_join(&session, 1)
@@ -67,6 +68,7 @@ a_bad_snapshot_is_refused_and_another_player_sends_one :: proc(t: ^testing.T) {
 a_bad_snapshot_with_nobody_else_refuses_the_joiner :: proc(t: ^testing.T) {
 	session: Net
 	net_make_relay(&session, 3, 0)
+	session.relay.cfg.leave_diverged = true // player 0 stays diverged: the bad provider
 	defer net_destroy(&session)
 	net_join(&session, 0, game = diverging_game())
 	net_join(&session, 1)
@@ -234,6 +236,7 @@ a_restarted_snapshot_keeps_up_at_any_phase :: proc(t: ^testing.T) {
 		session: Net
 		defer net_destroy(&session)
 		net_make_relay(&session, 3, 0)
+		session.relay.cfg.leave_diverged = true // player 0 stays diverged: the bad provider
 		net_join(&session, 0, game = diverging_game())
 		net_join(&session, 1)
 		net_join(&session, 2)

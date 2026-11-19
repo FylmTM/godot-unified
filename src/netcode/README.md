@@ -143,8 +143,9 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
   ticks, up to a catch-up bound of them, as many as fit one message (at most `WINDOW_MAX`). When they don't fit, each
   broadcast carries on where the last one stopped and starts again at the oldest once one reached the newest: a
   message of ticks per broadcast, never one per round trip; while that cycle is behind ticks no broadcast carried
-  yet, a second message carries them. A client whose unacked ticks have left the ring (`RELAY_RING`) is refused
-  (`Too_Far_Behind`).
+  yet, a second message carries them. A playing client whose unacked ticks have left the ring (`RELAY_RING`) is
+  re-anchored: resynced in place from a recent snapshot (Checksums and desyncs), keeping its seat; a joiner's stream
+  that falls that far behind is refused (`Too_Far_Behind`).
 - **The window** (`window.odin`): Finalized and Inputs write each tick or input as its changes from the one before it
   in the same packet, so every packet decodes on its own. A tick's commands are budgeted so it fits a packet alone
   however much it changed. A client's Inputs carries its newest unacked inputs, as many as fit beside a command with
@@ -323,12 +324,26 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
   are a **desync**: counted, logged, and reported to every client (`Desync_Report`); the `desync` hook gets it, the dev UI
   shows it, `session_run`'s `ok` turns false. A late report that differs from a judged tick is reported too.
   Checksums of ticks the relay has not finalized are dropped.
+- **Kept ticks**: every client keeps its last few checksum ticks (Welcome's `Keep_Images`) as copies
+  (`sim.snapshot_keep`: the block and the extra's save, a memcpy), encoded into portable snapshots only when the relay
+  asks: a resync starts from one, and a typed report diffs two. It costs next to nothing unless a desync happens and
+  stays on in every build.
+- **The recovery ladder**: after a desync is reported, each diverged connection is **resynced in place**
+  (`Relay_Config.leave_diverged` turns it off, for tests). The relay picks B, the newest judged checksum tick a
+  connection on the majority's side reported (and kept), that no target can still report from its old state, asks
+  that connection for its kept snapshot of B and sends it to the targets (`Resync`, then its chunks). A target freezes
+  (`Status.Recovering`), restores it, is checked like a joiner (`Snap_Ok`) and is streamed the finalized ticks after
+  B again. It keeps its seat, member, clock and input stream: nobody sees a leave or a join. `Resync` says which of its
+  commands B already holds (the relay keeps each seat's newest placed command per tick, `Seat.placed`), so none is
+  predicted twice or lost. A connection that can't be resynced (nobody on the majority's side keeps such a tick, the
+  snapshot never comes, what it restores fails the check, or `RESYNCS_MAX` resyncs before) is dropped (`Desynced`).
+  With 2 players the tie goes to the host, so the other is resynced from the host's state. A client the ring no longer
+  reaches is resynced the same way (the re-anchor), dropped as `Too_Far_Behind` when it can't be. `session_run`'s
+  `ok` stays false after any desync, recovered or not: nondeterminism is a bug.
 - **Typed reports** (`desync_detail` on the relay or host config; the Godot host turns it on where the dev UI is):
-  clients keep their last few checksum ticks (Welcome's `Keep_Images`) as copies (`sim.snapshot_keep`:
-  the block and the extra's save, a memcpy), encoded into portable snapshots only when the relay asks, so it costs
-  next to nothing unless a desync happens and stays on in every build. On the session's first desync the relay asks
-  a majority player and a diverged one for theirs and diffs them (`sim.snapshot_diff`: table by table, field by
-  field, then each extra's image): "tick 4160: enemies[12].pos.x 3.25 vs 3.5". Later desyncs are its consequences
+  on the session's first desync the relay asks a majority player and a diverged one for their kept snapshots of
+  that tick and diffs them (`sim.snapshot_diff`: table by table, field by field, then each extra's image):
+  "tick 4160: enemies[12].pos.x 3.25 vs 3.5". Later desyncs are its consequences
   and carry no detail. Every desync report waits for the two snapshots while their bytes keep coming,
   `IMAGE_GIVE_UP_MS` at most; then they go out without the detail, so a slow or crafted client can't keep the others
   from being told.

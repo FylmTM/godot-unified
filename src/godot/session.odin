@@ -520,6 +520,7 @@ STATUS_DOCS := [Status_Kind]string {
 	.Failed       = "The session could not start or ended on an error ([code]detail[/code] says which).",
 	.Disconnected = "The session ended without this player leaving: the host left or ended it, or the link was lost ([code]detail[/code] says which).",
 	.Left         = "This player ended the session ([method leave]), from the menus, a tool or the dev UI.",
+	.Recovering   = "In the session, the state being replaced: it diverged from the other players, or fell too far behind, and the host sends a majority player's snapshot (under a second for most games). The view holds; the player's input still counts. Then [constant STATUS_CONNECTED] again, or [constant STATUS_DISCONNECTED] when it can't be repaired.",
 	.Reconnecting = "The link to the host was lost: the session holds the world and opens a new connection by itself (up to 30 s), then fast-forwards to the live tick and is [constant STATUS_CONNECTED] again, or ends [constant STATUS_DISCONNECTED]. Show a \"Reconnecting\" overlay; the player's place, member and progress are kept.",
 }
 
