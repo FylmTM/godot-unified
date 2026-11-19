@@ -85,7 +85,22 @@ roll_below :: proc(
 	key: u64 = 0,
 	index: int = 0,
 ) -> u32 where intrinsics.type_is_enum(Purpose) {
-	bits := roll_bits(tick.seed, tick.number, u64(purpose), key, u64(index))
+	return roll_below_at(tick.seed, tick.number, n, purpose, key, index)
+}
+
+// The roll `roll_below` makes on tick `tick` of a session with this seed, computed anywhere: a keyed roll reads no
+// state, so a view (from Frame.seed) or a tick can compute one early ("the next upgrade" on a HUD). Put the roll in
+// one proc both call, so they cannot drift apart. A roll that must not depend on when it is made names tick 0 and
+// something stable in key and index.
+roll_below_at :: proc(
+	seed: u64,
+	tick: u32,
+	n: u32,
+	purpose: $Purpose,
+	key: u64 = 0,
+	index: int = 0,
+) -> u32 where intrinsics.type_is_enum(Purpose) {
+	bits := roll_bits(seed, tick, u64(purpose), key, u64(index))
 	return lemire_below(bits, n, &bits, proc(state: ^u64) -> u64 {
 		state^ = mix64(state^ + GAMMA)
 		return state^
@@ -111,6 +126,17 @@ roll_f32 :: proc(
 	key: u64 = 0,
 	index: int = 0,
 ) -> f32 where intrinsics.type_is_enum(Purpose) {
-	bits := roll_bits(tick.seed, tick.number, u64(purpose), key, u64(index))
+	return roll_f32_at(tick.seed, tick.number, purpose, key, index)
+}
+
+// The roll `roll_f32` makes on tick `tick` of a session with this seed, computed anywhere (roll_below_at).
+roll_f32_at :: proc(
+	seed: u64,
+	tick: u32,
+	purpose: $Purpose,
+	key: u64 = 0,
+	index: int = 0,
+) -> f32 where intrinsics.type_is_enum(Purpose) {
+	bits := roll_bits(seed, tick, u64(purpose), key, u64(index))
 	return f32(bits >> 40) * (1.0 / 16777216.0)
 }

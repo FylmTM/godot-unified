@@ -60,6 +60,7 @@ Frame :: struct($G, $View, $MultiView: typeid) {
 	world:        ^sim.part(G, sim.GAME_WORLD), // at the frame's tick
 	tick:         u32,
 	local_player: sim.Player, // who this client plays at this tick ({}: nobody yet, e.g. before its join tick)
+	seed:         u64, // the session's seed: a keyed roll the sim will make, computed early (sim.roll_below_at)
 	out:          ^Frame_Data, // what the main thread gets
 	poses:        ^Pose_Memory, // every keyed item's pose at the fill before
 }

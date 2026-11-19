@@ -16,6 +16,7 @@ package sim
 
 // Used only inside generic procs: @(require) keeps -vet from calling them unused in a program that never
 // instantiates those (a game's tests that run the sim offline only).
+import "base:builtin"
 @(require) import "base:intrinsics"
 @(require) import "base:runtime"
 import "core:fmt"
@@ -524,7 +525,7 @@ step :: proc(simulation: ^Sim($G), inputs: ^Inputs(G), save := true) {
 	slot.tick = number
 	slot.valid = true
 	slot.saved = false
-	clear(&slot.events.list)
+	builtin.clear(&slot.events.list)
 	tick := make_tick(simulation, number, read, &slot.events)
 	changes := &simulation.changes
 	players_update(&tick, changes)
@@ -634,10 +635,10 @@ events_at :: proc(simulation: ^Sim($G), tick: u32) -> []Raw_Event {
 // XXH3-64 (seed 0) over the tick (u32 LE), the block's bytes (its canonical serialization, in
 // field order) and then the Extra's canonical bytes.
 checksum :: proc(simulation: ^Sim($G)) -> u64 {
-	clear(&simulation.hash_buf)
+	builtin.clear(&simulation.hash_buf)
 	tick := transmute([4]u8)u32le(simulation.tick)
-	append(&simulation.hash_buf, ..tick[:])
-	append(&simulation.hash_buf, ..([^]u8)(&simulation.state)[:size_of(simulation.state)])
+	builtin.append(&simulation.hash_buf, ..tick[:])
+	builtin.append(&simulation.hash_buf, ..([^]u8)(&simulation.state)[:size_of(simulation.state)])
 	if extra := &simulation.extra; extra.hash != nil {
 		extra.hash(extra.data, simulation.tick, &simulation.hash_buf)
 	}

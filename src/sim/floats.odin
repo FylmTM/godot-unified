@@ -3,6 +3,7 @@
 // may reach the block; the sync-test looks for one after every step (headless.Run).
 package sim
 
+import "base:builtin"
 import "base:runtime"
 import "core:fmt"
 
@@ -33,7 +34,7 @@ find_nan :: proc(simulation: ^Sim($G), floats: ^[dynamic]u32) -> string {
 float_offsets :: proc(type: ^runtime.Type_Info, base: u32, out: ^[dynamic]u32) {
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Float:
-		append(out, base)
+		builtin.append(out, base)
 	case runtime.Type_Info_Struct:
 		for i in 0 ..< int(info.field_count) {
 			float_offsets(info.types[i], base + u32(info.offsets[i]), out)
@@ -75,7 +76,8 @@ has_float :: proc(type: ^runtime.Type_Info) -> bool {
 field_path :: proc(type: ^runtime.Type_Info, offset: int, path := "") -> string {
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Struct:
-		table := false // a sim.Table (items and slots, as snapshot_diff tells): its items read as its own elements
+		// A sim.Table (items and slots, as snapshot_diff tells), List or Queue: its items read as its own elements.
+		table := collection_kind(type) == .List || collection_kind(type) == .Queue
 		for i in 0 ..< int(info.field_count) {
 			array, is_array := info.types[i].variant.(runtime.Type_Info_Array)
 			table ||= info.names[i] == "slots" && is_array && array.elem.id == Slot

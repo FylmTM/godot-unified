@@ -8,6 +8,7 @@ package sim
 
 @(require) import "base:intrinsics" // only in a where clause
 
+import "base:builtin"
 import "unified:wire"
 
 @(private)
@@ -51,7 +52,7 @@ log_destroy :: proc(input_log: ^Input_Log($G)) {
 
 // Appends a tick's inputs (the next tick).
 log_append :: proc(input_log: ^Input_Log($G), inputs: ^Inputs(G)) {
-	append(&input_log.ticks, Log_Tick(G) {
+	builtin.append(&input_log.ticks, Log_Tick(G) {
 		present       = inputs.present,
 		replaced      = inputs.replaced,
 		input         = inputs.input,
@@ -59,7 +60,7 @@ log_append :: proc(input_log: ^Input_Log($G), inputs: ^Inputs(G)) {
 		first_command = u32(len(input_log.commands)),
 		command_count = u32(inputs.command_count),
 	})
-	append(&input_log.commands, ..inputs.commands[:inputs.command_count])
+	builtin.append(&input_log.commands, ..inputs.commands[:inputs.command_count])
 }
 
 // The commands of the log's tick k + 1.
@@ -368,7 +369,7 @@ log_stream_begin :: proc(stream: ^Log_Stream, sink: Log_Sink, header: Log_Header
 log_stream_put :: proc(stream: ^Log_Stream) {
 	stream.ok &&= stream.sink.write(stream.sink.user, stream.size, stream.writer.buf[:])
 	stream.size += len(stream.writer.buf)
-	clear(&stream.writer.buf)
+	builtin.clear(&stream.writer.buf)
 }
 
 // Appends one tick's inputs to the recording (the relay calls it for each finalized tick).

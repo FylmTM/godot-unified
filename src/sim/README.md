@@ -190,6 +190,34 @@ coins := sim.iterate(&t.state.coins)
 for coin, handle in sim.next(&coins) { ... }
 ```
 
+## Collections
+
+Beside tables, the block holds three inline, fixed-capacity collections: `List` (items in order, for small bags whose
+indices nobody keeps), `Queue` (first in, first out) and `Bits` (a set of indices sized by a constant, where an enum's
+set is Odin's `bit_set`). Heap containers can't be state: they allocate, must be freed on every peer, and move on
+growth. These are plain data for any element type and capacity: the count is as wide as the element's alignment, so
+no padding appears and `plain_violation` passes with no `_pad` field (which is why a 1-byte element caps a List at
+255 items). Every remove, pop and clear zeroes what it vacates, so a List's bytes are a function of its items: equal
+contents hash equal whatever their history (a Queue's also depend on where its head is, until it empties).
+
+Their verbs are Odin's own for dynamic arrays and bit_sets (`append`, `pop`, `ordered_remove`, `unordered_remove`,
+`clear`, `pop_front`, `incl`, `excl`, `card`), so a game writes what it already knows. Inside package sim they shadow
+the builtins, which sim calls as `builtin.append` and `builtin.clear`. The desync report and the Inspector recognise
+the three by their RTTI names and show only the live items (a List's by index, a Queue's oldest first, a Bits as its
+indices).
+
+## Neighbours and time slicing
+
+Entities that live only in the block (a horde, bullets, pickups) have no Box3D bodies to query, so `Grid` finds what
+is near a point: a counting sort of ids into square cells. It is scratch in the World, never state: a pass that needs
+it rebuilds it from the block, which costs microseconds, so a rollback can never leave it stale (the sync-tests fail on
+any tick where stale scratch reaches the state). Its answers come in a fixed order, by row, column and then the order
+the ids were added, so walking a table in index order gives each cell's ids in index order and no hashing or pointer
+order reaches the simulation.
+
+`due` spreads work too costly to run every tick for every entity: each key's turn comes once per period, and dense
+keys share the ticks evenly.
+
 ## Random numbers
 
 Two kinds, on SplitMix64's mixing function, integer-only:
@@ -198,6 +226,10 @@ Two kinds, on SplitMix64's mixing function, integer-only:
   key, index), with `purpose` a value of the game's own enum. A roll depends only on what it names, so adding or
   reordering one system's rolls never moves another's; two rolls that should differ must differ in something (in a
   loop, the index). **`tick` draws keyed rolls.**
+- **A keyed roll can be peeked.** It reads no state, so anyone who can name it computes it early: a HUD shows "the next
+  upgrade" with `roll_below_at` from `Frame.seed`, touching nothing. Put the roll in one proc that both the tick and
+  the view call. Name the tick when it is known from state (the tick a spawn is due); name tick 0 and something stable
+  in key and index (a player's level) when the roll must not depend on when it is made.
 - **`Rng`**, one stream, for code outside `tick` that wants "the next number". A draw added anywhere shifts every
   later one.
 

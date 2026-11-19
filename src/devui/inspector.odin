@@ -38,6 +38,11 @@ List_Info :: struct {
 	slots:     uintptr,
 	slot_size: int,
 	alive:     uintptr, // the `alive` flag's offset in sim.Slot
+	counted:   bool, // a sim.List or sim.Queue: alive below its count (a Queue's from its head, wrapping)
+	count_at:  uintptr,
+	head_at:   uintptr,
+	ring:      bool, // a sim.Queue
+	width:     int, // the count's and head's size in bytes
 }
 
 @(private)
@@ -192,6 +197,11 @@ set_value :: proc(inspector: ^Inspector, node_index: int, text: string) {
 @(private)
 is_live :: proc(list: List_Info, addr: uintptr, index: int) -> bool {
 	if list.table do return (^bool)(addr + list.slots + uintptr(index * list.slot_size) + list.alive)^
+	if list.counted {
+		count := read_uint(addr + list.count_at, list.width)
+		if !list.ring do return index < count
+		return (index - read_uint(addr + list.head_at, list.width) + list.count) % list.count < count
+	}
 	bytes := ([^]u8)(rawptr(addr + list.items + uintptr(index * list.elem_size)))[:list.elem_size]
 	for byte in bytes do if byte != 0 do return true
 	return false
@@ -310,6 +320,12 @@ classify :: proc(type: typeid) -> (kind: Insp_Kind, list: List_Info) {
 	#partial switch info in base.variant {
 	case runtime.Type_Info_Struct:
 		if table, ok := table_info(type); ok do return .List, table
+		switch sim_collection(type) {
+		case "Bits":
+			return .Leaf, {}
+		case "List", "Queue":
+			return .List, counted_info(type)
+		}
 		return .Group, {}
 	case runtime.Type_Info_Array:
 		if small_vector(info.elem, info.count) do return .Leaf, {}
@@ -348,6 +364,45 @@ table_info :: proc(type: typeid) -> (list: List_Info, ok: bool) {
 			slot_size = slots_array.elem_size,
 			alive     = alive.offset,
 		}, true
+}
+
+// "List", "Queue" or "Bits" for sim's inline collections (by RTTI name, like table_info), else "".
+@(private)
+sim_collection :: proc(type: typeid) -> string {
+	named, ok := type_info_of(type).variant.(runtime.Type_Info_Named)
+	if !ok || named.pkg != "sim" do return ""
+	for kind in ([]string{"List", "Queue", "Bits"}) {
+		if len(named.name) > len(kind) && named.name[:len(kind)] == kind && named.name[len(kind)] == '(' do return kind
+	}
+	return ""
+}
+
+// A sim.List's or sim.Queue's rows: `items` below `count` (a Queue's from `head`).
+@(private)
+counted_info :: proc(type: typeid) -> List_Info {
+	items := reflect.struct_field_by_name(type, "items")
+	count := reflect.struct_field_by_name(type, "count")
+	head := reflect.struct_field_by_name(type, "head")
+	array := runtime.type_info_base(items.type).variant.(runtime.Type_Info_Array)
+	return {
+		items     = items.offset,
+		elem      = array.elem.id,
+		elem_size = array.elem_size,
+		count     = array.count,
+		counted   = true,
+		count_at  = count.offset,
+		head_at   = head.offset,
+		ring      = head.type != nil,
+		width     = count.type.size,
+	}
+}
+
+// A little-endian unsigned integer of `width` bytes at addr.
+@(private)
+read_uint :: proc(addr: uintptr, width: int) -> int {
+	value := 0
+	for k in 0 ..< width do value |= int((^u8)(addr + uintptr(k))^) << uint(8 * k)
+	return value
 }
 
 // Up to 4 numbers or booleans: shown as one value.
@@ -389,6 +444,17 @@ build_children :: proc(inspector: ^Inspector, node_index: int) {
 
 @(private)
 format_value :: proc(buf: []u8, value: any) -> string {
+	if sim_collection(value.id) == "Bits" { 	// its indices, "{3, 64}", as many as fit
+		words := ([^]u64)(value.data)[:type_info_of(value.id).size / 8]
+		used := copy(buf, "{")
+		for word, w in words {
+			for bit in 0 ..< 64 do if word & (1 << uint(bit)) != 0 && used + 8 < len(buf) {
+				used += len(fmt.bprintf(buf[used:], "%s%d", used > 1 ? ", " : "", w * 64 + bit))
+			}
+		}
+		used += copy(buf[used:], "}")
+		return string(buf[:used])
+	}
 	base := runtime.type_info_base(type_info_of(value.id))
 	#partial switch info in base.variant {
 	case runtime.Type_Info_Float:
