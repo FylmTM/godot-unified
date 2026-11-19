@@ -364,7 +364,7 @@ single_player_host :: proc(t: ^testing.T) {
 	testing.expect_value(t, session.host.relay.replaced, 0)
 }
 
-// #263: a host with no remote links (single player) wakes at its deadlines only, about twice a tick (the relay's tick
+// A host with no remote links (single player) wakes at its deadlines only, about twice a tick (the relay's tick
 // and the client's), and verifies every tick on time: its relay and client hand each other datagrams in the same
 // host_step. Once a remote link is added it polls again (POLL_US).
 @(test)

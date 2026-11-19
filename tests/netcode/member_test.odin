@@ -160,7 +160,7 @@ a_vouched_account_brings_the_member_back :: proc(t: ^testing.T) {
 }
 
 // A person whose game restarted connects again while still seated: the relay drops the old connection at once
-// instead of waiting for its timeout (#173), and they are the same member.
+// instead of waiting for its timeout, and they are the same member.
 @(test)
 the_newest_connection_of_a_member_wins :: proc(t: ^testing.T) {
 	session: Net
@@ -443,7 +443,7 @@ a_leaving_client_never_reports_failed :: proc(t: ^testing.T) {
 
 // A client stopped before its first step (a player who cancels at once; the Godot driver checks for a stop before it
 // steps the client) never told the relay anything: it sends nothing, its Hello included, and is finished at once,
-// "left". It used to send its Hello on the next step anyway and leave a member nobody is behind for DISCONNECT_US.
+// "left": no member is left behind with nobody at it.
 @(test)
 a_client_stopped_before_its_first_step_seats_nobody :: proc(t: ^testing.T) {
 	session: Net
@@ -472,7 +472,7 @@ a_client_stopped_before_its_first_step_seats_nobody :: proc(t: ^testing.T) {
 }
 
 // The same with a retry at once on a nearer path, same token: the stopped client's Hello, arriving after the retry's,
-// used to replace the retry as the member's newest connection.
+// never replaces the retry as the member's newest connection.
 @(test)
 a_retry_is_not_replaced_by_a_client_stopped_before_its_first_step :: proc(t: ^testing.T) {
 	session: Net

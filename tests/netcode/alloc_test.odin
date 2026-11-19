@@ -1,4 +1,4 @@
-// #262: the session's steady state allocates nothing, on the heap or the temp allocator: queued messages, loopback
+// The session's steady state allocates nothing, on the heap or the temp allocator: queued messages, loopback
 // datagrams, the netsim's delayed datagrams and early reliable messages live in reused buffers, the kept desync
 // images reuse theirs.
 package test_netcode

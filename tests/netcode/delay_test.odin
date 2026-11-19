@@ -51,7 +51,7 @@ want_delay_matches_formula :: proc(t: ^testing.T) {
 	timing := netcode.timing_of(64)
 	testing.expect_value(t, timing.tolerance, 7) // 100 ms at 15.625 ms per tick
 	testing.expect_value(t, timing.prediction_cap, 14) // the ring (16 at 64 Hz) less 2
-	// the cap follows the ring at every tick rate (#161): ~250 ms of ring
+	// the cap follows the ring at every tick rate: ~250 ms of ring
 	testing.expect_value(t, netcode.timing_of(32).prediction_cap, 8) // the ring's floor: 250 ms
 	testing.expect_value(t, netcode.timing_of(128).prediction_cap, 30)
 }

@@ -617,7 +617,7 @@ session_state_machine :: proc(t: ^testing.T) {
 	eos.close()
 	testing.expect_value(t, eos.status().stage, eos.Stage.Idle)
 
-	// #300: the host accepts P2P only from its lobby's members. A stranger who asks is never accepted; a
+	// The host accepts P2P only from its lobby's members. A stranger who asks is never accepted; a
 	// joiner whose request comes before the lobby says it joined is accepted when it does; one who left is
 	// held again until it rejoins.
 	host_link, host_ok := eos.open_host(BUILD)
@@ -651,7 +651,7 @@ session_state_machine :: proc(t: ^testing.T) {
 	member(lobby, OWNER, .Joined)
 	testing.expect_value(t, len(fake.accepted), 3)
 
-	// #32: the netcode gives up on a member's peer (silence after a crash): the host closes that P2P connection,
+	// The netcode gives up on a member's peer (silence after a crash): the host closes that P2P connection,
 	// tells the netcode nothing more, and the same user's next request gets a fresh connection on the same peer.
 	drain_events :: proc(net_link: netcode.Link) -> (connected, disconnected: int) {
 		for {
@@ -687,7 +687,7 @@ session_state_machine :: proc(t: ^testing.T) {
 	// A long-lived lobby serves any number of people over time: a user who left the lobby and whom the netcode forgot
 	// frees its peer number for the next new user, whichever happened first; one who never sent a packet, or only one
 	// larger than a netcode datagram (the netcode never heard of it), is freed when it leaves. (A member the netcode
-	// forgot keeps its number: #32 above.)
+	// forgot keeps its number: above.)
 	host_link, host_ok = eos.open_host(BUILD)
 	testing.expect(t, host_ok)
 	stage, _, _ = pump_until(.Ready)
@@ -745,7 +745,7 @@ session_state_machine :: proc(t: ^testing.T) {
 	eos.close()
 	testing.expect_value(t, fake.left, 1)
 
-	// #142: the joiner's P2P connection never comes up. Each wait it closes the connection (so the
+	// The joiner's P2P connection never comes up. Each wait it closes the connection (so the
 	// netcode's next packet asks again), and the closes it causes don't reach the netcode as a lost
 	// host; after eos.CONNECT_TRIES tries it fails with a clear reason.
 	link_events :: proc(net_link: netcode.Link) -> (count: int) {
@@ -788,7 +788,7 @@ session_state_machine :: proc(t: ^testing.T) {
 	testing.expect_value(t, link_events(join_link), 1)
 	eos.close()
 
-	// #32: a connection that came up but carried nothing, then closed by the host (a host whose SDK still held the
+	// A connection that came up but carried nothing, then closed by the host (a host whose SDK still held the
 	// crashed process's connection): not a lost host for the netcode; the joiner tries again and gets through.
 	fake.closed_to_owner = 0
 	join_link, join_ok = eos.open_join(BUILD, "ABCDEF")
@@ -814,7 +814,7 @@ session_state_machine :: proc(t: ^testing.T) {
 	testing.expect_value(t, eos.status().peers, 1)
 	eos.close()
 
-	// #304: a lobby of another build is not joined; the reason names both versions, or says the build differs
+	// A lobby of another build is not joined; the reason names both versions, or says the build differs
 	// when the versions match (or the lobby has no build at all).
 	joins := fake.joins
 	other_build := strings.clone_to_cstring(eos.build_id(BUILD.compat + 1))

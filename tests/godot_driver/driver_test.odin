@@ -535,7 +535,7 @@ watchdog_detects_a_stuck_step :: proc(t: ^testing.T) {
 	testing.expect(t, godot.watchdog_poll(&detector, 9, 3), "then stuck")
 }
 
-// The host's pose memory (#284): tick - 1 as remembered, and its estimate after a rollback or skipped ticks.
+// The host's pose memory: tick - 1 as remembered, and its estimate after a rollback or skipped ticks.
 @(test)
 pose_memory_estimates_after_rollbacks :: proc(t: ^testing.T) {
 	memory: godot.Pose_Memory

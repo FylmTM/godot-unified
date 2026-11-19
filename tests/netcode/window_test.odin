@@ -1,4 +1,4 @@
-// The relay packet's finalized-tick window (window.odin, #192): each tick as its changes from the one before.
+// The relay packet's finalized-tick window (window.odin): each tick as its changes from the one before.
 package test_netcode
 
 import "core:testing"
@@ -169,7 +169,7 @@ window_refuses_malformed :: proc(t: ^testing.T) {
 	}
 }
 
-// A client's own unacked inputs (#245): each as its changes from the one before, the first from the zero input. A
+// A client's own unacked inputs: each as its changes from the one before, the first from the zero input. A
 // held input is one byte (the mask); they read back as written; a bit past the input's size or a cut is refused.
 @(test)
 window_own_inputs :: proc(t: ^testing.T) {

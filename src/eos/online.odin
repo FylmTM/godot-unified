@@ -52,7 +52,7 @@ SEARCH_TRIES :: 5 // a just-created lobby can take a second or two to show up in
 SEARCH_RETRY_US :: 1_200_000
 // A joiner whose P2P connection to the host isn't up this long after joining (or after its last
 // try) closes it and asks again; after CONNECT_TRIES it fails. EOS's signalling sometimes delivers
-// the host's offer to the joiner only after ~30 s (#142): a fresh request gets a fresh offer.
+// the host's offer to the joiner only after ~30 s: a fresh request gets a fresh offer.
 @(private)
 CONNECT_WAIT_US :: 5_000_000
 CONNECT_TRIES :: 4
@@ -1345,7 +1345,7 @@ on_connection_closed :: proc "c" (info: ^P2P_On_Remote_Connection_Closed_Info) {
 	}
 	if online.role == .Join && !online.remotes[i].heard && online.stage == .Ready {
 		// Up, but nothing ever came through it, then closed: after a crash the host's SDK can hold the old process's
-		// connection, so the new one is half-open until the host closes it (#32). Not a lost host: try again.
+		// connection, so the new one is half-open until the host closes it. Not a lost host: try again.
 		online.connect_at_us = online.last_tick_us + online.connect_wait
 		log_line(
 			"P2P connection to the host closed before anything came through (reason %d): trying again",
@@ -1509,7 +1509,7 @@ link_close :: proc(data: rawptr) {
 
 // Host: the netcode is done with a peer (10 s of silence, a goodbye, or garbage). Close our side of its P2P
 // connection: after a crash, EOS would otherwise hold the dead connection for its 30 s reconnect window, and the same
-// user's restarted game couldn't connect until then (#32). While the user is a lobby member the peer number stays
+// user's restarted game couldn't connect until then. While the user is a lobby member the peer number stays
 // theirs: its next connection request opens a fresh connection on it. A user who left the lobby too is freed: the
 // number goes to the next new user, so a long-lived lobby serves any number of people over time.
 @(private)
