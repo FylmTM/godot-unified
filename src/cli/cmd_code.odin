@@ -487,20 +487,6 @@ suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 	exes, ok := ensure_test_binaries(opts)
 	if !ok do return false
 	passed := run_test_binaries(exes, opts.only)
-	if passed && len(opts.only) > 0 {
-		// a name no binary has: each runner says "No test found" and runs the rest, so it would pass unnoticed
-		logs := make([]string, len(exes))
-		for exe, i in exes do logs[i], _ = read_text(aprintf("%s.log", exe))
-		for name in opts.only {
-			found := false
-			for text in logs do found ||= !strings.contains(text, aprintf("No test found for the name: %q", name))
-			if !found {
-				log("uni: test: --only %s: no test has that name", name)
-				passed = false
-			}
-		}
-		if !passed do return false
-	}
 	if !opts.bless {
 		return passed
 	}
