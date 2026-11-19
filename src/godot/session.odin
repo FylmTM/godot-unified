@@ -41,20 +41,21 @@ Session_Node :: struct {
 
 @(private)
 Args :: struct {
-	autostart: bool, // start single player at once (headless checks)
-	join:      string, // join_direct this address at once
-	host_port: int, // host_direct on this port at once
-	local_net: bool, // direct hosting listens on 127.0.0.1 only (tool runs: no firewall prompt)
-	scripted:  bool, // scripted input (the offline binary's), for hash checks
-	ticks:     int, // session length (0: endless)
-	seed:      i64,
-	quit:      bool, // quit when the session ends, printing its result
-	devui:     bool, // dev UI shown at start
-	lag_ms:    int, // netsim on remote links: this one-way latency, a quarter of it as jitter, 1% loss
-	bench:     int, // single player sessions hold this many entities (Game.bench_prepare)
-	online:    bool, // host_online at once
-	join_code: string, // join_online this code at once
-	draw:      string, // the debug draw groups shown (UnifiedSession.debug_draw)
+	autostart:   bool, // start single player at once (headless checks)
+	join:        string, // join_direct this address at once
+	host_port:   int, // host_direct on this port at once
+	local_net:   bool, // direct hosting listens on 127.0.0.1 only (tool runs: no firewall prompt)
+	scripted:    bool, // scripted input (the offline binary's), for hash checks
+	ticks:       int, // session length (0: endless)
+	seed:        i64,
+	quit:        bool, // quit when the session ends, printing its result
+	devui:       bool, // dev UI shown at start
+	lag_ms:      int, // netsim on remote links: this one-way latency, a quarter of it as jitter, 1% loss
+	bench:       int, // single player sessions hold this many entities (Game.bench_prepare)
+	online:      bool, // host_online at once
+	join_code:   string, // join_online this code at once
+	draw:        string, // the debug draw groups shown (UnifiedSession.debug_draw)
+	no_watchdog: bool, // no session-thread watchdog (watchdog.odin)
 }
 
 @(private)
@@ -578,6 +579,10 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	request.ticks = u32(max(session.ticks, 0))
 	request.name = session.name
 	request.token = client_token()
+	when DEVUI {
+		request.watchdog = !session.args.no_watchdog
+		request.dumps = fmt.tprintf("%s/feedback", gd.OS_get_user_data_dir(gd.OS_singleton()))
+	}
 	views_check_index()
 	data_reset()
 	level_host_reset(&session.level)
@@ -848,6 +853,7 @@ FLAGS := [?]struct {
 	{"--lag", true, true},
 	{"--bench", true, true},
 	{"--draw", true, true},
+	{"--no-watchdog", false, true},
 }
 
 // Reads unified:godot's flags from the user args (after `--`; strings are cloned or temp-allocated). `problems`:
@@ -918,6 +924,8 @@ parse_command_line :: proc(
 			args.seed = number(&found_problems, flag.name, value, min(i64), max(i64))
 		case "--bench":
 			args.bench = int(number(&found_problems, flag.name, value, 0, 1 << 31 - 1))
+		case "--no-watchdog":
+			args.no_watchdog = true
 		case "--draw":
 			args.draw = value
 		case "--lag":

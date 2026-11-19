@@ -179,6 +179,12 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	recording:      Recording, // the session so far, for F3 notes (dev UI builds)
 	group_seq:      u32, // the sim's draw group names last copied (dev_publish)
 	verified_level: Level_Stamp, // the newest verified tick's level the frame hook found (session thread)
+	// The watchdog (watchdog.odin): steps begun and ended (atomic; odd: a step in progress), fill_frame running
+	// (atomic), its thread.
+	step_seq:       u64,
+	in_fill:        bool,
+	watchdog:       ^Watchdog_Thread,
+	watchdog_stop:  bool,
 }
 
 // What the dev UI's Input panel shows: the local player's newest input and the newest verified tick's.
@@ -382,6 +388,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		driver.req.arg = strings.clone(request.arg)
 		driver.req.name = strings.clone(request.name)
 		driver.verified_level = NO_LEVEL
+		driver.req.dumps = strings.clone(request.dumps)
 		triple_init(&driver.frames)
 		for &frame in driver.frames.slots {
 			frame.alloc = context.allocator
@@ -435,6 +442,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		delete(driver.scratch)
 		delete(driver.req.arg)
 		delete(driver.req.name)
+		delete(driver.req.dumps)
 		delete(driver.result)
 		delete(driver.nets)
 		free(driver)
@@ -787,7 +795,9 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 				out          = out,
 				poses        = &driver.poses,
 			}
+			sync.atomic_store(&driver.in_fill, true)
 			driver.glue.fill_frame(&frame)
+			sync.atomic_store(&driver.in_fill, false)
 			when DEVUI do dev_publish(driver, out, simulation, info.tick)
 			triple_publish(&driver.frames)
 			fill_stats_add(&driver.fill, time.tick_since(started))
@@ -863,6 +873,7 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 		sync.atomic_store(&driver.finished, true)
 		return
 	}
+	watchdog_start(driver)
 	for {
 		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD() // this thread's temp data lives one iteration
 		now := netcode.now_us()
@@ -885,13 +896,14 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 			else do netcode.client_stop(driver.client, now)
 		}
 		wake: i64
+		sync.atomic_add(&driver.step_seq, 1) // odd: in a step (the watchdog)
 		if driver.host != nil {
 			wake = netcode.host_step(driver.host, now)
-			if netcode.host_finished(driver.host) do break
 		} else {
 			wake = netcode.client_step(driver.client, now)
-			if netcode.client_finished(driver.client) do break
 		}
+		sync.atomic_add(&driver.step_seq, 1)
+		if driver.host != nil ? netcode.host_finished(driver.host) : netcode.client_finished(driver.client) do break
 		goodbye: i64 = sync.atomic_load(&driver.hurry) ? HURRY_US : GOODBYE_US
 		if driver.stopping && now - driver.stop_at > goodbye do break
 		if driver.online do wake = min(wake, now + 4_000)
@@ -899,6 +911,7 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 	}
 	driver.result = strings.clone(netcode.client_json(netcode.client_result(driver.client, context.temp_allocator)))
 	post(driver, Message{kind = .Result})
+	watchdog_end(driver)
 	driver_close(driver)
 	session_power_end()
 	sync.atomic_store(&driver.finished, true)

@@ -3,6 +3,8 @@
 // Godot (the godot suite's `session` step, tests/godot, tests/godot_views).
 package test_godot_driver
 
+import "core:encoding/json"
+import "core:os"
 import "core:strconv"
 import "core:strings"
 import "core:sync"
@@ -27,6 +29,7 @@ seen: struct {
 	hold:      int, // atomic: 1 hold fill_frame at the local player's join tick, 2 held there, 3 let go
 	held_tick: u32,
 	build:     netcode.Lobby_Build, // what the lobby's open_host got
+	spin:      int, // atomic: 1 fill_frame spins (a frozen session thread) until 2
 }
 
 @(private = "file")
@@ -62,6 +65,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 				for sync.atomic_load(&seen.hold) != 3 do time.sleep(time.Millisecond)
 			}
 		}
+		for sync.atomic_load(&seen.spin) == 1 do time.sleep(time.Millisecond)
 		sync.atomic_add(&seen.extracted, 1)
 	},
 	view_scale = 10, // event positions stay in sim units across the hand-off: the main thread maps them
@@ -368,6 +372,11 @@ driver_sessions :: proc(t: ^testing.T) {
 		godot.api.wait()
 	}
 
+	// The watchdog: fill_frame spins, the step never ends; after watchdog_polls polls the watchdog writes the freeze's
+	// folder (freeze.json says it froze in fill_frame; the recording plus the inputs after it replay into the frozen
+	// tick) and fires.
+	watchdog_freezes(t)
+
 	// A game with problems never stops the load: install collects them all and installs nothing (the editor opens; a
 	// session fails with the reason).
 	{
@@ -390,6 +399,83 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, !godot.api.installed)
 		testing.expectf(t, len(godot.api.problems) == 2, "both policy problems: %v", godot.api.problems)
 	}
+}
+
+@(private = "file")
+watchdog_freezes :: proc(t: ^testing.T) {
+	dumps := #directory + "/../../.out/test/watchdog"
+	_ = os.remove_all(dumps)
+	_ = os.make_directory_all(dumps)
+	polls, poll_ms, fire := godot.watchdog_polls, godot.watchdog_poll_ms, godot.watchdog_fire
+	defer godot.watchdog_polls, godot.watchdog_poll_ms, godot.watchdog_fire = polls, poll_ms, fire
+	godot.watchdog_polls, godot.watchdog_poll_ms = 3, 50
+	godot.watchdog_fire = proc() {sync.atomic_store(&seen.spin, 2)} 	// let fill_frame go instead of aborting
+	sync.atomic_store(&seen.spin, 0)
+	extracted := sync.atomic_load(&seen.extracted)
+	ok, err := godot.api.start({mode = .Single, seed = 5, name = "frozen", watchdog = true, dumps = dumps})
+	testing.expectf(t, ok, "start: %s", err)
+	for i := 0; i < 2000 && sync.atomic_load(&seen.extracted) < extracted + 40; i += 1 do time.sleep(time.Millisecond)
+	sync.atomic_store(&seen.spin, 1)
+	for i := 0; i < 5000 && sync.atomic_load(&seen.spin) != 2; i += 1 do time.sleep(time.Millisecond)
+	testing.expect(t, sync.atomic_load(&seen.spin) == 2, "the watchdog fired")
+	messages: [dynamic]godot.Message
+	defer delete(messages)
+	godot.api.stop()
+	_ = drain(&messages, 5000, is_result)
+	for godot.api.running() do time.sleep(time.Millisecond)
+	godot.api.wait()
+	entries, _ := os.read_all_directory_by_path(dumps, context.temp_allocator)
+	if !testing.expectf(t, len(entries) == 1 && strings.has_prefix(entries[0].name, "freeze-"), "%v", entries) do return
+	dir := entries[0].fullpath
+	Freeze :: struct {
+		tick:      u32,
+		in_fill:   bool,
+		recording: bool,
+		from_tick: u32,
+		to_tick:   u32,
+	}
+	freeze: Freeze
+	text, _ := os.read_entire_file(
+		strings.concatenate({dir, "/freeze.json"}, context.temp_allocator),
+		context.temp_allocator,
+	)
+	testing.expect(t, json.unmarshal(text, &freeze) == nil, "freeze.json reads")
+	testing.expectf(t, freeze.in_fill && freeze.recording && freeze.tick > 0, "%v", freeze)
+	testing.expectf(t, freeze.to_tick == freeze.tick, "the inputs reach the frozen tick: %v", freeze)
+	snapshot, _ := os.read_entire_file(
+		strings.concatenate({dir, "/snapshot.unis"}, context.temp_allocator),
+		context.temp_allocator,
+	)
+	log_bytes, _ := os.read_entire_file(
+		strings.concatenate({dir, "/inputs.unil"}, context.temp_allocator),
+		context.temp_allocator,
+	)
+	input_log, log_ok := sim.log_decode(log_bytes, toy.Game)
+	defer sim.log_destroy(&input_log)
+	simulation, snap_err := sim.from_snapshot(&toy.GAME, snapshot)
+	if !testing.expect(t, log_ok && snap_err == .None, "the dump decodes") do return
+	defer sim.destroy(simulation)
+	for k in 0 ..< len(input_log.ticks) {
+		inputs := sim.log_inputs(&input_log, k)
+		sim.step(simulation, &inputs)
+	}
+	testing.expect_value(t, simulation.tick, freeze.tick)
+}
+
+// The watchdog's detector: the same odd step counter on `polls` polls in a row is a freeze; an even one (between
+// steps) or one that moved is not, and a gap in polls (a suspended laptop: the watchdog's own clock stopped) changes
+// nothing.
+@(test)
+watchdog_detects_a_stuck_step :: proc(t: ^testing.T) {
+	detector: godot.Watchdog_Detector
+	testing.expect(t, !godot.watchdog_poll(&detector, 7, 3))
+	testing.expect(t, !godot.watchdog_poll(&detector, 7, 3))
+	testing.expect(t, godot.watchdog_poll(&detector, 7, 3), "three polls in the same step")
+	detector = {}
+	for seq in ([]u64{2, 2, 2, 2}) do testing.expect(t, !godot.watchdog_poll(&detector, seq, 3), "between steps")
+	for seq in ([]u64{3, 5, 7, 9}) do testing.expect(t, !godot.watchdog_poll(&detector, seq, 3), "steps moving on")
+	testing.expect(t, !godot.watchdog_poll(&detector, 9, 3))
+	testing.expect(t, godot.watchdog_poll(&detector, 9, 3), "then stuck")
 }
 
 // The host's pose memory (#284): tick - 1 as remembered, and its estimate after a rollback or skipped ticks.
