@@ -33,6 +33,7 @@ GAME := Game {
 	init           = init,
 	tick           = tick,
 	scripted_input = scripted_input,
+	benches        = {{what = "holdout holding the last wave's enemies", entities = ENEMY_CAP, ticks = 600}},
 	bench_prepare  = bench_prepare,
 }
 
