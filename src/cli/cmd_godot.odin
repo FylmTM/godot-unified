@@ -34,8 +34,8 @@ GODOT_LANE_MIN_CORES :: 16
 
 // Each game under headless Godot (README.md, Test suites); several games run in parallel, and on a machine with
 // GODOT_LANE_MIN_CORES a game's steps in two lanes (GODOT_LANE_APART beside the rest), once its extension is current
-// and its project imported. A step that
-// passes or is skipped says so only with --verbose; a failing one always does.
+// and its project imported. A step that passes or is skipped says so only with --verbose; a failing one always does,
+// and stops the steps after it in its lane.
 suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 	only := opts.only
 	for step_name in only {
@@ -57,6 +57,12 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 		pass :: proc(game: Game, step: string, passed: bool, secs: f64) -> bool {
 			if !passed || state.verbose do log("uni: %s %s: %s (%.1fs)", game.name, step, passed ? "ok" : "FAILED", secs)
 			return passed
+		}
+		// After a failing step the rest stop: they would fail after it (an extension that did not install fails
+		// every one, behind errors that follow from it), and take their timeouts doing so.
+		halted :: proc(game: Game, ok: bool, step: string) -> bool {
+			if !ok do log("uni: %s %s: skipped (a step before it failed)", game.name, step)
+			return !ok
 		}
 		// whatever steps run: each starts Godot on the project, which needs a current class cache
 		import_start := time.tick_now()
@@ -100,7 +106,7 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 			})
 			only = rest[:]
 		}
-		if want(only, "editor") {
+		if want(only, "editor") && !halted(game, ok, "editor") {
 			if has_extension(game) {
 				start := time.tick_now()
 				ok = pass(game, "editor", editor_check(game), seconds_since(start)) && ok
@@ -108,7 +114,7 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 				skip(game, "editor", "no extension")
 			}
 		}
-		if want(only, "session") {
+		if want(only, "session") && !halted(game, ok, "session") {
 			if has_session_step(game) {
 				start := time.tick_now()
 				ticks := opts.long ? SESSION_TICKS_LONG : SESSION_TICKS
@@ -117,7 +123,7 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 				skip(game, "session", "no extension or no headless binary")
 			}
 		}
-		if want(only, "bake") {
+		if want(only, "bake") && !halted(game, ok, "bake") {
 			start := time.tick_now()
 			baked := bake_view_index(game, check = true, quiet = !state.verbose)
 			baked = bake(game, check = true, quiet = !state.verbose).ok && baked
@@ -129,7 +135,7 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 			timeout:      f64,
 		}
 		for script_step in ([]Script_Step{{"validate", "validate", nil, 60}, {"walk", "ui_walk", nil, 90}}) {
-			if !want(only, script_step.step) {
+			if !want(only, script_step.step) || halted(game, ok, script_step.step) {
 				continue
 			}
 			script := tool_script(game, script_step.script)
@@ -285,6 +291,10 @@ session_vs_offline :: proc(game: Game, ticks, seed: int) -> bool {
 			aprintf("%d", seed),
 		}, f64(ticks) / 64 + 30)
 	errs := godot_problems(strings.concatenate({result.stdout, result.stderr}))
+	if not_installed(errs) {
+		for line in errs do log("uni: %s session: %s", game.name, line)
+		return false
+	}
 	report := last_json_after(result.stdout, "unified: result ")
 	obj, has := report.(json.Object)
 	if !has {

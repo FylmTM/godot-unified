@@ -31,6 +31,7 @@ seen: struct {
 	held_tick: u32,
 	build:     netcode.Lobby_Build, // what the lobby's open_host got
 	spin:      int, // atomic: 1 fill_frame spins (a frozen session thread) until 2
+	setup:     u32, // atomic: the last Frame's Setup's life_bonus + 1 (0: no Setup)
 }
 
 @(private = "file")
@@ -67,6 +68,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 			}
 		}
 		for sync.atomic_load(&seen.spin) == 1 do time.sleep(time.Millisecond)
+		if frame.setup != nil do sync.atomic_store(&seen.setup, u32(frame.setup.life_bonus) + 1)
 		sync.atomic_add(&seen.extracted, 1)
 	},
 	view_scale = 10, // event positions stay in sim units across the hand-off: the main thread maps them
@@ -313,7 +315,15 @@ driver_sessions :: proc(t: ^testing.T) {
 	// them yet (they are about views it doesn't show), and gets them once the Frame of their tick is shown.
 	{
 		sync.atomic_store(&seen.hold, 1)
-		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 20, name = "solo"})
+		sync.atomic_store(&seen.setup, 0)
+		bonus := toy.Setup {
+			life_bonus = 5,
+		}
+		setup: [sim.SETUP_MAX]u8
+		copy(setup[:], sim.bytes_of(&bonus))
+		ok, err := godot.api.start(
+			{mode = .Single, seed = 7, ticks = 20, name = "solo", setup = setup, has_setup = true},
+		)
 		testing.expect(t, ok, err)
 		start := time.tick_now()
 		for sync.atomic_load(&seen.hold) != 2 && time.duration_seconds(time.tick_since(start)) < 5 {
@@ -342,6 +352,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		joined := false
 		for &event in late do joined ||= is_join(&event) && event.tick > shown && event.tick <= held
 		testing.expect(t, joined, "the join tick's events come once its frame is shown")
+		testing.expect_value(t, sync.atomic_load(&seen.setup), 6) // fill_frame reads the session's Setup
 		godot.api.wait()
 		sync.atomic_store(&seen.hold, 0)
 	}

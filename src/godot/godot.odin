@@ -41,6 +41,9 @@ Init_Result :: gdi.Bool
 //   survivor_init :: proc "c" (gpa: godot.Get_Proc_Address, lib: godot.Class_Library, init: ^godot.Initialization) -> godot.Init_Result {
 //       return godot.init(&survivor.GAME, GLUE, gpa, lib, init, eos.lobby({}), constants = constants)
 //   }
+//
+// A test build (ODIN_TEST) compiles it to nothing, so a game's tests import its extension for its Glue
+// (install_problems) without compiling the whole host for the game.
 init :: proc {
 	init_with_constants,
 	init_without_constants,
@@ -55,11 +58,15 @@ init_with_constants :: proc "c" (
 	online: ^netcode.Lobby = nil,
 	constants: proc() -> $Constants,
 ) -> Init_Result {
-	context = runtime.default_context()
-	value := constants()
-	install(game, glue, value)
-	lobby = online
-	return entry(get_proc_address, library, initialization)
+	when ODIN_TEST {
+		return 0
+	} else {
+		context = runtime.default_context()
+		value := constants()
+		install(game, glue, value)
+		lobby = online
+		return entry(get_proc_address, library, initialization)
+	}
 }
 
 init_without_constants :: proc "c" (
@@ -70,10 +77,14 @@ init_without_constants :: proc "c" (
 	initialization: ^Initialization,
 	online: ^netcode.Lobby = nil,
 ) -> Init_Result {
-	context = runtime.default_context()
-	install(game, glue)
-	lobby = online
-	return entry(get_proc_address, library, initialization)
+	when ODIN_TEST {
+		return 0
+	} else {
+		context = runtime.default_context()
+		install(game, glue)
+		lobby = online
+		return entry(get_proc_address, library, initialization)
+	}
 }
 
 // The extension's callbacks for Godot (init's last step; after `install`, which tests call alone).

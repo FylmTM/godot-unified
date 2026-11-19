@@ -131,7 +131,7 @@ struct_problems :: proc(what: string, type: ^runtime.Type_Info, plain: bool, pro
 	}
 	if plain {
 		if reason := sim.plain_violation(type, fmt.tprint(type.id)); reason != "" {
-			append(problems, fmt.aprintf("%s %v: %s", what, type.id, reason))
+			append(problems, fmt.aprintf("%s %s", what, reason))
 		}
 	}
 	if godot_type := godot_type_in(type); godot_type != nil {

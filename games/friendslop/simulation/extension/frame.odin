@@ -1,5 +1,5 @@
 // The view contract and the frame (session thread): every view the state shows, and the HUD's data.
-package extension
+package friendslop_extension
 
 import "unified:dmath"
 import "unified:godot"

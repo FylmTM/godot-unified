@@ -19,7 +19,7 @@ platform SDK. The session opens the lobby with a `netcode.Lobby_Build` (the game
 build is told before it joins.
 
 **The editor loads the extension too**, so a game with problems is reported, never a panic that stops the load
-(`install` says what it checks).
+(`install_problems` says what it checks).
 
 ### Input
 
@@ -43,8 +43,9 @@ they are; `local_players_changed` says when that changes, and `local_player_refu
 
 **Setup and Profile** (`src/sim/README.md`, Setup and Profile) are GDScript classes built from the game's types, as a
 command's: a host passes a `UnifiedSetup` to `start_single`, `host_online` or `host_direct` (none: the game's default),
-`session.setup` reads the running session's (a joiner's is the host's), and `Unified.profile` is what the local player
-joins with. A game's saved progress is its own file, which the host turns into the next session's Setup.
+`session.setup` reads the running session's (a joiner's is the host's; `fill_frame` reads it as `Frame.setup`), and
+`Unified.profile` is what the local player joins with. A game's saved progress is its own file, which the host turns
+into the next session's Setup.
 
 **Open to friends.** A running single-player session becomes a hosted one (`UnifiedSession.open_online`,
 `open_direct`): the session thread opens the lobby or the socket and adds it to the running host
@@ -124,6 +125,11 @@ once at install. **Input values** are set by scripts. Session data is set from t
 bytes change (no interpolation), after the views and before the frame's events, and goes back to zero (one
 `changed`) when a session ends; the objects live on, so connections survive. They are freed at Godot's shutdown
 callback, while scripting still runs.
+
+**Session data and input values are plain**, as the State is: no pointers and **no implicit padding** (a gap, even
+the tail after a `bool`, is an explicit `_pad: [n]u8` field), because the host compares their bytes. `install`
+refuses a type that isn't, naming the `_pad` to add; `godot.install_problems` reports the same without Godot, and a
+game's own `the_extension_installs` test (the template's) calls it, so `uni test` catches it.
 
 The host registers a class per such type at load, plus one per **nested struct** any of them or the event and command
 unions hold (`Hud_Player` -> `DataHudPlayer`, a RefCounted value: each read is a new one, its fields settable, so a

@@ -1,4 +1,4 @@
-package extension
+package minimal_3d_extension
 
 import "unified:dmath"
 import "unified:godot"

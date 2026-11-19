@@ -3,7 +3,7 @@
 // (class DataHud): `phase` is an EnumPhase value, `players` an Array[DataHudPlayer] by slot (zero for an empty slot);
 // who holds a slot comes from the session. View code, not simulation code: f32 for display only. Plain and
 // padding-free (`_pad`).
-package extension
+package friendslop_extension
 
 import "unified:sim"
 

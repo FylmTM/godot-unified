@@ -2,7 +2,7 @@
 // unified:godot, plus the game's glue (games/survivor/README.md, View contract): 3D scene and MultiMesh views in
 // metres (frame.odin), the player view's data, the HUD's session data (hud.odin), the constants (this file), and how
 // the InputMap becomes an Input (input.odin). Built by `uni build survivor`.
-package extension
+package survivor_extension
 
 import "base:runtime"
 import "core:fmt"
