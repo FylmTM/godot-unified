@@ -43,7 +43,7 @@ root, extra headless binaries, packages `vet` checks, directories `fmt` formats,
 and level scenes `bake` exports; `cli.add_suites` for its own test suites; its own commands as another command set
 to `run`. This repo registers its `tests/` root (compiled with `-all-packages`; `uni` writes its `games.gen.odin`,
 importing every in-repo game's tests, so a new game edits no shared file), the toy game, its Godot test projects and
-the Box3D bench. The library knows nothing of this repo's layout but where `init --in-repo` writes a game.
+its own `bench` rows. The library knows nothing of this repo's layout but where `init --in-repo` writes a game.
 
 ## Bootstrap and self-rebuild
 
@@ -85,9 +85,9 @@ built from, the odin executable, and its command line as the key (`stale`, `fini
 what is stale, `build` included, and starts its builds at once.
 
 **Game windows.** A game window can be muted, placed on a screen and kept from taking focus (`Window_Opts`,
-`with_window`). `run` leaves each to its caller; a check's window (a tool script's, coop's, this repo's view bench) is
-always all three, on the leftmost screen (`AGENT_WINDOW`). The editor ignores the project override that keeps focus
-away, and takes focus.
+`with_window`). `run` leaves each to its caller; a check's window (a tool script's, coop's, a driven game's, this
+repo's view bench) is always all three, on the leftmost screen (`AGENT_WINDOW`). The editor ignores the project
+override that keeps focus away, and takes focus.
 
 ## Local settings
 

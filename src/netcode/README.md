@@ -229,7 +229,7 @@ A player is a session **member**, the person, not a slot (the sim's side: `src/s
   is the smaller of k and a round trip plus a tick.
 
 **How the timing constants hold each other.** Change one of `TOLERANCE_MS`, `MAX_DELAY_MS`, `DELAY_MARGIN_US`, the ring, the input window or a lead, then check each
-line below (`tests/netcode/delay_test.odin` and `policy_test.odin` pin them at 32, 64 and 128 Hz).
+line below (`tests/netcode/delay_test.odin` and `policy_test.odin` pin them).
 
 - *The stamp lead does not depend on k.* An input for tick S leaves when the relay clock is at S − s and arrives the
   margin before S is due, at any k: the delay only moves the client's clock back. The relay sees the same client at
@@ -261,8 +261,8 @@ line below (`tests/netcode/delay_test.odin` and `policy_test.odin` pin them at 3
 
 ## Hooks
 
-Every hook is called from `client_step`, on the caller's thread. In one step: `status`, `seat` and `desync` as the
-relay's messages arrive; then `verified` for each newly verified tick, in order, and `verified_state` at most once,
+Every hook is called from `client_step`, on the caller's thread. In one step: `status`, `seat`, `desync` and
+`restored` as the relay's messages arrive; then `verified` for each newly verified tick, in order, and `verified_state` at most once,
 while the sim stands on the newest of them; then `sample` and `commands` for each tick the clock generates, once per
 seated local player (`local` says which); then `frame` once, when the step computed ticks.
 

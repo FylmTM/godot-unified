@@ -229,10 +229,10 @@ whoever recorded it at first, so a camera that tracks the local player's view fo
 timeline: what a client predicted is not in a recording.
 
 Every live session of a dev UI build is written to `<user data>/recordings/<local time>/` when it ends (the newest
-ten kept). A step back inside the sim's ring is a restore; further back, or forward past what was played, the replay
-loads the nearest portable snapshot it kept of a tick it passed (at most 64) and steps to the target without showing
-the ticks between. Such a jump starts a new epoch in the Frame: every view snaps, and the events of ticks entered
-again going forward arrive again. A note starts some seconds before its tick and pauses on it.
+`RECORDINGS_KEPT` kept). A step back inside the sim's ring is a restore; further back, or forward past what was
+played, the replay loads the nearest portable snapshot it kept of a tick it passed and steps to the target without
+showing the ticks between. Such a jump starts a new epoch in the Frame: every view snaps, and the events of ticks
+entered again going forward arrive again. A note starts some seconds before its tick and pauses on it.
 
 The dev UI's Timeline panel drives a replay, and the Inspector's `changes` root is the op log: what the shown tick
 changed in the State against the tick before, a line per leaf field (`sim.state_changes`), computed on the main
@@ -324,13 +324,14 @@ that every `View` member has a scene and every indexed kind is a member.
   tick, the zone stack), the recording plus the inputs the client stepped after the last verified tick, so the
   folder replays headless into the frozen tick, which a deterministic sim reproduces under a debugger (on Windows a
   minidump too); then the process aborts.
-- **Leave, then host or join.** `leave` asks the session to end; it says goodbye on its thread, up to 3 s (a host
-  waiting for peers that don't answer). A start during the goodbye waits and starts as soon as the old session is
-  gone (the goodbye cut to 1 s); a `leave` before that cancels it.
+- **Leave, then host or join.** `leave` asks the session to end; it says goodbye on its thread, for at most
+  `GOODBYE_US` (a host waiting for peers that don't answer). A start during the goodbye waits and starts as soon as
+  the old session is gone (the goodbye cut to `HURRY_US`); a `leave` before that cancels it.
 - **Quitting** (`quit.odin`). Godot reports a sound's playback still held by the AudioServer at exit as a leak, so the
   session's quits (`UnifiedSession.quit`, and the one at the end of a `--quit-at-end` run) stop every audio player in
-  the tree and quit once their playbacks are freed (at most a second); meanwhile the session's frame does nothing
-  else. An app stops its own sound sources first (the games' `Sfx.close`), or a sound started meanwhile is stopped too.
+  the tree and quit once their playbacks are freed (at most `QUIT_AUDIO_WAIT`); meanwhile the session's frame does
+  nothing else. An app stops its own sound sources first (the games' `Sfx.close`), or a sound started meanwhile is
+  stopped too.
 - **Editor.** Classes register at SCENE level and nothing runs in the editor; the class reference loads at EDITOR
   level. `deinitialize` stops the session thread, calls the lobby's optional `shutdown`, then `gd.shutdown`
   unregisters every class.

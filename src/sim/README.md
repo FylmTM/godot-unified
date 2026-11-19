@@ -90,8 +90,8 @@ What carries over a change is what the game keeps in the block (players, a score
 things, built from its markers) the game rebuilds in its change, in a fixed order. A level's marker indices count
 from 0 in each file, so an `Entity` naming a marker names one of the level active at its tick. Which level a
 session starts in is the game's choice in `init` (its Setup's, when it has one). Other levels are a copy of the
-game with other `levels` (the headless `--level NAME=FILE`); a re-baked level rebuilds the extension (`uni` counts
-the `.level` files as inputs).
+game with other `levels` (a headless run's, from a file); a re-baked level rebuilds the extension (`uni` counts the
+`.level` files as inputs).
 
 ### Build identity
 
@@ -296,9 +296,9 @@ Beside tables, the block holds three inline, fixed-capacity collections: `List` 
 indices nobody keeps), `Queue` (first in, first out) and `Bits` (a set of indices sized by a constant, where an enum's
 set is Odin's `bit_set`). Heap containers can't be state: they allocate, must be freed on every peer, and move on
 growth. These are plain data for any element type aligned to at most 8 bytes and any capacity: the count is as wide
-as the element's alignment, so no padding appears and `plain_violation` passes with no `_pad` field (which is why a
-1-byte element caps a List at 255 items; a 16-aligned element does not compile). Every remove, pop and clear zeroes what it vacates, so a List's bytes are a function of its items: equal
-contents hash equal whatever their history (a Queue's also depend on where its head is, until it empties).
+as the element's alignment, so no padding appears and `plain_violation` passes with no `_pad` field. Every remove,
+pop and clear zeroes what it vacates, so a List's bytes are a function of its items: equal contents hash equal
+whatever their history (a Queue's also depend on where its head is, until it empties).
 
 Their verbs are Odin's own for dynamic arrays and bit_sets (`append`, `pop`, `ordered_remove`, `unordered_remove`,
 `clear`, `pop_front`, `incl`, `excl`, `card`), so a game writes what it already knows. Inside package sim they shadow
@@ -357,14 +357,14 @@ what the bytes hold. The byte layouts are in the headers of `log.odin` and `snap
 - **The input log** (`Input_Log`, `log_encode`; recorded as it grows through a `Log_Stream`): seed, the session's
   Setup, levels' hash and the recording build's compat, then each tick's record, a join with the Profile it brought.
   Levels + log is the whole session. Beside the ticks it keeps **checkpoints**: the recorder's checksum of each tick
-  peers compare, written when it is known (a relay judges a majority up to a second after the tick was written), so a
+  peers compare, written when it is known (a relay judges a majority some time after the tick was written), so a
   replay names the first tick it computes differently, also against another build. They are tagged records, not a
   trailer: a recording that never ended (a crash, an F3 note's copy of a growing one) keeps the ones it has.
 - **The portable snapshot** (`snapshot_encode`, `from_snapshot`): the session's Setup, the block and the Extra's image
   with the build's identity, so it restores on another OS or CPU (late join, `resume`) or says why not
   (`Snap_Error`). A late joiner needs nothing else: its World is built from the Setup everyone built theirs from, and
   every remembered member's Profile is in the block.
-- **Text**: `struct_from_text` reads a Setup or a Profile from `key=value` (the headless and Godot `--setup`,
-  Godot's `--profile`, the headless `--player-profile`).
+- **Text**: `struct_from_text` reads a Setup or a Profile from `key=value` (one given on the headless or Godot
+  command line).
 - **Desync reports**: `snapshot_diff` (two snapshots of one build, down to the leaf field), `events_diff` (two lists
   of one tick's events) and `find_nan` (no NaN may reach the block, `src/dmath/README.md`).

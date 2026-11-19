@@ -24,5 +24,5 @@ packages it may import; a package without one fails), and every game under `exam
   (`allow_fields`: the harness fills `Inputs.replaced`) and a named `#config` (`allow_config`: the harness's dev UI
   switch, `sim.DEV`); everything else of the kind stays banned.
 - **What it can't see: types.** A float-to-int conversion goes through `dmath.to_i32_clamped` by convention, and
-  `x := 1.5 * y` is f64 until a cast. `dmath`'s `min`, `max` and `clamp` take integers too, since the lint bans the
-  builtins whatever the type. Address-dependent values are left to the end-to-end suites' desync detection.
+  the ban on `x := 1.5` misses `x := 1.5 * K` with `K` an untyped constant, f64 all the same. `dmath`'s `min`, `max`
+  and `clamp` take integers too, since the lint bans the builtins whatever the type. Address-dependent values are left to the end-to-end suites' desync detection.
