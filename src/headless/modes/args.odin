@@ -10,7 +10,8 @@ import uheadless "unified:headless"
 import "unified:netcode"
 
 // What a mode gets: its name, the words of its options (the command line after the mode's name, less the options any
-// mode takes: --game, --level, --setup), the lobby service of a lobby mode and the game's standard benchmark.
+// mode takes: --game, --level, --setup, --player-profile), the lobby service of a lobby mode and the game's standard
+// benchmark.
 Args :: struct {
 	mode:  string,
 	argv:  []string,
@@ -78,8 +79,8 @@ usage :: proc(options: typeid) -> string {
 // The options any mode takes, taken out of a mode's words before it parses its own (`rest`, temp-allocated).
 @(private)
 Any_Mode :: struct {
-	game, level, setup: string,
-	rest:               []string,
+	game, level, setup, player_profile: string,
+	rest:                               []string,
 }
 
 @(private)
@@ -95,6 +96,8 @@ take_any_mode :: proc(argv: []string) -> (taken: Any_Mode) {
 			target = &taken.level
 		case "--setup":
 			target = &taken.setup
+		case "--player-profile":
+			target = &taken.player_profile
 		}
 		if target == nil {
 			append(&rest, argv[i])

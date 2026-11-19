@@ -364,6 +364,7 @@ what the bytes hold. The byte layouts are in the headers of `log.odin` and `snap
   with the build's identity, so it restores on another OS or CPU (late join, `resume`) or says why not
   (`Snap_Error`). A late joiner needs nothing else: its World is built from the Setup everyone built theirs from, and
   every remembered member's Profile is in the block.
-- **Text**: `struct_from_text` reads a Setup or a Profile from `key=value` (the headless and Godot `--setup`).
+- **Text**: `struct_from_text` reads a Setup or a Profile from `key=value` (the headless and Godot `--setup`,
+  Godot's `--profile`, the headless `--player-profile`).
 - **Desync reports**: `snapshot_diff` (two snapshots of one build, down to the leaf field), `events_diff` (two lists
   of one tick's events) and `find_nan` (no NaN may reach the block, `src/dmath/README.md`).
