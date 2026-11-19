@@ -7,7 +7,6 @@ package test_headless
 @(require) import "core:strings"
 import "core:testing"
 
-import "unified:headless"
 import "unified:headless/scenarios"
 import "unified:netcode"
 import "unified:sim"
@@ -83,30 +82,6 @@ tap_link :: proc(tap: ^Tap, inner: netcode.Link, clock: ^netcode.Virtual_Clock) 
 	}
 }
 
-// A client of the sweep's net behind its own up and down profiles (a live netsim), optionally tapped.
-tapped_join :: proc(
-	net: ^Sweep_Net($G),
-	slot: int,
-	up, down: netcode.Profile,
-	seed: u32 = 0,
-	tap: ^Tap = nil,
-) -> (
-	^netcode.Client(G),
-	^netcode.Net_Sim,
-) {
-	endpoint := len(net.clients) + 1
-	link, netsim := netcode.netsim_live(
-		netcode.loopback_link(net.hub, netcode.Peer(endpoint)),
-		u32(endpoint) * 7919 + seed * 104729,
-		&net.clock,
-	)
-	netcode.netsim_set(netsim, up, down)
-	if tap != nil do link = tap_link(tap, link, &net.clock)
-	client := netcode.client_create(&net.game, {slot = slot}, link, headless.scripted_hooks(&net.scripted))
-	append(&net.clients, client)
-	return client, netsim
-}
-
 // Start players' own inputs at 128 Hz on lossless round trips longer than the window (no ack ends an input's packets
 // early): every tick rode in at least the window's packets. With an input delay at or just under the window (2 x 114
 // B at 270 ms, 3 x 76 B at 310 ms) the clock's first step generated no more than the main message carries, so its
@@ -124,7 +99,7 @@ packets_per_input :: proc(t: ^testing.T, $G: typeid, name: string, window: int, 
 		}
 		taps := new([PLAYERS]Tap)
 		defer free(taps)
-		for slot in 0 ..< PLAYERS do tapped_join(net, slot, profile, profile, 0, &taps[slot])
+		for slot in 0 ..< PLAYERS do sweep_join(net, slot, up = profile, down = profile, tap = &taps[slot])
 		sweep_run(net, 3)
 		client := net.clients[0]
 		fewest, fewest_tick, short := 1000, u32(0), 0
@@ -170,8 +145,9 @@ bounded_bursts :: proc(t: ^testing.T, step_ms: int, silent: bool) {
 		latency = 50_000,
 	}
 	tap: Tap
-	tapped_join(net, 0, profile, profile)
-	_, netsim := tapped_join(net, 1, profile, profile, 0, &tap)
+	netsim: ^netcode.Net_Sim
+	sweep_join(net, 0, up = profile, down = profile)
+	sweep_join(net, 1, up = profile, down = profile, tap = &tap, netsim = &netsim)
 	sweep_run(net, 2)
 	before := tap.bytes
 	tap.most = 0
@@ -180,18 +156,7 @@ bounded_bursts :: proc(t: ^testing.T, step_ms: int, silent: bool) {
 		netcode.netsim_set(netsim, profile, {name = "dead", latency = 50_000, loss = 1000})
 	}
 	seconds := 4.0
-	end := net.clock.now + i64(seconds * 1e6)
-	next_step := net.clock.now
-	for net.clock.now < end {
-		now := net.clock.now
-		wake := netcode.relay_step(net.relay, now)
-		wake = min(wake, netcode.client_step(net.clients[0], now))
-		if now >= next_step && !netcode.client_finished(net.clients[1]) {
-			netcode.client_step(net.clients[1], now)
-			next_step = now + i64(step_ms) * 1000
-		}
-		net.clock.now = clamp(min(wake, next_step), now + 1, end)
-	}
+	sweep_run(net, seconds, slow = 1, slow_every_us = i64(step_ms) * 1000)
 	up := f64(tap.bytes - before) / seconds / 1000
 	testing.expectf(
 		t,
@@ -226,24 +191,13 @@ a_burst_past_the_ceiling_still_counts :: proc(t: ^testing.T) {
 		name    = "700 ms",
 		latency = 350_000,
 	}
-	tapped_join(net, 0, near, near)
-	client, _ := tapped_join(net, 1, far, far)
+	sweep_join(net, 0, up = near, down = near)
+	client := sweep_join(net, 1, up = far, down = far)
 	timing := netcode.timing_of(128)
 	testing.expect(t, 700_000 > netcode.round_trip_ceiling_us(timing))
 	sweep_run(net, 2)
 	from := net.relay.finalized + 1
-	end := net.clock.now + 3_000_000
-	next_step := net.clock.now
-	for net.clock.now < end {
-		now := net.clock.now
-		wake := netcode.relay_step(net.relay, now)
-		wake = min(wake, netcode.client_step(net.clients[0], now))
-		if now >= next_step {
-			netcode.client_step(client, now)
-			next_step = now + 60_000
-		}
-		net.clock.now = clamp(min(wake, next_step), now + 1, end)
-	}
+	sweep_run(net, 3, slow = 1, slow_every_us = 60_000)
 	stamp := netcode.stamp_ahead(client.rtt_us, timing)
 	testing.expectf(
 		t,
@@ -291,7 +245,7 @@ first_inputs_under_loss :: proc(t: ^testing.T, $G: typeid, name: string, latenci
 				name    = "lossless down",
 				latency = latency,
 			}
-			for slot in 0 ..< PLAYERS do tapped_join(net, slot, up, down, u32(seed))
+			for slot in 0 ..< PLAYERS do sweep_join(net, slot, up = up, down = down, salt = u32(seed) * 104729)
 			sweep_run(net, 2)
 			for slot in 0 ..< PLAYERS {
 				count, list := replaced_among(net, slot, 40)

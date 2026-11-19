@@ -36,29 +36,6 @@ vouching_link :: proc(hub: ^netcode.Hub, vouching: ^Vouching) -> netcode.Link {
 	}
 }
 
-// A remote client on `hub` endpoint `endpoint` (with a token, or none).
-member_join :: proc(
-	session: ^Net,
-	hub: ^netcode.Hub,
-	endpoint: int,
-	name: string,
-	token := netcode.Token{},
-) -> ^Client {
-	link := netcode.netsim_wrap(
-		netcode.loopback_link(hub, netcode.Peer(endpoint)),
-		netcode.PROFILES[.Wan],
-		u32(endpoint) * 7919 + u32(len(session.clients)),
-		&session.clock,
-	)
-	client := netcode.client_create(&toy.GAME, {
-			slot        = -1,
-			player_name = name,
-			token       = token,
-		}, link, hooks_for(&session.watch[min(len(session.clients) + 1, 7)]))
-	append(&session.clients, client)
-	return client
-}
-
 // The host's view of who holds `slot` now (a handle, and its data).
 host_player :: proc(session: ^Net, slot: int) -> (sim.Player, ^toy.Player_Data) {
 	players := &session.host.client.sim.state.players
@@ -82,7 +59,7 @@ a_token_brings_the_member_back_in_another_slot :: proc(t: ^testing.T) {
 	net_make(&session, 0, 0)
 	defer net_destroy(&session)
 	token := netcode.Token{1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16}
-	ann := member_join(&session, session.hub, 1, "Ann", token)
+	ann := net_join(&session, name = "Ann", token = token)
 	net_run(&session, 3)
 	testing.expect_value(t, ann.status, netcode.Status.Connected)
 	ann_player, ann_data := host_player(&session, ann.slot)
@@ -91,13 +68,13 @@ a_token_brings_the_member_back_in_another_slot :: proc(t: ^testing.T) {
 	old_slot := ann.slot
 	net_leave(&session, ann)
 	// Bob takes Ann's old slot (the lowest free), then Ann comes back with her token on a new connection.
-	bob := member_join(&session, session.hub, 2, "Bob")
+	bob := net_join(&session, name = "Bob")
 	net_run(&session, 3)
 	testing.expect_value(t, bob.slot, old_slot)
 	testing.expect(t, bob.member != ann.member)
 	bob_player, _ := host_player(&session, bob.slot)
 	testing.expect(t, bob_player != ann_player)
-	again := member_join(&session, session.hub, 3, "Ann", token)
+	again := net_join(&session, name = "Ann", token = token)
 	net_run(&session, 3)
 	testing.expect_value(t, again.status, netcode.Status.Connected)
 	testing.expect(t, again.slot != old_slot)
@@ -133,16 +110,16 @@ a_vouched_account_brings_the_member_back :: proc(t: ^testing.T) {
 	}
 	netcode.host_add_link(session.host, vouching_link(hub, &vouching))
 	net_run(&session, 0.5)
-	ann := member_join(&session, hub, 1, "Ann")
+	ann := net_join(&session, name = "Ann", hub = hub)
 	net_run(&session, 3)
 	testing.expect_value(t, ann.status, netcode.Status.Connected)
 	ann_player, _ := host_player(&session, ann.slot)
 	old_slot := ann.slot
 	net_leave(&session, ann)
-	bob := member_join(&session, hub, 2, "Bob")
+	bob := net_join(&session, name = "Bob", hub = hub)
 	net_run(&session, 3)
 	testing.expect_value(t, bob.slot, old_slot)
-	again := member_join(&session, hub, 3, "Ann (again)") // a new program, the same account
+	again := net_join(&session, name = "Ann (again)", hub = hub) // a new program, the same account
 	net_run(&session, 3)
 	testing.expect_value(t, again.status, netcode.Status.Connected)
 	testing.expect(t, again.slot != old_slot)
@@ -167,7 +144,7 @@ the_newest_connection_of_a_member_wins :: proc(t: ^testing.T) {
 	net_make(&session, 0, 0)
 	defer net_destroy(&session)
 	token := netcode.Token{9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 9, 1}
-	crashed := member_join(&session, session.hub, 1, "Cy", token)
+	crashed := net_join(&session, name = "Cy", token = token)
 	net_run(&session, 3)
 	testing.expect_value(t, crashed.status, netcode.Status.Connected)
 	member := crashed.member
@@ -177,7 +154,7 @@ the_newest_connection_of_a_member_wins :: proc(t: ^testing.T) {
 	ordered_remove(&session.clients, 0)
 	net_run(&session, 0.5)
 	testing.expect(t, session.host.relay.seats[1].conn >= 0)
-	restarted := member_join(&session, session.hub, 2, "Cy", token)
+	restarted := net_join(&session, name = "Cy", token = token, endpoint = 2)
 	net_run(&session, 3) // far below the channel's 10 s timeout
 	testing.expect_value(t, restarted.status, netcode.Status.Connected)
 	testing.expect_value(t, restarted.member, member)
@@ -228,21 +205,11 @@ token_text_round_trips :: proc(t: ^testing.T) {
 // A remote client asking for any slot behind a link of `latency_ms` each way and nothing else (no loss, jitter,
 // duplicates or reordering), with `token` (zero: none).
 far_join :: proc(session: ^Net, latency_ms: i64, token := netcode.Token{}) -> ^Client {
-	endpoint := len(session.clients) + 1
-	link := netcode.netsim_wrap(
-		netcode.loopback_link(session.hub, netcode.Peer(endpoint)),
-		{name = "slow", latency = latency_ms * 1000},
-		u32(endpoint) * 7919,
-		&session.clock,
-	)
-	client := netcode.client_create(
-		&toy.GAME,
-		{slot = -1, player_name = "Linus", token = token},
-		link,
-		hooks_for(&session.watch[min(endpoint, 7)]),
-	)
-	append(&session.clients, client)
-	return client
+	slow := netcode.Profile {
+		name    = "slow",
+		latency = latency_ms * 1000,
+	}
+	return net_join(session, name = "Linus", token = token, raw = slow)
 }
 
 // A player who leaves inside the first round trip and tries again at once with the same token (a double click on
@@ -388,14 +355,11 @@ a_leaving_client_never_reports_failed :: proc(t: ^testing.T) {
 	defer net_destroy(&session)
 	net_join(&session, 0, .Ideal)
 	net_run(&session, 1)
-	link := netcode.netsim_wrap(
-		netcode.loopback_link(session.hub, 2),
-		{name = "slow", latency = 120_000},
-		7,
-		&session.clock,
-	)
-	client := netcode.client_create(&toy.GAME, {slot = -1, compat = 12345}, link, hooks_for(&session.watch[2]))
-	append(&session.clients, client)
+	slow := netcode.Profile {
+		name    = "slow",
+		latency = 120_000,
+	}
+	client := net_join(&session, raw = slow, seed = 7, config = Client_Config{slot = -1, compat = 12345})
 	net_run(&session, 0.05)
 	netcode.client_stop(client, session.clock.now)
 	net_run(&session, 3)
@@ -474,23 +438,11 @@ RETRY_TOKEN :: netcode.Token {
 	5 = 9,
 }
 
-// A remote client asking for any slot behind a live netsim (the test changes its profiles), with `token`.
-retry_join :: proc(session: ^Net, up, down: netcode.Profile, token := RETRY_TOKEN) -> (^Client, ^netcode.Net_Sim) {
-	endpoint := len(session.clients) + 1
-	link, netsim := netcode.netsim_live(
-		netcode.loopback_link(session.hub, netcode.Peer(endpoint)),
-		u32(endpoint) * 7919,
-		&session.clock,
-	)
+// A remote client asking for any slot behind a live netsim (the test changes its profiles), with RETRY_TOKEN.
+retry_join :: proc(session: ^Net, up, down: netcode.Profile) -> (^Client, ^netcode.Net_Sim) {
+	link, netsim := net_link(session, live = true)
 	netcode.netsim_set(netsim, up, down)
-	client := netcode.client_create(
-		&toy.GAME,
-		{slot = -1, player_name = "Linus", token = token},
-		link,
-		hooks_for(&session.watch[min(endpoint, 7)]),
-	)
-	append(&session.clients, client)
-	return client, netsim
+	return net_join(session, name = "Linus", token = RETRY_TOKEN, link = link), netsim
 }
 
 // Newest wins by when each try's Hello went out, not by which arrives last: the player's second try, with the same

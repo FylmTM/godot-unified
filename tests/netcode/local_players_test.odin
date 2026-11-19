@@ -57,14 +57,7 @@ second_sender_hooks :: proc(sender: ^Second_Sender, watch: ^Watch) -> Hooks {
 two_local_players_in_single_player :: proc(t: ^testing.T) {
 	session: Net
 	sender: Second_Sender
-	session.clock.now = 1_000_000
-	session.hub = netcode.hub_create(8)
-	session.host = netcode.host_create(
-		&toy.GAME,
-		{seed = SEED, player_name = "Ada", profile = {color = HOST_COLOR}},
-		second_sender_hooks(&sender, &session.watch[0]),
-	)
-	session.relay = session.host.relay
+	net_make(&session, 0, 0, record = false, hooks = second_sender_hooks(&sender, &session.watch[0]), linked = false)
 	defer net_destroy(&session)
 	host := session.host.client
 	testing.expect(t, add_second(host))

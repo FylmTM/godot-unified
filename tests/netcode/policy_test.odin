@@ -17,54 +17,52 @@ tap_hooks :: proc(watch: ^Watch) -> Hooks {
 	return hooks
 }
 
-// The figures of a tapping session: every client's rollbacks and re-simulated ticks summed, and the least and the
-// largest input delay any client had on any step.
+// The figures of a tapping session: every client's rollbacks and re-simulated ticks summed, the least and the largest
+// input delay any client had on any step, the first client's checksums and the relay's recording (tap_destroy).
 Tap_Session :: struct {
 	rollbacks, resim:     int,
 	delay_min, delay_max: u32,
+	checksums:            [dynamic][2]u64,
+	recording:            [dynamic]u8,
 }
 
-// A session of three tapping clients on `wan` playing `game`, 1280 ticks; every client verifies every tick, none of
-// its inputs replaced, and they agree.
+// A session of three tapping clients on `wan` playing `game`, 1280 ticks, recorded; every client verifies every tick,
+// none of its inputs replaced, and they agree.
 tap_session :: proc(t: ^testing.T, game: ^toy.Game) -> (result: Tap_Session) {
 	session: Net
-	session.clock.now = 1_000_000
-	session.hub = netcode.hub_create(8)
-	session.relay = netcode.relay_create(game, {seed = SEED, ticks = 1280, start_players = 3})
-	netcode.relay_add_link(session.relay, netcode.loopback_link(session.hub, 0))
+	net_make_relay(&session, 3, 1280, record = true, game = game)
 	defer net_destroy(&session)
 	for endpoint in 1 ..= 3 {
-		link := netcode.netsim_wrap(
-			netcode.loopback_link(session.hub, netcode.Peer(endpoint)),
-			netcode.PROFILES[.Wan],
-			u32(endpoint) * 7919,
-			&session.clock,
-		)
-		append(&session.clients, netcode.client_create(game, {slot = -1}, link, tap_hooks(&session.watch[endpoint])))
+		net_join(&session, game = game, config = Client_Config{slot = -1}, hooks = tap_hooks(&session.watch[endpoint]))
 	}
 	result.delay_min = max(u32)
-	end := session.clock.now + 40_000_000
-	for session.clock.now < end && !all_done(&session) {
-		now := session.clock.now
-		wake := netcode.relay_step(session.relay, now)
+	delays := proc(session: ^Net, user: rawptr) -> bool {
+		result := (^Tap_Session)(user)
 		for client in session.clients {
-			wake = min(wake, netcode.client_step(client, now))
-			if client.started {
-				result.delay_min = min(result.delay_min, client.delay)
-				result.delay_max = max(result.delay_max, client.delay)
-			}
+			if !client.started do continue
+			result.delay_min = min(result.delay_min, client.delay)
+			result.delay_max = max(result.delay_max, client.delay)
 		}
-		session.clock.now = clamp(wake, now + 1, end)
+		return false
 	}
+	net_run(&session, 40, all_done, each = delays, user = &result)
 	for client in session.clients {
 		testing.expect_value(t, client.verified, u32(1280))
 		testing.expect_value(t, client.stats.own_replaced, 0)
 		result.rollbacks += client.stats.rollbacks
 		result.resim += client.stats.resim_ticks
 	}
-	testing.expect_value(t, session.relay.desyncs, 0)
 	expect_agree(t, &session)
+	netcode.relay_end_recording(session.relay)
+	append(&result.checksums, ..session.clients[0].checksums[:])
+	result.recording, session.recording = session.recording, {}
 	return
+}
+
+// Frees a tapping session's checksums and recording.
+tap_destroy :: proc(result: ^Tap_Session) {
+	delete(result.checksums)
+	delete(result.recording)
 }
 
 // A game's least input delay is the client's floor: the delay never goes below it. A tick or two more of it leaves as
@@ -73,9 +71,11 @@ tap_session :: proc(t: ^testing.T, game: ^toy.Game) -> (result: Tap_Session) {
 a_games_least_input_delay_is_the_floor :: proc(t: ^testing.T) {
 	game := toy.GAME // each test its own copy: tests run in parallel
 	default := tap_session(t, &game)
+	defer tap_destroy(&default)
 	testing.expect_value(t, default.delay_min, u32(1))
 	game.input_delay_min_ticks = 3
 	floor := tap_session(t, &game)
+	defer tap_destroy(&floor)
 	testing.expect_value(t, floor.delay_min, u32(3))
 	// As many wrong guesses, up to the start players' joins: they become present one per tick, and a join the relay
 	// finalized before a client predicted that tick is no guess at one floor and a wrong one at the other.

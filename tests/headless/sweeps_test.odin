@@ -54,25 +54,60 @@ sweep_make :: proc(net: ^Sweep_Net($G), $CHANGING: int, tick_hz: int, start_play
 	netcode.relay_add_link(net.relay, netcode.loopback_link(net.hub, 0))
 }
 
-sweep_join :: proc(net: ^Sweep_Net($G), slot: int, network: netcode.Network) -> ^netcode.Client(G) {
+// A client asking for `slot` (-1: any) with `token`, on the hub's next endpoint behind a network simulator: the
+// built-in `network` both ways, or a live one sending on `up` and receiving on `down` (with `netsim`, the test changes
+// them); seeded by the endpoint plus `salt`; `tap` counts what it sends.
+sweep_join :: proc(
+	net: ^Sweep_Net($G),
+	slot: int,
+	network := netcode.Network.Wan,
+	token := netcode.Token{},
+	up: Maybe(netcode.Profile) = nil,
+	down: Maybe(netcode.Profile) = nil,
+	salt: u32 = 0,
+	tap: ^Tap = nil,
+	netsim: ^^netcode.Net_Sim = nil,
+) -> ^netcode.Client(G) {
 	endpoint := len(net.clients) + 1
-	link := netcode.netsim_wrap(
-		netcode.loopback_link(net.hub, netcode.Peer(endpoint)),
-		netcode.PROFILES[network],
-		u32(endpoint) * 7919,
-		&net.clock,
+	inner := netcode.loopback_link(net.hub, netcode.Peer(endpoint))
+	seed := u32(endpoint) * 7919 + salt
+	link: netcode.Link
+	if up != nil {
+		live: ^netcode.Net_Sim
+		link, live = netcode.netsim_live(inner, seed, &net.clock)
+		netcode.netsim_set(live, up.?, down.?)
+		if netsim != nil do netsim^ = live
+	} else {
+		link = netcode.netsim_wrap(inner, netcode.PROFILES[network], seed, &net.clock)
+	}
+	if tap != nil do link = tap_link(tap, link, &net.clock)
+	client := netcode.client_create(
+		&net.game,
+		{slot = slot, token = token},
+		link,
+		headless.scripted_hooks(&net.scripted),
 	)
-	client := netcode.client_create(&net.game, {slot = slot}, link, headless.scripted_hooks(&net.scripted))
 	append(&net.clients, client)
 	return client
 }
 
-sweep_run :: proc(net: ^Sweep_Net($G), seconds: f64) {
+// Steps the relay and every client not finished for `seconds` on the net's clock; client `slow` (an index into
+// net.clients) only once every `slow_every_us`: a process that steps rarely.
+sweep_run :: proc(net: ^Sweep_Net($G), seconds: f64, slow := -1, slow_every_us: i64 = 0) {
 	end := net.clock.now + i64(seconds * 1e6)
+	next_slow := net.clock.now
 	for net.clock.now < end {
 		now := net.clock.now
 		wake := netcode.relay_step(net.relay, now)
-		for client in net.clients {
+		for client, i in net.clients {
+			if i == slow {
+				if now >= next_slow && !netcode.client_finished(client) {
+					netcode.client_step(client, now)
+					next_slow = now + slow_every_us
+				}
+				wake = min(wake, next_slow)
+				continue
+			}
 			if netcode.client_finished(client) do continue
 			wake = min(wake, netcode.client_step(client, now))
 		}
@@ -306,32 +341,11 @@ sweep_leaves :: proc(t: ^testing.T, $G: typeid, name: string) {
 						1 = u8(leave_ms),
 						2 = 7,
 					}
-					token_join :: proc(
-						net: ^Sweep_Net($G),
-						network: netcode.Network,
-						token: netcode.Token,
-					) -> ^netcode.Client(G) {
-						endpoint := len(net.clients) + 1
-						link := netcode.netsim_wrap(
-							netcode.loopback_link(net.hub, netcode.Peer(endpoint)),
-							netcode.PROFILES[network],
-							u32(endpoint) * 7919 + 13,
-							&net.clock,
-						)
-						client := netcode.client_create(
-							&net.game,
-							{slot = -1, token = token},
-							link,
-							headless.scripted_hooks(&net.scripted),
-						)
-						append(&net.clients, client)
-						return client
-					}
-					first := token_join(net, network, token)
+					first := sweep_join(net, -1, network, token, salt = 13)
 					if leave_ms > 0 do sweep_run(net, f64(leave_ms) / 1000)
 					netcode.client_stop(first, net.clock.now)
 					again: ^netcode.Client(G)
-					if retry do again = token_join(net, network, token)
+					if retry do again = sweep_join(net, -1, network, token, salt = 13)
 					sweep_run(net, 9)
 					connected := 0
 					for seat in net.relay.seats do connected += int(seat.conn >= 0)

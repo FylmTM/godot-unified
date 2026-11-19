@@ -172,22 +172,16 @@ quiet_hooks :: proc(watch: ^Watch) -> Hooks {
 @(test)
 a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t: ^testing.T) {
 	session: Net
-	session.clock.now = 1_000_000
-	session.hub = netcode.hub_create(8)
-	session.host = netcode.host_create(&toy.GAME, {
-			seed      = SEED,
-			ticks     = 0,
-			recording = sim.log_sink_memory(&session.recording),
-		}, quiet_hooks(&session.watch[0]))
-	session.relay = session.host.relay
-	netcode.host_add_link(session.host, netcode.loopback_link(session.hub, 0))
+	net_make(&session, 0, 0, hooks = quiet_hooks(&session.watch[0]))
 	defer net_destroy(&session)
 	link, gate := gate_wrap(netcode.loopback_link(session.hub, 1))
 	sender: Sender
-	client := netcode.client_create(&toy.GAME, {
-			slot = -1,
-		}, link, sender_hooks(&sender, &session.watch[1]))
-	append(&session.clients, client)
+	client := net_join(
+		&session,
+		config = Client_Config{slot = -1},
+		link = link,
+		hooks = sender_hooks(&sender, &session.watch[1]),
+	)
 	net_run(&session, 2)
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	// The sender's packets stop (its own client keeps running), it sends a bump for tick W and predicts it
@@ -258,15 +252,7 @@ a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t:
 @(test)
 an_empty_command_crosses_the_relay :: proc(t: ^testing.T) {
 	session: Net
-	session.clock.now = 1_000_000
-	session.hub = netcode.hub_create(8)
-	session.host = netcode.host_create(&toy.GAME, {
-			seed      = SEED,
-			ticks     = 0,
-			recording = sim.log_sink_memory(&session.recording),
-		}, quiet_hooks(&session.watch[0]))
-	session.relay = session.host.relay
-	netcode.host_add_link(session.host, netcode.loopback_link(session.hub, 0))
+	net_make(&session, 0, 0, hooks = quiet_hooks(&session.watch[0]))
 	defer net_destroy(&session)
 	// The remote, once in: a bump, an empty clear 10 ticks later, a bump 10 after that.
 	ticks_in: int
@@ -292,8 +278,7 @@ an_empty_command_crosses_the_relay :: proc(t: ^testing.T) {
 			sim.send_command(out, toy.Cmd_Bump{5})
 		}
 	}
-	client := netcode.client_create(&toy.GAME, {slot = -1}, netcode.loopback_link(session.hub, 1), hooks)
-	append(&session.clients, client)
+	client := net_join(&session, profile = .Ideal, config = Client_Config{slot = -1}, hooks = hooks)
 	net_run(&session, 2)
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	testing.expect(t, ticks_in > 30, "the remote sent all three")
@@ -369,9 +354,7 @@ a_joiners_first_commands_land_after_its_snapshot :: proc(t: ^testing.T) {
 		if early.sent < 20 && sim.send_command(out, toy.Cmd_Bump{i32(tick)}) do early.sent += 1
 	}
 	hooks.frame, hooks.verified, hooks.status, hooks.verified_state = nil, nil, nil, nil // they take user as a ^Watch
-	link := netcode.netsim_wrap(netcode.loopback_link(session.hub, 1), netcode.PROFILES[.Wan], 7919, &session.clock)
-	joiner := netcode.client_create(&toy.GAME, {slot = -1, player_name = "Linus"}, link, hooks)
-	append(&session.clients, joiner)
+	joiner := net_join(&session, name = "Linus", hooks = hooks)
 	net_run(&session, 4)
 	testing.expect_value(t, joiner.status, netcode.Status.Connected)
 	testing.expect_value(t, early.sent, 20)

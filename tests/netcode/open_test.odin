@@ -13,15 +13,7 @@ import "unified:sim"
 @(test)
 a_single_player_session_opens_to_a_friend :: proc(t: ^testing.T) {
 	session: Net
-	session.clock.now = 1_000_000
-	session.hub = netcode.hub_create(8)
-	session.host = netcode.host_create(&toy.GAME, {
-			seed = SEED,
-			player_name = "Ada",
-			profile = {color = HOST_COLOR},
-			recording = sim.log_sink_memory(&session.recording),
-		}, hooks_for(&session.watch[0]))
-	session.relay = session.host.relay
+	net_make(&session, 0, 0, linked = false)
 	defer net_destroy(&session)
 	net_run(&session, 5)
 	testing.expect(t, netcode.host_solo(session.host), "alone so far")

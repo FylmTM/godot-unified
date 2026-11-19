@@ -162,19 +162,11 @@ a_client_past_the_relays_ring_is_reanchored_in_place :: proc(t: ^testing.T) {
 		session: Net
 		net_make(&session, 0, 0, game = game)
 		defer net_destroy(&session)
-		link := netcode.netsim_wrap(
-			netcode.loopback_link(session.hub, 1),
-			netcode.PROFILES[.Wan],
-			7919,
-			&session.clock,
+		slow := net_join(
+			&session,
+			game = game,
+			config = Client_Config{slot = -1, player_name = "Grace", catchup_ticks = 1},
 		)
-		slow := netcode.client_create(
-			game,
-			{slot = -1, player_name = "Grace", catchup_ticks = 1},
-			link,
-			hooks_for(&session.watch[1]),
-		)
-		append(&session.clients, slow)
 		net_run(&session, 3)
 		testing.expect_value(t, slow.status, netcode.Status.Connected)
 		slot := slow.slot
@@ -382,22 +374,9 @@ a_desync_seen_after_a_hitch_is_resynced :: proc(t: ^testing.T) {
 // A remote client in `slot` behind a gate (a plain relay's start player).
 @(private = "file")
 gated_slot :: proc(session: ^Net, slot: int, game: ^toy.Game = nil) -> (^Client, ^Gate) {
-	endpoint := len(session.clients) + 1
-	inner := netcode.netsim_wrap(
-		netcode.loopback_link(session.hub, netcode.Peer(endpoint)),
-		netcode.PROFILES[.Wan],
-		u32(endpoint) * 7919,
-		&session.clock,
-	)
+	inner, _ := net_link(session)
 	link, gate := gate_wrap(inner)
-	client := netcode.client_create(
-		game != nil ? game : &toy.GAME,
-		{slot = slot, player_name = "Gated"},
-		link,
-		hooks_for(&session.watch[endpoint]),
-	)
-	append(&session.clients, client)
-	return client, gate
+	return net_join(session, slot, game = game, name = "Gated", link = link), gate
 }
 
 // Plain relay with typed reports. The slipping client freezes for 4 s right after its desync is judged: the typed
