@@ -47,7 +47,7 @@ second_sender_hooks :: proc(sender: ^Second_Sender, watch: ^Watch) -> Hooks {
 			sender.sent = sim.send_command(out, toy.Cmd_Bump{1234})
 		}
 	}
-	hooks.frame, hooks.verified, hooks.status = nil, nil, nil
+	hooks.frame, hooks.verified, hooks.status, hooks.verified_state = nil, nil, nil, nil // they take user as a ^Watch
 	return hooks
 }
 
