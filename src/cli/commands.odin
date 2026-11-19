@@ -30,7 +30,7 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "headless",
-			summary = "the game's headless binary (built when stale), its JSON on stdout; modes: sim, synctest, replay, session, relay, client, bench, and a game's own (`-- help`: every mode and its options)",
+			summary = "the game's headless binary (built when stale), its JSON on stdout; modes: sim, synctest, replay, session, relay, client, bench, predict-stats, and a game's own (`-- help`: every mode and its options)",
 			options = option_types(Headless_Opts),
 			run     = cmd_headless,
 		},

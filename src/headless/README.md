@@ -44,8 +44,7 @@ Conventions every mode keeps:
 
 ## Runs
 
-Every run takes the game (`^G`, a `sim.Game`) and plays it on `game.levels` (`--level NAME=FILE` swaps in a copy with
-that level replaced). In an offline run slot i is member i + 1 from tick 1, joining with its join record (`src/sim/README.md`,
+Every run takes the game (`^G`, a `sim.Game`) and plays it on `game.levels`. In an offline run slot i is member i + 1 from tick 1, joining with its join record (`src/sim/README.md`,
 Players), and `Seat`s change who holds a slot. Offline there is no relay to hold commands back, so a script that
 sends more than a tick takes fails the run (`Scripted_Commands`).
 
@@ -60,18 +59,16 @@ between processes.
 
 ## End-to-end suites
 
-Each game has its own suite of Odin tests calling the library in process
-(`examples/<game>/simulation/tests/suite_test.odin`): one `@(test)` per standard scenario (`unified:headless/scenarios`,
-one proc each, named for what it checks), then the game's own scenarios, its reference run's constant
+Each game has its own suite of Odin tests calling the library in process (`examples/<game>/simulation/tests/`, from
+`suite_test.odin`): one `@(test)` per standard scenario (`unified:headless/scenarios`, one proc each, named for what
+it checks), then the game's own scenarios, its reference run's constant
 (`REFERENCE`), the determinism lint (`lint.check_game`) and its extension's install check (`godot.install_problems`:
 what Godot would refuse at load, caught by `uni test`). A new game copies minimal_3d's
 (`examples/minimal_3d/simulation/tests/`, what `uni init` copies). The toy's suite (`tests/scenarios/`) proves the
 library: it runs every scenario.
 
-**Two tiers.** The default run covers the toy's suite whole and each game's minimal set (`rollback_every_tick`, a
-session under `bad`, one under `wan` with churn, a late joiner, `presence_churn`, the reference run, the replay
-regressions) on short runs,
-each scenario its own test so the runner spreads them over the cores. The long tier (`scenarios.LONG`, `uni test
+**Two tiers.** The default run covers the toy's suite whole and each game's minimal set (a few standard scenarios,
+its reference run and its replay regressions; the game's suite says which) on short runs, each scenario its own test so the runner spreads them over the cores. The long tier (`scenarios.LONG`, `uni test
 --long`) runs every standard scenario at full length, and the slow tests a game keeps behind it.
 
 ## Reference runs

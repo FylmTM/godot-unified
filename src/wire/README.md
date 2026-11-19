@@ -1,7 +1,8 @@
 # `unified:wire`: little-endian bytes
 
 The byte writer and reader under every binary format `unified` has: the input log and portable snapshots (`sim`),
-the netcode's messages. A leaf package: it imports nothing of the collection.
+level files (`level`), replay regressions' expectations (`headless`), the netcode's messages. A leaf package: it
+imports nothing of the collection.
 
 ## How it works
 

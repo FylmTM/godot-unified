@@ -88,7 +88,7 @@ each time; the views show the newest guess and are told when it changes.
 - f32; `dmath`'s `min`, `max`, `clamp`; its trig in turns (`TAU` only at a Box3D call); curves sampled at bake time
   (`curve_delta`); `to_i32_clamped` for a conversion that can overflow; no NaN in the block.
 - The lint and the scenarios in `simulation/tests/` catch what they can; pin a reference run once the rules settle
-  (`suite_test.odin`'s header), which every platform must reproduce (`src/headless/README.md`, Reference runs).
+  (`reference_test.odin`), which every platform must reproduce (`src/headless/README.md`, Reference runs).
 
 **Replay regressions** (`src/headless/README.md`, Replay regressions)
 - A session worth keeping (a feature played through, a bug's F3 note once it is fixed) goes into

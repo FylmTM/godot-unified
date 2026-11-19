@@ -2,8 +2,8 @@
 
 The arithmetic tick code uses, identical on every CPU: f32 only, hardware `+ − × ÷` and `sqrt` (IEEE-exact), never
 fused into a multiply-add. Vectors are `[2]f32` and `[3]f32`, and the input encodings (`input.odin`) are how a client
-puts analog values into an Input. A leaf package: every tick package and every game's sim may import it, and host
-code (`godot`, `devui`) may too, since nothing there feeds the sim. The lint (`src/lint/README.md`) enforces the rules
+puts analog values into an Input. A leaf package: every tick package and every game's sim may import it, and the
+Godot host (`godot`) may too, since nothing there feeds the sim. The lint (`src/lint/README.md`) enforces the rules
 below where a token scan can.
 
 ## How it works
