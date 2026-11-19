@@ -2,7 +2,8 @@
 // seen at tick - 1 interpolates from that pose. After a rollback the tick - 1 pose it remembers is the old prediction,
 // so it sends an estimate of the corrected one instead: a tick re-filled (the same tick again) moves its tick - 1 pose
 // by the same correction; a rollback with a new tick, or a fill after skipped ticks, takes the new pose minus the last
-// known one-tick motion. The main thread feeds it into the view's error term (track_push_prev), so a correction glides
+// known one-tick motion (none known yet: the point a tick short of the new pose on the line from the last one). The
+// main thread feeds it into the view's error term (track_push_prev), so a correction glides
 // instead of popping. Two open-addressed tables, the last fill's and this one's, told apart by a stamp, so nothing is
 // cleared per tick; both grow (rehashed) when a fill would make its own more than half full.
 package godot
@@ -182,6 +183,13 @@ pose_remember :: proc(
 			previous, found = step_back(current, entry.pose, entry.prev), true
 		case entry.tick + 1 == tick:
 			previous, found = entry.pose, true
+		case entry.tick < tick:
+			// skipped ticks with no one-tick motion known (the item was new at the last fill): on the line from the
+			// last pose, a tick short of this one. Else a session stepping two ticks a time (a busy machine) never
+			// gave the item a previous pose.
+			back := f32(tick - entry.tick - 1) / f32(tick - entry.tick)
+			previous = {lerp3(entry.pose.pos, pos, back), nlerp(entry.pose.rot, rot, back)}
+			found = true
 		}
 		break
 	}
