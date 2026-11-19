@@ -229,7 +229,8 @@ snap_extra :: proc(reader: ^wire.Reader) -> (image: []u8, ok: bool) {
 // Builds a new Sim from a portable snapshot, with the session's Setup it carries, or says why the bytes are not a
 // valid snapshot for this game build and its levels (the Sim is nil then): snap_read's errors, then Content_Differs,
 // then Build_Differs (unless `any_build`: a replay of another build's recording, checked against its checkpoints),
-// then Bad_Header for a Setup that does not read on this build (setup_violation).
+// then Bad_Header for a Setup that does not read on this build (setup_violation), then Extra_Rejected for an extra
+// image that doesn't load or a block whose refs the extra's check refuses (a crafted snapshot: check_extra).
 from_snapshot :: proc(
 	game: ^$G,
 	data: []u8,
@@ -264,7 +265,9 @@ from_snapshot :: proc(
 	simulation.tick = header.tick
 	image, image_ok := snap_extra(&reader)
 	extra := &simulation.extra
-	if !image_ok || (extra.load != nil ? !extra.load(extra.data, image) : len(image) != 0) {
+	if !image_ok ||
+	   (extra.load != nil ? !extra.load(extra.data, image) : len(image) != 0) ||
+	   (extra.check != nil && extra.check(extra.data, &simulation.state) != "") {
 		destroy(simulation)
 		return nil, .Extra_Rejected
 	}

@@ -214,23 +214,42 @@ Decoder :: struct {
 	ok:        bool,
 }
 
+// A float of geometry: a NaN or an infinity refuses the file (it would build invisible geometry, or hang Box3D).
 @(private)
-read_vec3 :: proc(decoder: ^Decoder) -> [3]f32 {
-	return {wire.r_f32(&decoder.reader), wire.r_f32(&decoder.reader), wire.r_f32(&decoder.reader)}
+read_finite :: proc(decoder: ^Decoder) -> f32 {
+	value := wire.r_f32(&decoder.reader)
+	if transmute(u32)value & 0x7F80_0000 == 0x7F80_0000 do decoder.ok = false
+	return value
+}
+
+// A float of geometry that must be above 0 (a half extent, a radius, a height field's scale).
+@(private)
+read_positive :: proc(decoder: ^Decoder) -> f32 {
+	value := read_finite(decoder)
+	if !(value > 0) do decoder.ok = false
+	return value
 }
 
 @(private)
+read_vec3 :: proc(decoder: ^Decoder) -> [3]f32 {
+	return {read_finite(decoder), read_finite(decoder), read_finite(decoder)}
+}
+
+// A rotation: finite and unit within 1e-3 (a body's or a shape's pose; Box3D expects a normalized one).
+@(private)
 read_quat :: proc(decoder: ^Decoder) -> [4]f32 {
-	reader := &decoder.reader
-	return {wire.r_f32(reader), wire.r_f32(reader), wire.r_f32(reader), wire.r_f32(reader)}
+	q := [4]f32{read_finite(decoder), read_finite(decoder), read_finite(decoder), read_finite(decoder)}
+	length_squared := q.x * q.x + q.y * q.y + q.z * q.z + q.w * q.w
+	if !(length_squared > 0.998 && length_squared < 1.002) do decoder.ok = false
+	return q
 }
 
 @(private)
 read_surface :: proc(decoder: ^Decoder) -> Surface {
 	return {
-		friction           = wire.r_f32(&decoder.reader),
-		restitution        = wire.r_f32(&decoder.reader),
-		rolling_resistance = wire.r_f32(&decoder.reader),
+		friction           = read_finite(decoder),
+		restitution        = read_finite(decoder),
+		rolling_resistance = read_finite(decoder),
 		tangent_velocity   = read_vec3(decoder),
 		material           = wire.r_u64(&decoder.reader),
 	}
@@ -286,12 +305,13 @@ read_shape_body :: proc(decoder: ^Decoder, shape: ^Shape, spans: ^Shape_Spans) {
 	reader := &decoder.reader
 	switch shape.kind {
 	case .Box:
-		shape.half = read_vec3(decoder)
+		shape.half = {read_positive(decoder), read_positive(decoder), read_positive(decoder)}
 	case .Sphere:
-		shape.radius = wire.r_f32(reader)
+		shape.radius = read_positive(decoder)
 	case .Capsule:
-		shape.radius = wire.r_f32(reader)
-		shape.half_height = wire.r_f32(reader)
+		shape.radius = read_positive(decoder)
+		shape.half_height = read_finite(decoder)
+		if !(shape.half_height >= 0) do decoder.ok = false
 	case .Hull:
 		spans.points = read_points(decoder, int(wire.r_u16(reader)))
 	case .Mesh:
@@ -320,18 +340,20 @@ read_shape_body :: proc(decoder: ^Decoder, shape: ^Shape, spans: ^Shape_Spans) {
 	case .Height_Field:
 		shape.count_x = int(wire.r_u16(reader))
 		shape.count_z = int(wire.r_u16(reader))
-		shape.scale = read_vec3(decoder)
+		shape.scale = {read_positive(decoder), read_positive(decoder), read_positive(decoder)}
 		count := read_count(decoder, shape.count_x * shape.count_z, 4)
 		spans.heights = {len(decoder.heights), count}
-		for _ in 0 ..< count do append(&decoder.heights, wire.r_f32(reader))
+		for _ in 0 ..< count do append(&decoder.heights, read_finite(decoder))
 		if shape.count_x < 2 || shape.count_z < 2 do decoder.ok = false
 	case:
 		decoder.ok = false
 	}
 }
 
-// Parses a level file: not ok for a truncated or malformed file (an index out of range, a height field under 2 × 2),
-// trailing bytes, or another version than VERSION (readers accept only the current one). The strings are views into
+// Parses a level file: not ok for a truncated or malformed file (an index out of range, a marker ref to no marker, a
+// height field under 2 × 2, a NaN or an infinity in geometry, a pose's rotation not unit within 1e-3, a half extent,
+// radius or height field scale not above 0), trailing bytes, or another version than VERSION (readers accept only the
+// current one): a bad file fails here, never as invisible geometry or a hang later. The strings are views into
 // `data`, which must outlive the Level.
 load :: proc(data: []u8, allocator := context.allocator) -> (level: Level, ok: bool) {
 	context.allocator = allocator
@@ -434,6 +456,11 @@ load :: proc(data: []u8, allocator := context.allocator) -> (level: Level, ok: b
 		}
 		append(&marker_path, read_points(&decoder, int(wire.r_u16(&decoder.reader))))
 		if !decoder.reader.ok || !decoder.ok do break
+	}
+	for property in decoder.props {
+		if ref, is_ref := property.value.(Marker_Ref); is_ref && (ref < -1 || int(ref) >= marker_count) {
+			decoder.ok = false
+		}
 	}
 
 	level = {

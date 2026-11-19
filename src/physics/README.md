@@ -29,6 +29,9 @@ fit, on 1 and 4 workers (the cost per body is about flat). One worker is the def
 CPU from Godot and the netcode and help only worlds several times that size, so a physics-heavy game measures before
 it raises it.
 
+Each static level body costs every tick's save like any other body, sleeping or not: a level of hundreds of
+static bodies pays for them in every save and re-sim, so such a level merges its shapes onto fewer bodies.
+
 Any worker count steps to the same bits, and a game proves it on its own content: its suite runs the reference run
 again on the other count (`world_set_worker_count` on the World `world_create` made), in the long tier while it ships
 one worker and in every run once it ships more.
@@ -126,9 +129,10 @@ after it and a replay of it need nothing of their own:
   it, not by refs in the block: a game sizes nothing for its largest level. `check_refs` knows three owners: the
   World (made before `extra`: the anchor, a game's own bodies made in `world_create`), the active level, and the
   block's refs; any other live body is an orphan.
-- **What hangs on a level goes with it.** Box3D destroys a body's joints with it (a character's mover joint to the
-  platform it rides), so a game destroys or detaches what holds on to the old level first; a forgotten joint ref is
-  stale, and `check_refs` names it after the next restore.
+- **What hangs on a level goes with it.** Box3D destroys a body's joints with it (a character's pogo joint to the
+  ground it stands on, the level's static bodies included, and its mover joint to a platform it rides), so a game
+  destroys or detaches what holds on to the old level first (a character standing on the level or riding a platform:
+  destroy it, as a leave does); a forgotten joint ref is stale, and `check_refs` names it after the next restore.
 - **The world holds the active level only**: snapshots, images and checksums cover its bodies, and the hull database
   stops growing once each level has been visited (Box3D shares hulls by content).
 

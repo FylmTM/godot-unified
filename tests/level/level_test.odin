@@ -329,7 +329,7 @@ create_with_levels_parses_and_builds :: proc(t: ^testing.T) {
 	)
 }
 
-// A shape Box3D refuses is never a silent hole: create_level_shape says so, and create_with_levels names the first one
+// A shape Box3D refuses is never a silent hole: build_level_shape says so, and create_with_levels names the first one
 // with its level, body and shape.
 @(test)
 create_with_levels_names_a_refused_shape :: proc(t: ^testing.T) {
@@ -353,9 +353,13 @@ create_with_levels_names_a_refused_shape :: proc(t: ^testing.T) {
 	body_def := physics.default_body_def()
 	body := physics.create_body(world, body_def)
 	shape_def := physics.default_shape_def()
-	testing.expect(t, physics.create_level_shape(world, body, shape_def, &shapes[0]))
-	testing.expect(t, !physics.create_level_shape(world, body, shape_def, &shapes[1]))
-	testing.expect(t, !physics.create_level_shape(world, body, shape_def, &shapes[2]))
+	box, box_ok := physics.build_level_shape(world, &shapes[0])
+	testing.expect(t, box_ok)
+	physics.create_level_shape(world, body, shape_def, box)
+	_, few_ok := physics.build_level_shape(world, &shapes[1])
+	testing.expect(t, !few_ok)
+	_, many_ok := physics.build_level_shape(world, &shapes[2])
+	testing.expect(t, !many_ok)
 	good := fixture()
 	defer delete(good)
 	rocks := encode(bodies, nil)
@@ -363,4 +367,128 @@ create_with_levels_names_a_refused_shape :: proc(t: ^testing.T) {
 	none, problem := physics.create_with_levels({tick_hz = 64}, {{"yard", good}, {"quarry", rocks}})
 	testing.expect(t, none == nil)
 	testing.expect_value(t, problem, `level "quarry", body 0 "rocks", shape 1 (Hull of 3 points): Box3D refused it`)
+}
+
+// One bad float in a level file, per field: load refuses each (before, some hung Box3D entering the level, one
+// segfaulted, the rest built invisible or wrong geometry with no problem named).
+@(test)
+a_bad_float_in_a_level_file_is_refused_at_load :: proc(t: ^testing.T) {
+	nan := math.nan_f32()
+	inf := math.inf_f32(1)
+	for which in 0 ..< 30 {
+		hull := [][3]f32{{0, 0, 0}, {1, 0, 0}, {0, 1, 0}, {0, 0, 1}, {1, 1, 1}}
+		mesh_points := [][3]f32{{10, 0, -2}, {14, 2, -2}, {14, 2, 2}, {10, 0, 2}}
+		heights := []f32{1, 3, 1, 1, 3, 1}
+		shapes := []level.Shape {
+			{kind = .Box, half = {10, 0.5, 10}, rot = {0, 0, 0, 1}},
+			{kind = .Sphere, pos = {3, 1, 0}, radius = 0.5, rot = {0, 0, 0, 1}},
+			{
+				kind        = .Capsule,
+				pos         = {-3, 1, 0},
+				radius      = 0.25,
+				half_height = 0.5,
+				rot         = {0, 0, 0.70710677, 0.70710677},
+			},
+			{kind = .Hull, points = hull, rot = {0, 0, 0, 1}},
+			{kind = .Mesh, rot = {0, 0, 0, 1}, points = mesh_points, triangles = {{0, 2, 1}, {0, 3, 2}}},
+			{
+				kind    = .Height_Field,
+				pos     = {-14, 0, -2},
+				rot     = {0, 0, 0, 1},
+				count_x = 3,
+				count_z = 2,
+				scale   = {2, 1, 4},
+				heights = heights,
+			},
+		}
+		bodies := []level.Body {
+			{name = "floor", pos = {0, -0.5, 0}, rot = {0, 0, 0, 1}, surface = {friction = 0.6}, shapes = shapes},
+		}
+		name := ""
+		switch which {
+		case 0:
+			name = "none (control)"
+		case 1:
+			name, bodies[0].pos = "body pos NaN", {nan, 0, 0}
+		case 2:
+			name, bodies[0].pos = "body pos inf", {inf, 0, 0}
+		case 3:
+			name, bodies[0].rot = "body rot NaN", {nan, nan, nan, nan}
+		case 4:
+			name, bodies[0].rot = "body rot zero", {0, 0, 0, 0}
+		case 5:
+			name, bodies[0].rot = "body rot not unit", {0, 3, 0, 1}
+		case 6:
+			name, bodies[0].rot = "body rot huge", {0, -1.7e38, 0, 1}
+		case 7:
+			name, shapes[0].pos = "box pos NaN", {nan, 0, 0}
+		case 8:
+			name, shapes[0].rot = "box rot NaN", {nan, nan, nan, nan}
+		case 9:
+			name, shapes[0].rot = "box rot zero", {0, 0, 0, 0}
+		case 10:
+			name, shapes[0].half = "box half NaN", {nan, 0.5, 10}
+		case 11:
+			name, shapes[0].half = "box half zero", {0, 0, 0}
+		case 12:
+			name, shapes[0].half = "box half negative", {-10, 0.5, 10}
+		case 13:
+			name, shapes[1].radius = "sphere radius NaN", nan
+		case 14:
+			name, shapes[1].radius = "sphere radius 0", 0
+		case 15:
+			name, shapes[1].radius = "sphere radius negative", -1
+		case 16:
+			name, shapes[2].half_height = "capsule half_height NaN", nan
+		case 17:
+			name, hull[4] = "hull point NaN", {nan, 1, 1}
+		case 18:
+			name, hull[4] = "hull point inf", {inf, 1, 1}
+		case 19:
+			name, mesh_points[1] = "mesh point NaN", {nan, 2, -2}
+		case 20:
+			name, mesh_points[1] = "mesh point inf", {inf, 2, -2}
+		case 21:
+			name, heights[1] = "height NaN", nan
+		case 22:
+			name, heights[1] = "height inf", inf
+		case 23:
+			name, shapes[5].scale = "height scale 0", {0, 0, 0}
+		case 24:
+			name, shapes[5].scale = "height scale NaN", {nan, 1, 4}
+		case 25:
+			name, bodies[0].surface.friction = "friction NaN", nan
+		case 26:
+			name, shapes[4].rot = "mesh rot NaN", {nan, nan, nan, nan}
+		case 27:
+			name, shapes[5].rot = "height field rot zero", {0, 0, 0, 0}
+		case 28:
+			name, shapes[2].rot = "capsule rot NaN", {nan, nan, nan, nan}
+		case 29:
+			name, shapes[5].scale = "height scale negative", {-2, 1, 4}
+		}
+		data := encode(bodies, nil)
+		loaded, ok := level.load(data)
+		testing.expectf(t, ok == (which == 0), "%s: load %v", name, ok)
+		level.destroy(&loaded)
+		delete(data)
+	}
+}
+
+// A marker's NodePath property names a marker of the file or none (-1): any other index is refused at load, as every
+// other index is.
+@(test)
+a_marker_ref_out_of_range_is_refused :: proc(t: ^testing.T) {
+	for ref in ([]i32{-1, 0, 1, 2, 1000, -2, min(i32)}) {
+		props := []level.Prop{{key = "gate", value = level.Marker_Ref(ref)}}
+		markers := []level.Marker {
+			{kind = "a", name = "A", rot = {0, 0, 0, 1}, scale = 1, props = props},
+			{kind = "b", name = "B", rot = {0, 0, 0, 1}, scale = 1},
+		}
+		data := encode(nil, markers)
+		loaded, ok := level.load(data)
+		testing.expectf(t, ok == (ref >= -1 && ref < 2), "ref %d: loaded %v", ref, ok)
+		level.destroy(&loaded)
+		delete(data)
+	}
 }

@@ -12,7 +12,7 @@ They change only on purpose, never to make a test pass.
 
 `./uni test` runs every game's reference run (`reference_reproduces`, its constants in the game's
 `simulation/tests/` suite, the toy's in `tests/scenarios/suite_test.odin`) and checks the golden
-traces in `tests/physics` (`BOX3D_GOLDEN`, Box3D alone; `GOLDEN_CHARACTERS` and `GOLDEN_FIELD`). A mismatch means the simulation changed.
+traces in `tests/physics` (`BOX3D_GOLDEN`, Box3D alone; `GOLDEN_CHARACTERS`, `GOLDEN_FIELD` and `GOLDEN_TERRAIN`). A mismatch means the simulation changed.
 
 1. **Was it meant to?** A rules, tuning or physics change: yes. A refactor, a tooling change, a view-only change or
    a dependency bump you thought neutral: no, so find the cause. Check main in a throwaway worktree

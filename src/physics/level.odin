@@ -75,49 +75,75 @@ level_data :: proc(
 // level body's), then sim.level_enter. Box3D's snapshot holds static bodies like any other, so a rollback across the
 // change, a late join after it and a replay of it are exact. Entering the active level rebuilds it.
 //
-// Destroy what hangs on the old level first: a joint to a level body goes with it (a character's mover joint to the
-// platform it rides: destroy the character, as a leave does), and a Body_Link to one goes stale. check_refs names a
-// joint ref left behind.
+// Destroy what hangs on the old level first: a joint to a level body goes with it (a character standing on the level
+// or riding a platform: its pogo joint hangs on the ground it stands on, so destroy the character, as a leave does),
+// and a Body_Link to one goes stale. check_refs names a joint ref left behind.
 level_change :: proc(t: ^sim.Tick($G), world: ^World, id: $Id) where intrinsics.type_is_enum(Id) {
 	assert(world.sealed, "physics: level_change runs in init or tick (after extra)")
 	assert(int(id) >= 0 && int(id) < len(world.levels), "physics: no such level (create_with_levels' levels)")
 	for &entry, index in world.bodies {
 		if .Level not_in entry.flags || .Alive not_in entry.flags do continue
-		box3d.DestroyBody(body_id(world, Body_Ref{index1 = i32(index + 1), generation = entry.generation}))
+		id := body_id(world, Body_Ref{index1 = i32(index + 1), generation = entry.generation})
+		if box3d.Body_IsValid(id) do box3d.DestroyBody(id) // a loaded table is checked (load); a guard, as destroy_body's
 		entry = {}
 	}
 	build_level(world, &world.levels[int(id)])
 	sim.level_enter(t, id)
 }
 
-// Adds one level shape to a body (any type: games use it for their own level bodies too) with the level shape's
-// surface (the def's materials are replaced); false when Box3D refused it (a hull under 4 points or past its 128
-// edges, a mesh of degenerate triangles) and nothing was added. A mesh it builds is the World's, freed with it. A
-// height field needs a static body of its own: levels (level_change) make one.
+// A level shape with its geometry built (build_level_shape), for create_level_shape: the World's, as long-lived as it.
+Built_Level_Shape :: struct {
+	shape: ^level.Shape, // must outlive the World (the game's level data, or level_data's)
+	hull:  ^Hull_Data, // a box's or a hull's (nil otherwise)
+	mesh:  ^Mesh_Data, // a mesh's (nil otherwise)
+}
+
+// Builds a level shape's geometry (a hull, a mesh's BVH) for create_level_shape, in world_create (asserted: building
+// costs too much for a tick, and a tick that re-runs would build again); ok is false when Box3D refused it (a hull
+// under 4 points or past its 128 edges, a mesh of degenerate triangles). Spheres and capsules need nothing built. A
+// height field needs a static body of its own: levels (level_change) make one. Freed with the World.
+//
+//   ramp, ok := physics.build_level_shape(world.phys, &ramp_shape) // world_create
+//   physics.create_level_shape(t.world.phys, body, def, world.ramp) // init or tick, as often as rollbacks re-run it
+build_level_shape :: proc(
+	world: ^World,
+	shape: ^level.Shape,
+	loc := #caller_location,
+) -> (
+	built: Built_Level_Shape,
+	ok: bool,
+) {
+	assert(!world.sealed, "physics: build_level_shape runs in world_create, before extra", loc)
+	assert(shape.kind != .Height_Field, "physics: a level height field needs its own static body", loc)
+	built.shape = shape
+	#partial switch shape.kind {
+	case .Box, .Hull:
+		built.hull = level_hull(shape)
+		if built.hull == nil do return {}, false
+		append(&world.level_hulls, built.hull)
+	case .Mesh:
+		built.mesh = level_mesh(shape)
+		if built.mesh == nil do return {}, false
+		append(&world.level_meshes, built.mesh)
+	}
+	return built, true
+}
+
+// Adds a built level shape to a body (any type: games use it for their own level bodies too) with the level shape's
+// surface (the def's materials are replaced). Builds nothing, so init and tick may call it, and a rollback re-runs it
+// at the cost of the shape's creation alone.
 create_level_shape :: proc(
 	world: ^World,
 	ref: Body_Ref,
 	def: Shape_Def,
-	shape: ^level.Shape,
+	built: Built_Level_Shape,
 	loc := #caller_location,
-) -> bool {
+) {
 	check_shape_def(def, loc)
-	assert(shape.kind != .Height_Field, "physics: a level height field needs its own static body", loc)
+	assert(built.shape != nil, "physics: a level shape from build_level_shape", loc)
 	def := def
-	hull: ^Hull_Data
-	mesh: ^Mesh_Data
-	#partial switch shape.kind {
-	case .Box, .Hull:
-		hull = level_hull(shape)
-		if hull == nil do return false
-	case .Mesh:
-		mesh = level_mesh(shape)
-		if mesh == nil do return false
-		append(&world.meshes, mesh)
-	}
-	built := level_shape(body_id(world, ref), &def, shape, hull, mesh)
-	if hull != nil do destroy_hull(hull)
-	return built
+	created := level_shape(body_id(world, ref), &def, built.shape, built.hull, built.mesh)
+	assert(created, "physics: Box3D refused a level shape it built", loc)
 }
 
 // Builds every shape's geometry of a level once; the first refused shape is the problem, by level, body and shape.

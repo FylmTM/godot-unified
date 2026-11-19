@@ -221,7 +221,9 @@ despawn_all :: proc(world: ^World, table: ^sim.Table($T, $N)) {
 
 // "" when every body, shape and joint ref in the block names something alive (or is zero) and no body is an orphan
 // (alive, neither the World's nor the active level's, and owned by no Body_Ref in the block: a despawn that forgot
-// its body); else the first problem. The Extra's check, so scenarios.rollback_every_tick runs it after every restore. Needs `extra` first.
+// its body), and every body the table calls the level's is alive and owned by no Body_Ref (a crafted snapshot's
+// table); else the first problem. The Extra's check, so scenarios.rollback_every_tick runs it after every restore and
+// sim.from_snapshot after every load. Needs `extra` first.
 check_refs :: proc(world: ^World, state: rawptr) -> string {
 	base := ([^]u8)(state)
 	resize(&world.owned, len(world.bodies))
@@ -248,6 +250,13 @@ check_refs :: proc(world: ^World, state: rawptr) -> string {
 		}
 	}
 	for entry, index in world.bodies {
+		if entry.flags >= {.Alive, .Level} &&
+		   !box3d.Body_IsValid(body_id(world, Body_Ref{index1 = i32(index + 1), generation = entry.generation})) {
+			return fmt.tprintf("body %d is the level's in the body table, but no live body", index)
+		}
+		if .Level in entry.flags && world.owned[index] {
+			return fmt.tprintf("body %d is the level's in the body table and a Body_Ref's in the block", index)
+		}
 		if .Alive in entry.flags && entry.flags & {.World, .Level} == {} && !world.owned[index] {
 			return fmt.tprintf(
 				"body %d (tag %d) is an orphan: alive, but no Body_Ref in the block owns it (physics.despawn or destroy_refs frees an item's bodies)",
