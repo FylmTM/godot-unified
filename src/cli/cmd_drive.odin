@@ -61,7 +61,8 @@ drive_details :: proc() -> string {
 		"  wait event <name>        until an event of that kind arrives after the previous reply\n" +
 		"  shot [file.png]          the window as a PNG (default .out/drive/<name>-<n>.png in the game)\n" +
 		"  ui                       the visible buttons and texts (path, class, text, disabled, rect)\n" +
-		"  click <text|path>        a real mouse click on a button by its text, or any control by its node path\n" +
+		"  click <text|path>        a real mouse click on a button by its text, or any control by its node path:\n" +
+		"                           /root/Main/Start or root/Main/Start (what Git Bash makes of a leading / is undone)\n" +
 		"  eval <expression>        a GDScript expression on the current scene (session, tree, root, scene, Input, Engine): its value\n" +
 		"Input goes through the game's own sampling and commands through the session's queue, so a driven session\n" +
 		"is a session like any other: deterministic, recorded, replayable. A paused session steps exactly; a running\n" +
@@ -137,6 +138,8 @@ cmd_drive :: proc(args: []string) -> Result {
 		request.since = opts.all ? 0 : instance.events_seen
 	case "wait":
 		request.since = instance.serial_seen
+	case "click":
+		if len(verb_args) == 1 do request.args = strs(node_path_unmangled(verb_args[0]))
 	case "shot":
 		if len(verb_args) == 0 {
 			instance.shots += 1
@@ -381,6 +384,17 @@ drive_stop :: proc(game: Game, instance: Drive_Instance) -> Result {
 			string(encoded),
 		),
 	}
+}
+
+// A node path back from what Git Bash made of it: it rewrites an argument starting with / into a Windows path
+// (`/root/Main` arrives as `C:/Program Files/Git/root/Main`), so a drive-letter path holding a /root/ part becomes the
+// node path from there. Anything else comes back as it is.
+node_path_unmangled :: proc(arg: string) -> string {
+	if len(arg) < 3 || arg[1] != ':' || (arg[2] != '/' && arg[2] != '\\') do return arg
+	slashed, _ := strings.replace_all(arg, "\\", "/")
+	if i := strings.index(slashed, "/root/"); i >= 0 do return slashed[i:]
+	if strings.has_suffix(slashed, "/root") do return "/root"
+	return arg
 }
 
 // A failed verb's reply, as the game's are: `{"ok":false,"error":...}`.

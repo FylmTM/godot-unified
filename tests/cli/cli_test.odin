@@ -146,6 +146,20 @@ small_parsers :: proc(t: ^testing.T) {
 	testing.expect_value(t, cli.join("a/", "b", "", "c"), "a/b/c")
 }
 
+// `drive click`'s node path, back from what Git Bash makes of a leading /; a button's text and a path it never
+// touched come back as they are.
+@(test)
+drive_node_paths_survive_git_bash :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	testing.expect_value(t, cli.node_path_unmangled("C:/Program Files/Git/root/Main/Start"), "/root/Main/Start")
+	testing.expect_value(t, cli.node_path_unmangled(`D:\Git\root\Main`), "/root/Main")
+	testing.expect_value(t, cli.node_path_unmangled("C:/Program Files/Git/root"), "/root")
+	testing.expect_value(t, cli.node_path_unmangled("/root/Main/Start"), "/root/Main/Start")
+	testing.expect_value(t, cli.node_path_unmangled("root/Main/Start"), "root/Main/Start")
+	testing.expect_value(t, cli.node_path_unmangled("Single player"), "Single player")
+	testing.expect_value(t, cli.node_path_unmangled("C:/elsewhere"), "C:/elsewhere")
+}
+
 // `init`'s default submodule URL: a GitHub SSH origin becomes HTTPS (no keys needed); anything else stays.
 @(test)
 init_public_url :: proc(t: ^testing.T) {
