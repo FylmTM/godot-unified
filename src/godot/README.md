@@ -127,6 +127,16 @@ fill gets re-simulated before it is verified; it costs one more `fill_frame` per
 only while some kind asks for it. The main thread creates the view once the newest verified tick reaches that tick;
 such a view is never cancelled.
 
+**Remote players on the verified timeline** (`Remote.Verified`, `verified_players.odin`): a kind whose views of other
+players must never snap back, at the price of showing them late. Only that: a view of such a kind that shows a player
+who isn't local plays final ticks; the local players' views, data-only views, the things a remote player carries and
+MultiMesh instances stay on the prediction (a game wanting a carried thing late too gives it a kind of its own that shows the
+player). Such a view's data and events follow its pose: an event reaches it when playback reaches the event's tick,
+CONFIRMED only, never ahead of the body it belongs to, while the session's `sim_event` signal still has it on the
+prediction. A view whose player becomes local, or stops being, snaps between the timelines. Predicted is the default:
+a remote player in a co-op game is usually predicted well enough, and late is worse than corrected where players
+interact closely.
+
 **What a player sees is the game's choice, not a secret** (`src/sim/README.md`, Hidden information): every client
 holds the whole state, and `fill_frame` decides what is shown. A card in an ally's hand pushed face down
 (`godot.is_local` says whose a player is) is hidden from the honest client only.
@@ -339,9 +349,8 @@ that every `View` member has a scene and every indexed kind is a member.
   verified tick, then every verified tick's inputs, and this machine's checksum of each checksum tick), so an F3
   note carries what `uni headless <game> -- replay` replays and checks, naming the first tick it computes
   differently.
-- **Other players on the verified timeline** (dev UI builds, `verified_players.odin`; off unless switched on in the
-  Conditions panel or by `--verified-players`): remote players posed from final ticks only, a few ticks late, to
-  compare with the prediction.
+- **Every kind's remote players on the verified timeline** (dev UI builds; off unless switched on in the Conditions
+  panel or by `--verified-players`): `Remote.Verified` forced on for every kind, to compare with the prediction.
 - **Debug draws and zones** (dev UI builds; `src/sim/README.md`, Debug draws and zones). The session's sim gets a
   Dev timed on the netcode's clock. The groups shown (the dev UI's draw toggles, `UnifiedSession.debug_draw`,
   `--draw`) go to the session thread as one mask, applied to the sim before each step, so only shown groups are kept;

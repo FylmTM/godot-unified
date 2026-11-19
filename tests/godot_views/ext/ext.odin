@@ -19,6 +19,9 @@ View :: enum u8 {
 	Card, // a Control: data only, never posed
 	Scripted3D, // posed by its script (GLUE.view_policy)
 	Bench2D, // the view benchmark's player view: no data (typed2d's data leaves a field out on purpose)
+	Remote3D, // another player's on the verified timeline (GLUE.view_policy: remote = .Verified)
+	Rider3D, // a thing's that shows a player (a car's driver), the same policy
+	Predicted3D, // a kind left on the prediction, showing the remote player
 }
 
 // The decoy views' subject: another table's handle, given each thing's key (fill_frame).
@@ -45,6 +48,11 @@ Typed2D_Data :: struct {
 	tint:      godot.Color,
 	pad_check: f32,
 	area:      toy.Mark_Area, // a nested struct: an object of its class (DataMarkArea)
+}
+
+// The remote3d views' data: the tick it is of (on the verified timeline, the sample's).
+Remote3D_Data :: struct {
+	tick: u32,
 }
 
 // The card view's data (a Control root: the host sets data, never a pose): one card per thing. `holder` is not
@@ -143,6 +151,28 @@ YAW_3D :: 0.75
 TUMBLE_3D :: 0.3 // a MultiMesh instance's rotation about +X after the yaw: a full rotation, not a yaw only
 BLINK_FROM :: 20 // the blink view (plain2d key 5) exists for ticks BLINK_FROM ..< BLINK_TO
 BLINK_TO :: 40
+// The remote3d walk (remote_walk, remote_x): along x at REMOTE_SPEED a tick, REMOTE_JUMP further from the middle of
+// each REMOTE_PERIOD ticks, back to 0 at its start; each jump a warp. A player no session has (never local) shows it,
+// the local player too, a predicted3d view of the remote player, and a thing (key REMOTE_THING) that shows the remote
+// player for the first half of each period and the local one the second. The remote player gets an Event_Spawned at
+// its walk's position every REMOTE_EVENT_EVERY ticks (drawn_tick). A second remote player (REMOTE_BLINK) walks its own
+// lane for ticks REMOTE_BLINK_FROM ..< REMOTE_BLINK_TO only.
+REMOTE_SPEED :: 0.01
+REMOTE_JUMP :: 2 // under the default teleport_dist: only the warp keeps playback from gliding across it
+REMOTE_PERIOD :: 64
+REMOTE_EVENT_EVERY :: 16 // at phase REMOTE_EVENT_AT of each such stretch: away from the jumps
+REMOTE_EVENT_AT :: 10
+REMOTE_PLAYER :: sim.Player {
+	index = 3,
+	id    = 77,
+}
+REMOTE_BLINK :: sim.Player {
+	index = 2,
+	id    = 78,
+}
+REMOTE_BLINK_FROM :: 60
+REMOTE_BLINK_TO :: 100
+REMOTE_THING :: 9
 
 GLUE := godot.Glue(toy.Game, View, MultiView) {
 	sample_input = sample_input,
@@ -152,9 +182,12 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 	view_scale = VIEW_SCALE,
 	event_key = event_key,
 	input_values = Input_Values,
-	view_data = #partial{.Typed2D = Typed2D_Data, .Card = Card_Data}, // every kind with data, as Glue.data's
+	view_data = #partial{.Typed2D = Typed2D_Data, .Card = Card_Data, .Remote3D = Remote3D_Data}, // every kind with data, as Glue.data's
 	view_policy = #partial {
 		.Scripted3D = {appear = .Verified, pose = .Script},
+		.Remote3D = {remote = .Verified},
+		.Rider3D = {remote = .Verified},
+		.Predicted3D = {remote = .Predicted},
 		.Plain3D = {smoothing = {tau_s = 0.05}},
 	},
 	multi_policy = #partial{.Smooth3D = {smoothing = godot.SMOOTHING_DEFAULT}},
@@ -264,6 +297,7 @@ fill_frame :: proc(f: ^Frame) {
 		pos  = POS_3D / VIEW_SCALE,
 		rot  = q3,
 	})
+	remote_walk(f)
 	if f.tick >= BLINK_FROM && f.tick < BLINK_TO {
 		godot.push_view(f, sim.entity(5), {
 			kind = .Plain2D,
@@ -357,8 +391,9 @@ fill_frame :: proc(f: ^Frame) {
 }
 
 // Expired to its thing's card (by its subject, a thing, it would reach no view; the card has gone that tick and
-// lingers), Joined to none (by its subject: the player's view), the rest by their subject (Spawned: the player's view,
-// its thing having none: the decoys and cards have its key, not its type).
+// lingers), Joined to none (by its subject: the player's view), the remote player's Spawned (drawn_tick) to its
+// remote3d view, the rest by their subject (Spawned: the player's view, its thing having none: the decoys and cards
+// have its key, not its type).
 event_key :: proc(event: toy.Event, subject: godot.Subject) -> godot.Event_Target(View) {
 	#partial switch value in event {
 	case toy.Event_Expired:
@@ -368,6 +403,8 @@ event_key :: proc(event: toy.Event, subject: godot.Subject) -> godot.Event_Targe
 		)
 	case sim.Event_Player_Joined:
 		return {route = .No_View}
+	case toy.Event_Spawned:
+		if value.player == REMOTE_PLAYER do return godot.to_view(View.Remote3D, REMOTE_PLAYER)
 	}
 	return {}
 }
@@ -384,12 +421,46 @@ views_test_init :: proc "c" (
 	return godot.init(&GAME, GLUE, get_proc_address, library, init, constants = constants)
 }
 
-// The toy's tick with two debug draws (outside any zone: the "other" group). Never state: the session's checksums stay
-// the offline binary's.
+// The toy's tick with two debug draws (outside any zone: the "other" group) and the remote player's events (remote_walk).
+// Never state: the session's checksums stay the offline binary's.
 drawn_tick :: proc(t: ^toy.Tick) {
 	toy.tick(t)
 	sim.debug_line(t, sim.Position{0, 0, 0}, sim.Position{1, 1, 0}, .Green)
 	sim.debug_text(t, sim.Position{1, 1, 0}, "tick %d", t.number)
+	if bench_instances == 0 && t.number % REMOTE_EVENT_EVERY == REMOTE_EVENT_AT {
+		sim.emit(t, toy.Event_Spawned{position = sim.Position{remote_x(t.number), 0, 0}, player = REMOTE_PLAYER})
+	}
+}
+
+// Where the remote walk is at `tick` (sim units, along x).
+remote_x :: proc(tick: u32) -> f32 {
+	phase := tick % REMOTE_PERIOD
+	return REMOTE_SPEED * f32(phase) + (REMOTE_JUMP if phase >= REMOTE_PERIOD / 2 else 0)
+}
+
+// The remote walk's views (REMOTE_PERIOD).
+remote_walk :: proc(f: ^Frame) {
+	item := godot.View_Item(View) {
+		kind = .Remote3D,
+		pos  = {remote_x(f.tick), 0, 0},
+		warp = u8(f.tick / (REMOTE_PERIOD / 2)), // a teleport at each jump
+	}
+	data := Remote3D_Data{f.tick}
+	godot.push_view(f, REMOTE_PLAYER, item, data)
+	godot.push_view(f, f.local_players[0], item, data)
+	predicted := item
+	predicted.kind, predicted.player = .Predicted3D, REMOTE_PLAYER
+	godot.push_view(f, sim.entity(REMOTE_THING), predicted)
+	item.kind = .Rider3D
+	item.player = REMOTE_PLAYER if f.tick % REMOTE_PERIOD < REMOTE_PERIOD / 2 else f.local_players[0]
+	godot.push_view(f, sim.entity(REMOTE_THING), item)
+	if f.tick >= REMOTE_BLINK_FROM && f.tick < REMOTE_BLINK_TO {
+		blink := godot.View_Item(View) {
+			kind = .Remote3D,
+			pos  = {REMOTE_SPEED * f32(f.tick - REMOTE_BLINK_FROM), 0, 5},
+		}
+		godot.push_view(f, REMOTE_BLINK, blink, data)
+	}
 }
 
 // Rotation about +Y by `yaw` radians (Godot's up axis).

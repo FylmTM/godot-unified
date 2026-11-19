@@ -49,6 +49,8 @@ Scene_View :: struct {
 	track:       Track,
 	shown:       Pose, // the pose last set on the root (view units), so an unchanged one isn't set again
 	posed:       bool,
+	held_back:   bool, // hidden by the host: a verified-timeline view with no sample yet (verified_players.odin)
+	gone_tick:   u32, // the tick of the first frame that lacked its key while it plays late (0: in the frame)
 	using hooks: View_Hooks, // the root's script's
 	data:        []u8, // the data last set as properties
 }
@@ -595,7 +597,7 @@ marker_update :: proc(scene_view: ^Scene_View) {
 // when the session node leaves the tree or the extension unloads; the next sync starts from nothing.
 views_clear :: proc() {
 	debug_draw_clear()
-	when DEVUI do verified_players_clear()
+	verified_players_clear()
 	for _, entry in V.set.entries do free_view(entry.view)
 	set_destroy(&V.set)
 	V.set = {}
@@ -672,6 +674,7 @@ views_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 
 scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 	if V.clock == {} do V.clock = time.tick_now()
+	verified_players_sync(frame, fresh, dt) // first: which views play on the verified timeline this frame
 	now_s := time.duration_seconds(time.tick_since(V.clock))
 	if fresh {
 		set_begin(&V.set)
@@ -692,6 +695,7 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 			}
 			scene_view := entry.view
 			if scene_view == nil do continue
+			scene_view.gone_tick = 0 // in the frame (again, if a rollback brought it back)
 			if frame.verified >= scene_view.spawn_tick do scene_view.verified = true
 			if revived && scene_view.gone { 	// a rollback brought it back during its linger
 				scene_view.gone = false
@@ -701,7 +705,9 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 				scene_view.player = item.player
 				marker_update(scene_view)
 			}
-			if !spawned && alive(scene_view.id) && item.data_type != nil {
+			// a view on the verified timeline takes its data from its samples (when its kind's data fits one)
+			late_data := verified_players_applies(scene_view) && item.data_size <= VERIFIED_DATA_MAX
+			if !spawned && alive(scene_view.id) && item.data_type != nil && !late_data {
 				set_data(
 					scene_view,
 					data_fields(item.data_type),
@@ -715,6 +721,20 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 			track_push_prev(&scene_view.track, frame.tick, {item.prev_pos, item.prev_rot}, item.has_prev, smoothing)
 			track_push(&scene_view.track, frame.tick, {item.pos, item.rot}, smoothing)
 		}
+		// on the verified timeline, a view whose key left stays until playback reaches the tick it left at; leaving, its
+		// held events are delivered
+		kept := make([dynamic]View_Id, context.temp_allocator)
+		for id, entry in V.set.entries {
+			if entry.seen == V.set.frame || entry.phase != .Alive || entry.view == nil do continue
+			if !verified_players_applies(entry.view) do continue
+			if entry.view.gone_tick == 0 do entry.view.gone_tick = frame.tick
+			if verified_players_keeps(entry.view, entry.view.gone_tick) {
+				append(&kept, id)
+			} else {
+				verified_players_flush(id, entry.view)
+			}
+		}
+		for id in kept do set_see(&V.set, id)
 		// gone before their spawn tick was ever verified: cancelled spawns, freed at once
 		cancelled := make([dynamic]View_Id, context.temp_allocator)
 		for id, entry in V.set.entries {
@@ -739,7 +759,6 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 			free_view(scene_view)
 		}
 	}
-	when DEVUI do verified_players_sync(frame, fresh, dt)
 	decays: [256]f32 = -1 // per kind: computed once a frame, when its first view needs it
 	for _, &entry in V.set.entries {
 		scene_view := entry.view
@@ -749,7 +768,16 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 		decay := &decays[scene_view.kind]
 		if decay^ < 0 do decay^ = track_decay(dt, smoothing)
 		pose := track_sample_decayed(&scene_view.track, frame.tick, alpha, decay^, dt, smoothing) // sim units
-		when DEVUI do if verified, ok := verified_players_pose(scene_view, frame); ok do pose = verified // a dev option, off by default
+		// Remote.Verified: the late pose and data (a snap from the prediction, no glide); hidden until its first sample
+		late, applies, sample := verified_players_pose(scene_view)
+		hold_back(scene_view, applies && sample == nil)
+		if applies && sample == nil do continue
+		if applies {
+			pose = late
+			if sample.data_type != nil && sample.data_size > 0 {
+				set_data(scene_view, data_fields(sample.data_type), sample.data[:sample.data_size], false)
+			}
+		}
 		pose.pos = to_view_units(pose.pos)
 		// before every other node's _process (priority -1000): a view's script reads it. An unchanged pose (a crate at
 		// rest, a level marker) isn't set again: each set dirties the root's whole subtree. Unchanged within float noise: a
@@ -815,7 +843,7 @@ views_of_kind :: proc(view_kind: i64) -> gd.Array {
 // names (or none); else the views pushed with the event's subject (in kind order): its handle field's type and key, or
 // its sim.Entity field's index among the views pushed with an Entity; else (no such view, or no such field) its
 // player's views. A view named or keyed is found by its id; only the player route walks the views.
-views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, event: gd.Variant) {
+views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, event: gd.Variant, tick: u32) {
 	player, subject_key := event_subject(layout, raw.data[:raw.size])
 	view_key, keyed_subject := subject_key, subject_key != 0
 	if layout.subject >= 0 && !layout.subject_is_handle {
@@ -832,7 +860,7 @@ views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, even
 		switch event_route {
 		case .Subject:
 		case .View:
-			if entry := set_get(&V.set, View_Id{kind, key}); entry != nil do call_sim_event(entry.view, event, state)
+			if entry := set_get(&V.set, View_Id{kind, key}); entry != nil do call_sim_event(entry.view, event, state, tick)
 			return
 		case .No_View:
 			return
@@ -844,19 +872,39 @@ views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, even
 			entry := set_get(&V.set, View_Id{u8(kind), view_key})
 			if entry == nil || entry.view == nil || entry.view.subject != layout.subject_type do continue
 			keyed = true
-			call_sim_event(entry.view, event, state)
+			call_sim_event(entry.view, event, state, tick)
 		}
 		if keyed do return
 	}
 	if player == 0 do return
 	for _, &entry in V.set.entries {
 		scene_view := entry.view
-		if scene_view != nil && scene_view.player == player do call_sim_event(scene_view, event, state)
+		if scene_view != nil && scene_view.player == player do call_sim_event(scene_view, event, state, tick)
+	}
+}
+
+// An event of `tick` for a view: held for the verified timeline's playback when the view plays on it
+// (verified_players_hold), else delivered now.
+call_sim_event :: proc(scene_view: ^Scene_View, event: gd.Variant, state: i64, tick: u32) {
+	if scene_view != nil && verified_players_hold(scene_view, event, state, tick) do return
+	call_sim_event_now(scene_view, event, state)
+}
+
+// Hides a view the host holds back (a verified-timeline view with no sample yet), or shows it again.
+hold_back :: proc(scene_view: ^Scene_View, held: bool) {
+	if scene_view.held_back == held do return
+	scene_view.held_back = held
+	switch scene_view.mode {
+	case .Node3D:
+		gd.Node3D_set_visible(gd.cast_to(gd.Node3D, scene_view.node), !held)
+	case .Node2D:
+		gd.CanvasItem_set_visible(gd.cast_to(gd.CanvasItem, scene_view.node), !held)
+	case .Other:
 	}
 }
 
 // Calls the view root script's _sim_event, if it has one.
-call_sim_event :: proc(scene_view: ^Scene_View, event: gd.Variant, state: i64) {
+call_sim_event_now :: proc(scene_view: ^Scene_View, event: gd.Variant, state: i64) {
 	if scene_view == nil || !scene_view.has_event || !alive(scene_view.id) do return
 	result := gd.call_script(scene_view.node, NAMES.view_event, event, state)
 	gd.variant_destroy(&result)
