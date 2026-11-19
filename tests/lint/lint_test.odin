@@ -50,11 +50,11 @@ RULES := []Rule {
 	{pkg = "lint", kind = .Realtime},
 	// Host side (Godot bindings and views, dev UI, the CLI): never feeds back into the sim. gdext's generated API imports
 	// its gdi sub-package relatively; the CLI imports Odin's own only, so editing the rest of the library never
-	// rebuilds it.
+	// rebuilds it, and the OS's C library for what Odin's lack (posix_spawn's file actions, spawn_darwin.odin).
 	{pkg = "gdext", kind = .Host, imports = {"unified:gdext/gdi", "gdi"}},
 	{pkg = "devui", kind = .Host, imports = {"unified:gdext", "unified:gdext/gdi"}},
 	{pkg = "godot", kind = .Host, imports = GODOT_IMPORTS},
-	{pkg = "cli", kind = .Host},
+	{pkg = "cli", kind = .Host, imports = {"system:c"}},
 }
 
 PHYSICS_IMPORTS :: []string {
