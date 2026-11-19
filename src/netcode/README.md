@@ -84,7 +84,11 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
   sender's stale side at once, so no side sits half-open. A new epoch from an active peer means it started over (a
   restarted program on the same address, or on a link that numbers a person, not a socket: EOS): the old connection
   ends with `Disconnected` and the datagram opens the new one. The old connection's messages read in the same poll
-  are not delivered: they would reach the new connection, which has its peer number (its Leave would end it).
+  are not delivered: they would reach the new connection, which has its peer number (its Leave would end it). Which
+  of two programs is newer: a datagram that echoes no epoch (a connection's first) says when its connection opened,
+  on the sender machine's clock, and one opened before the open connection is a stale datagram of the peer's previous
+  program (its first Hello, delayed or duplicated): dropped unread, never "started over". One person's two machines
+  order by two clocks: a later machine whose clock reads earlier gets in once the open connection times out.
 - **Goodbye.** A connection dropped after a goodbye, or replaced (by the relay, or by the peer starting over), never
   comes back: its last datagram acks the goodbye, and a datagram of it arriving later (a Hello resent before the
   Leave, a duplicate) is never read.
