@@ -38,7 +38,8 @@ helpers :: proc(t: ^testing.T) {
 }
 
 // quat_yaw at facings all the way round, and densely near -Z (where a half angle taken from the cosine alone loses
-// its bits): the half angle's sin and cos within 4e-7 (sin_cos's own error included), unit length, and +Z turned onto the facing.
+// its bits): the half angle's sin and cos within 4e-7 (sin_cos's own error included), unit length, and +Z turned
+// onto the facing.
 @(test)
 quat_yaw_sweep :: proc(t: ^testing.T) {
 	check :: proc(turns: f32) -> (err: f32) {

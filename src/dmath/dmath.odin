@@ -148,10 +148,10 @@ clamp_length3 :: proc "contextless" (vec: [3]f32, max_len: f32) -> [3]f32 {
 // 1e-7 at every facing. `facing` is unit length (dmath.normalize) or zero (normalize's result for none): the identity.
 quat_yaw :: proc "contextless" (facing: [2]f32) -> [4]f32 {
 	if facing == {} do return {0, 0, 0, 1} // -0 compares equal to 0
-	// For the angle θ from +Z (cos θ = facing.y, sin θ = facing.x): (1 + cos θ, sin θ) = 2c·(c, s) and
-	// (sin θ, 1 − cos θ) = 2s·(c, s), c and s the half angle's. Their sum, with |sin θ| so both weigh the same way, is
-	// (c, s) times 2(c + |s|) >= 2, and every term in it is >= 0: no cancellation anywhere, so normalizing it is exact
-	// to rounding. (The half angle from the cosine alone, sqrt((1 + cos θ) / 2), loses most of its bits facing near -Z.)
+	// For the angle θ from +Z (cos θ = facing.y, sin θ = facing.x), c and s the half angle's: (1 + cos θ, |sin θ|) =
+	// 2c·(c, |s|) and (|sin θ|, 1 − cos θ) = 2|s|·(c, |s|). Their sum is (c, |s|) times 2(c + |s|) >= 2, and every term
+	// in it is >= 0: no cancellation anywhere, so normalizing it is exact to rounding; s's sign goes on afterwards. (The
+	// half angle from the cosine alone, sqrt((1 + cos θ) / 2), loses most of its bits facing near -Z.)
 	cos_part, sin_part := (1 + facing.y) + abs(facing.x), (1 - facing.y) + abs(facing.x)
 	length := sqrt(cos_part * cos_part + sin_part * sin_part)
 	cos_half, sin_half := cos_part / length, sin_part / length
