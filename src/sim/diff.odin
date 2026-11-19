@@ -2,6 +2,7 @@
 // same tick, field by field through the State's RTTI (a table's items by index), then the extra's image.
 package sim
 
+import "base:builtin"
 import "base:runtime"
 import "core:fmt"
 import "core:strings"
@@ -16,11 +17,17 @@ DIFF_MAX :: 8 // differences listed; the rest are counted
 Diff :: struct {
 	text:  strings.Builder,
 	count: int,
+	lines: ^[dynamic]string, // state_changes: a line per difference, up to `limit` (nil: one text, DIFF_MAX)
+	limit: int,
 }
 
 @(private)
 diff_note :: proc(diff: ^Diff, format: string, args: ..any) {
 	diff.count += 1
+	if diff.lines != nil {
+		if diff.count <= diff.limit do builtin.append(diff.lines, fmt.tprintf(format, ..args))
+		return
+	}
 	if diff.count > DIFF_MAX {
 		return
 	}
@@ -74,6 +81,19 @@ diff_blocks :: proc(
 		fmt.sbprintf(&diff.text, "; and %d more", diff.count - DIFF_MAX)
 	}
 	return fmt.tprintf("tick %d: %s", header_a.tick, strings.to_string(diff.text))
+}
+
+// What a tick changed (the op log): one line per leaf field that differs between two values of `type` (a tick's
+// State and the tick before's), "path before vs after", read as snapshot_diff reads a block (a table's items by index,
+// a collection by its live items); at most `limit` lines (temp-allocated), `total` the differences there are.
+state_changes :: proc(type: ^runtime.Type_Info, before, after: rawptr, limit := 64) -> (lines: []string, total: int) {
+	out := make([dynamic]string, context.temp_allocator)
+	diff := Diff {
+		lines = &out,
+		limit = limit,
+	}
+	diff_value(&diff, "", type, ([^]u8)(before)[:type.size], ([^]u8)(after)[:type.size])
+	return out[:], diff.count
 }
 
 // What differs between two lists of one tick's events ("" when nothing does; temp-allocated): their count, an event's

@@ -15,6 +15,8 @@ playtest (F3 notes are how they report a problem); a public build turns it off. 
 - **Draw groups.** The host passes the sim's debug draw group names every frame (`draw_groups`); the overlay keeps a
   toggle per name, remembered by name while it lives, so the next session shows what the last one did, and returns
   the shown ones. What is drawn and where is the host's.
+- **Timeline.** While the host plays a replay it passes the playhead's state every frame (`timeline`) and gets what
+  the panel asked for (play or pause, a step, a seek on the slider, the speed); the panel opens with a replay.
 - **Size.** In points, whatever the game's stretch: the layer's scale is the HiDPI scale over the root viewport's
   canvas stretch, so a game's `canvas_items` stretch doesn't grow the dev UI.
 - **Panels** are our own floating controls, closed until toggled, not Godot `Window`s: an embedded window draws in

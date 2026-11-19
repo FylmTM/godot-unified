@@ -123,6 +123,24 @@ zones_report_self_times :: proc(t: ^testing.T) {
 	testing.expect_value(t, totals.calls[2], 5)
 }
 
+// The op log: what a tick changed, a line per leaf (a table item by index), nothing for equal states, at most `limit`
+// lines with the total counted.
+@(test)
+state_changes_lists_what_a_tick_changed :: proc(t: ^testing.T) {
+	simulation := sim.create(&toy.GAME, 3)
+	defer sim.destroy(simulation)
+	run(simulation, 30)
+	before := simulation.state
+	run(simulation, 1)
+	lines, total := sim.state_changes(type_info_of(toy.State), &before, &simulation.state)
+	testing.expectf(t, total > 0 && len(lines) == total, "%d changes: %v", total, lines)
+	for line in lines do testing.expectf(t, len(line) > 0 && line[0] != ' ', "a path first: %q", line)
+	none, none_total := sim.state_changes(type_info_of(toy.State), &before, &before)
+	testing.expect(t, len(none) == 0 && none_total == 0, "equal states change nothing")
+	limited, limited_total := sim.state_changes(type_info_of(toy.State), &before, &simulation.state, limit = 1)
+	testing.expect(t, len(limited) == 1 && limited_total == total, "limited, counted")
+}
+
 // Without a clock, zones are not timed but still name the draws' groups.
 @(test)
 zones_without_a_clock_still_group :: proc(t: ^testing.T) {

@@ -152,6 +152,7 @@ build_overlay :: proc() {
 		.Events     = "events",
 		.Commands   = "commands",
 		.Note       = "note",
+		.Timeline   = "timeline",
 	}
 	for kind in Panel_Kind {
 		toggle := button(button_row, names[kind], proc(user: rawptr, _: []^gd.Variant) -> gd.Variant {
