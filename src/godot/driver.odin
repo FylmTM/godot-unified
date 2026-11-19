@@ -783,9 +783,8 @@ policy_problems :: proc(policy: View_Policy, kind: string, multi: bool, problems
 // fill_frame, no sample_input for a game with an Input (or one for a game without), a bad view_scale, a View or
 // MultiView enum that doesn't count up from 0, sim.game_violation, netcode.game_violation, a Glue.data, constants or
 // input values type that isn't a struct, isn't plain (pointers, implicit padding) or holds one of Godot's own types, a
-// view policy it refuses. A game's own test
-// calls it (the template's `the_extension_installs`), so `uni test` reports these in a second, without Godot. The
-// list and its strings live as long as the process.
+// view policy it refuses. A game's own test calls it (the template's `the_extension_installs`), so `uni test` reports
+// these in a second, without Godot. The list and its strings live as long as the process.
 install_problems :: proc {
 	install_problems_with_constants,
 	install_problems_without_constants,
@@ -811,11 +810,14 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 	Input :: sim.part(G, sim.GAME_INPUT)
 	#assert(size_of(Input) <= MAX_INPUT_BYTES, "unified:godot: the game's Input is larger than MAX_INPUT_BYTES")
 	problems: [dynamic]string
-	if glue.fill_frame == nil || (glue.sample_input == nil) != (size_of(Input) == 0) {
-		append(
-			&problems,
-			"the Glue needs fill_frame, and a sample_input exactly when the game has an Input (not sim.No_Input)",
-		)
+	if glue.fill_frame == nil {
+		append(&problems, "the Glue needs fill_frame")
+	}
+	if glue.sample_input == nil && size_of(Input) > 0 {
+		append(&problems, "the Glue needs sample_input: the game has an Input")
+	}
+	if glue.sample_input != nil && size_of(Input) == 0 {
+		append(&problems, "the Glue has a sample_input, but the game has no Input (sim.No_Input)")
 	}
 	if !(glue.view_scale >= 0 && glue.view_scale < 1e9) {
 		append(

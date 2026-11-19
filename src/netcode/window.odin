@@ -145,7 +145,7 @@ window_write_input :: proc(writer: ^wire.Writer, input, base: ^$Input) {
 	for _ in 0 ..< mask_bytes(size_of(Input)) {
 		wire.w_u8(writer, 0)
 	}
-	for i in 0 ..< len(after) { 	// len, not size_of: a zero-byte Input (sim.No_Input) is no constant empty range
+	for i in 0 ..< len(after) { 	// len, not size_of: `0 ..< 0` with a constant bound doesn't compile (sim.No_Input)
 		if before[i] != after[i] {
 			writer.buf[mask_at + i / 8] |= 1 << uint(i % 8)
 			wire.w_u8(writer, after[i])
@@ -163,7 +163,7 @@ window_input_max_bytes :: proc($Input: typeid) -> int {
 // bit past the input's size, or cut short).
 window_read_input :: proc(reader: ^wire.Reader, input: ^$Input) -> bool {
 	mask := wire.r_bytes(reader, mask_bytes(size_of(Input)))
-	if !reader.ok { 	// cut short (a zero-byte Input's mask is empty, never nil-checked)
+	if !reader.ok { 	// ok, not the slice: a zero-byte Input's empty mask reads as nil
 		return false
 	}
 	for i in size_of(Input) ..< 8 * len(mask) {

@@ -454,7 +454,14 @@ driver_sessions :: proc(t: ^testing.T) {
 		bad := godot.Glue(toy.Game, Bad_View, MultiView){}
 		godot.install(&toy.GAME, bad)
 		testing.expect(t, !godot.api.installed)
-		testing.expectf(t, len(godot.api.problems) == 2, "both problems: %v", godot.api.problems)
+		// no fill_frame, no sample_input, a View enum that doesn't count from 0
+		testing.expectf(t, len(godot.api.problems) == 3, "all three problems: %v", godot.api.problems)
+		// a game with an Input whose Glue has no sample_input
+		missing := GLUE
+		missing.sample_input = nil
+		godot.install(&toy.GAME, missing)
+		testing.expect(t, !godot.api.installed)
+		testing.expectf(t, len(godot.api.problems) == 1, "no sample_input: %v", godot.api.problems)
 		// a view policy install refuses: a script-posed MultiMesh kind, a ramp without its time constant
 		policies := GLUE
 		policies.multi_policy = {

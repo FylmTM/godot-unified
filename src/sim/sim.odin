@@ -3,7 +3,7 @@
 //
 //   State    the state block: plain data (no pointers, no padding), so a snapshot is a copy and its bytes
 //            are the checksum input. It holds the players (`players: sim.Players(...)`), tables and handles.
-//   Input    one player's input for one tick (plain data, no bools or floats).
+//   Input    one player's input for one tick (plain data, no bools or floats; sim.No_Input: none).
 //   World    everything outside the block (physics world, per-tick scratch); its rollback state is the
 //            game's Extra (physics.extra for Box3D).
 //   Event    the event union, Cmd the command union.
@@ -270,7 +270,8 @@ No_Commands :: union {}
 
 // The Input of a game whose players act through commands only (a turn-based game): sim.Game(State, sim.No_Input,
 // ...) and sim.Players(T, Profile, sim.No_Input, PLAYERS). Zero bytes everywhere: nothing on the wire, in the log or
-// in the State but each tick's presence.
+// in the State but each tick's presence. Any zero-size Input is the same "no Input" (its Glue has no sample_input);
+// this one names it.
 No_Input :: struct {}
 
 // The World of a game that keeps nothing outside the block: sim.Game(State, Input, sim.No_World, ...).
