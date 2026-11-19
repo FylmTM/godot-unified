@@ -35,8 +35,22 @@ template:
   once the game passes `eos.lobby({})` to `godot.init` and `lobbies` to `modes.run` (drift's extension, survivor's
   headless main).
 - **A physics World on a level with markers:** friendslop (3D: characters, joints, sensors), drift (2D on a plane).
+- **Level changes:** friendslop (`Game.levels`, a travel command, `physics.level_change`, the session's `level_root`).
+- **Several local players on one machine:** drift (a pad joins with Start; the extension's `sample_input` reads each
+  local player's device).
+- **A Setup, a Profile and a save:** survivor (the difficulty and the host's record through the Setup, a role per
+  player in the Profile, the record on the match-over panel).
+- **Opening a running game to friends:** friendslop's pause menu (online when the build has online play, else on the
+  LAN).
+- **Pausing:** the co-op pause here (a `sim.Clock` and a command, as state); the single-player pause,
+  `UnifiedSession.paused`, in the other games' pause menus.
 - **Tables, handles, a view per entity, rule tests on `headless.Run`:** drift.
-- **A population, a benchmark with `bench_prepare`, keyed rolls, a tuning variant:** survivor.
+- **A population, a benchmark with `bench_prepare`, keyed rolls, a tuning variant:** survivor, with dev commands,
+  timing zones, debug draws, a `sim.Grid`, `sim.due` and a roll its HUD peeks.
+- **How a view is shown:** friendslop (a script-posed view, `Glue.view_policy`: the held item at the hand), drift and
+  friendslop (a warp epoch at every teleport, so the view snaps).
+- **Shown by no game** (the declaration's doc comment says how): `Appear.Verified` and `Glue.multi_policy`,
+  `sim.Queue`, `sim.Bits`, dmath's trig, `Game.predict_input`, `Game.input_delay_min_ticks`.
 
 ## World
 
@@ -60,8 +74,8 @@ people (the library's 2 × `PLAYERS`). A ball keeps its thrower (`sim.Player`), 
 2. `apply_pause`: each `Cmd_Set_Paused` that changes the pause sets it from the next tick (`Event_Paused`). While
    paused, `tick` stops here: the other commands of a paused tick are dropped.
 3. `move_players`: the present players by their input.
-4. `throw_balls`: each `Cmd_Throw_Ball` spawns a ball owned by its thrower; with `MAX_BALLS` in the air a throw is
-   lost, and no event says so.
+4. `throw_balls`: each `Cmd_Throw_Ball` spawns a ball owned by its thrower; with `MAX_BALLS` in the air (two players
+   throwing at once fill it) a throw is lost, costs no cooldown, and no event says so.
 5. `move_balls`: balls fall at `GRAVITY` and despawn on landing (`BALL_RADIUS`).
 
 ## Events

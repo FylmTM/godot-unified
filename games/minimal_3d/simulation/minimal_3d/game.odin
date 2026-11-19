@@ -9,6 +9,10 @@ import "unified:sim"
 PLAYERS :: 4 // input slots: the most players in the game at once
 TICK_HZ :: 64
 
+// The game's version (sim.Game.version, part of the netcode's compat): bump it when a rule or constant changes what a
+// tick computes without changing the State or Input layout, or two builds desync instead of refusing each other.
+VERSION :: "2" // 2: the co-op pause, a throw cooldown
+
 // The game's types for unified:sim: no World (no physics, no level).
 Game :: sim.Game(State, Input, sim.No_World, Event, Cmd, sim.No_Setup, sim.No_Profile, PLAYERS)
 // What every system gets: the state, the inputs and commands, the tick's player changes.
@@ -18,8 +22,7 @@ Tick :: sim.Tick(Game)
 @(rodata)
 GAME := Game {
 	name              = "minimal_3d",
-	// Bump it with every rule or tuning change, or two builds desync instead of refusing each other.
-	version           = "2", // 2: the co-op pause, a throw cooldown
+	version           = VERSION,
 	tick_hz           = TICK_HZ,
 	tick              = tick,
 	scripted_input    = scripted_input,

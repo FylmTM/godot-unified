@@ -311,8 +311,9 @@ check_in_repo :: proc(game, head: string) -> string {
 	return ""
 }
 
-// What `init` wrote: the submodule is pinned to `head` (--ref), and the commands and links the game repo's files
-// name are the current ones (the shims are `uni` and `uni.cmd`, the repo is godot-unified).
+// What `init` wrote: the submodule is pinned to `head` (--ref), the commands and links the game repo's files name are
+// the current ones (the shims are `uni` and `uni.cmd`, the repo is godot-unified), and every file path its code's
+// comments name exists in the repo (`unified/src/...`, `README.md`).
 check_init :: proc(game, head: string) -> string {
 	pinned := cli.run_proc({
 		cmd     = cli.strs("git", "-C", game, "ls-files", "--stage", "unified"),
@@ -334,6 +335,39 @@ check_init :: proc(game, head: string) -> string {
 				return cli.aprintf("%s names %q", cli.rel(file), stale)
 			}
 		}
+		if strings.has_suffix(file, ".odin") || strings.has_suffix(file, ".gd") {
+			if missing := missing_path(game, text); missing != "" {
+				return cli.aprintf("%s names %s, which the game repo has not", cli.rel(file), missing)
+			}
+		}
+	}
+	return ""
+}
+
+// The first path in `text` that doesn't exist under `root` ("": none): a run of path characters that names a file
+// by its extension (.md anywhere; .odin, .gd and .tscn with a directory). `res://` paths are Godot's, not the repo's.
+missing_path :: proc(root, text: string) -> string {
+	is_path_char :: proc(c: u8) -> bool {
+		letter := (c >= 'a' && c <= 'z') || (c >= 'A' && c <= 'Z') || (c >= '0' && c <= '9')
+		return letter || strings.index_byte("_/.-", c) >= 0
+	}
+	for i := 0; i < len(text); {
+		if !is_path_char(text[i]) {
+			i += 1
+			continue
+		}
+		start := i
+		for i < len(text) && is_path_char(text[i]) do i += 1
+		token := strings.trim_right(text[start:i], ".")
+		if start > 0 && text[start - 1] == ':' do continue // res://..., unified:sim
+		if strings.has_prefix(token, "/") || strings.has_prefix(token, ".") do continue
+		named :=
+			strings.has_suffix(token, ".md") ||
+			(strings.contains(token, "/") &&
+					(strings.has_suffix(token, ".odin") ||
+							strings.has_suffix(token, ".gd") ||
+							strings.has_suffix(token, ".tscn")))
+		if named && !os.exists(cli.join(root, token)) do return token
 	}
 	return ""
 }

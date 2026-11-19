@@ -150,7 +150,8 @@ init_in_repo :: proc(dir, name: string) -> Result {
 }
 
 // What a new game is a copy of, in unified's checkout: the smallest complete game.
-TEMPLATE_GAME :: "games/minimal_3d"
+TEMPLATE_GAME :: "games/" + TEMPLATE_NAME
+TEMPLATE_NAME :: "minimal_3d"
 // Its files a copy leaves out: its README (template/README.md.tmpl, a draft skeleton of the new game's design, takes
 // its place), the view index (written below) and its pinned reference run (a new game pins its own once its rules
 // settle). The `.uid` files are copied: the scenes name their scripts by UID, so a copy without them warns on every
@@ -174,6 +175,7 @@ write_game :: proc(unified, dir, name: string, repo: bool) -> int {
 		target, _ := strings.replace_all(rel_path, "minimal_3d", name)
 		text, _ := strings.replace_all(must_read(join(source, rel_path)), "minimal_3d", name)
 		text, _ = strings.replace_all(text, "\r\n", "\n")
+		text = template_text(rel_path, text, name, repo)
 		path := join(dir, target)
 		if !os.exists(path) do count += 1
 		write_text(path, text)
@@ -203,6 +205,52 @@ write_game :: proc(unified, dir, name: string, repo: bool) -> int {
 	fmt_files(ensure_odinfmt(), odin_files[:], false)
 	bake_view_index({name, dir}, check = false, quiet = true)
 	return count + 1
+}
+
+// A copied file's text for the new game (minimal_3d already renamed): its game.odin starts at `VERSION :: "1"`, without
+// minimal_3d's version history; in a game repo the paths its code's comments name are the repo's: the game's own files
+// at the root (games/<name>/ goes) and unified's under unified/ (src/, games/). The Markdown is written for both.
+@(private)
+template_text :: proc(rel_path, text, name: string, repo: bool) -> string {
+	out := text
+	if rel_path == aprintf("simulation/%s/game.odin", TEMPLATE_NAME) {
+		lines := strings.split(out, "\n")
+		for &line in lines {
+			if strings.has_prefix(line, "VERSION :: ") do line = `VERSION :: "1"`
+		}
+		out = strings.join(lines, "\n")
+	}
+	if repo && (strings.has_suffix(rel_path, ".odin") || strings.has_suffix(rel_path, ".gd")) {
+		out, _ = strings.replace_all(out, aprintf("games/%s/", name), "")
+		out = prefix_paths(out, "src/", "unified/src/")
+		out = prefix_paths(out, "games/", "unified/games/")
+	}
+	return out
+}
+
+// `text` with `with` in place of `path` (a top-level directory, "src/") wherever it starts a path: not after a letter,
+// a digit, `_`, `/`, `:` or `.`.
+@(private)
+prefix_paths :: proc(text, path, with: string) -> string {
+	out := strings.builder_make()
+	rest := text
+	for {
+		i := strings.index(rest, path)
+		if i < 0 {
+			strings.write_string(&out, rest)
+			break
+		}
+		strings.write_string(&out, rest[:i])
+		before := i > 0 ? rest[i - 1] : ' '
+		inside :=
+			(before >= 'a' && before <= 'z') ||
+			(before >= 'A' && before <= 'Z') ||
+			(before >= '0' && before <= '9') ||
+			strings.index_byte("_/:.", before) >= 0
+		strings.write_string(&out, inside ? path : with)
+		rest = rest[i + len(path):]
+	}
+	return strings.to_string(out)
 }
 
 // Checks out `ref` in the fresh submodule: any commit-ish (a full or short hash, a tag, a branch). The clone already

@@ -2,7 +2,7 @@ package minimal_3d
 
 import "unified:sim"
 
-MAX_BALLS :: 64
+MAX_BALLS :: 16 // two players throwing at once fill the table: a throw is lost then
 GRAVITY :: f32(9.8) // metres per second squared, down
 HAND_HEIGHT :: f32(1.8) // where a ball leaves the player, metres above the ground
 BALL_RADIUS :: f32(0.2) // metres: a ball is gone when its centre is this low
@@ -21,16 +21,16 @@ throw_balls :: proc(t: ^Tick) {
 }
 
 // A ball from `player`'s position, owned by them, once their THROW_COOLDOWN_S since the last throw ran out (else the
-// throw is dropped). With MAX_BALLS in the air it is lost, and no event says so.
+// throw is dropped). With MAX_BALLS in the air it is lost, costs no cooldown, and no event says so.
 throw_ball :: proc(t: ^Tick, player: sim.Player, speed: u8) {
 	data := sim.player_data(t, player)
 	if sim.timer_running(t, data.throw_ready) do return
-	sim.timer_start(t, &data.throw_ready, THROW_COOLDOWN_S)
 	ball, _, ok := sim.spawn(&t.state.balls)
 	if !ok do return
+	sim.timer_start(t, &data.throw_ready, THROW_COOLDOWN_S)
 	capped := speed if speed <= THROW_SPEED_MAX else THROW_SPEED_MAX
 	ball^ = {
-		pos            = sim.player_data(t, player).position,
+		pos            = data.position,
 		height         = HAND_HEIGHT,
 		vertical_speed = f32(capped),
 		thrower        = player,

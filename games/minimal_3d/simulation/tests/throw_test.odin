@@ -48,6 +48,26 @@ a_throw_waits_out_the_cooldown :: proc(t: ^testing.T) {
 	scenarios.expect_synced(t, &run)
 }
 
+// A full table: every slot throws every tick, and the balls in the air stop at MAX_BALLS (a throw then is lost) and stay
+// there while everyone throws.
+@(test)
+a_full_table_loses_the_throw :: proc(t: ^testing.T) {
+	run := headless.run_begin(&g.GAME, 1, seated = g.PLAYERS)
+	defer headless.run_end(&run)
+	most, full_ticks := 0, 0
+	for _ in 0 ..< 4 * g.TICK_HZ {
+		inputs := headless.run_inputs(&run)
+		for slot in 0 ..< g.PLAYERS do sim.add_command(&inputs, slot, g.Cmd_Throw_Ball{speed = 255})
+		headless.run_step(&run, &inputs)
+		count := int(run.simulation.state.balls.count)
+		most = max(most, count)
+		full_ticks += int(count == g.MAX_BALLS)
+	}
+	testing.expect_value(t, most, g.MAX_BALLS)
+	testing.expect(t, full_ticks > g.TICK_HZ, "the table stays full while everyone throws")
+	scenarios.expect_synced(t, &run)
+}
+
 // The co-op pause: from the tick after anyone's Cmd_Set_Paused, nothing moves (players, balls), a throw sent while
 // paused is dropped, game time stands still, and a cooldown started before it is still running after it, by exactly
 // the pause; a resume takes it back. Each change is announced once.
