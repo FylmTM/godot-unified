@@ -160,6 +160,29 @@ drive_node_paths_survive_git_bash :: proc(t: ^testing.T) {
 	testing.expect_value(t, cli.node_path_unmangled("C:/elsewhere"), "C:/elsewhere")
 }
 
+// `drive eval`'s expression keeps its double quotes whichever shell passed it: the arguments when they kept them (a
+// POSIX shell, Git Bash), else the raw Windows command line as PowerShell 5.1 or cmd wrote it.
+@(test)
+drive_eval_keeps_its_quotes :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	EXE :: `"C:\x\.out\cli\uni-1.exe" drive survivor eval `
+	// Git Bash and POSIX shells: the arguments are right (the raw line escapes the quotes)
+	testing.expect_value(t, cli.eval_expression({`str("a b")`}, EXE + `"str(\"a b\")"`), `str("a b")`)
+	testing.expect_value(t, cli.eval_expression({`str("a b")`}, ""), `str("a b")`)
+	// PowerShell 5.1: an argument with a space wrapped in quotes, its own quotes as typed
+	testing.expect_value(t, cli.eval_expression({"str(a b)"}, EXE + `"str("a b")"`), `str("a b")`)
+	testing.expect_value(t, cli.eval_expression({"abc.length()"}, EXE + `"abc".length()`), `"abc".length()`)
+	// cmd: as typed, several arguments, the global flags left out
+	testing.expect_value(
+		t,
+		cli.eval_expression({"len(abc)", "+", "1"}, EXE + `len("abc") + 1 --json`),
+		`len("abc") + 1`,
+	)
+	// nothing quoted: the arguments joined
+	testing.expect_value(t, cli.eval_expression({"6", "*", "7"}, EXE + "6 * 7"), "6 * 7")
+	testing.expect_value(t, cli.eval_expression({"str('a b')"}, EXE + `"str('a b')"`), "str('a b')")
+}
+
 // `init`'s default submodule URL: a GitHub SSH origin becomes HTTPS (no keys needed); anything else stays.
 @(test)
 init_public_url :: proc(t: ^testing.T) {
