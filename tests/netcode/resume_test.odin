@@ -5,6 +5,7 @@ package test_netcode
 
 import "core:testing"
 
+import "../toy"
 import "unified:netcode"
 
 // Steps until the first remote client is Connected again and back within a cap of the relay; how long it took.
@@ -189,6 +190,157 @@ a_client_with_two_local_players_resumes_both :: proc(t: ^testing.T) {
 	testing.expect_value(t, again_second.member, second.member)
 	testing.expect(t, again_first.slot != again_second.slot)
 	net_run(&session, 3)
+	testing.expect_value(t, session.relay.desyncs, 0)
+	expect_agree(t, &session)
+}
+
+// A link whose transport can say the relay is gone (Link.event), as EOS does when its P2P connection closes.
+@(private = "file")
+Cut :: struct {
+	inner: netcode.Link,
+	cut:   bool, // the next poll reports Disconnected, once
+}
+
+@(private = "file")
+cut_wrap :: proc(inner: netcode.Link) -> (netcode.Link, ^Cut) {
+	cut := new(Cut)
+	cut.inner = inner
+	link := netcode.Link {
+		data = cut,
+		send = proc(data: rawptr, to: netcode.Peer, bytes: []u8) {
+			netcode.link_send(&(^Cut)(data).inner, to, bytes)
+		},
+		recv = proc(data: rawptr, buf: []u8) -> (size: int, from: netcode.Peer, ok: bool) {
+			return netcode.link_recv(&(^Cut)(data).inner, buf)
+		},
+		close = proc(data: rawptr) {
+			cut := (^Cut)(data)
+			netcode.link_close(&cut.inner)
+			free(cut)
+		},
+		event = proc(data: rawptr) -> (peer: netcode.Peer, kind: netcode.Link_Event_Kind, ok: bool) {
+			cut := (^Cut)(data)
+			if cut.cut {
+				cut.cut = false
+				return 0, .Disconnected, true
+			}
+			return
+		},
+	}
+	return link, cut
+}
+
+// The transport says the relay is gone while the client holds finalized ticks it has not verified (it is catching up
+// after a hitch, one tick per step). Its Hello resumes from its verified tick V, and V holds until the Welcome answers
+// it (a V that moved on would no longer be what the relay resumed): the client resumes, catches up and agrees.
+@(test)
+a_resume_while_verifying_a_backlog_holds_its_verified_tick :: proc(t: ^testing.T) {
+	session: Net
+	net_make(&session, 0, 0)
+	defer net_destroy(&session)
+	inner := netcode.netsim_wrap(netcode.loopback_link(session.hub, 1), netcode.PROFILES[.Wan], 7919, &session.clock)
+	link, cut := cut_wrap(inner)
+	client := netcode.client_create(&toy.GAME, {slot = -1, player_name = "Grace"}, link, hooks_for(&session.watch[1]))
+	append(&session.clients, client)
+	net_run(&session, 3)
+	testing.expect_value(t, client.status, netcode.Status.Connected)
+	net_run(&session, 2, hitched = 0) // its process hitches: the relay's ticks wait in its socket
+	client.cfg.catchup_ticks = 1
+	netcode.client_step(client, session.clock.now) // reads the backlog, verifies one tick of it
+	testing.expectf(t, client.fin_upto > client.verified, "holds %d unverified", client.fin_upto - client.verified)
+	held_from := client.verified
+	cut.cut = true
+	for _ in 0 ..< 4 {
+		netcode.client_step(client, session.clock.now)
+		testing.expect_value(t, client.status, netcode.Status.Reconnecting)
+		testing.expect_value(t, client.verified, held_from) // the Hello's V, until the Welcome
+	}
+	client.cfg.catchup_ticks = 0
+	net_run(&session, 6)
+	testing.expectf(
+		t,
+		client.status == .Connected && client.sim != nil && client.verified + 32 >= session.relay.finalized,
+		"%v (%s), sim %v, verified %d, relay %d",
+		client.status,
+		client.detail,
+		client.sim != nil,
+		client.verified,
+		session.relay.finalized,
+	)
+	testing.expect_value(t, client.stats.resumes, 1)
+	testing.expect_value(t, session.relay.resumes, 1)
+	net_run(&session, 2)
+	testing.expect_value(t, session.relay.desyncs, 0)
+	expect_agree(t, &session)
+}
+
+// How long each of the waking client's steps takes in the test below (a real game's step at its catch-up budget).
+@(private = "file")
+WAKING_STEP_MS :: 12
+
+// A client whose process hitches past the relay's timeout (a suspended laptop) wakes with a socket full of finalized
+// ticks, verifies a budget of them per 12 ms step and learns meanwhile that the relay forgot it: a catch-up slower than
+// that notice. Its Hello's verified tick holds until the Welcome, so the relay's resume is one it can take: it is back
+// at the live tick within 3 s, with its seat.
+@(test)
+a_resume_while_catching_up_gets_back :: proc(t: ^testing.T) {
+	session: Net
+	net_make(&session, 0, 0)
+	defer net_destroy(&session)
+	client, _ := gated_join(&session, 1, netcode.PROFILES[.Wan], &session.watch[1])
+	net_run(&session, 3)
+	testing.expect_value(t, client.status, netcode.Status.Connected)
+	net_run(&session, 11, hitched = 0) // not stepped: what arrives waits in its socket; the relay forgets it
+	testing.expect(t, session.relay.seats[1].conn < 0, "the relay forgot the hitched client")
+	back_ms := -1
+	for k in 0 ..< 10_000 / WAKING_STEP_MS {
+		net_run(&session, WAKING_STEP_MS / 1000.0, hitched = 0)
+		netcode.client_step(client, session.clock.now)
+		if client.status == .Connected && client.verified + 32 >= session.relay.finalized {
+			back_ms = k * WAKING_STEP_MS
+			break
+		}
+		if netcode.client_finished(client) do break
+	}
+	testing.expectf(
+		t,
+		back_ms >= 0 && back_ms < 3000,
+		"back in %d ms (-1: never; %v, %s): relay resumes %d, client resumes %d, reconnects %d, sim %v",
+		back_ms,
+		client.status,
+		client.detail,
+		session.relay.resumes,
+		client.stats.resumes,
+		client.stats.reconnects,
+		client.sim != nil,
+	)
+	testing.expect_value(t, client.stats.resumes, 1)
+	net_run(&session, 2)
+	expect_agree(t, &session)
+}
+
+// A resume the relay grants that the client cannot take (here its seed was spoiled while it was away: the state it
+// would resume is not the session's) gets no snapshot from a relay that resumed it: the client drops its sim, says
+// Hello again on a new connection without the resume pair, and comes back as a late joiner.
+@(test)
+a_resume_the_client_cannot_take_reconnects_without_it :: proc(t: ^testing.T) {
+	session: Net
+	net_make(&session, 0, 0)
+	defer net_destroy(&session)
+	client, gate := gated_join(&session, 1, netcode.PROFILES[.Wan], &session.watch[1])
+	net_run(&session, 3)
+	gate.block_out, gate.block_in = true, true
+	net_run(&session, 12)
+	testing.expect_value(t, client.status, netcode.Status.Reconnecting)
+	client.seed ~= 1
+	gate.block_out, gate.block_in = false, false
+	back_at_the_live_tick(&session, 10)
+	testing.expectf(t, client.status == .Connected, "%v (%s)", client.status, client.detail)
+	testing.expect_value(t, session.relay.resumes, 1)
+	testing.expect_value(t, client.stats.resumes, 0)
+	testing.expect_value(t, client.stats.reconnects, 2)
+	testing.expect(t, client.stats.snapshot_us > 0)
+	net_run(&session, 2)
 	testing.expect_value(t, session.relay.desyncs, 0)
 	expect_agree(t, &session)
 }

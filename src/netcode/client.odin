@@ -236,6 +236,7 @@ Client :: struct($G: typeid) {
 	hello_sent:     bool,
 	link_index:     int, // the relay's link in the channel (a reconnect opens a new connection on it)
 	reconnect_us:   i64, // when the connection was lost (0: not reconnecting)
+	rehello:        bool, // a resumed Welcome this client could not take: reconnect without resume after the poll
 	// from Welcome
 	welcomed:       bool,
 	slot:           int, // local player 0's (-1: not seated)
@@ -538,10 +539,15 @@ on_welcome :: proc(client: ^Client($G), reader: ^wire.Reader) {
 		// Back after a lost connection. Resumed: the relay streams the finalized ticks after our verified tick, which
 		// the sim goes back to (its predictions were of a session it was absent from). Else a snapshot comes, as for
 		// any joiner: the old sim and what it held go.
-		if welcome.resume_from != 0 &&
-		   welcome.resume_from == client.verified &&
-		   welcome.seed == client.seed &&
-		   restore_to(client, client.verified) {
+		// The verified tick holds from the Hello to the Welcome (advance_verified), so a resume names it; one this
+		// client still cannot take (another seed, the state no longer held) gets no snapshot from a relay that resumed
+		// it: the client says Hello again on a new connection, without the resume pair.
+		resumed :=
+			welcome.resume_from != 0 &&
+			welcome.resume_from == client.verified &&
+			welcome.seed == client.seed &&
+			restore_to(client, client.verified)
+		if resumed {
 			client.predicted = client.verified
 			client.stats.resumes += 1
 		} else {
@@ -552,6 +558,10 @@ on_welcome :: proc(client: ^Client($G), reader: ^wire.Reader) {
 			client.fin_tick = {}
 			client.fin_upto = 0
 			client.snap_tick = 0
+			if welcome.resume_from != 0 {
+				client.rehello = true
+				return
+			}
 		}
 	}
 	client.welcomed = true
@@ -1153,17 +1163,24 @@ catchup_budget :: proc(client: ^Client($G)) -> u32 {
 }
 
 // Whether the client holds finalized ticks it has not verified after this step's budget: it is catching up (no
-// prediction: the final ticks are next).
+// prediction: the final ticks are next). Not while a reconnect's Hello waits for its Welcome: nothing is verified then.
 @(private)
 catching_up :: #force_inline proc(client: ^Client($G)) -> bool {
-	return client.sim != nil && !client.checking && client.fin_upto > client.verified
+	return client.sim != nil && !client.checking && client.fin_upto > client.verified && !awaiting_resume(client)
+}
+
+// Whether a reconnect's Hello waits for its Welcome: the Hello named the verified tick it resumes from, which holds
+// until the Welcome answers it.
+@(private)
+awaiting_resume :: #force_inline proc(client: ^Client($G)) -> bool {
+	return client.reconnect_us != 0 && !client.welcomed
 }
 
 // Advances the verified frame with newly finalized ticks (at most catchup_budget of them), rolling back on a
 // misprediction.
 @(private)
 advance_verified :: proc(client: ^Client($G), now: i64) {
-	if client.sim == nil || client.checking || client.fin_upto <= client.verified {
+	if client.sim == nil || client.checking || client.fin_upto <= client.verified || awaiting_resume(client) {
 		return
 	}
 	new_verified := min(client.fin_upto, client.verified + catchup_budget(client))
@@ -1656,6 +1673,10 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 			set_status(client, .Failed, "a different game build (another protocol version)")
 		case .Connected:
 		}
+	}
+	if client.rehello {
+		client.rehello = false
+		if client.end_us == 0 do reconnect(client, client.reconnect_us)
 	}
 	if client_finished(client) {
 		return now + 100_000
