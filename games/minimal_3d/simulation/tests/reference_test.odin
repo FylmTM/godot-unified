@@ -15,7 +15,7 @@ REFERENCE :: scenarios.Reference {
 	checkpoints   = {0x707ca73b4f52cc45, 0x18917e90cdf81c67, 0xf507bd0b337b80d5, 0xe2a276ebdab772fd},
 	trace         = 0xdd8d472f426797e4,
 	snapshot      = 0x1924273a74183f0b,
-	log           = 0xd8196933eea85d4d,
+	log           = 0x242b0b237cfa5547,
 }
 
 @(test)

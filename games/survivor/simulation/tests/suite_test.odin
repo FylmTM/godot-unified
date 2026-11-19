@@ -26,7 +26,7 @@ REFERENCE :: scenarios.Reference {
 	checkpoints   = {0x114cf860b63a0368, 0x323b250348a34440, 0xc37004c1008988cb, 0xd7b8dc58f0a9a6e6},
 	trace         = 0x7ccb3ebc9789871e,
 	snapshot      = 0x1080f3715e7f1f0c,
-	log           = 0xa87c5fb1a5101f71,
+	log           = 0xe758fc80922ab3e6,
 }
 
 // By default the minimal set, each scenario proving something about this game (the toy's suite proves the
