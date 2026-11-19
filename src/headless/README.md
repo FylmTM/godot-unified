@@ -80,8 +80,7 @@ build's identity (`sim.compat_of`), so this platform both computes and encodes w
 every platform, which makes it the cross-platform determinism check.
 
 A mismatch prints the new literal, and `uni test --bless` re-pins it (Re-pinning) after a change that alters the
-simulation or the log or snapshot format (the `unified-sim-change` skill). The log and snapshot carry the build's
-compat, so a version or pin bump moves their hashes and the compat while the checkpoints and the trace stay.
+simulation or the log or snapshot format (the `unified-sim-change` skill).
 
 ## Replay regressions
 
@@ -122,6 +121,13 @@ it, and a warning names each value with its old and new text: the diff is the re
 play together and desync. So a reference run or a replay regression whose results moved while the compat it was
 pinned with stayed, and a golden trace that moved on the library it was pinned on (`GOLDEN_LIBRARY` in
 `tests/physics`: `sim.LIBRARY_VERSION` and the unified-box3d pin), fail even under `--bless`, saying which version to
-bump. Moved hashes on a moved identity (a version or pin bump, a re-baked level) re-pin. A second meant change on the
-same branch bumps again: versions are cheap. A reference not pinned yet (a new game's) is left for the game to pin.
+bump; the failure names what moved and prints no literal to paste. Only results are guarded: anything else that
+moved re-pins, and the diff shows it. When only a reference's `snapshot`, `log` and `compat` moved, the build's
+identity changed (a version or pin bump: the log and snapshot carry the compat), not its results; a snapshot or log
+format change without its version bump re-pins too, so the diff is where it shows. A second meant change on the same
+branch bumps again: versions are cheap. A reference not pinned yet (a new game's) is left for the game to pin, and one
+pinned before it had a `compat` (a game upgrading unified) prints its literal to paste once.
+
+Checks can share a pin (a golden on 1 and 4 workers): each compares with the value it was compiled with, so after a
+bless that rewrote a source, `uni test --bless` runs the suite once more without it and that run decides.
 

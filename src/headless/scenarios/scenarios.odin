@@ -141,22 +141,17 @@ replays_reproduce :: proc(t: ^testing.T, game: ^$G, dir: string) {
 		case result.status == .Broken:
 			testing.expectf(t, false, "replays_reproduce: %s: %s", name, result.report)
 		case result.status == .Unblessed:
-			testing.expectf(
-				t,
-				false,
-				"replays_reproduce: %s: %s: ./uni test %s --bless",
-				name,
-				result.report,
-				game.name,
-			)
+			testing.expectf(t, false, "replays_reproduce: %s: %s: ./uni test --bless", name, result.report)
+		case result.status == .Diverges && BLESS:
+			// refused: it diverged on the build that blessed it, and the report says which version to bump
+			testing.expectf(t, false, "replays_reproduce: %s: not blessed: %s", name, result.report)
 		case result.status == .Diverges:
 			testing.expectf(
 				t,
 				false,
-				"replays_reproduce: %s: %s; if the change was meant: ./uni test %s --bless (the unified-sim-change skill)",
+				"replays_reproduce: %s: %s; if the change was meant: ./uni test --bless (the unified-sim-change skill)",
 				name,
 				result.report,
-				game.name,
 			)
 		}
 		synctest := &result.synctest
@@ -296,9 +291,9 @@ late_join_agrees :: proc(t: ^testing.T, suite: ^Suite($G), profile: netcode.Netw
 // The reference run reproduces on this platform: run_sim gives its checkpoints and every tick's checksums (`trace`),
 // the input log it records encodes to the same bytes and replays to the same checksums, the snapshot at
 // `snapshot_tick` encodes to the same bytes and resumes to the same checksums, and the build is the one it was pinned
-// on (`compat`). A mismatch prints the new literal; under BLESS it is re-pinned in the caller's package instead
-// (bless_pin), unless the results (checkpoints, trace) moved while the build's identity didn't: that is refused, as a
-// change that moves results bumps Game.version or sim.LIBRARY_VERSION (the unified-sim-change skill). To find the
+// on (`compat`). What a mismatch does is reference_verdict's: it prints the new literal, or under BLESS re-pins it in
+// the caller's package (bless_pin), unless the results moved while the build's identity didn't: refused, naming what
+// moved, as a change that moves results bumps Game.version or sim.LIBRARY_VERSION (the unified-sim-change skill). To find the
 // first tick that differs between two builds, run `uni headless <game> -- sim --trace FILE` on both and compare the
 // files. A reference with only its four parameters set (seed, players, ticks, snapshot_tick: a new game's, the
 // template's) is not pinned yet: the run warns with the literal to paste instead of failing (BLESS leaves it), and its
@@ -332,36 +327,41 @@ reference_reproduces :: proc(t: ^testing.T, game: ^$G, reference: Reference, loc
 	got.snapshot = sim.hash_bytes(snapshot)
 	got.compat = sim.compat_of(game)
 	literal := reference_literal(got)
-	pinned :=
-		reference.checkpoints != {} ||
-		reference.trace != 0 ||
-		reference.snapshot != 0 ||
-		reference.log != 0 ||
-		reference.compat != 0
-	results_moved := got.checkpoints != reference.checkpoints || got.trace != reference.trace
-	switch {
-	case !pinned:
+	switch reference_verdict(reference, got, BLESS) {
+	case .Same:
+	case .Unpinned:
 		// a new game's (the template's): nothing to compare with yet; the replay and resume checks below still hold
 		// the literal indented: a passing run shows a warning's indented lines
 		indented, _ := strings.replace_all(literal, "\n", "\n\t", context.temp_allocator)
 		log.warnf("%s: no reference pinned yet; once the game's rules settle, pin this run:\n\t%s", what, indented)
-	case got == reference:
-	case results_moved && got.compat == reference.compat:
+	case .Predates:
 		testing.expectf(
 			t,
 			false,
-			"%s: this platform computes another run%s, on the build it was pinned on (sim.compat_of did not move). " +
-			"A meant change bumps Game.version (rules, tuning) or sim.LIBRARY_VERSION (the library), and then " +
-			"./uni test --bless re-pins it (the unified-sim-change skill); else find the cause (the unified-desync " +
-			"skill). The run now:\n%s",
+			"%s: this REFERENCE predates its compat field (a unified upgrade): paste the literal once (--bless can't " +
+			"add a field)%s:\n%s",
 			what,
-			first_checkpoint(reference, got),
+			reference_moved(reference, got, " (it moved too: ", ")"),
 			literal,
 			loc = loc,
 		)
-	case BLESS:
+	case .Refuse:
+		// no literal: pasting it would pin the results on the build that pinned the old ones
+		testing.expectf(
+			t,
+			false,
+			"%s: this platform computes another run%s on the build it was pinned on (sim.compat_of did not move): " +
+			"%s. A meant change bumps Game.version (rules, tuning) or sim.LIBRARY_VERSION (the library), and then " +
+			"./uni test --bless re-pins it (the unified-sim-change skill); else find the cause (the unified-desync " +
+			"skill)",
+			what,
+			first_checkpoint(reference, got),
+			reference_moved(reference, got, "", ""),
+			loc = loc,
+		)
+	case .Repin:
 		bless_pin(t, what, reference_literal(reference), literal, loc)
-	case:
+	case .Fail:
 		testing.expectf(
 			t,
 			false,
@@ -416,6 +416,42 @@ first_checkpoint :: proc(want, got: Reference) -> string {
 		return " (its build's identity)"
 	}
 	return ""
+}
+
+// What reference_reproduces does when `got` ran where `pinned` is pinned, under BLESS or not: pin_verdict, with the
+// checkpoints and the trace as the results and `compat` as the build's identity. A pinned Reference whose compat is 0
+// predates the field (`.Predates`: its literal is pasted once, as the token rewrite can't add a field).
+reference_verdict :: proc(pinned, got: Reference, bless: bool) -> Pin_Verdict {
+	is_pinned :=
+		pinned.checkpoints != {} || pinned.trace != 0 || pinned.snapshot != 0 || pinned.log != 0 || pinned.compat != 0
+	if is_pinned && pinned != got && pinned.compat == 0 do return .Predates
+	return pin_verdict(
+		is_pinned,
+		results_moved = got.checkpoints != pinned.checkpoints || got.trace != pinned.trace,
+		anything_moved = got != pinned,
+		identity_moved = got.compat != pinned.compat,
+		bless = bless,
+	)
+}
+
+// The values of `got` that differ from `want`'s, "trace 0x... -> 0x..., ..." between `before` and `after` ("" when none
+// does; temp-allocated).
+@(private)
+reference_moved :: proc(want, got: Reference, before, after: string) -> string {
+	text := strings.builder_make(context.temp_allocator)
+	moved :: proc(text: ^strings.Builder, name: string, want, got: u64) {
+		if want == got do return
+		if strings.builder_len(text^) > 0 do strings.write_string(text, ", ")
+		fmt.sbprintf(text, "%s 0x%016x -> 0x%016x", name, want, got)
+	}
+	for checkpoint, k in got.checkpoints {
+		moved(&text, fmt.tprintf("checkpoints[%d]", k), want.checkpoints[k], checkpoint)
+	}
+	moved(&text, "trace", want.trace, got.trace)
+	moved(&text, "snapshot", want.snapshot, got.snapshot)
+	moved(&text, "log", want.log, got.log)
+	if strings.builder_len(text) == 0 do return ""
+	return fmt.tprintf("%s%s%s", before, strings.to_string(text), after)
 }
 
 // The Reference as its declaration reads after odinfmt: what a test pins, printed to paste and re-pinned as is.

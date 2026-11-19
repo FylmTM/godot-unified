@@ -165,3 +165,48 @@ a_repin_writes_the_file_that_holds_it :: proc(t: ^testing.T) {
 	_, _, missing := scenarios.repin(dir, "{1, 2, 3}", "{1, 2, 4}")
 	testing.expect(t, strings.contains(missing, "no .odin file"), missing)
 }
+
+// What reference_reproduces does with each kind of move (scenarios.reference_verdict): results that moved on the
+// build that pinned them are refused even under --bless; a version bump's moved hashes re-pin under --bless and fail
+// without it; a reference without results is unpinned; one pinned before `compat` existed is pasted once.
+@(test)
+a_reference_verdict_follows_what_moved :: proc(t: ^testing.T) {
+	pinned := scenarios.Reference {
+		seed          = 7,
+		players       = 4,
+		ticks         = 1200,
+		snapshot_tick = 600,
+		checkpoints   = {1, 2, 3, 4},
+		trace         = 5,
+		snapshot      = 6,
+		log           = 7,
+		compat        = 8,
+	}
+	results := pinned
+	results.checkpoints[2] = 30
+	results.trace = 50
+	bumped := results
+	bumped.compat = 80
+	identity := pinned // a bump that computes the same: only the encodings and the compat move
+	identity.snapshot, identity.log, identity.compat = 60, 70, 80
+	encoding := pinned // a format change without its version bump: only results are guarded
+	encoding.snapshot = 60
+	unpinned := scenarios.Reference {
+		seed          = 7,
+		players       = 4,
+		ticks         = 1200,
+		snapshot_tick = 600,
+	}
+	predates := pinned
+	predates.compat = 0
+	for bless in ([]bool{false, true}) {
+		moved: scenarios.Pin_Verdict = bless ? .Repin : .Fail
+		testing.expect_value(t, scenarios.reference_verdict(pinned, pinned, bless), scenarios.Pin_Verdict.Same)
+		testing.expect_value(t, scenarios.reference_verdict(pinned, results, bless), scenarios.Pin_Verdict.Refuse)
+		testing.expect_value(t, scenarios.reference_verdict(pinned, bumped, bless), moved)
+		testing.expect_value(t, scenarios.reference_verdict(pinned, identity, bless), moved)
+		testing.expect_value(t, scenarios.reference_verdict(pinned, encoding, bless), moved)
+		testing.expect_value(t, scenarios.reference_verdict(unpinned, pinned, bless), scenarios.Pin_Verdict.Unpinned)
+		testing.expect_value(t, scenarios.reference_verdict(predates, pinned, bless), scenarios.Pin_Verdict.Predates)
+	}
+}

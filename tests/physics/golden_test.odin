@@ -4,6 +4,7 @@
 package test_physics
 
 import "core:fmt"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 
@@ -64,29 +65,29 @@ goldens_are_pinned_on_this_library :: proc(t: ^testing.T) {
 	)
 }
 
-// A golden trace's check: `got` is `pinned`. A trace that moved fails, printing its new literal; under --bless
-// (scenarios.BLESS) it is re-pinned instead (scenarios.bless_pin), unless this build is still GOLDEN_LIBRARY: a
-// change that moves a golden bumps sim.LIBRARY_VERSION (or the unified-box3d pin), so that is refused. `what` names
-// the trace in the messages.
+// A golden trace's check: `got` is `pinned` (golden_verdict). A trace that moved fails, printing its new literal;
+// under --bless (scenarios.BLESS) it is re-pinned instead (scenarios.bless_pin), unless this build is still
+// GOLDEN_LIBRARY: a change that moves a golden bumps sim.LIBRARY_VERSION (or the unified-box3d pin), so that is
+// refused, naming the values that moved. `what` names the trace in the messages.
 golden_check :: proc(t: ^testing.T, what: string, got, pinned: []u64, loc := #caller_location) {
-	if slice_equal(got, pinned) do return
-	now := library_now()
-	same_library := now.version == GOLDEN_LIBRARY.version && now.box3d == GOLDEN_LIBRARY.box3d
-	switch {
-	case same_library:
+	pinned_on := GOLDEN_LIBRARY
+	switch golden_verdict(pinned, got, pinned_on, library_now(), scenarios.BLESS) {
+	case .Same, .Unpinned, .Predates:
+	case .Refuse:
+		// no literal: pasting it would pin the trace on the library that pinned the old one
 		testing.expectf(
 			t,
 			false,
-			"%s: the golden trace moved on the library it was pinned on (GOLDEN_LIBRARY). A meant change to " +
-			"src/physics, src/sim, src/dmath, Box3D or the build flags bumps sim.LIBRARY_VERSION, and then " +
-			"./uni test --bless re-pins it (the library-sim-change skill); else find the cause. The run now: %s",
+			"%s: the golden trace moved on the library it was pinned on (GOLDEN_LIBRARY): %s. A meant change to " +
+			"src/physics, src/sim, src/dmath, Box3D, Odin or the build flags bumps sim.LIBRARY_VERSION, and then " +
+			"./uni test --bless re-pins it (the library-sim-change skill); else find the cause",
 			what,
-			golden_literal(got),
+			golden_moved(pinned, got),
 			loc = loc,
 		)
-	case scenarios.BLESS:
+	case .Repin:
 		scenarios.bless_pin(t, what, golden_literal(pinned), golden_literal(got), loc)
-	case:
+	case .Fail:
 		testing.expectf(
 			t,
 			false,
@@ -99,13 +100,29 @@ golden_check :: proc(t: ^testing.T, what: string, got, pinned: []u64, loc := #ca
 	}
 }
 
+// What golden_check does when a trace pinned on `pinned_on` gives `got` on `now` (scenarios.pin_verdict): every
+// value of the trace is a result, the library its identity.
+golden_verdict :: proc(pinned, got: []u64, pinned_on, now: sim.Library, bless: bool) -> scenarios.Pin_Verdict {
+	moved := !slice.equal(pinned, got)
+	return scenarios.pin_verdict(
+		true,
+		results_moved = moved,
+		anything_moved = moved,
+		identity_moved = pinned_on.version != now.version || pinned_on.box3d != now.box3d,
+		bless = bless,
+	)
+}
+
+// The values of a trace that moved, "[1] 0x... -> 0x..., ..." (temp-allocated).
 @(private = "file")
-slice_equal :: proc(a, b: []u64) -> bool {
-	if len(a) != len(b) do return false
-	for value, k in a {
-		if value != b[k] do return false
+golden_moved :: proc(pinned, got: []u64) -> string {
+	text := strings.builder_make(context.temp_allocator)
+	for value, k in got {
+		if k < len(pinned) && pinned[k] == value do continue
+		was := k < len(pinned) ? pinned[k] : 0
+		fmt.sbprintf(&text, "%s[%d] 0x%016x -> 0x%016x", strings.builder_len(text) > 0 ? ", " : "", k, was, value)
 	}
-	return true
+	return strings.to_string(text)
 }
 
 // The scene's block: what a game would keep. Its bytes and the Extra's hash make each value of the trace.
@@ -209,4 +226,32 @@ terrain_golden_trace :: proc(t: ^testing.T) {
 	}
 	pinned := GOLDEN_TERRAIN
 	golden_check(t, "GOLDEN_TERRAIN", got[:], pinned[:])
+}
+
+// What golden_check does (golden_verdict): a trace that moved on the library it was pinned on is refused even under
+// --bless; on another library it re-pins under --bless and fails without it.
+@(test)
+a_golden_verdict_follows_the_library :: proc(t: ^testing.T) {
+	pinned := []u64{1, 2, 3, 4}
+	moved := []u64{1, 2, 30, 4}
+	library := sim.Library {
+		version = 9,
+		box3d   = "a-r1",
+	}
+	bumped := sim.Library {
+		version = 10,
+		box3d   = "a-r1",
+	}
+	upgraded := sim.Library {
+		version = 9,
+		box3d   = "b-r1",
+	}
+	for bless in ([]bool{false, true}) {
+		repinned: scenarios.Pin_Verdict = bless ? .Repin : .Fail
+		testing.expect_value(t, golden_verdict(pinned, pinned, library, library, bless), scenarios.Pin_Verdict.Same)
+		testing.expect_value(t, golden_verdict(pinned, pinned, library, bumped, bless), scenarios.Pin_Verdict.Same)
+		testing.expect_value(t, golden_verdict(pinned, moved, library, library, bless), scenarios.Pin_Verdict.Refuse)
+		testing.expect_value(t, golden_verdict(pinned, moved, library, bumped, bless), repinned)
+		testing.expect_value(t, golden_verdict(pinned, moved, library, upgraded, bless), repinned)
+	}
 }

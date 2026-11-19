@@ -40,7 +40,7 @@ hello, and a replay or snapshot of another build is refused.
 
 | Constant | Guards | Bump when |
 |---|---|---|
-| `sim.LIBRARY_VERSION` (`src/sim/sim.odin`) | the library's results | `src/sim`, `src/dmath` or `src/physics` make a reference run or golden trace compute differently (not a refactor that reproduces them) |
+| `sim.LIBRARY_VERSION` (`src/sim/sim.odin`) | the library's results | `src/sim`, `src/dmath`, `src/physics`, Odin or the build flags make a reference run or golden trace compute differently (not a refactor that reproduces them; Odin and the flags aren't in `sim.compat_of`) |
 | `netcode.PROTOCOL_VERSION` (`src/netcode/proto.odin`) | the wire | anything a datagram, message, snapshot transfer or EOS packet carries changes; every datagram carries it, and an EOS lobby's build attribute too |
 | `sim.SNAP_VERSION` (`src/sim/snapshot.odin`) | the snapshot's bytes | the snapshot format changes |
 | `sim.LOG_VERSION` (`src/sim/log.odin`) | the input log's bytes | the log format changes |

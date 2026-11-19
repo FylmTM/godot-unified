@@ -145,6 +145,34 @@ bless_pin :: proc(t: ^testing.T, what, old, new: string, loc := #caller_location
 	return true
 }
 
+// What a check does with a value it pins (reference_reproduces; a golden trace's check), given what moved.
+Pin_Verdict :: enum u8 {
+	Same, // nothing moved: it passes
+	Unpinned, // nothing is pinned yet (a new game's reference): it warns with the literal to pin
+	Predates, // pinned before a field the check now pins (reference_verdict): the literal is pasted once
+	Refuse, // results moved while the identity they were pinned on stayed: a failure even under BLESS, naming what moved
+	Repin, // under BLESS, anything else that moved: re-pinned (bless_pin)
+	Fail, // without BLESS, anything else that moved: a failure printing the new literal
+}
+
+// The verdict on a pinned value: `results_moved` (what the build computes: checkpoints, a trace), `anything_moved`
+// (results, encodings or the identity), `identity_moved` (the build's identity it was pinned on: sim.compat_of, the
+// library). Results that move on an identity that didn't are refused, under BLESS too: a change that moves them bumps
+// a version first (src/headless/README.md, Re-pinning).
+pin_verdict :: proc(pinned, results_moved, anything_moved, identity_moved, bless: bool) -> Pin_Verdict {
+	switch {
+	case !pinned:
+		return .Unpinned
+	case !anything_moved:
+		return .Same
+	case results_moved && !identity_moved:
+		return .Refuse
+	case bless:
+		return .Repin
+	}
+	return .Fail
+}
+
 // --- the rewrite ---------------------------------------------------------------------------------------------------
 
 @(private = "file")
