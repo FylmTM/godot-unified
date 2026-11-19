@@ -71,6 +71,10 @@ world_setters_roll_back :: proc(t: ^testing.T) {
 	testing.expect_value(t, physics.world_restitution_iterations(world), 7)
 	testing.expect(t, extra.restore(extra.data, 3))
 	testing.expect_value(t, physics.world_restitution_iterations(world), 3)
+
+	// The worker count is a setting, not state: it never rolls back (results are the same for any count).
+	physics.world_set_worker_count(world, 4)
+	testing.expect_value(t, physics.world_worker_count(world), 4)
 }
 
 // A box sunk 0.2 m into the ground and another falling onto it fast: how hard contacts push (contact tuning) changes

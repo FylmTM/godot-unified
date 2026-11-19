@@ -190,8 +190,8 @@ collections_are_plain_for_any_element :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Queue(u8, 3))), "")
 	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Queue(u64, 2))), "")
 	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Bits(100))), "")
-	testing.expect_value(t, size_of(sim.List(u8, 5)), 6)
-	testing.expect_value(t, size_of(sim.List(Wide, 3)), 56)
+	#assert(size_of(sim.List(u8, 5)) == 6)
+	#assert(size_of(sim.List(Wide, 3)) == 56)
 	testing.expect_value(t, sim.plain_violation(type_info_of(Swarm_State)), "")
 }
 

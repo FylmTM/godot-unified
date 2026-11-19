@@ -1,6 +1,7 @@
 // Sweeps of the paths every review of the core found its bugs in: the join path (late joins, rejoins, a seat that
 // flaps) and the input window against its neighbours (the tick rate, the round trip, the widest accepted Input), on
-// the virtual clock. Long only (`uni test --long`): they keep those paths covered between reviews.
+// the virtual clock. The sweeps are long only (`uni test --long`): they keep those paths covered between reviews.
+// Their session (Sweep_Net) also serves the default tier's full-session and input-window tests.
 package test_headless
 
 @(require) import "core:fmt" // used only by the sweeps, which build with --long
@@ -275,8 +276,8 @@ sweep_round_trips :: proc(t: ^testing.T) {
 	}
 }
 
-// A joiner on `network` leaves `leave_ms` after its Hello (0: before its first step; inside its first round trip;
-// during its snapshot), and with `retry` the same player tries again at once (same token, a new connection, the same
+// A joiner on `network` leaves `leave_ms` after its Hello (0: before its first step; inside its first round trip, at
+// two points; during its snapshot), and with `retry` the same player tries again at once (same token, a new connection, the same
 // frame): the widest accepted Input, every byte changing, at 32, 64 and 128 Hz. No seat is held with nobody behind
 // it, the first finishes "left", the retry is in as the same member, nobody desyncs.
 sweep_leaves :: proc(t: ^testing.T, $G: typeid, name: string) {
@@ -284,7 +285,7 @@ sweep_leaves :: proc(t: ^testing.T, $G: typeid, name: string) {
 	starters := PLAYERS > 2 ? 2 : 1
 	for tick_hz in ([]int{32, 64, 128}) {
 		for network in ([]netcode.Network{.Ideal, .Wan, .Bad}) {
-			for leave_ms in ([]int{0, 15, 140, 400}) {
+			for leave_ms in ([]int{0, 15, 80, 140, 400}) {
 				for retry in ([]bool{false, true}) {
 					what := fmt.tprintf(
 						"%s at %d Hz on %v, leave %d ms after the Hello, retry %v",
