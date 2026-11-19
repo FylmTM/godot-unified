@@ -406,6 +406,7 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 				toy.Cmd_Mark,
 				toy.Cmd_Clear_Bumps,
 				toy.Cmd_Travel,
+				toy.Cmd_Pause,
 			}), compat)
 	testing.expect_value(t, sim.compat_of(&toy.GAME), compat) // stable
 	testing.expect_value(t, sim.content_hash(nil), 0)

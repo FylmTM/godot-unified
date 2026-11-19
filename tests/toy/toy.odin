@@ -73,6 +73,11 @@ Area :: enum u8 {
 	Cave,
 }
 
+// Pauses or resumes the game for everyone (the co-op pause: sim.set_paused).
+Cmd_Pause :: struct {
+	paused: bool,
+}
+
 // Takes the team to a level (nothing when it is the active one).
 Cmd_Travel :: struct {
 	to: Area,
@@ -83,6 +88,7 @@ Cmd :: union {
 	Cmd_Mark,
 	Cmd_Clear_Bumps,
 	Cmd_Travel,
+	Cmd_Pause,
 }
 
 // A player's data (sim.Players): zeroed when someone new joins, kept while they are away.
@@ -106,6 +112,7 @@ State :: struct {
 	spawned: u32,
 	level:   sim.Active_Level(Area),
 	_pad:    u32,
+	clock:   sim.Clock, // game time: a Cmd_Pause stops it (the co-op pause)
 	players: sim.Players(Player_Data, sim.No_Profile, Input, PLAYERS),
 	things:  sim.Table(Thing, 32),
 }
@@ -141,7 +148,7 @@ Tick :: sim.Tick(Game)
 
 GAME := Game {
 	name = "toy",
-	version = "3", // 3: two levels, travel
+	version = "4", // 4: the co-op pause
 	tick_hz = HZ,
 	levels = {
 		{"meadow", #load("../godot_views/levels/meadow.level")},
@@ -175,10 +182,13 @@ tick :: proc(t: ^Tick) {
 				data.bumps, data.bump_sum, data.bump_fold = 0, 0, 0
 			case Cmd_Travel:
 				if command.to != t.state.level.id do sim.level_enter(t, command.to)
+			case Cmd_Pause:
+				sim.set_paused(t, command.paused)
 			case:
 				panic("sim.commands yielded a nil entry") // it never does: an undecodable command is left out
 			}
 		}
+		if t.paused do continue // the co-op pause: commands are read (none is lost), nothing moves or spawns
 		input := sim.input(t, player)
 		speed := f32(1) / 32 if t.state.level.id == .Cave else f32(1) / 64
 		data.pos.x += f32(input.dx) * speed
@@ -199,6 +209,7 @@ tick :: proc(t: ^Tick) {
 			})
 		}
 	}
+	if t.paused do return // things don't age while paused
 	things := sim.iterate(&t.state.things)
 	for thing, handle in sim.next(&things) {
 		thing.life -= 1
@@ -237,7 +248,8 @@ bump_fold :: proc(fold: u32, amount: i32) -> u32 {
 
 // Scripted commands of `slot` for a tick, a function of (seed, slot, tick) only: a bump about every 16th tick, a burst
 // of 3 bumps every 200th tick (tick % 200 == 50), a mark every 64th, and from slot 0 a travel to the cave every 300th
-// tick (tick % 300 == 120) and back 90 ticks later: never more than a tick takes (offline runs play it).
+// tick (tick % 300 == 120) and back 90 ticks later, and from slot 0 a pause of 40 ticks of every 512 (from tick 300):
+// never more than a tick takes (offline runs play it).
 scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
 	commands_of(seed, slot, tick, out, 3)
 }
@@ -264,6 +276,8 @@ commands_of :: proc(seed: u64, slot: int, tick: u32, out: ^sim.Command_Out(Cmd),
 	}
 	if slot == 0 && tick % 300 == 120 do sim.send_command(out, Cmd_Travel{.Cave})
 	if slot == 0 && tick % 300 == 210 do sim.send_command(out, Cmd_Travel{.Meadow})
+	if slot == 0 && tick % 512 == 300 do sim.send_command(out, Cmd_Pause{true}) // never a travel tick
+	if slot == 0 && tick % 512 == 340 do sim.send_command(out, Cmd_Pause{false})
 	if tick % 64 == 7 { 	// never a burst tick (50 + 200k is even mod 64, 7 is odd)
 		sim.send_command(out, Cmd_Mark {
 			at    = {f32(slot), f32(tick % 7)},

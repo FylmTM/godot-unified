@@ -128,6 +128,9 @@ Tick :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	player_changes: Player_Changes, // who arrived or left this tick (the State's Players already shows it)
 	commands:       ^Commands(part(G, GAME_CMD)), // the tick's commands, decoded (command.odin)
 	dev:            ^Dev, // the Sim's development attachment (dev.odin; nil: none): the harness's, never tick code's
+	time:           u32, // game time (time.odin): the State's Clock after this tick's advance, or `number` without one
+	paused:         bool, // the Clock stood still this tick (the co-op pause: the game runs no system); false without one
+	tick_hz:        int, // the game's rate (Game.tick_hz)
 }
 
 // The step's changes to the State's Players (Tick.player_changes): `for player in t.player_changes.arrived`.
@@ -512,6 +515,9 @@ declaration_violation :: proc(
 	if tick_hz < 32 || tick_hz > 128 || tick_hz & (tick_hz - 1) != 0 {
 		return fmt.tprintf("%s: tick_hz %d (a power of two, 32..128)", name, tick_hz)
 	}
+	if reason := clock_violation(state); reason != "" {
+		return fmt.tprintf("%s: %s", name, reason)
+	}
 	if reason := plain_violation(state, fmt.tprint(state.id)); reason != "" {
 		return fmt.tprintf("%s: the State is not plain data: %s", name, reason)
 	}
@@ -661,6 +667,7 @@ step :: proc(simulation: ^Sim($G), inputs: ^Inputs(G), save := true) {
 	builtin.clear(&slot.events.list)
 	started := dev_step_begin(simulation.dev, &slot.draws)
 	tick := make_tick(simulation, number, read, &slot.events)
+	clock_step(&tick)
 	changes := &simulation.changes
 	players_update(&tick, changes)
 	tick.player_changes = {
@@ -706,6 +713,7 @@ make_tick :: proc(simulation: ^Sim($G), number: u32, inputs: ^Inputs(G), events:
 		seed     = simulation.seed,
 		setup    = simulation.setup,
 		dt       = 1 / f32(simulation.game.tick_hz),
+		tick_hz  = simulation.game.tick_hz,
 		inputs   = inputs,
 		events   = events,
 		commands = &simulation.commands,

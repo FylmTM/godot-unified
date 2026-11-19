@@ -93,7 +93,9 @@ the `.level` files as inputs).
 
 A time constant is written in seconds and converted, never written as raw ticks: `RESPAWN_TICKS :: u16(RESPAWN_S *
 TICK_HZ)`. Odin refuses a constant conversion that truncates, so a time that is not a whole number of ticks does not
-compile. A time from data converts with `ticks`, a view's with `seconds`; inside `tick`, `t.dt`.
+compile. A time from data converts with `ticks`, a view's with `seconds`; inside `tick`, `t.dt`. A Timer takes
+seconds at run time (`timer_start`, rounded to the nearest tick), outside that check: a time that must be a whole
+number of ticks stays an `X_TICKS` constant for `timer_start_ticks`.
 
 ### Build identity
 
@@ -112,6 +114,32 @@ decoded, `tick` runs, each held slot's input is kept as its `before`, and the ti
 
 `Inputs` are by slot. Joining and leaving are presence changes the relay decides (`present` and the join records),
 never flags in an Input.
+
+## Game time
+
+Timers are state with nothing to decrement: a `Timer` holds the game time it started and the one it ends, and every
+read compares them with the tick's `t.time`, so a rollback restores it with the block, a system that skips a tick
+misses nothing and no loop counts down. A counter that only counts down, or a stored "tick it happens at", is a Timer;
+a count-up meter stays an integer.
+
+Game time is the tick number unless the State holds a `Clock`. Then the harness advances the clock before every tick
+that isn't paused and gives the tick `t.time` and `t.paused`, so every timer, `due` and stamp in that game holds
+through a pause with no call site knowing about it. The clock is found by its type, so it can be named anything.
+
+**The co-op pause is state.** Online, a pause from outside the sim is not exact (the others keep playing), so a pause
+is a command that every peer applies at the same tick: `set_paused` from it, and `tick` returns early when `t.paused`,
+skipping the game's systems and `physics.step`. It needs nothing from the netcode: the relay keeps finalizing ticks,
+clients keep predicting, a rollback re-simulates through it, a late joiner's snapshot and the log carry it. A pause
+or resume takes effect from the next tick, so no game time is run twice. On a paused tick:
+
+- Presence is applied as always (people come and go while paused), and commands arrive once, as always: the game
+  reads the pause's own before it returns, and any command it doesn't read then is gone (a game that wants otherwise
+  reads them there too).
+- Keyed rolls name the tick number, never game time, so a roll made on a paused tick still differs every tick.
+- `buttons` compares with the slot's input of the tick before on every tick, paused or not: a press during the pause
+  is pressed on that tick, and a button held through the resume is not pressed again.
+
+Time scales (slow motion) are deliberately not built.
 
 ## Players
 
