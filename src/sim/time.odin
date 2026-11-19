@@ -3,6 +3,7 @@
 package sim
 
 import "base:runtime"
+import "core:fmt"
 
 // Game time and the co-op pause, in the block. A State holds at most one, as a field of its own (found by its type,
 // whatever its name): the harness advances `time` by one before every tick unless `paused`, and gives the tick
@@ -58,14 +59,41 @@ clock_step :: proc(tick: ^Tick($G)) {
 	tick.time = clock.time
 }
 
-// Why a State's clock can't run ("" when it can): two Clock fields.
+// Why a State's clock can't run ("" when it can): two Clock fields, or a Clock deeper than a field of the State's own
+// (in a nested struct or an array), which the harness would never advance.
 @(private)
 clock_violation :: proc(state: ^runtime.Type_Info) -> string {
 	info, is_struct := runtime.type_info_base(state).variant.(runtime.Type_Info_Struct)
 	if !is_struct do return ""
 	clocks := 0
-	for i in 0 ..< int(info.field_count) do clocks += int(info.types[i].id == Clock)
+	for i in 0 ..< int(info.field_count) {
+		if info.types[i].id == Clock {
+			clocks += 1
+		} else if holds_clock(info.types[i]) {
+			return fmt.tprintf(
+				"the State's field `%s` holds a sim.Clock inside it: the Clock must be a field of the State itself",
+				info.names[i],
+			)
+		}
+	}
 	return "the State holds more than one sim.Clock" if clocks > 1 else ""
+}
+
+// Whether a value of `type` is or holds a Clock anywhere (fields, arrays, enumerated arrays).
+@(private)
+holds_clock :: proc(type: ^runtime.Type_Info) -> bool {
+	if type.id == Clock do return true
+	#partial switch info in runtime.type_info_base(type).variant {
+	case runtime.Type_Info_Struct:
+		for i in 0 ..< int(info.field_count) {
+			if holds_clock(info.types[i]) do return true
+		}
+	case runtime.Type_Info_Array:
+		return holds_clock(info.elem)
+	case runtime.Type_Info_Enumerated_Array:
+		return holds_clock(info.elem)
+	}
+	return false
 }
 
 // A countdown on game time: when it was started and the game time it reaches its end, so nothing decrements it, a

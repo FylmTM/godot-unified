@@ -413,3 +413,134 @@ a_kept_tick_encodes_as_the_ring_did :: proc(t: ^testing.T) {
 		testing.expect_value(t, counting.allocs, 0)
 	}
 }
+
+// An unended recording damaged in the middle (an unknown record kind with whole ticks after it) is refused: only a
+// record cut where the bytes run out is a torn tail.
+@(test)
+an_unended_log_damaged_in_the_middle_is_refused :: proc(t: ^testing.T) {
+	recording: [dynamic]u8
+	defer delete(recording)
+	stream: sim.Log_Stream
+	setup := toy.Setup{}
+	sim.log_stream_begin(&stream, sim.log_sink_memory(&recording), sim.log_header(&toy.GAME, 1, &setup, 0, 0))
+	defer delete(stream.writer.buf)
+	second := 0 // where the second tick's record begins
+	for k in 0 ..< 6 {
+		if k == 1 do second = len(recording)
+		inputs: toy.Inputs
+		inputs.present = {0}
+		if k == 0 do sim.join(&inputs, 0, 1)
+		sim.log_stream_tick(&stream, &inputs)
+	}
+	recording[second] = 7 // an unknown record kind, four whole ticks after it
+	damaged, ok := sim.log_decode(recording[:], toy.Game)
+	defer sim.log_destroy(&damaged)
+	testing.expectf(t, !ok, "a damaged middle reads as a %d-tick recording (of 6)", len(damaged.ticks))
+}
+
+// A desync image whose List count is past its capacity (a crafted or damaged client's): the report says so and walks
+// the array once, not the count.
+@(test)
+the_desync_diff_bounds_a_collection_by_its_capacity :: proc(t: ^testing.T) {
+	simulation := sim.create(&BAG_GAME, 3)
+	defer sim.destroy(simulation)
+	sim.append(&simulation.state.bag, toy.Thing{life = 1})
+	sim.save(simulation)
+	honest := sim.snapshot_encode(simulation, 0)
+	defer delete(honest)
+	simulation.state.bag.items[0].life = 2
+	simulation.state.bag.count = 4_000_000 // what a crafted image says
+	sim.save(simulation)
+	crafted := sim.snapshot_encode(simulation, 0)
+	defer delete(crafted)
+	diff := sim.snapshot_diff(Bag_State, honest, crafted)
+	testing.expectf(t, strings.contains(diff, "count 4000000 past its capacity 4"), "%s", diff)
+	testing.expectf(t, strings.contains(diff, "1 vs 4 items"), "%s", diff)
+	testing.expectf(t, !strings.contains(diff, "bag[4]"), "the walk stays inside the array: %s", diff)
+}
+
+// Two blocks whose bytes differ only in where a Queue's head is (the same live items, so other checksums): the report
+// names the head.
+@(test)
+the_desync_diff_names_a_queue_differing_only_in_its_head :: proc(t: ^testing.T) {
+	Holder :: struct {
+		queue: sim.Queue(u8, 4),
+	}
+	a, b: Holder
+	sim.append(&a.queue, 5)
+	sim.append(&a.queue, 5) // [5, 5], head 0
+	sim.append(&b.queue, 5)
+	sim.append(&b.queue, 5)
+	sim.pop_front(&b.queue)
+	sim.append(&b.queue, 5) // [5, 5], head 1
+	testing.expect(t, a != b, "the bytes differ")
+	lines, total := sim.state_changes(type_info_of(Holder), &a, &b)
+	testing.expectf(t, total == 1 && len(lines) == 1 && lines[0] == "queue: head 0 vs 1", "%v", lines)
+}
+
+Bag_State :: struct {
+	players: sim.Players(toy.Player_Data, sim.No_Profile, toy.Input, toy.PLAYERS),
+	bag:     sim.List(toy.Thing, 4),
+}
+
+Bag_Game :: sim.Game(Bag_State, toy.Input, sim.No_World, toy.Event, toy.Cmd, sim.No_Setup, sim.No_Profile, toy.PLAYERS)
+
+BAG_GAME := Bag_Game {
+	name = "bag",
+	version = "1",
+	tick_hz = 64,
+	tick = proc(t: ^sim.Tick(Bag_Game)) {},
+}
+
+// find_nan names a Queue's item oldest first, as the desync report does.
+@(test)
+find_nan_names_a_queue_item_as_the_diff_does :: proc(t: ^testing.T) {
+	simulation := sim.create(&NAN_QUEUE_GAME, 1)
+	defer sim.destroy(simulation)
+	inputs: sim.Inputs(Nan_Queue_Game)
+	sim.step(simulation, &inputs)
+	before := simulation.state
+	sim.step(simulation, &inputs)
+	lines, _ := sim.state_changes(type_info_of(Nan_Queue_State), &before, &simulation.state)
+	diff_names_second := false
+	for line in lines do diff_names_second ||= strings.has_prefix(line, "queue[1]")
+	floats: [dynamic]u32
+	defer delete(floats)
+	nan := sim.find_nan(simulation, &floats)
+	testing.expectf(t, diff_names_second, "the diff names the NaN as queue[1] (oldest first): %v", lines)
+	testing.expectf(t, strings.contains(nan, "queue[1] "), "find_nan names it %q", nan)
+}
+
+Nan_Queue_State :: struct {
+	queue:   sim.Queue(f32, 4),
+	players: sim.Players(u32, sim.No_Profile, toy.Input, 1),
+}
+
+Nan_Queue_Game :: sim.Game(
+	Nan_Queue_State,
+	toy.Input,
+	sim.No_World,
+	toy.Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	1,
+)
+
+NAN_QUEUE_GAME := Nan_Queue_Game {
+	name = "nan_queue",
+	version = "1",
+	tick_hz = 64,
+	tick = proc(t: ^sim.Tick(Nan_Queue_Game)) {
+		switch t.number {
+		case 1:
+			sim.append(&t.state.queue, 1)
+			sim.append(&t.state.queue, 2)
+			sim.append(&t.state.queue, 3)
+		case 2:
+			sim.pop_front(&t.state.queue)
+			sim.pop_front(&t.state.queue) // head 2: items[2] = 3 is the oldest
+			sim.append(&t.state.queue, transmute(f32)u32(0x7FC0_0000)) // items[3]: the queue's second item
+		}
+	},
+}

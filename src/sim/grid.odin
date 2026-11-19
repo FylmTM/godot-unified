@@ -92,12 +92,15 @@ Grid_Box :: struct($CELLS: int, $CAP: int) {
 	row, last_row:             i32,
 }
 
-// Starts a walk over the cells the box from `low` to `high` touches (clamped to the grid), a row at a time from the
-// smallest y: `next` yields each row's ids as one run (the row's cells are contiguous).
+// Starts a walk over the cells the box between corners `low` and `high` touches (clamped to the grid; a corner past
+// the other on an axis is taken as the box's other side), a row at a time from the smallest y: `next` yields each
+// row's ids as one run (the row's cells are contiguous).
 grid_box :: proc(grid: ^Grid($CELLS, $CAP), low, high: [2]f32) -> Grid_Box(CELLS, CAP) {
 	assert(grid.sorted, "sim.grid_box: call grid_end first")
 	first_column, first_row := grid_cell(grid, low)
 	last_column, last_row := grid_cell(grid, high)
+	if first_column > last_column do first_column, last_column = last_column, first_column
+	if first_row > last_row do first_row, last_row = last_row, first_row
 	return {grid, first_column, last_column, first_row, last_row}
 }
 
@@ -113,7 +116,8 @@ grid_box_next :: proc(walk: ^Grid_Box($CELLS, $CAP)) -> (ids: []i32, ok: bool) {
 // Whether `key`'s turn comes this tick, once every `period` ticks of game time: (key + t.time) % period == 0, so a
 // pause moves no key's turn. Keys spread evenly over
 // the period (dense keys: each tick takes a period-th of them), so work too costly every tick for every entity runs
-// for each once per period: `if sim.due(t, handle.index, CHECK_TICKS) { ... }`. period > 0.
+// for each once per period: `if sim.due(t, handle.index, CHECK_TICKS) { ... }`. period > 0 (asserted).
 due :: proc(tick: ^Tick($G), key: $K, period: u32) -> bool where intrinsics.type_is_integer(K) {
+	assert(period > 0, "sim.due: the period is 0 ticks (a length that rounds to 0?)")
 	return (u64(key) + u64(tick.time)) % u64(period) == 0
 }

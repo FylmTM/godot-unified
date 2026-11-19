@@ -351,7 +351,8 @@ log_encode :: proc(input_log: ^Input_Log($G), allocator := context.allocator) ->
 // Parses log_encode's bytes into an Input_Log of game G; false when the header does not match G's Input, Profile,
 // Setup and PLAYERS, its Setup does not read as sent (setup_violation) or the bytes are malformed (an unknown record,
 // a checkpoint of a tick the log doesn't hold before it). A recording that never ended (tick count 0) is read to its
-// last whole record (a cut one after it is left out).
+// last whole record (a cut one at its end, where the bytes run out, is left out; a malformed one before the end is
+// refused like any other).
 log_decode :: proc(data: []u8, $G: typeid) -> (input_log: Input_Log(G), ok: bool) {
 	Input :: part(G, GAME_INPUT)
 	Setup :: part(G, GAME_SETUP)
@@ -394,7 +395,8 @@ log_decode :: proc(data: []u8, $G: typeid) -> (input_log: Input_Log(G), ok: bool
 			whole = false
 		}
 		if !whole {
-			if unended do return input_log, true // its last record cut short
+			// Its last record cut short: the reader ran out of bytes. A malformed record with bytes left is damage.
+			if unended && !reader.ok do return input_log, true
 			log_destroy(&input_log)
 			return {}, false
 		}

@@ -225,7 +225,8 @@ them the same way, so a bad value can neither crash `tick` (an index out of boun
   an undeclared value or whose float is not finite is left out on every peer alike, like one of an unknown kind or the
   wrong size.
 - **A Profile** is read like a command, inside the step, so the relay, a prediction, a replay and a test read it
-  alike: one that a command would leave out is the zero Profile.
+  alike: one that a command would leave out is the zero Profile, so a Profile's enum must declare a member of value 0
+  too.
 - **A Setup** that does not read as sent is refused (`setup_violation`), never zeroed: a zeroed Setup would play
   another session than the host's.
 
@@ -263,7 +264,8 @@ the enum from, and a seventh `sim.Game` parameter for a dev feature would cost e
 Both hang off a `Dev` the host attaches to a `Sim` (`dev_attach`), which owns the clock: the sim reads none itself.
 Without one every call is a nil check; a build without the dev UI (`DEV` false) leaves every call an empty proc. The
 lint bans `.dev` outside this package, so tick code can't read a draw list or a zone time into state, and the
-sync-tests prove a run with everything attached computes the checksums of one without.
+sync-tests (`headless.Run`) re-simulate with every draw group on after forward ticks with none, so state that
+depends on `sim.drawing` (or on anything a draw does) fails them like any other divergence.
 
 ## Tables and handles
 
@@ -283,9 +285,9 @@ for coin, handle in sim.next(&coins) { ... }
 Beside tables, the block holds three inline, fixed-capacity collections: `List` (items in order, for small bags whose
 indices nobody keeps), `Queue` (first in, first out) and `Bits` (a set of indices sized by a constant, where an enum's
 set is Odin's `bit_set`). Heap containers can't be state: they allocate, must be freed on every peer, and move on
-growth. These are plain data for any element type and capacity: the count is as wide as the element's alignment, so
-no padding appears and `plain_violation` passes with no `_pad` field (which is why a 1-byte element caps a List at
-255 items). Every remove, pop and clear zeroes what it vacates, so a List's bytes are a function of its items: equal
+growth. These are plain data for any element type aligned to at most 8 bytes and any capacity: the count is as wide
+as the element's alignment, so no padding appears and `plain_violation` passes with no `_pad` field (which is why a
+1-byte element caps a List at 255 items; a 16-aligned element does not compile). Every remove, pop and clear zeroes what it vacates, so a List's bytes are a function of its items: equal
 contents hash equal whatever their history (a Queue's also depend on where its head is, until it empties).
 
 Their verbs are Odin's own for dynamic arrays and bit_sets (`append`, `pop`, `ordered_remove`, `unordered_remove`,

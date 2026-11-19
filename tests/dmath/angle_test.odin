@@ -33,7 +33,7 @@ hash_mix :: proc(hash: ^u64, bits: u32) {
 // here with trig_matches_its_strict_twin passing means the polynomials changed; with it failing, the compiler fused
 // or reordered an operation.
 SIN_COS_HASH :: u64(0xf8abe088f9284591)
-ATAN2_HASH :: u64(0x8934313bfffa60ed)
+ATAN2_HASH :: u64(0xd8f340e9fffa60ed)
 EXP_HASH :: u64(0xe43dc0539a986ba9)
 
 @(test)
@@ -95,6 +95,8 @@ trig_exact_values :: proc(t: ^testing.T) {
 		{0, 0, 0},
 		{transmute(f32)u32(0x8000_0000), -1, 0.5},
 		{5, 5, 0.125},
+		{-1e-20, -1, 0.5}, // just below the -x axis, a half turn when rounded: 0.5, never -0.5
+		{-1e-9, -3, 0.5},
 	}
 	for pair in axes {
 		testing.expectf(
@@ -144,6 +146,9 @@ trig_exact_values :: proc(t: ^testing.T) {
 		testing.expect(t, dmath.exp(bad) == dmath.exp(bad), "exp of a NaN is a number")
 	}
 	testing.expect_value(t, dmath.atan2_turns(inf, inf), 0.125)
+	testing.expect_value(t, dmath.atan2_turns(nan, 1), 0.125) // a NaN y beside a non-zero x: a diagonal
+	testing.expect_value(t, dmath.atan2_turns(1, nan), 0) // a NaN x: 0
+	testing.expect_value(t, dmath.atan2_turns(-1, nan), 0)
 	testing.expect_value(t, dmath.exp(nan), 0)
 	// smoothstep, lerp
 	testing.expect_value(t, dmath.smoothstep(0, 1, 0.5), 0.5)
@@ -220,7 +225,7 @@ strict_atan2 :: proc(y, x: f32) -> f32 {
 	}
 	if steep do p = sub(0.25, p)
 	if x < 0 do p = sub(0.5, p)
-	if y < 0 do p = sub(0, p)
+	if y < 0 && p < 0.5 do p = sub(0, p)
 	return p
 }
 

@@ -55,10 +55,8 @@ Bench_Result :: struct {
 	warmup:                     int, // the first ticks, left out of the timings
 	mismatches:                 int,
 	// The game's zones (sim.zone) per forward step, from a second pass of the same ticks with a Dev attached and timed
-	// (so the timings above carry no clock reads), the game's zones then "other"; empty for a game without zones. And
-	// that pass's forward step, whose mean less `step`'s is what timing the zones costs.
+	// (so the timings above carry no clock reads), the game's zones then "other"; empty for a game without zones.
 	zones:                      []Zone_Stat,
-	zoned_step:                 Stat,
 }
 
 @(private)
@@ -92,19 +90,14 @@ bench_zones :: proc(
 	dev := sim.dev_attach(simulation, bench_clock)
 	if dev == nil do return // a build without the dev UI times no zones
 	samples: [sim.ZONES_MAX + 1][dynamic]f64
-	step_us := make([dynamic]f64, context.temp_allocator)
 	for &zone in samples do zone = make([dynamic]f64, context.temp_allocator)
 	for tick in 1 ..< u32(len(recorded)) {
 		before := dev.zone_ns
-		start := time.tick_now()
 		sim.step(simulation, &recorded[tick], save = false)
-		took := time.duration_microseconds(time.tick_since(start))
 		sim.save(simulation)
 		if tick <= warmup do continue
-		append(&step_us, took)
 		for &zone, i in samples do append(&zone, f64(dev.zone_ns[i] - before[i]) / 1000)
 	}
-	result.zoned_step = stat_of(step_us[:])
 	totals := sim.zone_totals(simulation)
 	if len(totals.names) == 0 do return
 	result.zones = make([]Zone_Stat, len(totals.names), context.temp_allocator)

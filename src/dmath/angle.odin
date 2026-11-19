@@ -126,8 +126,9 @@ A7 :: -0.0025915224
 A8 :: 0.00046211507
 
 // The angle of the point (x, y) in turns, in (-0.5, 0.5], within 4e-8 turns: atan2(y, x) / 2π. Exact on the axes and
-// the diagonals; (0, 0) gives 0 and y = -0 counts as +0 (so (−0, −1) is 0.5). Any bits in give a finite answer: an
-// infinity over an infinity or a NaN counts as a diagonal.
+// the diagonals; (0, 0) gives 0 and y = -0 counts as +0 (so (−0, −1) is 0.5), and a point just below the -x axis
+// whose angle rounds to a half turn gives 0.5, never -0.5. Any bits in give a finite answer: an infinity over an
+// infinity, or a NaN y beside a non-zero x, counts as a diagonal; a NaN x gives 0.
 atan2_turns :: proc "contextless" (y, x: f32) -> f32 {
 	ax, ay := abs(x), abs(y)
 	steep := ay > ax
@@ -145,7 +146,7 @@ atan2_turns :: proc "contextless" (y, x: f32) -> f32 {
 	}
 	if steep do p = 0.25 - p
 	if x < 0 do p = 0.5 - p
-	if y < 0 do p = 0 - p
+	if y < 0 && p < 0.5 do p = 0 - p // a half turn stays 0.5: the range is (-0.5, 0.5]
 	return p
 }
 

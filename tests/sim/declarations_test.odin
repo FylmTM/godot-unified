@@ -413,3 +413,164 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.compat_of(&toy.GAME), compat) // stable
 	testing.expect_value(t, sim.content_hash(nil), 0)
 }
+
+// A Profile's enum must declare a member of value 0, as an Input's: a malformed or absent Profile reads as the zero
+// one, which would hold an undeclared value (`STATS[profile.role]` out of bounds on every peer).
+Role_No_Zero :: enum u8 {
+	Tank   = 1,
+	Healer = 2,
+}
+
+Role_Profile :: struct {
+	role: Role_No_Zero,
+}
+
+Role_State :: struct {
+	players: sim.Players(u32, Role_Profile, toy.Input, 1),
+}
+
+Role_Game :: sim.Game(Role_State, toy.Input, sim.No_World, toy.Event, sim.No_Commands, sim.No_Setup, Role_Profile, 1)
+
+@(test)
+a_profile_enum_without_a_zero_member_is_refused :: proc(t: ^testing.T) {
+	game := Role_Game {
+		name = "roles",
+		version = "1",
+		tick_hz = 64,
+		tick = proc(t: ^sim.Tick(Role_Game)) {},
+	}
+	reason := sim.game_violation(&game)
+	testing.expectf(t, strings.contains(reason, "Profile") && strings.contains(reason, "0"), "%q", reason)
+}
+
+// A Clock must be a field of the State itself: one inside a nested struct would never run (game time would be the tick
+// number, and set_paused would assert inside a tick on every peer).
+Nested_Clock_State :: struct {
+	players: sim.Players(u32, sim.No_Profile, toy.Input, 1),
+	match:   struct {
+		clock: sim.Clock,
+	},
+}
+
+Nested_Clock_Game :: sim.Game(
+	Nested_Clock_State,
+	toy.Input,
+	sim.No_World,
+	toy.Event,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	1,
+)
+
+@(test)
+a_clock_in_a_nested_struct_is_refused :: proc(t: ^testing.T) {
+	game := Nested_Clock_Game {
+		name = "nested",
+		version = "1",
+		tick_hz = 64,
+		tick = proc(t: ^sim.Tick(Nested_Clock_Game)) {},
+	}
+	reason := sim.game_violation(&game)
+	testing.expectf(t, strings.contains(reason, "`match` holds a sim.Clock"), "%q", reason)
+}
+
+// A game's own type whose name starts like sim's (Active_Level_Banner) is not taken for sim.Active_Level.
+Active_Level_Banner :: struct {
+	shown_at: u32,
+}
+
+Banner_State :: struct {
+	banner: Active_Level_Banner,
+}
+
+@(test)
+a_game_type_named_like_active_level_is_not_a_level :: proc(t: ^testing.T) {
+	testing.expect_value(t, sim.levels_violation("banner", type_info_of(Banner_State), nil), "")
+}
+
+// A dev build and a public build of a game with dev commands refuse each other (compat's dev bit); a game without
+// dev commands is the same build either way.
+@(test)
+the_dev_bit_splits_builds_of_a_game_with_dev_commands :: proc(t: ^testing.T) {
+	testing.expect(t, sim.has_dev_commands(Dev_Cmd))
+	testing.expect(t, sim.compat_of(&DEV_GAME) != sim.compat_of(&DEV_GAME, {public = true}))
+	testing.expect_value(t, sim.compat_of(&toy.GAME, {public = true}), sim.compat_of(&toy.GAME))
+}
+
+Cmd_Add :: struct {
+	amount: u32,
+}
+
+Cmd_Dev_Add :: struct {
+	amount: u32,
+}
+
+Dev_Cmd :: union {
+	Cmd_Add,
+	Cmd_Dev_Add,
+}
+
+Dev_State :: struct {
+	players: sim.Players(toy.Player_Data, sim.No_Profile, toy.Input, 2),
+	plain:   u32,
+	dev:     u32,
+	order:   [8]u32, // the commands in the order read (a dev one as 1000 + its amount)
+	read:    u32,
+	_pad:    u32,
+}
+
+Dev_Game :: sim.Game(Dev_State, toy.Input, sim.No_World, toy.Event, Dev_Cmd, sim.No_Setup, sim.No_Profile, 2)
+
+DEV_GAME := Dev_Game {
+	name = "dev_commands",
+	version = "1",
+	tick_hz = 64,
+	tick = proc(t: ^sim.Tick(Dev_Game)) {
+		players := sim.iterate_present(t)
+		for _, player in sim.next(&players) {
+			for sent in sim.commands(t, player) {
+				switch command in sent {
+				case Cmd_Add:
+					t.state.plain += command.amount
+					t.state.order[t.state.read % 8] = command.amount
+				case Cmd_Dev_Add:
+					t.state.dev += command.amount
+					t.state.order[t.state.read % 8] = 1000 + command.amount
+				}
+				t.state.read += 1
+			}
+		}
+	},
+}
+
+// A public build leaves every dev command out, whoever sends it, and applies the others in their order; a dev build
+// applies all of them. The public side runs here by clearing the Sim's dev_commands (no second compile).
+@(test)
+a_public_build_applies_no_dev_command :: proc(t: ^testing.T) {
+	for public in ([]bool{false, true}) {
+		simulation := sim.create(&DEV_GAME, 1)
+		defer sim.destroy(simulation)
+		testing.expect_value(t, simulation.dev_commands, sim.DEV)
+		if public do simulation.dev_commands = false
+		inputs: sim.Inputs(Dev_Game)
+		sim.seat(&inputs, simulation, 0, 1)
+		sim.seat(&inputs, simulation, 1, 2)
+		testing.expect(t, sim.add_command(&inputs, 0, Cmd_Add{1}))
+		testing.expect(t, sim.add_command(&inputs, 0, Cmd_Dev_Add{2}))
+		testing.expect(t, sim.add_command(&inputs, 0, Cmd_Add{3}))
+		testing.expect(t, sim.add_command(&inputs, 0, Cmd_Dev_Add{4}))
+		testing.expect(t, sim.add_command(&inputs, 1, Cmd_Dev_Add{5}))
+		sim.step(simulation, &inputs)
+		state := &simulation.state
+		testing.expect_value(t, state.plain, 4)
+		if public {
+			testing.expect_value(t, state.dev, 0)
+			testing.expect_value(t, state.read, 2)
+			testing.expect(t, state.order[0] == 1 && state.order[1] == 3, "the others in their order")
+		} else {
+			testing.expect_value(t, state.dev, 11)
+			testing.expect_value(t, state.read, 5)
+		}
+	}
+}
