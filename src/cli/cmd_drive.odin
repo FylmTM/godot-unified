@@ -61,6 +61,9 @@ drive_details :: proc() -> string {
 		"  wait event <name>        until an event of that kind arrives after the previous reply\n" +
 		"  shot [file.png]          the window as a PNG (default .out/drive/<name>-<n>.png in the game)\n" +
 		"  ui                       the visible buttons and texts (path, class, text, disabled, rect)\n" +
+		"  find <text|class|name>   every node, hidden too, whose name, class (its own, one it extends, its script's\n" +
+		"                           class_name) or text holds it, any case: path, name, class, script_class, text,\n" +
+		"                           visible, rect (a control's)\n" +
 		"  click <text|path>        a real mouse click on a button by its text, or any control by its node path:\n" +
 		"                           /root/Main/Start or root/Main/Start (what Git Bash makes of a leading / is undone)\n" +
 		"  eval <expression>        a GDScript expression on the current scene (session, tree, root, scene, Input, Engine): its value\n" +
@@ -437,7 +440,7 @@ drive_failed :: proc(format: string, args: ..any) -> Result {
 
 // The godot suite's `drive` step: the game, headless with a single-player session at once, driven the way an agent
 // drives it: status, pause, exact steps, a timed press stepped while paused (the action released after), the state,
-// the sampled input, events, the menus' controls, an expression, a refused screenshot (no window), a resume and a
+// the sampled input, events, the menus' controls, a node found by its class, an expression, a refused screenshot (no window), a resume and a
 // wait on the session's own clock, then a stop whose log must be clean. Quiet unless it fails.
 drive_check :: proc(game: Game) -> bool {
 	NAME :: "suite-check"
@@ -501,6 +504,15 @@ drive_check :: proc(game: Game) -> bool {
 	call(&instance, &failed, true, "input")
 	call(&instance, &failed, true, "events")
 	call(&instance, &failed, true, "ui")
+	sessions, _ := call(&instance, &failed, true, "find", "UnifiedSession")["nodes"].(json.Array)
+	check(&failed, len(sessions) >= 1, "find UnifiedSession found no node")
+	if len(sessions) >= 1 {
+		first, _ := sessions[0].(json.Object)
+		class, _ := first["class"].(json.String)
+		check(&failed, class == "UnifiedSession", "find UnifiedSession found a %v first", first)
+	}
+	nothing, _ := call(&instance, &failed, true, "find", "no node is named this")["nodes"].(json.Array)
+	check(&failed, failed != "" || len(nothing) == 0, "find of no name found %d nodes", len(nothing))
 	sum := call(&instance, &failed, true, "eval", "6 * 7")
 	product, _ := sum["value"].(json.Integer)
 	check(&failed, product == 42, "eval 6 * 7 gave %v", sum["value"])
