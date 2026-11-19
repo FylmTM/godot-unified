@@ -13,7 +13,8 @@ Init_Opts :: struct {
 }
 
 // `init <dir>`: a new game, a copy of unified's games/minimal_3d named after the directory (minimal_3d replaced by
-// the name in paths and text): its sim, headless binary, extension, Godot scenes and tests, and its view index.
+// the name in paths and text): its sim, headless binary, extension, Godot scenes and tests, its view index and its
+// GUIDE.md (writing gameplay that survives rollback).
 //
 // By default a new game repo: the game at the repo's root, plus template/repo/ (a README, .gitattributes, the repo's
 // .gitignore, tools/: the game's CLI; .tmpl files with __GAME__ for the name), the shims, and unified as a git

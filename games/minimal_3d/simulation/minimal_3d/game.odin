@@ -18,6 +18,7 @@ Tick :: sim.Tick(Game)
 @(rodata)
 GAME := Game {
 	name              = "minimal_3d",
+	// Bump it with every rule or tuning change, or two builds desync instead of refusing each other.
 	version           = "2", // 2: the co-op pause, a throw cooldown
 	tick_hz           = TICK_HZ,
 	tick              = tick,
