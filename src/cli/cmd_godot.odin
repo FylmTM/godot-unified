@@ -533,7 +533,8 @@ tool_details :: proc() -> string {
 		"A run passes with an ok UNIFIED_RESULT line and exit 0, no ERROR line, no leak at exit and no GDScript\n" +
 		"warning. Headless runs have Godot's debugger on (-d, which prints the warnings): a script error stops at\n" +
 		"its prompt, which quits at once (the run's stdin holds `quit`), so the run ends within seconds with the\n" +
-		"error printed. A run still going after %d minutes is killed.\n\n" +
+		"error printed, named first among the problems as file:line (a parse error in the script itself crashes\n" +
+		"Godot there: its backtrace is left out). A run still going after %d minutes is killed.\n\n" +
 		"The result line on stdout ends with what the script added to its result (UnifiedTool.result) as JSON:\n" +
 		"`%s`. With --json, the whole UNIFIED_RESULT object\n" +
 		"(steps, errors and the script's own keys) is the result's `data`. To read a value out of Godot, a script\n" +
@@ -603,6 +604,8 @@ cmd_tool :: proc(args: []string) -> Result {
 			own = aprintf("%s… (--json for all)", own[:cut])
 		}
 		summary = aprintf("%s: %s", summary, own)
+	} else if !result.ok && len(result.problems) > 0 {
+		summary = aprintf("%s: %s", summary, result.problems[0]) // a script error, when there is one, comes first
 	}
 	return {ok = result.ok, summary = summary, data = box(result.result)}
 }

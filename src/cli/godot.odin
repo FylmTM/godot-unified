@@ -109,7 +109,67 @@ godot_errors :: proc(text: string) -> []string {
 	return lines_with(text, "ERROR", "Parse Error")
 }
 
-// What fails a Godot run besides its exit code, each with what it is: an error line, a leak at exit, a GDScript
+// The GDScript errors in a Godot run's output, each once as `res://file.gd:line: message`: one the debugger broke on
+// (`Debugger Break, Reason: '<message>'`, then `*Frame 0 - res://file.gd:line ...`) and a script error with its place
+// (`SCRIPT ERROR: <message>`, then `at: <function> (res://file.gd:line)`). A parse error in a `-s` script can crash
+// Godot under the debugger (signal 11), and the crash's backtrace says nothing of it: this is the cause.
+script_errors :: proc(text: string) -> []string {
+	out: [dynamic]string
+	lines := strings.split_lines(text)
+	for line, i in lines {
+		trimmed := strings.trim_space(line)
+		message, place := "", ""
+		BREAK :: "Debugger Break, Reason: '"
+		SCRIPT :: "SCRIPT ERROR: "
+		FRAME :: "*Frame 0 - "
+		if strings.has_prefix(trimmed, BREAK) {
+			message = strings.trim_suffix(trimmed[len(BREAK):], "'")
+			for next in lines[i + 1:min(i + 4, len(lines))] {
+				frame := strings.trim_space(next)
+				if !strings.has_prefix(frame, FRAME) do continue
+				place, _, _ = strings.partition(frame[len(FRAME):], " in function")
+				break
+			}
+		} else if strings.has_prefix(trimmed, SCRIPT) {
+			message = trimmed[len(SCRIPT):]
+			for next in lines[i + 1:min(i + 4, len(lines))] {
+				at := strings.index(next, "(res://")
+				if !strings.contains(next, "at: ") || at < 0 do continue
+				place = strings.trim_suffix(strings.trim_space(next[at + 1:]), ")")
+				break
+			}
+		}
+		if message == "" do continue
+		entry := place != "" ? aprintf("%s: %s", place, message) : message
+		if !slice.contains(out[:], entry) do append(&out, entry)
+	}
+	return out[:]
+}
+
+// A Godot run's output with a crash's C++ backtrace (from the `CrashHandlerException` line to `-- END OF C++
+// BACKTRACE --`, with the rules around it) left out, for a run whose script errors (script_errors) say the cause.
+without_backtrace :: proc(text: string) -> string {
+	out := strings.builder_make()
+	skipping := false
+	for line in strings.split_lines(text) {
+		if strings.contains(line, "CrashHandlerException") {
+			skipping = true
+			strings.write_string(&out, "(Godot crashed after the script error; its C++ backtrace is left out)\n")
+			continue
+		}
+		if skipping {
+			if strings.contains(line, "END OF C++ BACKTRACE") do skipping = false
+			continue
+		}
+		if strings.has_prefix(line, "=========") do continue // the rules around the backtrace
+		strings.write_string(&out, line)
+		strings.write_byte(&out, '\n')
+	}
+	return strings.to_string(out)
+}
+
+// What fails a Godot run besides its exit code, each with what it is: a script error (script_errors) first, an error
+// line, a leak at exit, a GDScript
 // warning, and a warning a game's own script raised (its backtrace names a res://game/ frame; the engine's warnings
 // and the library's pass). When the game's extension did not install (godot.install_problems), only why: every
 // other error (scripts naming the game's classes, a session that can't start) follows from it.
@@ -122,6 +182,7 @@ godot_problems :: proc(text: string) -> []string {
 		}
 	}
 	if len(problems) > 0 do return problems[:]
+	for script_error in script_errors(text) do append(&problems, aprintf("script error: %s", script_error))
 	for line, i in lines {
 		if strings.contains(line, "leaked at exit") || strings.contains(line, "still in use at exit") {
 			append(&problems, aprintf("leak at exit: %s", strings.trim_space(line)))
@@ -342,7 +403,10 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 	}
 	problems: [dynamic]string
 	append(&problems, ..godot_problems(out))
-	for line in strings.split_lines(out) {
+	// a script error that crashed Godot: its backtrace is noise, the script error (listed last) the cause
+	crashed := strings.contains(out, "CrashHandlerException")
+	shown := crashed && len(script_errors(out)) > 0 ? without_backtrace(out) : out
+	for line in strings.split_lines(shown) {
 		if strings.has_prefix(line, RESULT_MARKER) {
 			value, err := json.parse_string(line[len(RESULT_MARKER):], parse_integers = true)
 			if err == nil {
@@ -354,6 +418,8 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 	}
 	if ran.timed_out {
 		append(&problems, aprintf("timed out after %.0fs", ran.seconds))
+	} else if crashed {
+		append(&problems, aprintf("Godot crashed (exit code %d)", ran.exit_code))
 	} else if ran.exit_code != 0 {
 		append(&problems, aprintf("exit code %d", ran.exit_code))
 	}
@@ -367,7 +433,7 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 	report.problems = problems[:]
 	report.ok = len(problems) == 0
 	if !report.ok && !echo && !not_installed(problems[:]) {
-		log("%s", tail(out, 6000))
+		log("%s", tail(shown, 6000))
 	}
 	for problem in problems {
 		log("uni: %s", problem)

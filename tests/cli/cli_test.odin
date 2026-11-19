@@ -3,6 +3,7 @@
 // `uni selftest` and every CI job.
 package test_cli
 
+import "core:fmt"
 import "core:os"
 import "core:slice"
 import "core:strings"
@@ -448,6 +449,46 @@ godot_problems_name_game_warnings_and_leaks :: proc(t: ^testing.T) {
 			"the extension is not installed: data type Data_Hud: Data_Hud has 1 bytes of implicit padding",
 		)
 	}
+}
+
+// A parse error in a tool script under the debugger crashes Godot (signal 11): the run's problems name the script
+// error first, as file:line and message, and its output shown leaves the C++ backtrace out. A script error without
+// the debugger names its `at:` place; one seen both ways is listed once.
+@(test)
+script_errors_name_the_cause_of_a_crash :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	crash :=
+		"unified: extension initialized (game)\r\n" +
+		"Debugger Break, Reason: 'Parser Error: Expected expression for variable initial value after \"=\".'\r\n" +
+		"*Frame 0 - res://game/tools/broken.gd:5 in function ''\r\n" +
+		"Enter \"help\" for assistance.\r\n" +
+		"debug> \r\n" +
+		"================================================================\r\n" +
+		"CrashHandlerException: Program crashed with signal 11\r\n" +
+		"Dumping the backtrace.\r\n" +
+		"[1] 7ff67e564d61 (main+40d4d61) - no debug info in PE/COFF executable\r\n" +
+		"-- END OF C++ BACKTRACE --\r\n" +
+		"================================================================\r\n"
+	want := "res://game/tools/broken.gd:5: Parser Error: Expected expression for variable initial value after \"=\"."
+	errors := cli.script_errors(crash)
+	testing.expect(t, len(errors) == 1 && errors[0] == want, fmt.tprint(errors))
+	problems := cli.godot_problems(crash)
+	testing.expect(t, len(problems) > 0 && problems[0] == fmt.tprintf("script error: %s", want), fmt.tprint(problems))
+	shown := cli.without_backtrace(crash)
+	testing.expect(t, !strings.contains(shown, "main+40d4d61") && !strings.contains(shown, "====="), shown)
+	testing.expect(t, strings.contains(shown, "*Frame 0 - res://game/tools/broken.gd:5"), shown)
+	plain := cli.script_errors(
+		"SCRIPT ERROR: Parse Error: Identifier \"Foo\" not declared in the current scope.\n" +
+		"          at: GDScript::reload (res://game/main.gd:12)\n" +
+		"SCRIPT ERROR: Parse Error: Identifier \"Foo\" not declared in the current scope.\n" +
+		"          at: GDScript::reload (res://game/main.gd:12)\n",
+	)
+	testing.expect(
+		t,
+		len(plain) == 1 &&
+		plain[0] == "res://game/main.gd:12: Parse Error: Identifier \"Foo\" not declared in the current scope.",
+		fmt.tprint(plain),
+	)
 }
 
 // uni doc's reading of `odin doc` text: sections, declarations and docs (a formatter directive is no doc), a proc
