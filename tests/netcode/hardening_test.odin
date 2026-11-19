@@ -258,7 +258,7 @@ stale_finalized_is_ignored :: proc(t: ^testing.T) {
 reliable_datagram :: proc(writer: ^wire.Writer, epoch, seq: u32, ids: []u32) {
 	clear(&writer.buf)
 	wire.w_u8(writer, netcode.DGRAM_TAG)
-	wire.w_u32(writer, epoch)
+	wire.w_u32(writer, epoch | netcode.EPOCH_BIT) // every epoch has it
 	wire.w_u32(writer, 0)
 	wire.w_u32(writer, seq)
 	wire.w_u32(writer, 0)
