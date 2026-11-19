@@ -14,8 +14,8 @@
 	"checker_args": "-vet -strict-style -vet-tabs",
 	"profile": "default",
 	"profiles": [
-		{ "name": "default", "checker_path": ["games/survivor/simulation/headless", "tests"] },
-		{ "name": "linux", "os": "linux", "arch": "amd64", "checker_path": ["games/survivor/simulation/headless", "tests"] },
-		{ "name": "windows", "os": "windows", "arch": "amd64", "checker_path": ["games/survivor/simulation/headless", "tests"] }
+		{ "name": "default", "checker_path": ["examples/survivor/simulation/headless", "tests"] },
+		{ "name": "linux", "os": "linux", "arch": "amd64", "checker_path": ["examples/survivor/simulation/headless", "tests"] },
+		{ "name": "windows", "os": "windows", "arch": "amd64", "checker_path": ["examples/survivor/simulation/headless", "tests"] }
 	]
 }

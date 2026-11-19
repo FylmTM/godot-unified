@@ -12,11 +12,15 @@ Project :: struct {
 	games:   []Game,
 }
 
-// A game: a Godot project with simulation/ (its Odin code), the project root or each games/*/.
+// A game: a Godot project with simulation/ (its Odin code), the project root or each examples/*/ (EXAMPLES).
 Game :: struct {
 	name: string, // the directory's name, also its sim.Game name and its library's stem
 	dir:  string,
 }
+
+// Where a project that is not itself a game keeps its games: this repo's example games (examples/<game>/), where
+// `init --in-repo` makes one.
+EXAMPLES :: "examples"
 
 // The project is two levels above the running binary (<root>/.out/cli/uni-<hash>-<odin commit>).
 @(private)
@@ -41,7 +45,7 @@ find_games :: proc(root: string) -> []Game {
 		return games
 	}
 	games: [dynamic]Game
-	dirs, _ := os.read_all_directory_by_path(join(root, "games"), context.allocator)
+	dirs, _ := os.read_all_directory_by_path(join(root, EXAMPLES), context.allocator)
 	for entry in dirs {
 		if entry.type == .Directory && is_game(entry.fullpath) {
 			append(&games, Game{strings.clone(entry.name), strings.clone(entry.fullpath)})

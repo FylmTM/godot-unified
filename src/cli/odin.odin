@@ -146,7 +146,7 @@ unoptimized_test_root :: proc(game_name := "") -> string {
 	return join(state.project.root, state.config.unoptimized_tests)
 }
 
-// The test root's imports of every in-repo game's tests (games/<game>/simulation/tests), written to
+// The test root's imports of every in-repo game's tests (examples/<game>/simulation/tests), written to
 // `<root>/games.gen.odin` when they changed: git-ignored like the other *.gen.odin, so a new game edits no file the
 // other games share. A game repo's tests are its one test root and need none.
 @(private)
@@ -156,7 +156,7 @@ write_game_test_imports :: proc(root: string) {
 	written = true
 	names: [dynamic]string
 	for game in state.project.games {
-		in_repo := path_key(os.dir(game.dir)) == path_key(join(state.project.root, "games"))
+		in_repo := path_key(os.dir(game.dir)) == path_key(join(state.project.root, EXAMPLES))
 		if in_repo && os.is_directory(join(game.dir, "simulation", "tests")) do append(&names, game.name)
 	}
 	path := join(root, "games.gen.odin")
@@ -177,7 +177,7 @@ game_test_imports :: proc(names: []string) -> string {
 	)
 	if len(sorted) > 0 do strings.write_byte(&builder, '\n')
 	for name in sorted {
-		fmt.sbprintf(&builder, "@(require) import %s_tests \"../games/%s/simulation/tests\"\n", name, name)
+		fmt.sbprintf(&builder, "@(require) import %s_tests \"../examples/%s/simulation/tests\"\n", name, name)
 	}
 	return strings.to_string(builder)
 }

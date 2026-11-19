@@ -78,15 +78,16 @@ core works inside.
 - **Gameplay code:** plain functions over typed queries, with minimal magic.
 - **Minimal dependencies:** every third-party dependency needs a reason and its own tests.
 
-## The games
+## Examples
 
-Four co-op games in this repo prove the library. Each is a Godot project with its Odin sim in `simulation/`.
+Four example co-op games show how to build on the library (a real game lives in its own repo, made with `uni init`).
+Each is a Godot project with its Odin sim in `simulation/`.
 
-- [`games/minimal_3d/`](games/minimal_3d/): the smallest 3D game (capsules that throw balls), the showcase
+- [`examples/minimal_3d/`](examples/minimal_3d/): the smallest 3D game (capsules that throw balls), the showcase
   of how to write a game, and what `uni init` copies for a new one.
-- [`games/survivor/`](games/survivor/): a top-down survivor with waves of enemies and physics props (3D).
-- [`games/friendslop/`](games/friendslop/): a third-person physics sandbox: carry, stack, throw (3D).
-- [`games/drift/`](games/drift/): a ship arena defending a station (2D views, physics locked to a plane).
+- [`examples/survivor/`](examples/survivor/): a top-down survivor with waves of enemies and physics props (3D).
+- [`examples/friendslop/`](examples/friendslop/): a third-person physics sandbox: carry, stack, throw (3D).
+- [`examples/drift/`](examples/drift/): a ship arena defending a station (2D views, physics locked to a plane).
 
 ## Getting started
 
@@ -115,12 +116,12 @@ Then, from the repo root (`uni.cmd` on Windows):
 ./uni run survivor        # play it (builds its extension the first time)
 ./uni verify              # everything CI runs
 ./uni init ../mygame      # a new game repo, with unified as its submodule
-./uni init games/mygame --in-repo # a new game inside this repo
+./uni init examples/mygame --in-repo # a new game inside this repo
 ```
 
 ## Documentation
 
-- `README.md` in each package (`src/<pkg>/`) and game (`games/<game>/`): what it is, how it works, its decisions;
+- `README.md` in each package (`src/<pkg>/`) and game (`examples/<game>/`): what it is, how it works, its decisions;
   `./uni doc <pkg>`: its API, from the code's doc comments.
 - [`src/README.md`](src/README.md): how the core works inside, across packages.
 - [`tools/main.odin`](tools/main.odin): this repo's CLI, `uni`, and its private commands.

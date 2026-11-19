@@ -61,11 +61,11 @@ between processes.
 ## End-to-end suites
 
 Each game has its own suite of Odin tests calling the library in process
-(`games/<game>/simulation/tests/suite_test.odin`): one `@(test)` per standard scenario (`unified:headless/scenarios`,
+(`examples/<game>/simulation/tests/suite_test.odin`): one `@(test)` per standard scenario (`unified:headless/scenarios`,
 one proc each, named for what it checks), then the game's own scenarios, its reference run's constant
 (`REFERENCE`), the determinism lint (`lint.check_game`) and its extension's install check (`godot.install_problems`:
 what Godot would refuse at load, caught by `uni test`). A new game copies minimal_3d's
-(`games/minimal_3d/simulation/tests/`, what `uni init` copies). The toy's suite (`tests/scenarios/`) proves the
+(`examples/minimal_3d/simulation/tests/`, what `uni init` copies). The toy's suite (`tests/scenarios/`) proves the
 library: it runs every scenario.
 
 **Two tiers.** The default run covers the toy's suite whole and each game's minimal set (`rollback_every_tick`, a

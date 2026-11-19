@@ -1,7 +1,7 @@
 class_name UnifiedValidate
 extends UnifiedTool
 ## The headless project check, no editor (the godot suite's `validate` step):
-##   godot --headless -d --path games/<game> -s <this script> -- --no-settings [--frames=N]
+##   godot --headless -d --path examples/<game> -s <this script> -- --no-settings [--frames=N]
 ## 1. compiles every script of the project (`-d` makes Godot print GDScript warnings; uni fails on them): all of
 ## res:// but hidden directories, those with a .gdignore and res://addons/unified (unified's own, checked by its
 ## suites), 2. loads and instantiates every scene and resource there (missing dependencies, and the unknown

@@ -1,11 +1,11 @@
 ---
 paths:
-  - "games/**/*.gd"
-  - "games/**/*.tscn"
-  - "games/**/*.tres"
-  - "games/**/*.gdshader"
-  - "games/**/project.godot"
-  - "games/**/*.gdextension"
+  - "examples/**/*.gd"
+  - "examples/**/*.tscn"
+  - "examples/**/*.tres"
+  - "examples/**/*.gdshader"
+  - "examples/**/project.godot"
+  - "examples/**/*.gdextension"
   - "tests/godot*/**"
 ---
 

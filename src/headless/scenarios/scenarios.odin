@@ -1,5 +1,5 @@
 // The standard end-to-end scenarios (src/headless/README.md, End-to-end suites), one proc each. Every
-// game's suite (games/<game>/simulation/tests/suite_test.odin) and the toy's (tests/scenarios) call
+// game's suite (examples/<game>/simulation/tests/suite_test.odin) and the toy's (tests/scenarios) call
 // each of them from a test of its own. Test-only: it imports core:testing, so game binaries never
 // import it. Failures name the scenario, its parameters and the first tick that differs.
 package scenarios

@@ -3,7 +3,7 @@
 Everything that touches Godot for a game: the session node that runs the game's sim on its own thread (single
 player, hosting or joining, through `unified:netcode`), the views that show its state, its events and commands as
 GDScript classes, input sampling, the command line and the dev UI (`unified:devui`, reached only from `dev.odin`).
-`unified:gdext` is the raw bindings underneath. Each game has a thin extension (`games/<game>/simulation/extension`)
+`unified:gdext` is the raw bindings underneath. Each game has a thin extension (`examples/<game>/simulation/extension`)
 that installs its sim and its glue with `godot.init`; its scenes and scripts use the classes below. The editor's help
 is the reference for every GDScript-facing class and member: each is documented where it is bound.
 

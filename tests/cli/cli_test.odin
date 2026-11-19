@@ -204,9 +204,9 @@ game_test_imports_are_generated :: proc(t: ^testing.T) {
 		t,
 		strings.has_suffix(
 			text,
-			"\n@(require) import drift_tests \"../games/drift/simulation/tests\"\n" +
-			"@(require) import minimal_tests \"../games/minimal/simulation/tests\"\n" +
-			"@(require) import survivor_tests \"../games/survivor/simulation/tests\"\n",
+			"\n@(require) import drift_tests \"../examples/drift/simulation/tests\"\n" +
+			"@(require) import minimal_tests \"../examples/minimal/simulation/tests\"\n" +
+			"@(require) import survivor_tests \"../examples/survivor/simulation/tests\"\n",
 		),
 	)
 	testing.expect(t, strings.has_suffix(cli.game_test_imports({}), "package tests\n"))
