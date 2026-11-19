@@ -21,6 +21,7 @@ Command :: struct {
 	name:      string,
 	summary:   string,
 	budget:    f64,
+	ci_budget: f64, // what CI's 4-core runners allow it (0: CI_BUDGET_SCALE times `budget`; ci_allowance)
 	no_budget: string,
 	// The options struct of each form the command parses (`option_types`, `option_forms`; `parse` refuses another):
 	// `help`'s usage line and -h's option table are made from their fields (command_usage).
@@ -98,6 +99,9 @@ Suite :: struct {
 	summary:     string,
 	budget:      f64,
 	long_budget: f64, // with `test --long` (0: `budget`)
+	// What CI's 4-core runners allow it (0: CI_BUDGET_SCALE times its budget; ci_allowance): for work that scales
+	// with the cores, which 3x doesn't cover.
+	ci_budget:   f64,
 	run:         proc(games: []Game, opts: Test_Options) -> bool,
 	// Mostly waits (the real clock, timers): run with other suites, it runs beside them in a child process.
 	beside:      bool,
@@ -115,14 +119,22 @@ Test_Options :: struct {
 // What a command reports: one line on stdout, or with --json one object (command, ok, summary, seconds, cold and
 // `data`, marshalled after the command returns, so it must not point at the command's stack).
 Result :: struct {
-	ok:      bool,
-	summary: string,
-	data:    any,
-	budget:  f64, // this run's budget when its arguments decide it (test: its suites'; 0: the command's)
+	ok:        bool,
+	summary:   string,
+	data:      any,
+	budget:    f64, // this run's budget when its arguments decide it (test: its suites'; 0: the command's)
+	ci_budget: f64, // with `budget`: this run's CI allowance (test: its suites'; 0: ci_allowance of `budget`)
 }
 
-// CI allows this many times a command's budget (shared runners are slower and noisier).
+// CI allows this many times a command's or a suite's budget (shared runners are slower and noisier), or its own
+// `ci_budget` when that is more: what CI's 4-core runners cost work that scales with the cores (ci_allowance).
 CI_BUDGET_SCALE :: 3
+
+// What CI allows work with this budget and CI budget: CI_BUDGET_SCALE times the budget, or the CI budget when that
+// is more (0: none).
+ci_allowance :: proc(budget: f64, ci_budget: f64 = 0) -> f64 {
+	return max(budget * CI_BUDGET_SCALE, ci_budget)
+}
 
 // The run's state, one per process (`state`): the project, its configuration and pins, the commands and suites
 // registered, the command running and what made the run cold.
@@ -242,7 +254,7 @@ print_help :: proc() {
 		fmt.printf("  %s\n      %s\n", strings.trim_space(command_usage(command)), command.summary)
 	}
 	fmt.printf(
-		"\nBudgets: seconds for a warm run (CI allows %dx); over budget is reported, not failed. A cold run (it built or fetched something first) is exempt, and so is work run beside other work (a suite beside the others, the godot suite's games): the run that started it is held to its budget instead.\n",
+		"\nBudgets: seconds for a warm run (CI allows %dx, or more where -h says so: what CI's 4-core runners cost work that scales with the cores); over budget is reported, not failed. A cold run (it built or fetched something first) is exempt, and so is work run beside other work (a suite beside the others, the godot suite's games): the run that started it is held to its budget instead.\n",
 		CI_BUDGET_SCALE,
 	)
 	fmt.printf(
@@ -257,7 +269,13 @@ USER_CACHE :: "%LOCALAPPDATA%\\unified" when ODIN_OS == .Windows else "${XDG_CAC
 
 // A command's budget line for its -h: the seconds a warm run may take and the CI allowance, or why it has none.
 budget_text :: proc(command: Command) -> string {
-	if command.budget > 0 {
+	if command.budget > 0 && command.ci_budget > command.budget * CI_BUDGET_SCALE {
+		return aprintf(
+			"budget: %.0fs for a warm run (%.0fs in CI: its 4-core runners)",
+			command.budget,
+			command.ci_budget,
+		)
+	} else if command.budget > 0 {
 		return aprintf("budget: %.0fs for a warm run (%dx in CI)", command.budget, CI_BUDGET_SCALE)
 	}
 	return aprintf("budget: none (%s)", command.no_budget)
@@ -440,7 +458,11 @@ usage :: proc(format: string, args: ..any) -> ! {
 @(private)
 finish :: proc(result: Result) -> ! {
 	secs := time.duration_seconds(time.tick_since(state.start))
-	report_timing(secs, result.ok, result.budget > 0 ? result.budget : state.command.budget)
+	if result.budget > 0 {
+		report_timing(secs, result.ok, result.budget, result.ci_budget)
+	} else {
+		report_timing(secs, result.ok, state.command.budget, state.command.ci_budget)
+	}
 	if state.json {
 		Out :: struct {
 			command: string,
@@ -486,17 +508,17 @@ cold :: proc(what: string) {
 	append(&state.cold, strings.clone(what))
 }
 
-// Whether this runs in CI (CI=true): budgets are scaled by CI_BUDGET_SCALE there, and the view index is checked by
+// Whether this runs in CI (CI=true): work is held to its CI allowance there (ci_allowance), and the view index is checked by
 // the godot suite instead of rewritten.
 in_ci :: proc() -> bool {
 	return os.get_env("CI", context.temp_allocator) == "true"
 }
 
 @(private)
-report_timing :: proc(secs: f64, ok: bool, budget: f64) {
+report_timing :: proc(secs: f64, ok: bool, budget: f64, ci_budget: f64) {
 	note := ""
 	if budget > 0 {
-		allowed := budget * (in_ci() ? CI_BUDGET_SCALE : 1)
+		allowed := in_ci() ? ci_allowance(budget, ci_budget) : budget
 		if len(state.cold) > 0 {
 			note = aprintf(
 				" (budget %.0fs; cold run, not held to it: %s)",
