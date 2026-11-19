@@ -58,6 +58,17 @@ XP than the last (`xp_next`). `play` is the game (`GAME`), `stress` the dense sp
 end-to-end suite and the bench run (`GAME_STRESS`), `bench` an endless match holding a fixed population
 (`bench_prepare`).
 
+## Setup, roles and the save
+
+- **The session's Setup** (`Setup`): a difficulty and the host's best wave. `init` scales the `play` tuning on Hard
+  (`HARD_SPAWN_PCT`, `HARD_HP_PCT_PER_WAVE`) and starts `State.best_wave` from the Setup; a match that ends past it
+  raises it, and `Event_Match_Over` carries the waves reached and the record.
+- **The save** is the game's own settings file: whoever hosts (single player too) writes the record at that
+  difficulty when the match-over event is confirmed, and the next hosted session's Setup carries it back into the sim.
+- **A player's role** (`Profile`): Gunner fires sooner (`ROLE_FIRE_TICKS`), Bruiser hits harder (`ROLE_DAMAGE`),
+  Runner moves faster (`ROLE_SPEED`). A new player starts in it from their first tick; a reset keeps it. The scripted
+  players take a role per slot, so the reference run covers each.
+
 ## Systems (`tick`, in this order)
 
 1. `update_players`: leaves, joins and returns; respawns after `PLAYER_RESPAWN_TICKS`; movement at the player's

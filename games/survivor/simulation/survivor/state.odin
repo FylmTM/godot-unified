@@ -3,6 +3,33 @@ package survivor
 import "unified:physics"
 import "unified:sim"
 
+// How hard a session plays (the Setup's): HARD_* scale the match's pace.
+Difficulty :: enum u8 {
+	Normal,
+	Hard,
+}
+
+// The session's choices (sim.Game's Setup): the host's menu and save file, the same on every peer, in Welcome, the
+// input log and every snapshot.
+Setup :: struct {
+	difficulty: Difficulty,
+	_pad:       [3]u8,
+	best_wave:  u32, // the host's saved record at this difficulty (waves survived; 0: none): progress enters the sim here
+}
+
+// What a player plays as (the Profile's): ROLE_* perks on top of the shared start.
+Role :: enum u8 {
+	Gunner, // fires faster
+	Bruiser, // hits harder
+	Runner, // moves faster
+}
+
+// What a player chose before joining (sim.Game's Profile): on their join tick, before `tick` runs.
+Profile :: struct {
+	role: Role,
+	_pad: [3]u8,
+}
+
 // The whole simulation state: one pointer-free block (checked by sim.create).
 State :: struct {
 	level:       sim.Active_Level(Level_Id), // the arena, entered by init
@@ -11,8 +38,9 @@ State :: struct {
 	match_tick:  u32, // the tick the current match started (0: lobby)
 	over_tick:   u32, // the tick it ended (0: not over)
 	wave:        u32, // 0-based wave of the current match
+	best_wave:   u32, // the most waves survived: the Setup's record, raised when a match ends past it
 	tuning:      Tuning, // the match's pace: a preset (init), lowered by the bench
-	players:     sim.Players(Character, sim.No_Profile, Input, PLAYERS),
+	players:     sim.Players(Character, Profile, Input, PLAYERS),
 	items:       [MAX_ITEMS]Item, // the level's items by index (World.items: as many as it holds)
 	enemies:     sim.Table(Enemy, MAX_ENEMIES),
 	projectiles: sim.Table(Projectile, MAX_PROJECTILES),
@@ -45,7 +73,8 @@ Character :: struct {
 	xp:               i32,
 	pending_levelups: i32,
 	alive:            bool, // has a body (present, not dead)
-	_pad:             [3]u8,
+	role:             Role, // the Profile's on the tick they joined or came back
+	_pad:             [2]u8,
 }
 
 Item_Kind :: enum u8 {

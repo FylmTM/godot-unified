@@ -102,6 +102,14 @@ BLAST_LIFT :: 0.5 // the impulse's upward part, before normalizing
 OVER_HOLD_S :: 5.0 // the match-over screen, before the world resets
 OVER_HOLD_TICKS :: u32(OVER_HOLD_S * TICK_HZ)
 
+// ---- difficulty and roles
+
+HARD_SPAWN_PCT :: 150 // Hard: bursts this % of Normal's
+HARD_HP_PCT_PER_WAVE :: 10 // Hard: enemy HP + this % per wave on top of the tuning's
+ROLE_FIRE_TICKS :: 3 // a Gunner's shots come this many ticks sooner
+ROLE_DAMAGE :: 3 // a Bruiser's shots do this much more
+ROLE_SPEED :: 0.75 // a Runner moves this much faster (m/s)
+
 // ---- the pace of a match
 
 // `play` is what people play; `stress` is the dense spawner the headless tests and the bench use (hundreds of

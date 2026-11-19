@@ -74,7 +74,9 @@ func _ready() -> void:
 	session.name = &"UnifiedSession"
 	# before it enters the tree, where the command line's session flags start it: the flow follows from there
 	session.local_name = Settings.player_name
+	Unified.profile.role = Settings.role
 	session.status_changed.connect(_on_status_changed)
+	session.sim_event.connect(_on_sim_event)
 	session.join_code_changed.connect(_on_join_code)
 	add_child(session)
 
@@ -103,17 +105,44 @@ func _notification(what: int) -> void:
 
 func play_single() -> void:
 	_begin(Mode.SINGLE)
-	session.start_single()
+	session.start_single(_setup())
 
 
 func host_online() -> void:
 	_begin(Mode.HOST)
-	session.host_online()
+	session.host_online(_setup())
 
 
 func host_direct(port := lan_port) -> void:
 	_begin(Mode.HOST_LAN)
-	session.host_direct(port)
+	session.host_direct(port, _setup())
+
+
+## The next hosted session's Setup: the settings' difficulty and the saved record at it (progress enters the sim
+## through the Setup; the save is this file's, never a snapshot).
+func _setup() -> UnifiedSetup:
+	var setup := UnifiedSetup.new()
+	setup.difficulty = Settings.difficulty
+	setup.best_wave = _saved_best_wave(Settings.difficulty)
+	return setup
+
+
+func _saved_best_wave(difficulty: int) -> int:
+	return Settings.best_wave_hard if difficulty == Settings.Difficulty.HARD else Settings.best_wave_normal
+
+
+## A match ended: whoever hosts (single player included) saves the session's record once it is final.
+func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
+	if not event is EventMatchOver or state != UnifiedSession.EVENT_CONFIRMED or mode == Mode.JOIN:
+		return
+	var best := (event as EventMatchOver).best_wave
+	var difficulty := session.setup.difficulty
+	if best <= _saved_best_wave(difficulty):
+		return
+	if difficulty == Settings.Difficulty.HARD:
+		Settings.best_wave_hard = best
+	else:
+		Settings.best_wave_normal = best
 
 
 func join_online(code: String) -> void:
@@ -222,6 +251,7 @@ func _begin(m: Mode) -> void:
 	mode = m
 	last_error = ""
 	session.local_name = Settings.player_name
+	Unified.profile.role = Settings.role  # what the local player joins with, hosting or joining
 	flow = Flow.CONNECTING
 	if m != Mode.SINGLE:
 		_show_connect_overlay()
