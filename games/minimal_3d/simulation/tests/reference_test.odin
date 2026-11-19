@@ -1,5 +1,5 @@
-// minimal_3d's reference run (src/headless/README.md, Reference runs): its results, pinned. `uni init` copies it
-// without them: a new game's run warns with its own literal until it is pinned, once the game's rules settle.
+// minimal_3d's reference run (src/headless/README.md, Reference runs). A new game starts from it unpinned (`uni init`
+// leaves the results out): its run warns with the literal to paste until it is pinned, once the game's rules settle.
 package test_minimal_3d
 
 import "core:testing"

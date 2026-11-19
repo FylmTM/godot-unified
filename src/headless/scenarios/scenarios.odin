@@ -280,7 +280,8 @@ reference_reproduces :: proc(t: ^testing.T, game: ^$G, reference: Reference) {
 	pinned := reference.checkpoints != {} || reference.trace != 0 || reference.snapshot != 0 || reference.log != 0
 	if !pinned {
 		// a new game's (the template's): nothing to compare with yet; the replay and resume checks below still hold
-		log.warnf("%s: no reference pinned yet; once the game's rules settle, pin this run:\n%s", what, literal)
+		// the literal indented: a passing run shows a warning's indented lines
+		log.warnf("%s: no reference pinned yet; once the game's rules settle, pin this run:\n\t%s", what, literal)
 	} else if got != reference {
 		testing.expectf(
 			t,
