@@ -198,16 +198,18 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 	Project :: struct {
 		dir, pkg, stem, script, summary: string,
 		expected:                        []string,
+		args:                            []string, // after the script's --local-net
 	}
 	root := cli.state.project.root
 	views := cli.join(root, "tests", "godot_views")
-	projects := []Project {
+	fixed := []Project {
 		{
 			cli.join(root, "tests", "godot"),
 			cli.join(root, "tests", "godot", "ext"),
 			"gdext_test",
 			"test.gd",
 			"GDEXT TESTS",
+			nil,
 			nil,
 		},
 		{
@@ -223,13 +225,27 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 				"is not a member of the game's View enum",
 				"is not a thing's index",
 			},
+			nil,
 		},
-		{views, cli.join(views, "ext"), "views_test", "markers_check.gd", "MARKERS TESTS", nil},
-		{views, cli.join(views, "ext"), "views_test", "session_check.gd", "SESSION TESTS", nil},
+		{views, cli.join(views, "ext"), "views_test", "markers_check.gd", "MARKERS TESTS", nil, nil},
+	}
+	// The session check mostly waits on purpose (goodbyes, timers), so its sections run in groups, each in a Godot
+	// process of its own beside the rest, so no group outlasts views' test.gd.
+	projects: [dynamic]Project
+	append(&projects, ..fixed)
+	for sections in SESSION_CHECK_GROUPS {
+		append(&projects, Project {
+			views,
+			cli.join(views, "ext"),
+			"views_test",
+			"session_check.gd",
+			"SESSION TESTS",
+			nil,
+			cli.strs("--sections", sections),
+		})
 	}
 	cli.ensure_bindings()
-	// The stale extensions build at once, then the three Godot runs go at once (the session check alone takes most
-	// of the time: it waits on purpose for goodbyes and timers); their results are read in order.
+	// The stale extensions build at once, then every Godot run goes at once; their results are read in order.
 	Started :: struct {
 		build: cli.Build,
 		child: cli.Proc,
@@ -279,18 +295,22 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 	for project, i in projects {
 		cli.write_extension_list_dir(project.dir)
 		// --verbose: Godot reports orphan StringNames and leaked objects at exit only then
+		cmd: [dynamic]string
+		append(
+			&cmd,
+			cli.godot(),
+			"--headless",
+			"--verbose",
+			"--path",
+			project.dir,
+			"-s",
+			cli.aprintf("res://%s", project.script),
+			"--",
+			"--local-net",
+		)
+		append(&cmd, ..project.args)
 		runs[i] = {
-			cmd     = cli.strs(
-				cli.godot(),
-				"--headless",
-				"--verbose",
-				"--path",
-				project.dir,
-				"-s",
-				cli.aprintf("res://%s", project.script),
-				"--",
-				"--local-net",
-			),
+			cmd     = cmd[:],
 			capture = true,
 			timeout = 30 * time.Second,
 		}
@@ -355,9 +375,11 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 		}
 		if !passed || cli.state.verbose {
 			cli.log(
-				"uni: %s %s: %s (%.1fs)",
+				"uni: %s %s%s%s: %s (%.1fs)",
 				cli.rel(project.dir),
 				project.script,
+				len(project.args) > 0 ? " " : "",
+				strings.join(project.args, " "),
 				passed ? "ok" : "FAILED",
 				ran.seconds,
 			)
@@ -366,6 +388,10 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 	}
 	return ok
 }
+
+// The session check's sections (tests/godot_views/session_check.gd) by Godot process: about as long each (3 hosts again
+// on the port 2 hosted on).
+SESSION_CHECK_GROUPS :: []string{"1", "2,3,6", "4,5"}
 
 // How long the debugger-error run may take: it ends in about a second; the prompt waiting for good would hit this.
 DEBUGGER_ERROR_TIMEOUT :: 15 * time.Second
