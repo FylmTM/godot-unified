@@ -60,12 +60,6 @@ private_commands :: proc() -> []cli.Command {
 			run     = cmd_release,
 		},
 		{
-			name    = "board",
-			summary = "the work board through gh (set --status Done also closes the issue)",
-			options = cli.option_forms({"list", Board_List_Opts}, {"set", Board_Set_Opts}),
-			run     = cmd_board,
-		},
-		{
 			name    = "selftest",
 			summary = "the bootstrap (the shims' Odin download), init end to end from a fresh clone, and the test watchdog (run before tooling PRs; never by verify)",
 			options = cli.option_types(Selftest_Opts),

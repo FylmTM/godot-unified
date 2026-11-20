@@ -20,4 +20,4 @@ Closes #<!-- each issue this PR finishes (merging closes it); "Part of #N" for o
 
 ## Not done / follow-ups
 
-<!-- What was left out, and the Backlog issues opened for it. -->
+<!-- What was left out, and the issues opened for it. -->
