@@ -18,7 +18,8 @@ Every command builds a stale extension and re-imports changed files first. What 
 
 Play what you built, beside its tests (verbs: `./uni drive -h`):
 
-1. `./uni drive start -- --autostart` (or the session flags, or the menus through `ui` and `click`).
+1. `./uni drive start -- --autostart` (or the session flags, or the menus through `ui` and `click`). A script
+   error fails `start` (as `res://file.gd:line`) and stops the game; one loaded later shows in `status`.
 2. `pause`, then `press <action> <ticks>` or `step <n>`: paused, every tick is accounted for, so a check can say
    where a thing must be after n ticks.
 3. `state <path>` and `events` for what the sim computed; `shot`, then read the PNG, for what the player sees.
