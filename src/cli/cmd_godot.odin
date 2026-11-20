@@ -841,9 +841,20 @@ start_joiner :: proc(game: Game, script: string, args: []string, env: []string, 
 
 @(private)
 Bake_Opts :: struct {
-	game:  string `args:"pos=0" usage:"a game (default: every game, then the project's own level scenes)"`,
-	check: bool `usage:"write nothing; fail when the view index or a .level file is stale"`,
-	nav:   bool `usage:"first bake each level's NavigationRegion3D that opts in (metadata unified_nav_bake) with its own settings and save the scene (the editor's Bake NavigationMesh), then export"`,
+	game:   string `args:"pos=0" usage:"a game (default: every game, then the project's own level scenes)"`,
+	check:  bool `usage:"write nothing; fail when the view index or a .level file is stale"`,
+	nav:    bool `usage:"first bake each level's NavigationRegion3D that opts in (metadata unified_nav_bake) with its own settings and save the scene (the editor's Bake NavigationMesh), then export"`,
+	report: bool `usage:"then report each exported level's navigation mesh (--check: the committed files): its islands, where each marker is on them, what the export changed (src/navreport/README.md)"`,
+}
+
+// `bake -h`'s details: --report's output.
+@(private)
+bake_details :: proc() -> string {
+	return(
+		"--report prints each level's navigation report (what it shows and how to read it: src/navreport/README.md)\n" +
+		"and never fails the bake. With --json, the result's `data` is {levels: [...]}, a report per level the bake\n" +
+		"exported." \
+	)
 }
 
 @(private)
@@ -853,13 +864,16 @@ cmd_bake :: proc(args: []string) -> Result {
 	if opts.nav && opts.check do fatal("uni bake: --nav writes the scenes, --check writes nothing: one at a time")
 	ok := true
 	count := 0
+	reports: [dynamic]json.Value
 	for game in games_or_all(opts.game) {
 		ok = bake_view_index(game, opts.check) && ok
 		if opts.nav && len(level_scenes(game.dir)) > 0 {
 			ensure_game(game)
 			ok = bake_nav(game.dir, level_scenes(game.dir)) && ok
 		}
-		ok = bake(game, opts.check).ok && ok
+		baked := bake(game, opts.check)
+		ok = baked.ok && ok
+		if opts.report do ok = report_nav(game.dir, baked, &reports) && ok
 		count += 1
 	}
 	if opts.game == "" {
@@ -869,8 +883,13 @@ cmd_bake :: proc(args: []string) -> Result {
 				ensure_project_extension(dir, join(state.project.root, target.extension), target.library)
 			}
 			if opts.nav do ok = bake_nav(dir, target.scenes) && ok
-			ok = bake_project(dir, target.scenes, opts.check).ok && ok
+			baked := bake_project(dir, target.scenes, opts.check)
+			ok = baked.ok && ok
+			if opts.report do ok = report_nav(dir, baked, &reports) && ok
 		}
+	}
+	Report_Data :: struct {
+		levels: []json.Value,
 	}
 	return {
 		ok      = ok,
@@ -881,7 +900,56 @@ cmd_bake :: proc(args: []string) -> Result {
 			opts.game == "" && len(state.config.bake) > 0 ? " and the project's own levels" : "",
 			ok ? "ok" : "FAILED",
 		),
+		data    = opts.report ? box(Report_Data{reports[:]}) : nil,
 	}
+}
+
+// `bake --report`: runs the navigation report (src/navreport, built from the unified checkout) on the levels a bake of
+// the project at `dir` exported (`baked`, the exporter's result), with what the export changed in each one's bake;
+// logs its text and appends each level's report (JSON) to `reports`. False: the report could not run.
+@(private)
+report_nav :: proc(dir: string, baked: Tool_Result, reports: ^[dynamic]json.Value) -> bool {
+	result, is_object := baked.result.(json.Object)
+	if !is_object do return true // nothing exported (no level scenes), or the exporter failed: it said why
+	exported, _ := result["levels"].(json.Array)
+	if len(exported) == 0 do return true
+	build := headless_build(Headless{"navreport", join(state.project.unified, "src", "navreport"), false}, .dev)
+	if stale(build) do odin_build(build, "building the navigation report (src/navreport)")
+	cmd: [dynamic]string
+	append(&cmd, build.out)
+	for value in exported {
+		level, _ := value.(json.Object)
+		if changes, has_changes := level["nav"].(json.Object); has_changes {
+			max_lowered: f64
+			#partial switch number in changes["max_lowered"] {
+			case json.Float:
+				max_lowered = f64(number)
+			case json.Integer:
+				max_lowered = f64(number)
+			}
+			append(&cmd, aprintf("--export=%.4f,%d", max_lowered, json_int(changes["inside_solids"])))
+		}
+		file := rel(join(dir, strings.trim_prefix(json_string(level["level"]), "res://")))
+		file, _ = strings.replace_all(file, "\\", "/")
+		append(&cmd, file)
+	}
+	ran := run_proc({cmd = cmd[:], dir = state.project.root, capture = true, quiet = true, timeout = 60 * time.Second})
+	line, found := last_json_line(ran.stdout)
+	parsed, _ := json.parse_string(line, parse_integers = true)
+	output, _ := parsed.(json.Object)
+	levels, _ := output["levels"].(json.Array)
+	if !ran.ok || !found {
+		log(
+			"uni: the navigation report failed (exit %d):\n%s",
+			ran.exit_code,
+			tail(strings.concatenate({ran.stdout, ran.stderr}), 2000),
+		)
+		return false
+	}
+	text := strings.trim_right_space(ran.stdout[:strings.last_index(ran.stdout, line)])
+	if text != "" do log("%s\n", text)
+	append(reports, ..levels[:])
+	return true
 }
 
 VIEW_INDEX :: "unified_index.tres"

@@ -11,7 +11,8 @@ Every command builds a stale extension and re-imports changed files first. What 
    (no `uni` command lists them all): fix it and run it again.
 2. After editing a level scene or its markers: `./uni bake`, and commit the `.tscn` and its `.level` together. A
    level whose geometry changed and whose `NavigationRegion3D` opts in (metadata `unified_nav_bake`): `./uni bake
-   <game> --nav` bakes the navigation first.
+   <game> --nav` bakes the navigation first. Walkers that stand still or float: `--report` shows the mesh the sim
+   gets, instead of a test that dumps polygons (how to read it: `unified/src/navreport/README.md`).
 3. Before handing back: the whole `./uni test --suite godot`, then `./uni verify`.
 
 ## Play-checking with uni drive

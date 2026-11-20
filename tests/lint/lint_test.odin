@@ -58,6 +58,9 @@ RULES := []Rule {
 	{pkg = "devui", kind = .Host, imports = {"unified:gdext", "unified:gdext/gdi"}},
 	{pkg = "godot", kind = .Host, imports = GODOT_IMPORTS},
 	{pkg = "cli", kind = .Host, imports = {"system:c"}},
+	// The navigation report `uni bake --report` builds and runs (the CLI imports no unified package): a level's mesh
+	// built the way a game builds it.
+	{pkg = "navreport", kind = .Host, imports = {"unified:level", "unified:nav", "unified:dmath"}},
 }
 
 PHYSICS_IMPORTS :: []string {

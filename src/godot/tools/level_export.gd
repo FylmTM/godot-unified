@@ -21,9 +21,11 @@ extends SceneTree
 ## the static floor under them, and its polygons turned counter-clockwise seen from above, leaving out those enclosed in
 ## a solid static shape (the hollow inside a tall box, which Godot's bake finds walkable). Never baked here: the bytes
 ## are what the author baked (in the editor, or `uni bake --nav`) and saved.
-## Prints one `UNIFIED_RESULT {ok, check, levels: [{scene, level, bytes, changed}], errors}` line; each error names its
-## node. A plain SceneTree script, not a UnifiedTool: it also runs in projects without unified's extension (the 2D
-## fixture in tests/godot).
+## Prints one `UNIFIED_RESULT {ok, check, levels: [{scene, level, bytes, changed, nav}], errors}` line; each error names
+## its node. A level's `nav` is what the export changed in its bake (`uni bake --report` shows it): `max_lowered`, the
+## furthest a vertex went down onto the floor, in metres, and `inside_solids`, how many polygons were left out inside
+## solids. A plain SceneTree script, not a UnifiedTool: it also runs in projects without
+## unified's extension (the 2D fixture in tests/godot).
 
 const MAGIC := "UNLV"
 const VERSION := 4
@@ -71,6 +73,7 @@ var _root: Node
 var _scene_path := ""
 var _ppm := 0.0  # a 2D level's pixels per metre; 0: a 3D level
 var _navs: Array[Node] = []  # the level's NavigationRegion3Ds, in scene-tree order (one is allowed)
+var _nav_changes := {}  # what _nav changed in the bake: the result's `nav`
 ## The level's static shapes in level space, for the floor under a navigation vertex (_floor_under): each a
 ## Dictionary of its kind and what that kind needs (points and triangles, or a centre and radius), with its bounds.
 var _floors: Array[Dictionary] = []
@@ -109,7 +112,8 @@ func _initialize() -> void:
 				continue
 			f.store_buffer(bytes)
 			f.close()
-		levels.append({"scene": path, "level": target, "bytes": bytes.size(), "changed": not same})
+		levels.append({"scene": path, "level": target, "bytes": bytes.size(), "changed": not same,
+				"nav": _nav_changes})
 	var ok := errors.is_empty()
 	print("UNIFIED_RESULT " + JSON.stringify({"ok": ok, "check": check, "levels": levels, "errors": errors}))
 	_quit_quietly(0 if ok else 1)
@@ -147,6 +151,7 @@ func export_scene(path: String) -> PackedByteArray:
 	_scene_path = path
 	_ppm = 0.0
 	_navs = []
+	_nav_changes = {"max_lowered": 0.0, "inside_solids": 0}
 	_floors = []
 	if scene is Node2D:
 		# pixels per metre: the game's Glue.view_scale (Unified.view_scale); a level baked without a game (a fixture)
@@ -358,6 +363,7 @@ func _nav(w: StreamPeerBuffer) -> void:
 				var floor_y := _floor_under(v.x, v.z, v.y + 0.001, v.y - reach)
 				if floor_y > -INF:
 					vertices[i] = Vector3(v.x, floor_y, v.z)
+					_nav_changes["max_lowered"] = maxf(float(_nav_changes["max_lowered"]), v.y - floor_y)
 			# Godot's bake rasterizes a shape's surfaces, not its inside: a box taller than the agent leaves a walkable
 			# island on the floor within it, which no walker can reach and a nearest-point query may pick. A polygon
 			# whose middle raised by half the agent's height is inside a solid static shape is left out (half: a
@@ -371,6 +377,7 @@ func _nav(w: StreamPeerBuffer) -> void:
 				middle = middle / polygon.size() + Vector3(0, mesh.agent_height / 2, 0)
 				if not _inside_solid(middle):
 					kept.append(polygon)
+			_nav_changes["inside_solids"] = polygons.size() - kept.size()
 			polygons = kept
 	_v3(w, agent)
 	w.put_u32(vertices.size())
