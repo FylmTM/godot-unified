@@ -162,7 +162,7 @@ Tick :: sim.Tick(Game)
 
 GAME := Game {
 	name = "toy",
-	version = "4", // 4: the co-op pause
+	version = "1",
 	tick_hz = HZ,
 	levels = {
 		{"meadow", #load("../godot_views/levels/meadow.level")},

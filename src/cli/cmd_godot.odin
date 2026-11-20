@@ -1062,7 +1062,7 @@ bake :: proc(game: Game, check: bool, quiet := false) -> Tool_Result {
 
 // The `.level` format version empty_level writes: level.VERSION (tests/cli loads empty_level with unified:level, so
 // a bump there fails until this follows).
-LEVEL_FORMAT_VERSION :: 4
+LEVEL_FORMAT_VERSION :: 1
 
 // A valid level with nothing in it (no bodies, markers or navigation; 3D): what a level scene's `.level` holds before
 // its first bake (level_placeholders).

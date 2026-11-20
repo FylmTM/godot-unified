@@ -20,7 +20,7 @@ import "unified:wire"
 @(private)
 LOG_MAGIC :: "UNIL"
 // Bump on any change to what the bytes hold.
-LOG_VERSION :: 9
+LOG_VERSION :: 1
 LOG_HEADER :: 44 // the header's fixed part: the session's Setup follows it
 // The record kinds after the header.
 @(private)

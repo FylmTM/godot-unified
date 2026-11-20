@@ -258,7 +258,7 @@ bad_files :: proc(t: ^testing.T) {
 	bad := make([]u8, len(data))
 	defer delete(bad)
 	copy(bad, data)
-	bad[4] = 9 // version
+	bad[4] = 2 // version: the next
 	_, ok := level.load(bad)
 	testing.expect(t, !ok)
 	copy(bad, data)

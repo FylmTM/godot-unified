@@ -40,6 +40,6 @@ GOLDEN_ROWS :: [GOLDEN_TICKS / GOLDEN_EVERY]u64 {
 }
 
 LIBRARY :: sim.Library {
-	version = 9,
+	version = 1,
 	box3d   = "3362633-r5",
 }
