@@ -6,7 +6,8 @@ unified's example of physics at its widest: every joint type, ragdolls, continuo
 hit and joint events, height fields and large piles, each saved, restored and re-simulated with the rest of the state.
 A Godot project (this folder is `res://`): the sim, its tests, the headless binary and the GDExtension in
 `simulation/` (Odin), everything Godot in `game/`; each scene's static ground is a level (`game/levels/<scene>.tscn`).
-`uni run playground` plays it alone, `uni coop playground` as a host and a joiner.
+`uni run playground` plays it (alone, or with friends online or on the LAN: Playing together), `uni coop playground`
+as a host and a joiner.
 
 Metres, seconds and kilograms at `TICK_HZ`, Y up. Every rule number is a named constant in
 `simulation/playground/tuning.odin`.
@@ -17,6 +18,15 @@ WASD fly (forward along the look), Space / Ctrl up and down, the mouse looks (a 
 Hold the left button to grab what the crosshair is on (Q / E pull it closer or push it away), right button to shoot,
 F to spawn a body (G picks its shape), X to set off an explosion where the crosshair points, C to get in or out of a car
 (Driving), `[` `]` or PageUp / PageDown to change the scene for everyone, R to reset it.
+
+## Playing together
+
+The start panel (`game/start_panel.tscn`) comes up before a session and again when one ends, saying why: Play alone,
+Host online (an EOS lobby, its code in the top right corner to share; Copy puts it on the clipboard), Join by code,
+Host on the LAN (`LAN_PORT`, the address in the corner) and Join on the LAN (host:port). Leave, in the corner, ends the
+session (a host's ends it for everyone); Esc frees the mouse to reach it. The panel follows the session's status, so the session flags and `uni coop`
+start without it. Online play needs a build with the EOS IDs compiled in: `uni run` with `.env` set, or the zip `uni
+release playground` makes (`docs/EOS.md`).
 
 ## Scenes
 

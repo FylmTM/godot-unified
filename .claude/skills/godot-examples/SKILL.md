@@ -12,9 +12,10 @@ there are several games: every command it names takes the example's name (`./uni
 survivor, friendslop and drift each own a copy of the same app layer: `game/app/` (the `Game`, `Settings`, `Sfx` and
 `LibraryCheck` autoloads), the menus and HUD panels in `game/ui/`, `game/tools/menu_tool.gd` and `ui_walk.gd`. **A
 change to the app layer lands in every game in the same PR**, unless a game differs on purpose. Nothing compares
-them. A new example doesn't copy it: it stays minimal_3d-shaped (no menus or settings: holdout is one), plays together
-through the session's flags and `uni coop`, and opts into online lobbies with `eos.lobby({})` in `godot.init` and `lobbies` in
-its headless main (`examples/minimal_3d/README.md`, What a new game takes from where).
+them. A new example doesn't copy it: it stays minimal_3d-shaped (no menus or settings: holdout and playground are, with
+only a start panel to host and join), plays together through the session's flags and `uni coop`, and opts into online
+lobbies with `eos.lobby({})` in `godot.init` and `lobbies` in its headless main (`examples/minimal_3d/README.md`, What a
+new game takes from where). An example with `export_presets.cfg` is one `uni release` builds: every one but minimal_3d.
 
 deckbuilder is such an example with a UI of its own and no app layer: one table scene (`game/main.tscn`) that holds
 the session and its menus as panels, Control views with data only, and a `game/tools/ui_walk.gd` that extends
