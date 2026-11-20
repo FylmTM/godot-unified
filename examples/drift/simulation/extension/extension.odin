@@ -23,7 +23,7 @@ GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame = fill_frame,
 	data = Data,
-	view_data = {.Ship = Ship_View, .Station = Station_View, .Gate = Gate_View},
+	views = {.Ship = {data = Ship_View}, .Station = {data = Station_View}, .Gate = {data = Gate_View}},
 	is_2d = true,
 	view_scale = 32, // pixels per metre: the scale the art and the level are drawn at (the host maps positions)
 	event_key = event_key,

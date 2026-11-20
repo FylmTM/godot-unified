@@ -233,7 +233,7 @@ func _initialize() -> void:
 	check_card(card, card_seen, hand)
 	check("by subject type: a view of another table's handle with the thing's key gets none of its events",
 		decoys_seen and decoy_events.is_empty(), decoy_events)
-	check("a declared view data type's enum has its class (Glue.view_data)", EnumMode.OPEN == 1, EnumMode.OPEN)
+	check("a declared view data type's enum has its class (Glue.views)", EnumMode.OPEN == 1, EnumMode.OPEN)
 	check("a declared view data type's nested struct: an object of its class", typed.get("area") is DataMarkArea \
 		and (typed.get("area") as DataMarkArea).layer == 3, typed.get("area"))
 	check("scene data as properties (an enum as its int)", typed.get("shown") and typed.get("mode") == 1 and typed.get("hp") == -3 \

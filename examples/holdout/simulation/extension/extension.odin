@@ -22,13 +22,13 @@ GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame = fill_frame,
 	data = Data,
-	view_data = #partial{.Player = Player_View, .Enemy = Enemy_View},
+	views = #partial {
+		// teammates on the verified timeline: a few ticks late, never corrected (src/godot/README.md)
+		.Player = {data = Player_View, policy = {remote = .Verified}},
+		.Enemy = {data = Enemy_View},
+	},
 	event_key = event_key,
 	input_values = Input_Values,
-	view_policy = #partial {
-		// teammates on the verified timeline: a few ticks late, never corrected (src/godot/README.md)
-		.Player = {remote = .Verified},
-	},
 }
 
 // ---- constants for the scripts (Unified.constants), from the sim's own definitions

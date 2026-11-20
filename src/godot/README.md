@@ -112,12 +112,13 @@ last fill's, because the hand-off drops frames the main thread never took. It is
 re-simulated teleport bumps the counter to the same value, an undone one puts the old value back and the view snaps
 back. A long move with no bump still snaps past the smoothing's `teleport_dist`, the fallback.
 
-**View policy.** How each kind is shown is one Odin literal in the Glue (`view_policy`, `multi_policy`), not
-properties spread over the kinds' scenes: its smoothing (a bullet, a heavy crate and a remote player want different
-ones) and, for a scene view, who poses its root. A script-posed kind's root is left alone and its script gets the
-pose the host would have set (`Posed_By.Script`), so it can draw what the local player holds at render rate from the
-camera. A MultiMesh kind keeps a track per instance only when its policy sets a smoothing: thousands of instances
-cost nothing per instance by default.
+**View kinds.** Each scene view kind is described in one place, its entry in the Glue's `views` (`godot.View_Kind`):
+the data its views carry and how they are shown, its **policy**. A MultiMesh kind carries no data, so its entry is its
+policy alone (`multi_policy`). Policies are Odin literals, not properties spread over the kinds' scenes: a kind's
+smoothing (a bullet, a heavy crate and a remote player want different ones) and, for a scene view, who poses its root.
+A script-posed kind's root is left alone and its script gets the pose the host would have set (`Posed_By.Script`), so
+it can draw what the local player holds at render rate from the camera. A MultiMesh kind keeps a track per instance
+only when its policy sets a smoothing: thousands of instances cost nothing per instance by default.
 
 **Appear on verified** (`Appear.Verified`): a kind whose views must never show a mispredicted spawn. The session
 thread knows since which tick each key is in the current timeline: the first fill that showed it, reset when a
@@ -156,10 +157,10 @@ refuses a type that isn't, naming the `_pad` to add; `godot.install_problems` re
 game's own `the_extension_installs` test (the template's) calls it, so `uni test` catches it.
 
 The host registers a class per such type at load, plus one per **nested struct** any of them, the event and command
-unions, the Setup, the Profile or a declared view data type (`Glue.view_data`) hold (`Hud_Player` -> `DataHudPlayer`,
+unions, the Setup, the Profile or a declared view data type (`View_Kind.data`) hold (`Hud_Player` -> `DataHudPlayer`,
 a RefCounted value: each read is a new one, its fields settable, so a command can take it), and a class per enum they
-use. Every view kind that pushes data declares its type there, as `Glue.data` declares the session data (a push of a
-kind not declared, or of another type, panics). The engine singleton `Unified` holds the data, the constants, the
+use. Every view kind that pushes data declares its type in its `Glue.views` entry, as `Glue.data` declares the
+session data (a push of a kind not declared, or of another type, panics). The engine singleton `Unified` holds the data, the constants, the
 input values and the session. Godot classes have no namespaces, so prefixes group them (`Data`, `Event`, `Command`,
 `Enum`); a name that clashes with an existing class is an error and is not registered. What GDScript can't take is an
 install problem naming the field: a generic struct (`Ring($T=u8, $N=4)`, which no class can be named after; sim's

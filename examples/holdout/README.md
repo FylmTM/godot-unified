@@ -16,8 +16,8 @@ What it shows of unified:
 - **Shots that land where the shooter saw the target** (`sim.Seen`, `physics.world_cast_ray_closest_rewound`).
 - **Navigation in 3D** (`unified:nav` on the level's baked navigation mesh, `src/level/README.md`): distance fields
   memoized in the World, steering, and moves along the surface.
-- **Teammates on the verified timeline** (the player kind's `View_Policy.remote = .Verified`, `src/godot/README.md`):
-  a few ticks late, never corrected, their shots and hits arriving with their bodies.
+- **Teammates on the verified timeline** (the player kind's policy in `Glue.views`, `remote = .Verified`;
+  `src/godot/README.md`): a few ticks late, never corrected, their shots and hits arriving with their bodies.
 - Kinematic Box3D enemies with a head shape of their own, a Box3D grenade in bullet mode, and swept bolts.
 
 ## Controls
