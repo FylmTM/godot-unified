@@ -15,6 +15,10 @@ helpers :: proc(t: ^testing.T) {
 	testing.expect_value(t, dmath.clamp_length2({0.6, 0.8}, 5), [2]f32{0.6, 0.8})
 	testing.expect_value(t, dmath.dist_sq2({1, 1}, {4, 5}), 25)
 	testing.expect_value(t, dmath.dot3({1, 2, 3}, {4, -5, 6}), 12)
+	// cross3: right-handed; perpendicular to both
+	testing.expect_value(t, dmath.cross3({1, 0, 0}, {0, 1, 0}), [3]f32{0, 0, 1})
+	testing.expect_value(t, dmath.cross3({0, 0, 1}, {1, 0, 0}), [3]f32{0, 1, 0})
+	testing.expect_value(t, dmath.cross3({1, 2, 3}, {4, -5, 6}), [3]f32{27, 6, -13})
 	// quat_rotate: identity; half turns about each axis (exact); a quarter turn about +Z, +x to +y
 	testing.expect_value(t, dmath.quat_rotate({0, 0, 0, 1}, {1, 2, 3}), [3]f32{1, 2, 3})
 	testing.expect_value(t, dmath.quat_rotate({1, 0, 0, 0}, {1, 2, 3}), [3]f32{1, -2, -3})

@@ -69,6 +69,22 @@ build_links_polygons_by_shared_indices :: proc(t: ^testing.T) {
 	testing.expect_value(t, poly, nav.NO_POLY)
 }
 
+// Godot's bake rasterizes a shape's surfaces, so it finds the floor inside the yard's tank (a cylinder taller than the
+// agent) walkable; the exporter leaves that island out: nothing of the mesh is inside the tank but its top.
+@(test)
+the_exported_yard_has_no_island_inside_a_solid :: proc(t: ^testing.T) {
+	mesh, _, ok := yard(t)
+	if !ok do return
+	defer nav.destroy(&mesh)
+	TANK :: [3]f32{16, 0, 16} // its axis on the floor; 1.5 m in radius, 2.5 m tall
+	for center, p in mesh.centers {
+		inside := dmath.dist_sq2(center.xz, TANK.xz) < 1.5 * 1.5 && center.y < 2.4
+		testing.expectf(t, !inside, "polygon %d at %v is inside the tank", p, center)
+	}
+	poly, _ := nav.nearest(&mesh, TANK + {0, 0.5, 0}, 3)
+	testing.expect(t, poly != nav.NO_POLY && mesh.centers[poly].y < 1, "the tank's nearest floor is the yard's")
+}
+
 @(test)
 build_refuses_what_it_cannot_walk :: proc(t: ^testing.T) {
 	nan := transmute(f32)u32(0x7FC0_0000)

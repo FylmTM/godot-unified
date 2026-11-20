@@ -18,7 +18,8 @@ extends SceneTree
 ## Markers: nodes whose script has `const UNIFIED_KIND` (or a `unified_kind` property, or metadata): kind, name,
 ## global transform, every exported script property, the points of a Path3D / Path2D child.
 ## Navigation (a 3D level): one NavigationRegion3D's saved bake, its vertices in level space, welded and lowered onto
-## the static floor under them, and its polygons turned counter-clockwise seen from above. Never baked here: the bytes
+## the static floor under them, and its polygons turned counter-clockwise seen from above, leaving out those enclosed in
+## a solid static shape (the hollow inside a tall box, which Godot's bake finds walkable). Never baked here: the bytes
 ## are what the author baked (in the editor, or `uni bake --nav`) and saved.
 ## Prints one `UNIFIED_RESULT {ok, check, levels: [{scene, level, bytes, changed}], errors}` line; each error names its
 ## node. A plain SceneTree script, not a UnifiedTool: it also runs in projects without unified's extension (the 2D
@@ -357,6 +358,20 @@ func _nav(w: StreamPeerBuffer) -> void:
 				var floor_y := _floor_under(v.x, v.z, v.y + 0.001, v.y - reach)
 				if floor_y > -INF:
 					vertices[i] = Vector3(v.x, floor_y, v.z)
+			# Godot's bake rasterizes a shape's surfaces, not its inside: a box taller than the agent leaves a walkable
+			# island on the floor within it, which no walker can reach and a nearest-point query may pick. A polygon
+			# whose middle raised by half the agent's height is inside a solid static shape is left out (half: a
+			# polygon across a crease, a ramp's top, dips under the surface a little, and an island's solid rises at
+			# least the agent's height above it).
+			var kept: Array[PackedInt32Array] = []
+			for polygon in polygons:
+				var middle := Vector3.ZERO
+				for index in polygon:
+					middle += vertices[index]
+				middle = middle / polygon.size() + Vector3(0, mesh.agent_height / 2, 0)
+				if not _inside_solid(middle):
+					kept.append(polygon)
+			polygons = kept
 	_v3(w, agent)
 	w.put_u32(vertices.size())
 	for v in vertices:
@@ -503,6 +518,43 @@ func _floor_under(x: float, z: float, top: float, bottom: float) -> float:
 		if h <= top and h >= bottom and h > best:
 			best = h
 	return best
+
+
+## Whether `p` is inside a solid static shape: a box or hull between its bottom and top surfaces there, or within a
+## sphere's or capsule's radius of its segment. A mesh or a height field is a surface with no inside.
+func _inside_solid(p: Vector3) -> bool:
+	for f in _floors:
+		var lo: Vector3 = f["lo"]
+		var hi: Vector3 = f["hi"]
+		if p.x < lo.x or p.x > hi.x or p.y < lo.y or p.y > hi.y or p.z < lo.z or p.z > hi.z:
+			continue
+		var points: PackedVector3Array = f["points"]
+		match f["kind"]:
+			Shape.BOX, Shape.HULL:
+				if p.y < _hull_top(points, p.x, p.z) and p.y > _hull_bottom(points, p.x, p.z):
+					return true
+			Shape.SPHERE, Shape.CAPSULE:
+				var radius: float = f["radius"]
+				var a := points[0]
+				var ab := points[1] - a
+				var along := 0.0
+				if ab.length_squared() > 0:
+					along = clampf((p - a).dot(ab) / ab.length_squared(), 0, 1)
+				if p.distance_to(a + ab * along) < radius:
+					return true
+	return false
+
+
+## The bottom surface of the convex hull of `points` at (x, z) (INF: outside it): the lowest of its triangles there.
+func _hull_bottom(points: PackedVector3Array, x: float, z: float) -> float:
+	var bottom := INF
+	for i in points.size():
+		for j in range(i + 1, points.size()):
+			for k in range(j + 1, points.size()):
+				var at := _triangle_height(points[i], points[j], points[k], x, z)
+				if at > -INF:
+					bottom = minf(bottom, at)
+	return bottom
 
 
 ## The top surface of the convex hull of `points` at (x, z) (-INF: outside it): the highest of the triangles of three of

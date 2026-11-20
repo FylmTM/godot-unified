@@ -97,6 +97,12 @@ cross2 :: #force_inline proc "contextless" (a, b: [2]f32) -> f32 {
 	return a.x * b.y - a.y * b.x
 }
 
+// The 3D cross product a × b: perpendicular to both, right-handed (x × y = z), its length the sine of the angle between
+// them times both lengths. Each component a difference of two products, in that order.
+cross3 :: #force_inline proc "contextless" (a, b: [3]f32) -> [3]f32 {
+	return {a.y * b.z - a.z * b.y, a.z * b.x - a.x * b.z, a.x * b.y - a.y * b.x}
+}
+
 // A vector scaled to length 1 (2D or 3D; zero when |v| <= eps).
 normalize :: proc {
 	normalize2,

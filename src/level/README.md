@@ -50,7 +50,9 @@ marker's node by its index (`Unified.level_markers`).
   level space, welded where exactly equal, so adjacent polygons share vertex indices and a reader matches edges by
   index, and lowered onto the static floor under them: Godot's bake floats a few tenths of a metre above it (its
   voxels' rounding and the detail mesh's extra cell, by surface), and the sim's floor is the one it collides with.
-  Each polygon is turned counter-clockwise seen from above (Godot bakes them clockwise). The bake's agent (radius,
+  Each polygon is turned counter-clockwise seen from above (Godot bakes them clockwise). A polygon enclosed in a solid
+  static shape is left out: Godot's bake rasterizes a shape's surfaces, so a box or a tank taller than the agent leaves
+  a walkable island on the floor inside it, which no walker reaches and a nearest-point query could pick. The bake's agent (radius,
   height, max climb) is written too: one region means one agent size per level, which the game sizes its walkers
   from rather than repeating it in code. Export errors name the node: a second region, a region without a saved
   bake, a polygon that isn't simple and convex (degenerate, a zero-length edge, a reflex vertex, a star), and an edge

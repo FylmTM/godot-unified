@@ -1,0 +1,84 @@
+[gd_scene format=3 uid="uid://codbf7enjn1id"]
+
+[ext_resource type="Script" uid="uid://d0x6imcr8wqam" path="res://game/views/player.gd" id="1"]
+
+[sub_resource type="StandardMaterial3D" id="body_material"]
+resource_local_to_scene = true
+roughness = 0.7
+emission_enabled = true
+emission = Color(1, 0.15, 0.1, 1)
+emission_energy_multiplier = 0.0
+
+[sub_resource type="CapsuleMesh" id="torso"]
+radius = 0.35
+height = 1.4
+
+[sub_resource type="SphereMesh" id="skull"]
+radius = 0.2
+height = 0.4
+
+[sub_resource type="StandardMaterial3D" id="visor_material"]
+albedo_color = Color(0.08, 0.1, 0.14, 1)
+metallic = 0.6
+roughness = 0.2
+
+[sub_resource type="BoxMesh" id="visor"]
+material = SubResource("visor_material")
+size = Vector3(0.3, 0.1, 0.12)
+
+[sub_resource type="StandardMaterial3D" id="rifle_material"]
+albedo_color = Color(0.18, 0.18, 0.2, 1)
+metallic = 0.5
+
+[sub_resource type="BoxMesh" id="barrel"]
+material = SubResource("rifle_material")
+size = Vector3(0.07, 0.09, 0.6)
+
+[sub_resource type="StandardMaterial3D" id="ring_material"]
+shading_mode = 0
+albedo_color = Color(0.3, 1, 0.5, 1)
+
+[sub_resource type="TorusMesh" id="ring"]
+material = SubResource("ring_material")
+inner_radius = 0.9
+outer_radius = 1.0
+
+[node name="player" type="Node3D"]
+script = ExtResource("1")
+
+[node name="UnifiedView" type="UnifiedView" parent="."]
+unique_name_in_owner = true
+kind = "player"
+
+[node name="Body" type="Node3D" parent="."]
+
+[node name="Torso" type="MeshInstance3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.7, 0)
+mesh = SubResource("torso")
+material_override = SubResource("body_material")
+
+[node name="Head" type="Node3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.45, 0)
+
+[node name="Skull" type="MeshInstance3D" parent="Body/Head"]
+mesh = SubResource("skull")
+material_override = SubResource("body_material")
+
+[node name="Visor" type="MeshInstance3D" parent="Body/Head"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.03, 0.15)
+mesh = SubResource("visor")
+
+[node name="Rifle" type="Node3D" parent="Body/Head"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -0.24, -0.25, 0.22)
+
+[node name="Barrel" type="MeshInstance3D" parent="Body/Head/Rifle"]
+mesh = SubResource("barrel")
+
+[node name="Muzzle" type="Node3D" parent="Body/Head/Rifle"]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, 0.32)
+
+[node name="ReviveRing" type="MeshInstance3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0.05, 0)
+visible = false
+cast_shadow = 0
+mesh = SubResource("ring")
