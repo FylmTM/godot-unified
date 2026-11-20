@@ -231,14 +231,22 @@ Vet_Package :: struct {
 	ext:   bool, // a GDExtension (also checked without the dev UI)
 }
 
-// The packages `vet` type-checks: the headless binaries, the tests, the project's own (Project_Config.vet: this
-// repo's Godot test extensions), every game's extension and the project's tools/.
+// The packages `vet` type-checks: the headless binaries, the tests, the benchmark programs beside them
+// (<tests>/<module>/bench: only `bench` builds them, and no test imports them), the project's own
+// (Project_Config.vet: this repo's Godot test extensions), every game's extension and the project's tools/.
 vet_packages :: proc() -> []Vet_Package {
 	out: [dynamic]Vet_Package
 	for headless in headless_packages() {
 		append(&out, Vet_Package{pkg = headless.pkg, entry = true})
 	}
 	append(&out, Vet_Package{pkg = test_root()})
+	if state.config.tests != "" {
+		modules, _ := os.read_all_directory_by_path(join(state.project.root, state.config.tests), context.allocator)
+		for module in modules {
+			bench := join(module.fullpath, "bench")
+			if module.type == .Directory && os.is_directory(bench) do append(&out, Vet_Package{pkg = bench, entry = true})
+		}
+	}
 	if root := unoptimized_test_root(); root != "" {
 		append(&out, Vet_Package{pkg = root})
 	}

@@ -55,7 +55,7 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "vet",
-			summary = "odin check with the strict flags, every target and define variant; in a game repo, also that the agent guidance is the unified submodule's (uni agents)",
+			summary = "odin check with the strict flags, every target and define variant, of every program and package (the headless binaries, the tests, the benchmark programs in <tests>/<module>/bench, the extensions, tools/); in a game repo, also that the agent guidance is the unified submodule's (uni agents)",
 			options = option_types(Vet_Opts),
 			run     = cmd_vet,
 		},
