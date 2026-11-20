@@ -95,6 +95,7 @@ public_commands :: proc() -> []Command {
 			name    = "bake",
 			summary = "write the view index and bake .level files from their scenes, in headless Godot with the game's extension (built when stale: the exporter reads its view_scale; a level scene with no .level yet gets an empty one first, so it builds) (--check: fail if one is stale)",
 			options = option_types(Bake_Opts),
+			details = bake_details,
 			run     = cmd_bake,
 		},
 		{

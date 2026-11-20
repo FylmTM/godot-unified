@@ -187,6 +187,32 @@ height_at :: proc(mesh: ^Mesh, poly: Poly, pos: [3]f32) -> f32 {
 	return center.y - (normal.x * (pos.x - center.x) + normal.z * (pos.z - center.z)) / normal.y
 }
 
+// The mesh's islands, the sets of polygons joined by shared edges: each polygon's island, numbered from 0 in the order
+// of their lowest polygon, and how many there are. A walker on one island never reaches another, and a field's goal
+// on one leaves every other unreachable. For checks and tools (a level's report, a game's test that every spawn
+// reaches its goal), not a tick: the slice is made with `allocator`.
+islands :: proc(mesh: ^Mesh, allocator := context.allocator) -> (island_of: []i32, count: int) {
+	island_of = make([]i32, poly_count(mesh), allocator)
+	for &island in island_of do island = -1
+	stack := make([dynamic]Poly, context.temp_allocator)
+	for start in 0 ..< poly_count(mesh) {
+		if island_of[start] >= 0 do continue
+		island_of[start] = i32(count)
+		append(&stack, Poly(start))
+		for len(stack) > 0 {
+			poly := pop(&stack)
+			for k in mesh.first[poly] ..< mesh.first[poly + 1] {
+				across := mesh.across[k]
+				if across == NO_POLY || island_of[across] >= 0 do continue
+				island_of[across] = i32(count)
+				append(&stack, across)
+			}
+		}
+		count += 1
+	}
+	return
+}
+
 // Whether pos is inside a polygon seen from above (a millimetre's margin: a point on an edge is in both polygons).
 contains :: proc(mesh: ^Mesh, poly: Poly, pos: [3]f32) -> bool {
 	first, last := mesh.first[poly], mesh.first[poly + 1]

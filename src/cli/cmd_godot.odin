@@ -811,9 +811,30 @@ start_joiner :: proc(game: Game, script: string, args: []string, env: []string, 
 
 @(private)
 Bake_Opts :: struct {
-	game:  string `args:"pos=0" usage:"a game (default: every game, then the project's own level scenes)"`,
-	check: bool `usage:"write nothing; fail when the view index or a .level file is stale"`,
-	nav:   bool `usage:"first bake each level's NavigationRegion3D that opts in (metadata unified_nav_bake) with its own settings and save the scene (the editor's Bake NavigationMesh), then export"`,
+	game:   string `args:"pos=0" usage:"a game (default: every game, then the project's own level scenes)"`,
+	check:  bool `usage:"write nothing; fail when the view index or a .level file is stale"`,
+	nav:    bool `usage:"first bake each level's NavigationRegion3D that opts in (metadata unified_nav_bake) with its own settings and save the scene (the editor's Bake NavigationMesh), then export"`,
+	report: bool `usage:"then report each exported level's navigation (with --check: the committed files): islands, the island each marker is on, what the export changed (--json: as data)"`,
+}
+
+// `bake -h`'s details: what --report shows.
+@(private)
+bake_details :: proc() -> string {
+	return(
+		"--report prints, for each level the bake exported (--check: each committed one it checked), the navigation\n" +
+		"mesh the sim gets, loaded with unified:level and built with unified:nav as a game builds it\n" +
+		"(src/navreport/README.md):\n" +
+		"  - its polygons, vertices and agent (radius, height, max climb);\n" +
+		"  - its islands, the polygons joined by shared edges, the largest first, each with its polygon count and\n" +
+		"    bounds; every other island is cut off (a walker there reaches nothing else: a crate's top, or a floor\n" +
+		"    a ramp doesn't join);\n" +
+		"  - every marker and the island of its nearest polygon within a few metres (nav.nearest), flagged when that\n" +
+		"    is not the largest island (a gate that can't reach the core) or when there is none (off the mesh);\n" +
+		"  - what the export changed in the bake: the vertices it lowered onto the floor, the polygons inside solids it\n" +
+		"    left out.\n" +
+		"It only reports: the findings never fail the bake. With --json, the result's `data` is {levels: [...]}, a\n" +
+		"report per level with the export's changes as `export`." \
+	)
 }
 
 @(private)
@@ -823,13 +844,16 @@ cmd_bake :: proc(args: []string) -> Result {
 	if opts.nav && opts.check do fatal("uni bake: --nav writes the scenes, --check writes nothing: one at a time")
 	ok := true
 	count := 0
+	reports: [dynamic]json.Value
 	for game in games_or_all(opts.game) {
 		ok = bake_view_index(game, opts.check) && ok
 		if opts.nav && len(level_scenes(game.dir)) > 0 {
 			ensure_game(game)
 			ok = bake_nav(game.dir, level_scenes(game.dir)) && ok
 		}
-		ok = bake(game, opts.check).ok && ok
+		baked := bake(game, opts.check)
+		ok = baked.ok && ok
+		if opts.report do ok = report_nav(game.dir, baked, &reports) && ok
 		count += 1
 	}
 	if opts.game == "" {
@@ -839,8 +863,13 @@ cmd_bake :: proc(args: []string) -> Result {
 				ensure_project_extension(dir, join(state.project.root, target.extension), target.library)
 			}
 			if opts.nav do ok = bake_nav(dir, target.scenes) && ok
-			ok = bake_project(dir, target.scenes, opts.check).ok && ok
+			baked := bake_project(dir, target.scenes, opts.check)
+			ok = baked.ok && ok
+			if opts.report do ok = report_nav(dir, baked, &reports) && ok
 		}
+	}
+	Report_Data :: struct {
+		levels: []json.Value,
 	}
 	return {
 		ok      = ok,
@@ -851,7 +880,66 @@ cmd_bake :: proc(args: []string) -> Result {
 			opts.game == "" && len(state.config.bake) > 0 ? " and the project's own levels" : "",
 			ok ? "ok" : "FAILED",
 		),
+		data    = opts.report ? box(Report_Data{reports[:]}) : nil,
 	}
+}
+
+// `bake --report`: runs the navigation report (src/navreport, built from the unified checkout) on the levels a bake of
+// the project at `dir` exported (`baked`, the exporter's result), logs each level's report with what the export
+// changed in its bake, and appends each report's JSON, the export's changes as its `export`, to `reports`. False: the
+// report could not run.
+@(private)
+report_nav :: proc(dir: string, baked: Tool_Result, reports: ^[dynamic]json.Value) -> bool {
+	result, is_object := baked.result.(json.Object)
+	if !is_object do return true // nothing exported (no level scenes), or the exporter failed: it said why
+	exported, _ := result["levels"].(json.Array)
+	if len(exported) == 0 do return true
+	cmd: [dynamic]string
+	append(&cmd, ensure_headless(Headless{"navreport", join(state.project.unified, "src", "navreport"), false}, .dev))
+	for value in exported {
+		level, _ := value.(json.Object)
+		file := rel(join(dir, strings.trim_prefix(json_string(level["level"]), "res://")))
+		file, _ = strings.replace_all(file, "\\", "/")
+		append(&cmd, file)
+	}
+	ran := run_proc({cmd = cmd[:], dir = state.project.root, capture = true, quiet = true, timeout = 60 * time.Second})
+	line, found := last_json_line(ran.stdout)
+	parsed, _ := json.parse_string(line, parse_integers = true)
+	output, _ := parsed.(json.Object)
+	levels, _ := output["levels"].(json.Array)
+	if !ran.ok || !found || len(levels) != len(exported) {
+		log(
+			"uni: the navigation report failed (exit %d):\n%s",
+			ran.exit_code,
+			tail(strings.concatenate({ran.stdout, ran.stderr}), 2000),
+		)
+		return false
+	}
+	// the text: a block per level, each ended by a blank line, in the order of the files
+	text := strings.trim_suffix(ran.stdout[:strings.last_index(ran.stdout, line)], "\n")
+	blocks := strings.split(strings.trim_right_space(text), "\n\n")
+	for value, i in levels {
+		report, _ := value.(json.Object)
+		level, _ := exported[i].(json.Object)
+		changes, has_changes := level["nav"].(json.Object)
+		has_mesh := json_int(report["polygons"]) > 0
+		if has_changes && has_mesh do report["export"] = changes
+		append(reports, report)
+		if !has_mesh && json_string(report["error"]) == "" do continue // a level without navigation: data only
+		block := i < len(blocks) ? strings.trim_right_space(blocks[i]) : ""
+		if has_changes && has_mesh {
+			max_lowered, _ := changes["max_lowered"].(json.Float)
+			block = aprintf(
+				"%s\n  export: %d vertices lowered onto the floor (at most %.2f m); %d polygons inside solids left out",
+				block,
+				json_int(changes["lowered"]),
+				max_lowered,
+				json_int(changes["inside_solids"]),
+			)
+		}
+		log("%s\n", block)
+	}
+	return true
 }
 
 VIEW_INDEX :: "unified_index.tres"

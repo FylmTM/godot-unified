@@ -33,6 +33,35 @@ yard :: proc(t: ^testing.T) -> (mesh: nav.Mesh, agent: level.Nav_Agent, ok: bool
 // Two unit squares side by side and a triangle on the second's far edge, written clockwise and counter-clockwise.
 STRIP_VERTICES := [][3]f32{{0, 0, 0}, {1, 0, 0}, {1, 0, 1}, {0, 0, 1}, {2, 0, 0}, {2, 0, 1}, {3, 0, 0.5}}
 
+// Islands are the polygons joined by shared edges, numbered by their lowest polygon: the strip is one, and a square
+// beside it that shares no edge (a corner touching is not an edge) is another, whatever its index.
+@(test)
+islands_are_polygons_joined_by_edges :: proc(t: ^testing.T) {
+	vertices := [dynamic][3]f32{}
+	defer delete(vertices)
+	append(&vertices, ..STRIP_VERTICES)
+	append(&vertices, [3]f32{3, 0, 1}, [3]f32{3, 0, 2}, [3]f32{2, 0, 2}) // a square on the strip's corner (2, 0, 1)
+	polygons := [][]u32{{7, 8, 9, 5}, {0, 1, 2, 3}, {2, 1, 4, 5}, {4, 6, 5}}
+	mesh, err := nav.build(vertices[:], polygons)
+	defer nav.destroy(&mesh)
+	testing.expect_value(t, err, nav.Build_Error.None)
+	island_of, count := nav.islands(&mesh)
+	defer delete(island_of)
+	testing.expect_value(t, count, 2)
+	testing.expect(t, slice_equal(island_of, []i32{0, 1, 1, 1}), "the square is island 0, the strip island 1")
+	empty, empty_err := nav.build({}, {})
+	defer nav.destroy(&empty)
+	testing.expect_value(t, empty_err, nav.Build_Error.None)
+	_, none := nav.islands(&empty, context.temp_allocator)
+	testing.expect_value(t, none, 0)
+}
+
+slice_equal :: proc(a, b: []i32) -> bool {
+	if len(a) != len(b) do return false
+	for value, i in a do if value != b[i] do return false
+	return true
+}
+
 @(test)
 build_links_polygons_by_shared_indices :: proc(t: ^testing.T) {
 	polygons := [][]u32{{0, 1, 2, 3}, {2, 1, 4, 5}, {4, 6, 5}}

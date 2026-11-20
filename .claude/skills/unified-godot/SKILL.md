@@ -11,7 +11,9 @@ Every command builds a stale extension and re-imports changed files first. What 
    (no `uni` command lists them all): fix it and run it again.
 2. After editing a level scene or its markers: `./uni bake`, and commit the `.tscn` and its `.level` together. A
    level whose geometry changed and whose `NavigationRegion3D` opts in (metadata `unified_nav_bake`): `./uni bake
-   <game> --nav` bakes the navigation first.
+   <game> --nav` bakes the navigation first. Add `--report` to see the mesh the sim gets: its islands (every one but
+   the largest is cut off) and the island each marker is on. A spawn, gate or goal on a cut-off island, or off the
+   mesh, is a level bug: walkers there stand still. Read it instead of writing a test that dumps polygons.
 3. Before handing back: the whole `./uni test --suite godot`, then `./uni verify`.
 
 ## Play-checking with uni drive

@@ -29,6 +29,7 @@ main :: proc() {
 					"res://levels/level_2d.tscn",
 					"res://levels/shapes_3d.tscn",
 					"res://levels/nav_yard.tscn",
+					"res://levels/nav_island.tscn",
 				},
 			},
 			{

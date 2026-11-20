@@ -13,7 +13,8 @@ are in `examples/`. Toolchain: [`../docs/getting-started.md`](../docs/getting-st
   (Epic Online Services as a `netcode.Lobby`), `headless` (a game's headless binary, the sync-test, replay and
   the other offline runs, and the end-to-end suites).
 - Host: `gdext` (Godot's API), `godot` (the host, its view logic included), `devui`.
-- Tools: `cli` (`uni`; it never links the sim) and `lint` (the determinism lint a game's tests run).
+- Tools: `cli` (`uni`; it never links the sim), `navreport` (the program `uni bake --report` builds and runs: a
+  level's navigation through `level` and `nav`) and `lint` (the determinism lint a game's tests run).
 
 A package exists only where determinism rules differ, a consumer needs one piece without another, or third-party code
 lives; everything else merges. Imports point one way, always through the collection (`unified:<pkg>`), and never from
