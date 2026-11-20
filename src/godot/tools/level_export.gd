@@ -28,7 +28,7 @@ extends SceneTree
 ## unified's extension (the 2D fixture in tests/godot).
 
 const MAGIC := "UNLV"
-const VERSION := 4
+const VERSION := 1
 const MAX_POLYGON := 32  # points of one 2D convex part: extruded, a prism of 64 points and 96 edges
 ## Points of a 3D convex shape: a hull of V points has at most 3V - 6 edges, so 44 always fit Box3D's 128.
 const MAX_HULL := 44

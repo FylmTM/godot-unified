@@ -14,7 +14,7 @@ import "unified:wire"
 @(private)
 SNAP_MAGIC :: "UNIS"
 // Bump on any change to the format or to what an image holds.
-SNAP_VERSION :: 9
+SNAP_VERSION :: 1
 SNAP_HEADER :: 54
 
 // Why a snapshot doesn't restore (nil: it does). The library never prints; callers log the value.

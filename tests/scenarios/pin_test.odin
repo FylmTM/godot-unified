@@ -107,17 +107,17 @@ a_repin_names_each_value :: proc(t: ^testing.T) {
 		rows_text == fixture_with({"0xcce700a157c5cd2f, // the first", "0x0ce700a157c5cd2f, // the first"}),
 	)
 
-	library_old := `GOLDEN_LIBRARY :: sim.Library{version = 9, box3d = "3362633-r5"}`
-	library_new := `GOLDEN_LIBRARY :: sim.Library{version = 10, box3d = "3362633-r6"}`
+	library_old := `GOLDEN_LIBRARY :: sim.Library{version = 1, box3d = "3362633-r5"}`
+	library_new := `GOLDEN_LIBRARY :: sim.Library{version = 2, box3d = "3362633-r6"}`
 	library_text, library, _, _ := scenarios.pin_rewrite(FIXTURE, library_old, library_new)
 	testing.expect_value(t, len(library), 2)
 	testing.expect(
 		t,
-		library_text == fixture_with({"version = 9,", "version = 10,"}, {`"3362633-r5"`, `"3362633-r6"`}),
+		library_text == fixture_with({"version = 1,", "version = 2,"}, {`"3362633-r5"`, `"3362633-r6"`}),
 		"the line breaks stay the file's",
 	)
 	if len(library) == 2 {
-		testing.expect_value(t, library[0], scenarios.Pin_Change{"LIBRARY", "version", "9", "10"})
+		testing.expect_value(t, library[0], scenarios.Pin_Change{"LIBRARY", "version", "1", "2"})
 		testing.expect_value(t, library[1], scenarios.Pin_Change{"LIBRARY", "box3d", `"3362633-r5"`, `"3362633-r6"`})
 	}
 }
