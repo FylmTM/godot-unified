@@ -58,12 +58,14 @@ example games in `examples/` prove it.
   always do; `run` takes `--mute --screen left --background`; the `unified-godot` skill. The editor always takes focus:
   open it only when the developer asks.
 
-## The board
+## Issues
 
-Planned work is on the GitHub Project [unified](https://github.com/users/FylmTM/projects/2), one issue per reviewable
-piece of work. The `board-work` skill has the statuses, the procedure and when a finding is filed.
+Planned work is the repo's GitHub issues, one per reviewable piece of work; there is no project board. Open is to do,
+closed is done; labels say only the kind (`bug`, `feature`, `review`), never a status. The `issue-work` skill has the
+procedure and when a finding is filed.
 
-- **Agents take work only from Todo**, or what the developer asks for in chat (done in that session, not filed first).
+- **Agents start an issue only when the developer says so in chat**, and do what the developer asks in chat in that
+  session (not filed first).
 - **Every change is a PR** from its own branch. Agents push and open PRs without asking; only merging is gated.
 - **Findings: do the work in the same PR; file only what can't be done here.** Never notes in docs or reports.
 
@@ -111,7 +113,7 @@ command and `-h` on a command its options. Every command rejects unknown argumen
 
 ## Where things are
 
-- The board (above): current and upcoming work; decided designs live in the code, its READMEs and doc comments.
+- Issues (above): current and upcoming work; decided designs live in the code, its READMEs and doc comments.
 - `README.md`: what `unified` is, the programming model, the design and why; `docs/getting-started.md`: the
   toolchain, first commands and a new game.
 - `README.md` in each package and game, `./uni doc <pkg>` for its API; `src/README.md`: how the core works inside;

@@ -1,6 +1,6 @@
 ---
 name: Work item
-about: One reviewable piece of work for the board
+about: One reviewable piece of work
 ---
 
 ## What and why
