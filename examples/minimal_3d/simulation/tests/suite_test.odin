@@ -19,6 +19,9 @@ SUITE := scenarios.Suite(g.Game) {
 	ticks   = scenarios.LONG ? 3600 : 600,
 }
 
+// The clients of the multi-client sessions: four, or every player of a game with fewer; the last one joins late.
+CLIENTS :: min(g.PLAYERS, 4)
+
 // By default the minimal set, each scenario proving something about this game: rollback every tick, players coming
 // and going, a bad-network session, a session whose inputs change every tick and a late joiner, on short runs.
 // `uni test --long` adds the other standard scenarios and runs them all at full length.
@@ -27,23 +30,25 @@ rollback_every_tick :: proc(t: ^testing.T) {scenarios.rollback_every_tick(t, &SU
 @(test)
 presence_churn :: proc(t: ^testing.T) {scenarios.presence_churn(t, &SUITE)}
 @(test)
-four_clients_agree_on_a_bad_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Bad)}
+clients_agree_on_a_bad_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, CLIENTS, .Bad)}
 @(test)
-four_clients_agree_when_inputs_change_every_tick :: proc(t: ^testing.T) {scenarios.session_agrees(
+clients_agree_when_inputs_change_every_tick :: proc(t: ^testing.T) {scenarios.session_agrees(
 		t,
 		&SUITE,
-		4,
+		CLIENTS,
 		.Wan,
 		churn = true,
 	)}
-@(test)
-a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(
-		t,
-		&SUITE,
-		.Wan,
-		3,
-		scenarios.LONG ? 900 : 300,
-	)}
+when CLIENTS > 1 {
+	@(test)
+	a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(
+			t,
+			&SUITE,
+			.Wan,
+			CLIENTS - 1,
+			scenarios.LONG ? 900 : 300,
+		)}
+}
 // Every recorded session in replays/ (one replay folder each) computes what was blessed, tick by tick; after a meant
 // rules change, `uni test minimal_3d --bless` (src/headless/README.md, Replay regressions).
 @(test)
@@ -61,9 +66,9 @@ when scenarios.LONG {
 	@(test)
 	two_clients_agree_on_a_bad_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 2, .Bad)}
 	@(test)
-	four_clients_agree_on_an_ideal_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Ideal)}
+	clients_agree_on_an_ideal_network :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, CLIENTS, .Ideal)}
 	@(test)
-	four_clients_agree_on_a_wan :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, 4, .Wan)}
+	clients_agree_on_a_wan :: proc(t: ^testing.T) {scenarios.session_agrees(t, &SUITE, CLIENTS, .Wan)}
 }
 
 // The extension installs: what Godot would report when it loads it (a Data_ struct with padding, a bad Glue), here in
