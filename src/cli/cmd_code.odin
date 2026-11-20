@@ -162,7 +162,9 @@ cmd_vet :: proc(args: []string) -> Result {
 			log("vet: the agent guidance differs from the unified submodule's:\n  %s", strings.join(problems, "\n  "))
 		}
 	}
-	for result, i in run_all(runs) {
+	// A check per core at a time: every job at once (about a hundred) runs a CI runner out of memory, which then kills
+	// the job ("the runner has received a shutdown signal").
+	for result, i in run_all(runs, os.get_processor_core_count()) {
 		if !result.ok {
 			job := jobs[i]
 			append(&failed, aprintf("%s %s %s", rel(job.pkg.pkg), job.target, job.define))
