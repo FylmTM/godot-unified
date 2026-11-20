@@ -450,8 +450,16 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 }
 
 // A tool script by name: the game's game/tools/<name>.gd, else unified's (src/godot/tools, mirrored as
-// res://addons/unified/) ("" when neither has it).
+// res://addons/unified/) ("" when neither has it). A name ending in .gd is a script file by path instead (relative to
+// the working directory), anywhere: an agent's throwaway script, run against the project without joining it. It comes
+// back absolute, which Godot's -s takes as it takes a res:// path ("" when there is no such file).
 tool_script :: proc(game: Game, name: string) -> string {
+	if strings.has_suffix(name, ".gd") {
+		if !os.is_file(name) do return ""
+		path, _ := os.get_absolute_path(name, context.allocator)
+		slashed, _ := strings.replace_all(path, "\\", "/")
+		return slashed
+	}
 	if os.is_file(join(game.dir, "game", "tools", aprintf("%s.gd", name))) {
 		return aprintf("res://game/tools/%s.gd", name)
 	}
@@ -459,6 +467,59 @@ tool_script :: proc(game: Game, name: string) -> string {
 		return aprintf("res://%s/%s.gd", TOOLS_DIR, name)
 	}
 	return ""
+}
+
+// Whether the script file at `path` can be Godot's -s main loop: it extends SceneTree or MainLoop, directly or through
+// the classes and res:// scripts it extends, found in the project at `dir` or in unified's tools at `library` (the
+// source of res://addons/unified/). Godot refuses any other -s script and runs the main scene instead, a run that
+// never ends, so `tool` refuses it first. `extends` is what the script itself extends ("": nothing found).
+tool_script_runs :: proc(path, dir, library: string) -> (ok: bool, extends: string) {
+	classes := make(map[string]string, context.temp_allocator) // class_name -> what it extends
+	for source in ([]string{dir, library}) {
+		for file in godot_files(source, ".gd") {
+			text, _ := read_text(file)
+			name, base := script_header(text)
+			if name != "" && name not_in classes do classes[name] = base
+		}
+	}
+	text, _ := read_text(path)
+	_, extends = script_header(text)
+	for current, depth := extends, 0; current != "" && depth < 32; depth += 1 {
+		if current == "SceneTree" || current == "MainLoop" do return true, extends
+		if strings.has_prefix(current, "res://") {
+			rel_path := current[len("res://"):]
+			file := join(dir, rel_path)
+			if strings.has_prefix(rel_path, TOOLS_DIR + "/") do file = join(library, rel_path[len(TOOLS_DIR) + 1:])
+			next, _ := read_text(file)
+			_, current = script_header(next)
+		} else {
+			current = classes[current] or_else ""
+		}
+	}
+	return false, extends
+}
+
+// A GDScript's `class_name` and what it `extends` (a class name, or a res:// path without its quotes); "" for one it
+// doesn't declare. Both are read from the lines before its first declaration (`class_name A extends B` included).
+script_header :: proc(text: string) -> (class_name, extends: string) {
+	for raw in strings.split_lines(text, context.temp_allocator) {
+		line := raw
+		if comment := strings.index_byte(line, '#'); comment >= 0 do line = line[:comment]
+		line = strings.trim_space(line)
+		if strings.has_prefix(line, "class_name ") {
+			rest := strings.trim_space(line[len("class_name "):])
+			name, _, base := strings.partition(rest, " extends ")
+			class_name = strings.trim_space(name)
+			if base != "" do extends = strings.trim(strings.trim_space(base), "\"'")
+		} else if strings.has_prefix(line, "extends ") {
+			extends = strings.trim(strings.trim_space(line[len("extends "):]), "\"'")
+		} else if strings.has_prefix(line, "func ") ||
+		   strings.has_prefix(line, "var ") ||
+		   strings.has_prefix(line, "const ") {
+			break
+		}
+	}
+	return
 }
 
 // The environment of a game run that must never touch the developer's own data (the godot suite's runs, tool

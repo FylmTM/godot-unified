@@ -121,6 +121,31 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 			dir  = game,
 			env  = env,
 		},
+	)
+	// the authoring skill's scripts, by path from outside the game (the clone's copies), as an agent runs one
+	for script in AUTHORING_SCRIPTS {
+		append(&steps, Step {
+			what = cli.aprintf("the authoring skill's %s, run by path", script),
+			cmd  = shim(game, "tool", cli.join(clone, AUTHORING_SCRIPTS_DIR, script)),
+			dir  = game,
+			env  = env,
+		})
+	}
+	append(
+		&steps,
+		Step {
+			what = "what they made bakes (the level and its navigation)",
+			cmd  = shim(game, "bake", "--nav"),
+			dir  = game,
+			env  = env,
+		},
+		Step {
+			what  = "and loads under the strict rules",
+			cmd   = shim(game, "test", "--suite", "godot", "--only", "validate"),
+			dir   = game,
+			env   = env,
+			check = check_authored,
+		},
 		// the same game inside the clone (init --in-repo), against the clone itself
 		Step {
 			what  = "init a game inside the checkout",
@@ -332,6 +357,22 @@ check_agents_refresh :: proc(game: string, env, vet, agents: []string) -> string
 		return "agents left the retired skill or removed the game's own"
 	}
 	os.remove_all(cli.join(skills, "own"))
+	return ""
+}
+
+// The authoring skill's example scripts (in AUTHORING_SCRIPTS_DIR), and the files they make in a game.
+AUTHORING_SCRIPTS :: []string{"make_level.gd", "add_actions.gd", "make_panel.gd"}
+AUTHORING_SCRIPTS_DIR :: ".claude/skills/unified-godot-authoring/scripts"
+AUTHORED :: []string{"game/levels/yard.tscn", "game/levels/yard.level", "game/ui/lobby.tscn"}
+
+// The authoring skill's scripts made their files, the level baked, and the input actions are in project.godot.
+check_authored :: proc(game, head: string) -> string {
+	for file in AUTHORED {
+		if !os.is_file(cli.join(game, file)) do return cli.aprintf("no %s", file)
+	}
+	if !strings.contains(cli.must_read(cli.join(game, "project.godot")), "\nthrow={") {
+		return "project.godot has no throw action"
+	}
 	return ""
 }
 
