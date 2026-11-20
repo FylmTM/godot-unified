@@ -5,9 +5,11 @@
 // own scenarios after it.
 package test_scenarios
 
+import "core:strings"
 import "core:testing"
 
 import "../toy"
+import "unified:headless"
 import "unified:headless/scenarios"
 
 SUITE := scenarios.Suite(toy.Game) {
@@ -63,6 +65,25 @@ a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(t, &SUIT
 
 @(test)
 the_reference_run_reproduces :: proc(t: ^testing.T) {scenarios.reference_reproduces(t, &toy.GAME, REFERENCE)}
+
+// A script that steers by the state it is handed plays another player in a session than offline (each client hands
+// it its own prediction): a sync-tested run with script_check (the standard scenarios') asks it again with an older
+// state and names it; without, or for a script that answers from (seed, slot, tick), nothing is said.
+@(test)
+a_script_that_reads_the_state_is_named :: proc(t: ^testing.T) {
+	game := toy.GAME
+	game.scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+		input := toy.scripted_input(seed, slot, tick)
+		input.dx = i8(state.spawned % 3) // the state's count, not (seed, slot, tick)
+		return input
+	}
+	result := headless.run_synctest(&game, 200, 8, SUITE.seed, SUITE.players, script_check = true)
+	testing.expectf(t, strings.contains(result.problem, "scripted player reads the state"), "%q", result.problem)
+	unchecked := headless.run_synctest(&game, 200, 8, SUITE.seed, SUITE.players)
+	testing.expect_value(t, unchecked.problem, "")
+	clean := headless.run_synctest(&toy.GAME, 200, 8, SUITE.seed, SUITE.players, script_check = true)
+	testing.expect_value(t, clean.problem, "")
+}
 
 // A script that reads the state it is given, in a session with a late joiner (whose client has no state before its
 // snapshot): the harness never hands it a nil one.

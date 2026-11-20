@@ -239,8 +239,12 @@ Game :: struct(
 	// called by the sim; without one they play zero Inputs): the input of the player in `slot` for `tick`, and right
 	// after it that player's commands (sim.send_command(out, command)).
 	// `state` is the caller's current state, never nil (a client without one yet, a late joiner before its snapshot,
-	// plays zero Inputs and sends no commands meanwhile); a script that answers from (seed, slot, tick) alone
-	// (sim.script_bits) gives every client of a session and every offline run the same player.
+	// plays zero Inputs and sends no commands meanwhile). The game's own script answers from (seed, slot, tick) alone
+	// (sim.script_bits), so every client of a session and every offline run play the same player: a session's clients
+	// each hand it their own prediction. The standard scenarios rollback_every_tick and presence_churn ask it again
+	// with an older state and fail when it answers otherwise (headless.Run.script_check), unless the game's suite says
+	// its script steers by the state (scenarios.Suite.script_reads_state). Nothing else checks it: a test's bot that
+	// steers by the state plugs in here, for its own runs and sessions.
 	scripted_input:        proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
 	scripted_commands:     proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^Command_Out(Cmd)),
 	// Optional, never called by the sim: the Profile a scripted player in `slot` joins with (without one: the zero
