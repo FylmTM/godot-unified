@@ -887,3 +887,35 @@ a_generic_struct_is_an_install_problem :: proc(t: ^testing.T) {
 	problems := godot.install_problems(&toy.GAME, glue)
 	testing.expectf(t, len(problems) == 1 && strings.contains(problems[0], "Data_Generic.ring"), "%v", problems)
 }
+
+@(private = "file")
+Stats :: struct {
+	waves: u8,
+}
+
+@(private = "file")
+Data_Stats :: struct {
+	stats: Stats, // nested: the class DataStats, which Data_Stats is too
+}
+
+@(private = "file")
+Stats_Data :: union {
+	Data_Stats,
+}
+
+// Two types that would be the same class are an install problem naming both: Godot would refuse the second at load,
+// leaving it out of GDScript (here session data and the struct nested in it).
+@(test)
+a_class_name_collision_is_an_install_problem :: proc(t: ^testing.T) {
+	glue := GLUE
+	glue.data = Stats_Data
+	problems := godot.install_problems(&toy.GAME, glue)
+	testing.expectf(t, len(problems) == 1, "%v", problems)
+	if len(problems) == 1 {
+		testing.expect_value(
+			t,
+			problems[0],
+			"Data_Stats and Stats would both be the class DataStats: rename one of them",
+		)
+	}
+}

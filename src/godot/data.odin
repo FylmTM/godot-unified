@@ -641,6 +641,73 @@ struct_sim_fields :: proc(type: ^runtime.Type_Info) -> []Sim_Field {
 	return fields[:]
 }
 
+// The game's types that become classes at load, as install keeps them (api): what class_problems names.
+Class_Sources :: struct {
+	events, commands, data:                  typeid, // the unions: a class per variant
+	view_data:                               []typeid, // each view kind's declared data (nil: none)
+	constants, input_values, setup, profile: typeid, // nil: none
+	view_enum, multi_enum, level_enum:       typeid, // EnumView, EnumMultiView, EnumLevel (level: nil for none)
+}
+
+// Every class name two of the game's types would both take, a problem naming both (install collects them): the class
+// of each event and command kind (class_name_of), each data type (data_layout), each named nested struct
+// (register_nested_classes) and each enum (register_data_classes), computed as registration computes them. Godot
+// refuses the second class at load, which leaves its type out of GDScript (`Data_Stats` and a nested `Stats` are both
+// DataStats).
+class_problems :: proc(sources: Class_Sources, problems: ^[dynamic]string) {
+	context.allocator = runtime.heap_allocator()
+	Taken :: struct {
+		class: string,
+		type:  typeid,
+	}
+	taken := make([dynamic]Taken, context.temp_allocator)
+	take :: proc(taken: ^[dynamic]Taken, problems: ^[dynamic]string, class: string, type: typeid) {
+		for known in taken {
+			if known.class != class do continue
+			if known.type == type do return
+			append(
+				problems,
+				fmt.aprintf("%v and %v would both be the class %s: rename one of them", known.type, type, class),
+			)
+			return
+		}
+		append(taken, Taken{strings.clone(class, context.temp_allocator), type})
+	}
+	roots := make([dynamic]^runtime.Type_Info, context.temp_allocator)
+	for variant in sim.union_variants(sources.events) {
+		append(&roots, variant)
+		take(&taken, problems, class_name_of(variant, true), variant.id)
+	}
+	for variant in sim.union_variants(sources.commands) {
+		append(&roots, variant)
+		take(&taken, problems, class_name_of(variant, false), variant.id)
+	}
+	for variant in sim.union_variants(sources.data) {
+		append(&roots, variant)
+		take(&taken, problems, data_layout(variant).class, variant.id)
+	}
+	for type in sources.view_data do if type != nil do append(&roots, type_info_of(type))
+	for type in ([]typeid{sources.constants, sources.input_values, sources.setup, sources.profile}) {
+		if type != nil do append(&roots, type_info_of(type))
+	}
+	nested := make([dynamic]^runtime.Type_Info, context.temp_allocator)
+	nested_types_of(roots[:], &nested)
+	for type in nested {
+		if named, is_named := type.variant.(runtime.Type_Info_Named); is_named {
+			take(&taken, problems, pascal_name("Data", named.name), type.id)
+		}
+	}
+	take(&taken, problems, "EnumView", sources.view_enum)
+	take(&taken, problems, "EnumMultiView", sources.multi_enum)
+	if sources.level_enum != nil do take(&taken, problems, "EnumLevel", sources.level_enum)
+	enums := make([dynamic]^runtime.Type_Info, context.temp_allocator)
+	enum_types_of(roots[:], &enums)
+	for type in enums {
+		if type.id == sources.view_enum || type.id == sources.multi_enum || type.id == sources.level_enum do continue
+		take(&taken, problems, enum_class_name(type), type.id)
+	}
+}
+
 // ---- enums
 
 // The enum types the given types use in their fields (nested structs, arrays and bit_sets included), each once.
