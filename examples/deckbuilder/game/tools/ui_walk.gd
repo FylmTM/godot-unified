@@ -63,7 +63,7 @@ func _run() -> void:
 	await wait_for(func() -> bool: return Unified.input.card == card.slot + 1, 2.0, "the card held up (the aim)")
 	await wait_for(func() -> bool: return Table.local_row().aim_card == card.slot + 1, 3.0,
 		"the aim reaches the hero's row (the Input)")
-	await _right_click()
+	await click_at(Vector2(4, 4), MOUSE_BUTTON_RIGHT)  # the empty table
 	expect(Unified.input.card == 0, "a right click puts the card down")
 	step("held a card up and put it down")
 	if failed():
@@ -144,18 +144,6 @@ func _vote() -> void:
 		fail("no lane to vote for")
 		return
 	await click(lane)
-
-
-func _right_click() -> void:
-	for pressed: bool in [true, false]:
-		var e := InputEventMouseButton.new()
-		e.button_index = MOUSE_BUTTON_RIGHT
-		e.pressed = pressed
-		e.position = Vector2(4, 4)
-		e.global_position = e.position
-		Input.parse_input_event(e)
-		await process_frame
-	await process_frame
 
 
 func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:

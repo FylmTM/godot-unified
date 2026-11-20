@@ -7,9 +7,5 @@ import "unified:headless/modes"
 import g "../deckbuilder"
 
 main :: proc() {
-	modes.run(
-		&g.GAME_QUICK,
-		bench = {what = "deckbuilder (quick tuning), 4 heroes against the boss", entities = 4, ticks = 600},
-		variants = {&g.GAME}, // --game deckbuilder: the `play` tuning, as the game runs it
-	)
+	modes.run(&g.GAME_QUICK, variants = {&g.GAME}) // --game deckbuilder: the `play` tuning, as the game runs it
 }

@@ -630,7 +630,7 @@ drive_check :: proc(game: Game) -> bool {
 
 // The drive step's `values` (a paused session): a game without input values says so; one with them holds a number
 // field (the first by name, or its first element) at what was set while frames step, whatever its scripts set every
-// frame, and lets go at `values clear`.
+// frame (whole numbers for an integer field), and lets go at `values clear`.
 @(private)
 drive_check_values :: proc(instance: ^Drive_Instance, failed: ^string) {
 	if failed^ != "" do return
@@ -650,15 +650,18 @@ drive_check_values :: proc(instance: ^Drive_Instance, failed: ^string) {
 	for name in fields do append(&names, name)
 	slice.sort(names[:])
 	key := ""
+	integer := false // an integer field takes whole numbers (a float is refused)
 	for name in names {
 		#partial switch field in fields[name] {
 		case json.Float, json.Integer:
 			key = name
+			_, integer = field.(json.Integer)
 		case json.Array:
 			if len(field) > 0 {
 				#partial switch _ in field[0] {
 				case json.Float, json.Integer:
 					key = aprintf("%s[0]", name)
+					_, integer = field[0].(json.Integer)
 				}
 			}
 		}
@@ -678,10 +681,12 @@ drive_check_values :: proc(instance: ^Drive_Instance, failed: ^string) {
 		}
 		return -1
 	}
-	assignment := aprintf("%s=0.375", key)
+	first, second: f64 = 0.375, 0.25
+	if integer do first, second = 3, 2
+	assignment := aprintf("%s=%v", key, first)
 	set, reply_set := values(instance, assignment)
 	held, _ := set["held"].(json.Array)
-	if ok, _ := set["ok"].(json.Boolean); !ok || len(held) != 1 || number(set, key) != 0.375 {
+	if ok, _ := set["ok"].(json.Boolean); !ok || len(held) != 1 || number(set, key) != first {
 		failed^ = aprintf("values %s: %s", assignment, reply_set)
 		return
 	}
@@ -690,11 +695,11 @@ drive_check_values :: proc(instance: ^Drive_Instance, failed: ^string) {
 		return
 	}
 	after, reply_after := values(instance)
-	if number(after, key) != 0.375 do failed^ = aprintf("%s did not stay held over 3 stepped frames: %s", assignment, reply_after)
-	again := aprintf("%s=0.25", key) // the same place again: replaces the held one, not a second
+	if number(after, key) != first do failed^ = aprintf("%s did not stay held over 3 stepped frames: %s", assignment, reply_after)
+	again := aprintf("%s=%v", key, second) // the same place again: replaces the held one, not a second
 	replaced, reply_replaced := values(instance, again)
 	held_now, _ := replaced["held"].(json.Array)
-	if (len(held_now) != 1 || number(replaced, key) != 0.25) && failed^ == "" {
+	if (len(held_now) != 1 || number(replaced, key) != second) && failed^ == "" {
 		failed^ = aprintf("values %s after %s: %s", again, assignment, reply_replaced)
 	}
 	refused, reply_refused := values(instance, "no_such_field=1")

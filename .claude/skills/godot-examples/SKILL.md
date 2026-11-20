@@ -18,9 +18,8 @@ its headless main (`examples/minimal_3d/README.md`, What a new game takes from w
 
 deckbuilder is such an example with a UI of its own and no app layer: one table scene (`game/main.tscn`) that holds
 the session and its menus as panels, Control views with data only, and a `game/tools/ui_walk.gd` that extends
-`UnifiedTool` directly. A UI-only game sets `window/stretch/mode="canvas_items"` in `project.godot`: a headless tool
-run's window is tiny, and without it every click lands outside the layout. Its sim tests and the headless binary run
-the `quick` tuning (`GAME_QUICK`); Godot plays `GAME`.
+`UnifiedTool` directly; `canvas_items` stretch scales its table with the window. Its sim tests and the headless
+binary run the `quick` tuning (`GAME_QUICK`); Godot plays `GAME`.
 
 A change to `src/godot`, `src/gdext` or anything between input and the sim runs every game's `session` step: it is
 the check that the Godot host computes what the offline binary does.

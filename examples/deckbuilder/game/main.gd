@@ -328,7 +328,6 @@ func _choose_class(hero_class: int) -> void:
 	Unified.profile.hero_class = hero_class
 	_panel_shown = ""
 	if session.mode == UnifiedSession.MODE_SINGLE:  # nobody else here: the session starts again with the new class
-		session.leave()
 		session.start_single()
 	else:
 		_refresh()
@@ -348,8 +347,7 @@ func _saved_run() -> String:
 
 
 func _continue(saved: String) -> void:
-	session.leave()  # the camp's session; the run's starts once it is gone
-	session.start_single(UnifiedSetup.from_json(saved))
+	session.start_single(UnifiedSetup.from_json(saved))  # the camp's session ends first
 
 
 ## Every player keeps the save (any of them can host the run's continuation); the run's end clears it.

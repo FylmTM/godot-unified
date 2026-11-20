@@ -47,6 +47,7 @@ GAME_QUICK := Game {
 	save = save,
 	scripted_commands = scripted_commands,
 	scripted_profile = scripted_profile,
+	benches = {{what = "deckbuilder (quick tuning), 4 heroes against the boss", entities = 4, ticks = 600}},
 	bench_prepare = bench_prepare,
 	input_delay_min_ticks = 2,
 }
