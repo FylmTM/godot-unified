@@ -168,11 +168,13 @@ cmd_vet :: proc(args: []string) -> Result {
 		if !result.ok {
 			job := jobs[i]
 			append(&failed, aprintf("%s %s %s", rel(job.pkg.pkg), job.target, job.define))
+			// the exit too: a check that died (out of memory, a crash) leaves both streams empty
 			log(
-				"vet: %s -target:%s %s FAILED\n%s%s",
+				"vet: %s -target:%s %s FAILED (%s)\n%s%s",
 				rel(job.pkg.pkg),
 				job.target,
 				job.define,
+				result.timed_out ? "killed" : aprintf("exit %d", result.exit_code),
 				result.stdout,
 				result.stderr,
 			)
