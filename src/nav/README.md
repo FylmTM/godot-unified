@@ -13,6 +13,8 @@ like any tick package.
   indices). Each polygon has its plane, so a walker's height is the floor's under it, and an XZ grid finds the
   polygon under a point (`locate`, the floor nearest in height on stacked floors) or the nearest point of the mesh
   (`nearest`, for a player standing just off it: Godot's bake shrinks the mesh by its agent radius from the walls).
+  Build also numbers the mesh's islands, the polygons joined by shared edges, so whether a walker can reach a goal
+  at all is a lookup in a tick (`connected`), not a field that finds nothing.
 - **A walker keeps its polygon** (`Poly`, an i32 in its row) and passes it to every call, so it is never located
   again after its spawn.
 - **Fields.** A `Field` is every polygon's distance to a goal polygon and the edge that leads toward it: Dijkstra over

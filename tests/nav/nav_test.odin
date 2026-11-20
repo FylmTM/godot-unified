@@ -34,7 +34,8 @@ yard :: proc(t: ^testing.T) -> (mesh: nav.Mesh, agent: level.Nav_Agent, ok: bool
 STRIP_VERTICES := [][3]f32{{0, 0, 0}, {1, 0, 0}, {1, 0, 1}, {0, 0, 1}, {2, 0, 0}, {2, 0, 1}, {3, 0, 0.5}}
 
 // Islands are the polygons joined by shared edges, numbered by their lowest polygon: the strip is one, and a square
-// beside it that shares no edge (a corner touching is not an edge) is another, whatever its index.
+// beside it that shares no edge (a corner touching is not an edge) is another, whatever its index. connected says
+// whether a walker on one polygon can reach another; NO_POLY reaches nothing.
 @(test)
 islands_are_polygons_joined_by_edges :: proc(t: ^testing.T) {
 	vertices := [dynamic][3]f32{}
@@ -45,21 +46,19 @@ islands_are_polygons_joined_by_edges :: proc(t: ^testing.T) {
 	mesh, err := nav.build(vertices[:], polygons)
 	defer nav.destroy(&mesh)
 	testing.expect_value(t, err, nav.Build_Error.None)
-	island_of, count := nav.islands(&mesh)
-	defer delete(island_of)
-	testing.expect_value(t, count, 2)
-	testing.expect(t, slice_equal(island_of, []i32{0, 1, 1, 1}), "the square is island 0, the strip island 1")
+	testing.expect_value(t, mesh.island_count, 2)
+	want := [4]i32{0, 1, 1, 1} // the square is island 0, the strip island 1
+	for island, p in want do testing.expect_value(t, nav.island_of(&mesh, nav.Poly(p)), island)
+	testing.expect_value(t, nav.island_of(&mesh, nav.NO_POLY), -1)
+	testing.expect(t, nav.connected(&mesh, 1, 3), "the strip's ends are connected")
+	testing.expect(t, nav.connected(&mesh, 0, 0), "a polygon reaches itself")
+	testing.expect(t, !nav.connected(&mesh, 0, 3), "the square is cut off from the strip")
+	testing.expect(t, !nav.connected(&mesh, nav.NO_POLY, 1), "off the mesh reaches nothing")
+	testing.expect(t, !nav.connected(&mesh, 1, nav.NO_POLY), "nothing reaches off the mesh")
 	empty, empty_err := nav.build({}, {})
 	defer nav.destroy(&empty)
 	testing.expect_value(t, empty_err, nav.Build_Error.None)
-	_, none := nav.islands(&empty, context.temp_allocator)
-	testing.expect_value(t, none, 0)
-}
-
-slice_equal :: proc(a, b: []i32) -> bool {
-	if len(a) != len(b) do return false
-	for value, i in a do if value != b[i] do return false
-	return true
+	testing.expect_value(t, empty.island_count, 0)
 }
 
 @(test)

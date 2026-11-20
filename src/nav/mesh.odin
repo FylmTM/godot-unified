@@ -16,21 +16,24 @@ NO_POLY :: Poly(-1)
 // A navigation mesh: convex polygons, counter-clockwise seen from above, joined where they share an edge. Built once
 // (build) in a game's world_create and kept in its World, outside the block; it never changes.
 Mesh :: struct {
-	vertices:   [][3]f32,
-	first:      []i32, // polygon p's corners are corners[first[p] ..< first[p + 1]]
-	corners:    []i32, // vertex indices, counter-clockwise seen from above
-	across:     []Poly, // per corner: the polygon across the edge from it to the next corner (NO_POLY: a wall)
-	edge_len:   []f32, // per corner: that edge's length seen from above
-	centers:    [][3]f32, // the average of each polygon's vertices
-	normals:    [][3]f32, // each polygon's unit normal, pointing up
+	vertices:     [][3]f32,
+	first:        []i32, // polygon p's corners are corners[first[p] ..< first[p + 1]]
+	corners:      []i32, // vertex indices, counter-clockwise seen from above
+	across:       []Poly, // per corner: the polygon across the edge from it to the next corner (NO_POLY: a wall)
+	edge_len:     []f32, // per corner: that edge's length seen from above
+	centers:      [][3]f32, // the average of each polygon's vertices
+	normals:      [][3]f32, // each polygon's unit normal, pointing up
+	// Each polygon's island (island_of), numbered from 0 in the order of their lowest polygon, and how many there are.
+	islands:      []i32,
+	island_count: int,
 	// The grid over the mesh's XZ bounds: each cell's polygons (cell_polys[cell_first[c] ..< cell_first[c + 1]], by
 	// index) are those whose XZ bounds touch it.
-	origin:     [2]f32,
-	cell:       f32,
-	columns:    i32,
-	rows:       i32,
-	cell_first: []i32,
-	cell_polys: []Poly,
+	origin:       [2]f32,
+	cell:         f32,
+	columns:      i32,
+	rows:         i32,
+	cell_first:   []i32,
+	cell_polys:   []Poly,
 }
 
 // Why build refused its input.
@@ -112,6 +115,7 @@ build :: proc(
 		destroy(&mesh, allocator)
 		return {}, .Crowded_Edge
 	}
+	find_islands(&mesh)
 	if !build_grid(&mesh) {
 		destroy(&mesh, allocator)
 		return {}, .Bad_Cell
@@ -129,6 +133,7 @@ destroy :: proc(mesh: ^Mesh, allocator := context.allocator) {
 	delete(mesh.edge_len)
 	delete(mesh.centers)
 	delete(mesh.normals)
+	delete(mesh.islands)
 	delete(mesh.cell_first)
 	delete(mesh.cell_polys)
 	mesh^ = {}
@@ -187,30 +192,40 @@ height_at :: proc(mesh: ^Mesh, poly: Poly, pos: [3]f32) -> f32 {
 	return center.y - (normal.x * (pos.x - center.x) + normal.z * (pos.z - center.z)) / normal.y
 }
 
-// The mesh's islands, the sets of polygons joined by shared edges: each polygon's island, numbered from 0 in the order
-// of their lowest polygon, and how many there are. A walker on one island never reaches another, and a field's goal
-// on one leaves every other unreachable. For checks and tools (a level's report, a game's test that every spawn
-// reaches its goal), not a tick: the slice is made with `allocator`.
-islands :: proc(mesh: ^Mesh, allocator := context.allocator) -> (island_of: []i32, count: int) {
-	island_of = make([]i32, poly_count(mesh), allocator)
-	for &island in island_of do island = -1
+// A polygon's island: the set of polygons joined to it by shared edges, numbered from 0 in the order of their lowest
+// polygon (Mesh.island_count of them); -1 for NO_POLY. A walker on one island never reaches another, and a field's goal
+// on one leaves every other unreachable. Computed once in build: a lookup, fine in a tick.
+island_of :: #force_inline proc "contextless" (mesh: ^Mesh, poly: Poly) -> i32 {
+	return poly == NO_POLY ? -1 : mesh.islands[poly]
+}
+
+// Whether a walker on polygon `a` can reach polygon `b` (the same island); false when either is NO_POLY. A lookup,
+// fine in a tick: "can this enemy reach that goal" before giving it the goal's field.
+connected :: #force_inline proc "contextless" (mesh: ^Mesh, a, b: Poly) -> bool {
+	return a != NO_POLY && b != NO_POLY && mesh.islands[a] == mesh.islands[b]
+}
+
+// Numbers the islands (Mesh.islands, island_count): a flood fill from each polygon not yet numbered, in index order.
+@(private)
+find_islands :: proc(mesh: ^Mesh) {
+	mesh.islands = make([]i32, poly_count(mesh))
+	for &island in mesh.islands do island = -1
 	stack := make([dynamic]Poly, context.temp_allocator)
 	for start in 0 ..< poly_count(mesh) {
-		if island_of[start] >= 0 do continue
-		island_of[start] = i32(count)
+		if mesh.islands[start] >= 0 do continue
+		mesh.islands[start] = i32(mesh.island_count)
 		append(&stack, Poly(start))
 		for len(stack) > 0 {
 			poly := pop(&stack)
 			for k in mesh.first[poly] ..< mesh.first[poly + 1] {
 				across := mesh.across[k]
-				if across == NO_POLY || island_of[across] >= 0 do continue
-				island_of[across] = i32(count)
+				if across == NO_POLY || mesh.islands[across] >= 0 do continue
+				mesh.islands[across] = i32(mesh.island_count)
 				append(&stack, across)
 			}
 		}
-		count += 1
+		mesh.island_count += 1
 	}
-	return
 }
 
 // Whether pos is inside a polygon seen from above (a millimetre's margin: a point on an edge is in both polygons).

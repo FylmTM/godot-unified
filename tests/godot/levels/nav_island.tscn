@@ -45,3 +45,7 @@ metadata/unified_kind = "gate"
 [node name="FarGate" type="Node3D" parent="."]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 30, 0, 30)
 metadata/unified_kind = "gate"
+
+[node name="Lamp" type="Node3D" parent="."]
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -5, 3, -5)
+metadata/unified_kind = "light"

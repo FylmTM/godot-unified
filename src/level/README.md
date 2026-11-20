@@ -57,8 +57,7 @@ marker's node by its index (`Unified.level_markers`).
   from rather than repeating it in code. Export errors name the node: a second region, a region without a saved
   bake, a polygon that isn't simple and convex (degenerate, a zero-length edge, a reflex vertex, a star), and an edge
   shared by more than two polygons. The mesh the editor draws for the region is the one the sim gets. A mesh can still
-  be cut in pieces no error names (a ramp that doesn't join, a marker whose nearest floor is a crate's top): `uni bake
-  --report` shows its islands and the island each marker is on (src/navreport/README.md).
+  be cut in pieces no error names: `uni bake --report` reports it (src/navreport/README.md).
 
 The exporter is unified's (`src/godot/tools/level_export.gd`, mirrored into every project as `addons/unified/`);
 scenes depend on no library script.
