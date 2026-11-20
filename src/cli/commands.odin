@@ -55,7 +55,7 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "vet",
-			summary = "odin check with the strict flags, every target and define variant; in a game repo, also that the agent guidance is the unified submodule's (uni agents)",
+			summary = "odin check with the strict flags, every target and define variant, of every program and package (the headless binaries, the tests, the benchmark programs in <tests>/<module>/bench, the extensions, tools/); in a game repo, also that the agent guidance is the unified submodule's (uni agents)",
 			options = option_types(Vet_Opts),
 			run     = cmd_vet,
 		},
@@ -93,7 +93,7 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "bake",
-			summary = "write the view index and bake .level files from their scenes, in headless Godot with the game's extension (built when stale: the exporter reads its view_scale) (--check: fail if one is stale)",
+			summary = "write the view index and bake .level files from their scenes, in headless Godot with the game's extension (built when stale: the exporter reads its view_scale; a level scene with no .level yet gets an empty one first, so it builds) (--check: fail if one is stale)",
 			options = option_types(Bake_Opts),
 			run     = cmd_bake,
 		},

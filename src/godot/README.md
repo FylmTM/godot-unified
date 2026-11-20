@@ -290,7 +290,9 @@ and its reply, a JSON line each; `uni drive -h` lists the verbs.
   the flag. It listens on loopback with no authentication: anything on the machine may drive a game that was started
   for it, which is the point.
 - **A driven session is a session.** Nothing here writes state. Input goes through Godot's Input singleton, which the
-  game's `sample_input` reads as it reads a player's keys, and a command goes through the session's queue as a
+  game's `sample_input` reads as it reads a player's keys; input values a driver holds are written over what scripts
+  set, after `input_wanted` and before the sample, so a rig that sets its look every frame can't undo them (and its
+  camera still shows its own look); and a command goes through the session's queue as a
   script's `send_command`, so a driven session is recorded, replays, and plays online like any other. An input still
   reaches the sim after the session's input delay.
 - **Exact steps.** A paused single-player session steps exactly the ticks asked (netcode's `host_advance`), each

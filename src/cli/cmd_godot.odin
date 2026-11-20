@@ -19,7 +19,7 @@ GODOT_STEP_CHECKS :: []string {
 	"the view index and every .level file are current (uni bake --check)",
 	"every script compiles with warnings as errors and every scene loads; game/tools/validate.gd adds the game's own checks",
 	"game/tools/ui_walk.gd, when the game has one: a walk through its menus and flows with real input events, then its play smoke (a game without menus has none: skipped)",
-	"the game headless under uni drive, as an agent drives it: status, pause, exact steps, a timed press, state, input, events, ui, find, eval, a stop with a clean log (games with an extension)",
+	"the game headless under uni drive, as an agent drives it: status, pause, exact steps, a timed press, state, input, held input values, events, ui, find, eval, a script error named by file:line (games with an extension)",
 }
 
 // The `session` step's length: 1 s of a 64 Hz game (`test --long`: 4 s).
@@ -957,8 +957,45 @@ godot_files :: proc(dir, suffix: string) -> []string {
 bake :: proc(game: Game, check: bool, quiet := false) -> Tool_Result {
 	scenes := level_scenes(game.dir)
 	if len(scenes) == 0 do return {ok = true}
+	if !check do level_placeholders(game.dir, scenes)
 	ensure_game(game) // the game's scripts name its library's classes, and the exporter reads its view_scale
 	return bake_project(game.dir, scenes, check, quiet)
+}
+
+// The `.level` format version empty_level writes: level.VERSION (tests/cli loads empty_level with unified:level, so
+// a bump there fails until this follows).
+LEVEL_FORMAT_VERSION :: 4
+
+// A valid level with nothing in it (no bodies, markers or navigation; 3D): what a level scene's `.level` holds before
+// its first bake (level_placeholders).
+empty_level :: proc() -> []u8 {
+	out: [dynamic]u8
+	u16_le :: proc(out: ^[dynamic]u8, value: u16) {append(out, u8(value), u8(value >> 8))}
+	u32_le :: proc(out: ^[dynamic]u8, value: u32) {for i in uint(0) ..< 4 do append(out, u8(value >> (8 * i)))}
+	append(&out, "UNLV")
+	u16_le(&out, LEVEL_FORMAT_VERSION)
+	u32_le(&out, 0) // px_per_m 0.0: a 3D level
+	u32_le(&out, 1) // the strings: "" alone
+	u16_le(&out, 0)
+	u32_le(&out, 0) // the scene: ""
+	u32_le(&out, 0) // no bodies
+	u32_le(&out, 0) // no markers
+	for _ in 0 ..< 3 do u32_le(&out, 0) // the navigation agent: radius, height, max climb 0.0
+	u32_le(&out, 0) // no navigation vertices
+	u32_le(&out, 0) // nor polygons
+	return out[:]
+}
+
+// Writes an empty `.level` (empty_level) beside each level scene (res:// paths) that has none yet: a game's sim
+// embeds its levels (`#load`), so its extension, which the exporter needs, builds only once they exist; the bake
+// then replaces them.
+level_placeholders :: proc(dir: string, scenes: []string) {
+	for scene in scenes {
+		path := join(dir, aprintf("%s.level", strings.trim_suffix(strings.trim_prefix(scene, "res://"), ".tscn")))
+		if os.exists(path) do continue
+		if !write_file(path, empty_level()) do fatal("cannot write %s", path)
+		log("uni: %s has no .level yet: an empty one, so the extension builds (the bake replaces it)", scene)
+	}
 }
 
 // A game's level scenes (src/level/README.md), as res:// paths: every scene in game/levels/ (where a new level goes),

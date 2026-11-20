@@ -7,12 +7,15 @@ import "core:encoding/json"
 import "core:fmt"
 import "core:net"
 import "core:os"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:time"
 
 // How long `start` waits for the game to answer (a cold shader cache, the first import).
 DRIVE_START_TIMEOUT :: 90 * time.Second
+// The frames a scene must have run before `start` judges the log: the scripts its start loads are parsed by then.
+DRIVE_START_FRAMES :: 5
 // How long `stop` waits for the game to quit before it kills it.
 DRIVE_STOP_TIMEOUT :: 20 * time.Second
 
@@ -21,7 +24,7 @@ Drive_Opts :: struct {
 	name:     string `usage:"the instance (start: default the first free number; any other verb: default the only one running)"`,
 	headless: bool `usage:"start: no window (shot then fails); default: a window, muted, on the leftmost screen, never taking focus"`,
 	strength: f64 `usage:"press: the action's strength (default 1)"`,
-	timeout:  f64 `usage:"seconds a waiting verb (pause, step, press for ticks, wait, shot, click) waits (default 10)"`,
+	timeout:  f64 `usage:"seconds a waiting verb (pause, step, press for ticks, wait, shot, click) waits (default 10; for n ticks: 10 beyond twice their time)"`,
 	all:      bool `usage:"events: every event state kept, not only those since the last events"`,
 	overflow: [dynamic]string `hint:"[game] <verb> [args] [-- game args]" usage:"the game (default: the only one, or the only one with an instance), the verb and its arguments (below); start: the game's own arguments after --"`,
 }
@@ -44,10 +47,13 @@ Drive_Instance :: struct {
 drive_details :: proc() -> string {
 	return(
 		"Verbs (each prints the game's JSON reply; ok false exits 1):\n" +
-		"  start [-- game args]     launch the game with its control socket (--headless: no window); prints its status\n" +
+		"  start [-- game args]     launch the game with its control socket (--headless: no window) and wait until its\n" +
+		"                           scene has run a few frames; prints its status. A GDScript error in its log by then\n" +
+		"                           fails it (script_errors: res://file.gd:line: message) and stops the game\n" +
 		"  stop                     quit it through the game, wait, and judge its log (errors, leaks: exit 1)\n" +
 		"  list                     the instances of the game and whether each runs\n" +
-		"  status                   mode, tick, verified tick, paused, level, players, local players, scene\n" +
+		"  status                   mode, tick, verified tick, paused, level, players, local players, scene, and\n" +
+		"                           script_errors when its log has any (a script loaded since start)\n" +
 		"  pause | resume           stop or restart a single-player session's clock (exact: nothing moves while paused)\n" +
 		"  step <n>                 a paused session steps exactly n ticks, sampling the input held now (it acts after the input delay)\n" +
 		"  press <action> [n]       hold an Input Map action (--strength); with n: for n ticks, then release (paused: steps them)\n" +
@@ -56,8 +62,12 @@ drive_details :: proc() -> string {
 		"  state [path]             the newest predicted State as JSON (tables: live items by index), or the part a path names: players.slots[0]\n" +
 		"  data [name[.path]]       the session data; constants [path]; input [path]: the local input sampled for the newest tick\n" +
 		"  changes                  what the newest tick changed against the one before (the op log)\n" +
+		"  values [k=v ..|clear]    the game's input values (Glue.input_values: what its scripts set, a camera's look) of\n" +
+		"                           local player 0, and those held; k=v (command's syntax, one each: yaw=0.25 look[2]=-1)\n" +
+		"                           holds them over what scripts set, every frame, until `values clear`: aims a\n" +
+		"                           first-person game (a camera rig that keeps its own look still shows that look)\n" +
 		"  events [name]            event states since the last `events` (--all: every one kept)\n" +
-		"  wait ticks <n>           until the shown tick moved n ticks (running sessions)\n" +
+		"  wait ticks <n>           until the shown tick moved n ticks (running sessions; 10 s beyond twice their time)\n" +
 		"  wait event <name>        until an event of that kind arrives after the previous reply\n" +
 		"  shot [file.png]          the window as a PNG (default .out/drive/<name>-<n>.png in the game)\n" +
 		"  ui                       the visible buttons and texts (path, class, text, disabled, rect)\n" +
@@ -134,7 +144,7 @@ cmd_drive :: proc(args: []string) -> Result {
 	request := Drive_Request {
 		op       = verb,
 		args     = verb_args,
-		timeout  = opts.timeout > 0 ? opts.timeout : 10,
+		timeout  = opts.timeout, // 0: the game's default (control.odin, CONTROL_TIMEOUT: scaled for ticks)
 		strength = opts.strength > 0 ? opts.strength : 1,
 	}
 	switch verb {
@@ -159,6 +169,9 @@ cmd_drive :: proc(args: []string) -> Result {
 	if !ok {
 		if process_alive(instance.pid) do return drive_failed("instance %s did not answer: %s", instance.name, reply)
 		return drive_failed("instance %s is not running (uni drive %s stop clears it)", instance.name, selected.name)
+	}
+	if verb == "status" && strings.has_suffix(reply, "}") {
+		if errors := drive_script_errors(instance); errors != "" do reply = aprintf("%s%s}", reply[:len(reply) - 1], errors)
 	}
 	value, _ := json.parse_string(reply, parse_integers = true)
 	object, _ := value.(json.Object)
@@ -189,7 +202,16 @@ drive_request :: proc(port: int, request: Drive_Request) -> (reply: string, ok: 
 	socket, dial_err := net.dial_tcp(net.Endpoint{net.IP4_Loopback, port})
 	if dial_err != nil do return aprintf("%v", dial_err), false
 	defer net.close(socket)
-	net.set_option(socket, .Receive_Timeout, time.Duration((request.timeout + 10) * f64(time.Second)))
+	// a backstop past the game's own deadline (it answers at that): with none given, the game's default for the most
+	// ticks an argument asks, at a tick rate of at least 1 Hz
+	backstop := request.timeout
+	if backstop <= 0 {
+		backstop = 10
+		for arg in request.args {
+			if ticks, parsed := strconv.parse_int(arg); parsed && ticks > 0 do backstop = max(backstop, 10 + 2 * f64(ticks))
+		}
+	}
+	net.set_option(socket, .Receive_Timeout, time.Duration((backstop + 10) * f64(time.Second)))
 	append_line := make([dynamic]u8)
 	append(&append_line, ..line)
 	append(&append_line, '\n')
@@ -353,11 +375,47 @@ drive_start :: proc(game: Game, opts: Drive_Opts, game_args: []string) -> Result
 		time.sleep(50 * time.Millisecond)
 	}
 	drive_save(game, instance)
-	reply, ok := drive_request(instance.port, {op = "status", timeout = 10})
-	if !ok do return drive_failed("the control socket does not answer: %s", reply)
+	// up: a scene is current and has run DRIVE_START_FRAMES frames (the socket answers once a frame), so the
+	// scripts its start loads have been parsed
+	reply := ""
+	frames := 0
+	for frames < DRIVE_START_FRAMES {
+		answer, ok := drive_request(instance.port, {op = "status", timeout = 10})
+		if !ok do return drive_failed("the control socket does not answer: %s", answer)
+		reply = answer
+		if !strings.contains(reply, `"scene":null`) do frames += 1
+		if time.tick_diff(deadline, time.tick_now()) > 0 do break
+	}
+	log_text, _ := read_text(log_path)
+	if errors := script_errors(log_text); len(errors) > 0 {
+		drive_stop(game, instance) // lists every problem of its log
+		encoded, _ := json.marshal(errors)
+		quoted_first, _ := json.marshal(aprintf("script error: %s", errors[0]))
+		return {
+			ok      = false,
+			summary = aprintf(
+				`{{"ok":false,"error":%s,"script_errors":%s,"name":%q,"log":%q}}`,
+				string(quoted_first),
+				string(encoded),
+				name,
+				log_path,
+			),
+		}
+	}
 	// the reply with the instance's name and log in front
 	summary := aprintf(`{{"name":%q,"log":%q,%s`, name, log_path, strings.trim_prefix(reply, "{"))
 	return {ok = true, summary = summary}
+}
+
+// The script errors in the instance's log so far (script_errors), as a reply's members (`,"script_errors":[...]`), or
+// "" when there are none.
+@(private)
+drive_script_errors :: proc(instance: Drive_Instance) -> string {
+	text, _ := read_text(instance.log)
+	errors := script_errors(text)
+	if len(errors) == 0 do return ""
+	encoded, _ := json.marshal(errors)
+	return aprintf(`,"script_errors":%s`, string(encoded))
 }
 
 // Quits the instance through the game (its own quit: sounds stopped, a clean exit), waits for it (killing it past
@@ -439,8 +497,9 @@ drive_failed :: proc(format: string, args: ..any) -> Result {
 
 // The godot suite's `drive` step: the game, headless with a single-player session at once, driven the way an agent
 // drives it: status, pause, exact steps, a timed press stepped while paused (the action released after), the state,
-// the sampled input, events, the menus' controls, a node found by its class, an expression, a refused screenshot (no window), a resume and a
-// wait on the session's own clock, then a stop whose log must be clean. Quiet unless it fails.
+// the sampled input, events, the menus' controls, a node found by its class, an expression, a refused screenshot (no
+// window), a resume and a wait on the session's own clock; its log clean until a script with a parse error is
+// loaded, which its log then names as `file:line` and which is all a stop finds. Quiet unless it fails.
 drive_check :: proc(game: Game) -> bool {
 	NAME :: "suite-check"
 	if instance, ok := drive_find(game, NAME); ok && process_alive(instance.pid) {
@@ -501,6 +560,7 @@ drive_check :: proc(game: Game) -> bool {
 	_, is_object := state["value"].(json.Object)
 	check(&failed, failed != "" || is_object, "the state is no object")
 	call(&instance, &failed, true, "input")
+	drive_check_values(&instance, &failed)
 	call(&instance, &failed, true, "events")
 	call(&instance, &failed, true, "ui")
 	sessions, _ := call(&instance, &failed, true, "find", "UnifiedSession")["nodes"].(json.Array)
@@ -519,13 +579,131 @@ drive_check :: proc(game: Game) -> bool {
 	call(&instance, &failed, false, "state", "no_such_field")
 	call(&instance, &failed, true, "resume")
 	call(&instance, &failed, true, "wait", "ticks", "8")
+	// no timeout given: the game's, scaled for the ticks; one given: that, however many ticks are asked
+	if failed == "" {
+		reply, _ := drive_request(instance.port, {op = "wait", args = {"ticks", "4"}})
+		check(&failed, strings.has_prefix(reply, `{"ok":true`), "wait ticks 4 with the game's timeout: %s", reply)
+		asked := time.tick_now()
+		reply, _ = drive_request(instance.port, {op = "wait", args = {"ticks", "100000"}, timeout = 0.3})
+		waited := time.duration_seconds(time.tick_since(asked))
+		check(
+			&failed,
+			strings.contains(reply, "timed out") && waited < 5,
+			"wait ticks 100000 --timeout 0.3: %s after %.1fs",
+			reply,
+			waited,
+		)
+	}
+	// a clean log so far; then a script with a parse error loaded: status names it (drive_script_errors), and it is
+	// all stop finds
+	log_text, _ := read_text(instance.log)
+	early := godot_problems(log_text)
+	check(&failed, len(early) == 0, "the log has problems before the broken script: %v", early)
+	BROKEN :: "suite-check-broken.gd"
+	write_text(join(drive_dir(game), BROKEN), "extends Node\n\nvar x: int = \n")
+	call(
+		&instance,
+		&failed,
+		true,
+		"eval",
+		`Engine.get_singleton("ResourceLoader").load("res://.out/drive/` + BROKEN + `")`,
+	)
+	if failed == "" && !strings.contains(drive_script_errors(instance), "res://.out/drive/" + BROKEN + ":3: ") {
+		failed = aprintf("status names no script error at %s:3: %s", BROKEN, drive_script_errors(instance))
+	}
 	stopped := drive_stop(game, instance)
-	if failed == "" && !stopped.ok do failed = aprintf("stop: %s", stopped.summary)
+	stop_reply, _ := json.parse_string(stopped.summary)
+	problems, _ := stop_reply.(json.Object)["problems"].(json.Array)
+	for problem in problems {
+		text, _ := problem.(json.String)
+		ours :=
+			strings.contains(text, BROKEN) || strings.contains(text, "Expected expression for variable initial value")
+		check(&failed, ours, "stop: a problem besides the broken script: %s", text)
+	}
+	check(&failed, len(problems) > 0, "stop found no problem with the broken script: %s", stopped.summary)
 	if failed != "" {
 		log("uni: %s drive: %s", game.name, failed)
 		if text, ok := read_text(instance.log); ok do log("%s", tail(text, 3000))
 	}
 	return failed == ""
+}
+
+// The drive step's `values` (a paused session): a game without input values says so; one with them holds a number
+// field (the first by name, or its first element) at what was set while frames step, whatever its scripts set every
+// frame, and lets go at `values clear`.
+@(private)
+drive_check_values :: proc(instance: ^Drive_Instance, failed: ^string) {
+	if failed^ != "" do return
+	values :: proc(instance: ^Drive_Instance, args: ..string) -> (object: json.Object, reply: string) {
+		reply, _ = drive_request(instance.port, {op = "values", args = args, timeout = 10})
+		value, _ := json.parse_string(reply, parse_integers = true)
+		object, _ = value.(json.Object)
+		return
+	}
+	shown, reply := values(instance)
+	if replied_ok, _ := shown["ok"].(json.Boolean); !replied_ok {
+		if !strings.contains(reply, "no input values") do failed^ = aprintf("values: %s", reply)
+		return
+	}
+	fields, _ := shown["value"].(json.Object)
+	names: [dynamic]string
+	for name in fields do append(&names, name)
+	slice.sort(names[:])
+	key := ""
+	for name in names {
+		#partial switch field in fields[name] {
+		case json.Float, json.Integer:
+			key = name
+		case json.Array:
+			if len(field) > 0 {
+				#partial switch _ in field[0] {
+				case json.Float, json.Integer:
+					key = aprintf("%s[0]", name)
+				}
+			}
+		}
+		if key != "" do break
+	}
+	if key == "" do return // no number to hold
+	number :: proc(object: json.Object, key: string) -> f64 {
+		fields, _ := object["value"].(json.Object)
+		name, _, _ := strings.partition(key, "[")
+		field := fields[name]
+		if list, is_list := field.(json.Array); is_list && len(list) > 0 do field = list[0]
+		#partial switch value in field {
+		case json.Float:
+			return value
+		case json.Integer:
+			return f64(value)
+		}
+		return -1
+	}
+	assignment := aprintf("%s=0.375", key)
+	set, reply_set := values(instance, assignment)
+	held, _ := set["held"].(json.Array)
+	if ok, _ := set["ok"].(json.Boolean); !ok || len(held) != 1 || number(set, key) != 0.375 {
+		failed^ = aprintf("values %s: %s", assignment, reply_set)
+		return
+	}
+	if reply_step, reached := drive_request(instance.port, {op = "step", args = {"3"}, timeout = 10}); !reached {
+		failed^ = aprintf("step 3 with %s held: %s", assignment, reply_step)
+		return
+	}
+	after, reply_after := values(instance)
+	if number(after, key) != 0.375 do failed^ = aprintf("%s did not stay held over 3 stepped frames: %s", assignment, reply_after)
+	again := aprintf("%s=0.25", key) // the same place again: replaces the held one, not a second
+	replaced, reply_replaced := values(instance, again)
+	held_now, _ := replaced["held"].(json.Array)
+	if (len(held_now) != 1 || number(replaced, key) != 0.25) && failed^ == "" {
+		failed^ = aprintf("values %s after %s: %s", again, assignment, reply_replaced)
+	}
+	refused, reply_refused := values(instance, "no_such_field=1")
+	if ok, _ := refused["ok"].(json.Boolean); ok && failed^ == "" do failed^ = aprintf("values no_such_field=1: %s", reply_refused)
+	cleared, reply_cleared := values(instance, "clear")
+	held_after, _ := cleared["held"].(json.Array)
+	if ok, _ := cleared["ok"].(json.Boolean); (!ok || len(held_after) != 0) && failed^ == "" {
+		failed^ = aprintf("values clear: %s", reply_cleared)
+	}
 }
 
 // The instance record `name`, if there is one.

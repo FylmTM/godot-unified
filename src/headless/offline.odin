@@ -3,6 +3,7 @@
 package headless
 
 import "base:intrinsics"
+import "base:runtime"
 import "core:fmt"
 import "core:os"
 @(require) import "core:slice" // only in generic procs
@@ -138,6 +139,21 @@ scripted :: proc(
 ) -> (
 	inputs: sim.Inputs(G),
 ) {
+	return scripted_given(game, simulation, tick, players, commands, &simulation.state)
+}
+
+// scripted with the script handed `state` (scripted: the simulation's current one).
+@(private)
+scripted_given :: proc(
+	game: ^$G,
+	simulation: ^sim.Sim(G),
+	tick: u32,
+	players: int,
+	commands: ^Scripted_Commands(G),
+	state: ^$State,
+) -> (
+	inputs: sim.Inputs(G),
+) {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	if !commands.seated {
 		for slot in 0 ..< players do commands.holder[slot] = slot + 1
@@ -151,11 +167,12 @@ scripted :: proc(
 	for slot in 0 ..< PLAYERS {
 		member := commands.holder[slot]
 		if member == 0 {
+			sim.unseat(simulation, slot) // whoever held it leaves now
 			continue
 		}
 		sim.seat(&inputs, simulation, slot, member, scripted_profile(game, simulation.seed, slot, commands))
 		// No scripted player: one who sends zero Inputs (as the Godot driver plays it).
-		inputs.input[slot] = sim.scripted_player_input(game, simulation.seed, slot, tick, &simulation.state)
+		inputs.input[slot] = sim.scripted_player_input(game, simulation.seed, slot, tick, state)
 		if game.scripted_commands == nil {
 			continue
 		}
@@ -163,7 +180,7 @@ scripted :: proc(
 		out.slot = slot
 		out.cap = sim.COMMANDS_PER_SLOT + 1 // one more than fits: a script that sends it is caught below
 		clear(&out.list)
-		game.scripted_commands(simulation.seed, slot, tick, &simulation.state, out)
+		game.scripted_commands(simulation.seed, slot, tick, state, out)
 		fmt.assertf(
 			len(out.list) <= sim.COMMANDS_PER_SLOT,
 			"%s's script sends slot %d more than %d commands at tick %d: a tick takes at most that many",
@@ -333,6 +350,9 @@ Run :: struct($G: typeid) {
 	commands:     Scripted_Commands(G), // who holds each slot (run_seat, run_scripted) and run_scripted's commands
 	kept_events:  [sim.MAX_RING_SIZE][dynamic]sim.Raw_Event, // each forward tick's events, by tick % MAX_RING_SIZE
 	floats:       [dynamic]u32, // the State's float offsets (sim.find_nan)
+	// run_scripted asks the script again with the state `window` ticks back and sets `problem` when it answers
+	// otherwise (sim.Game.scripted_input). Off unless set: the standard scenarios set it (run_synctest's `script_check`).
+	script_check: bool,
 }
 
 // A run of `game` from tick 0, on its levels, with its default Setup or `setup`, sync-tested `window` ticks back
@@ -543,7 +563,10 @@ run_inputs :: proc(run: ^Run($G)) -> (inputs: sim.Inputs(G)) {
 	simulation := run.simulation
 	for slot in 0 ..< sim.part(G, sim.GAME_PLAYERS) {
 		member := run.commands.holder[slot]
-		if member == 0 do continue
+		if member == 0 {
+			sim.unseat(simulation, slot) // whoever held it leaves now
+			continue
+		}
 		sim.seat(
 			&inputs,
 			simulation,
@@ -557,11 +580,43 @@ run_inputs :: proc(run: ^Run($G)) -> (inputs: sim.Inputs(G)) {
 
 // One forward tick played by the game's scripted player, then its sync-test: unless someone was seated already
 // (run_seat, an earlier call), slots < `players` present (slot i is member i + 1); then as `seats` say (taken on the
-// first call), as run_sim plays.
+// first call), as run_sim plays. With `script_check`, the script is asked again with the state `window` ticks back
+// (when the ring has it): a different input or command sets `problem`, as a session's clients would each hand it
+// their own prediction and play another player than an offline run (sim.Game.scripted_input).
 run_scripted :: proc(run: ^Run($G), players: int, seats: []Seat = nil) {
 	if run.commands.seats == nil do run.commands.seats = seats
-	inputs := scripted(run.simulation.game, run.simulation, run.simulation.tick + 1, players, &run.commands)
+	simulation := run.simulation
+	tick := simulation.tick + 1
+	inputs := scripted(simulation.game, simulation, tick, players, &run.commands)
+	older_tick := simulation.tick - min(simulation.tick, run.window)
+	if older := sim.state_at(simulation, older_tick);
+	   run.script_check && run.problem == "" && older_tick < simulation.tick && older != nil {
+		again := scripted_given(simulation.game, simulation, tick, players, &run.commands, older)
+		if !script_inputs_same(&inputs, &again) {
+			run.problem = fmt.tprintf(
+				"%s's scripted player reads the state: for tick %d it answered otherwise given tick %d's state than tick %d's (a session's clients hand it their own predictions: a session would play another player than an offline run; sim.Game.scripted_input)",
+				simulation.game.name,
+				tick,
+				older_tick,
+				simulation.tick,
+			)
+		}
+	}
 	run_step(run, &inputs)
+}
+
+// Whether two ticks' scripted inputs hold the same Inputs and commands (their presence is the harness's, alike).
+@(private)
+script_inputs_same :: proc(a, b: ^sim.Inputs($G)) -> bool {
+	if a.command_count != b.command_count do return false
+	if !bytes_same(&a.input, &b.input, size_of(a.input)) do return false
+	return bytes_same(&a.commands, &b.commands, a.command_count * size_of(a.commands[0]))
+}
+
+// Whether `size` bytes at `a` and `b` are the same (a non-generic home for its import: -vet).
+@(private)
+bytes_same :: proc(a, b: rawptr, size: int) -> bool {
+	return runtime.memory_compare(a, b, size) == 0
 }
 
 // The test changed the state (or the World) at the current tick: save it again, and never restore before it.
@@ -595,9 +650,17 @@ run_events :: proc(
 }
 
 // `synctest`: run_scripted for `ticks` ticks, rolling back `window` ticks every tick (at most max_window(game), the
-// ring's depth). `seats`: who comes and goes (Seat; none: slots < players all along).
-run_synctest :: proc(game: ^$G, ticks, window: u32, seed: u64, players: int, seats: []Seat = nil) -> Synctest_Result {
+// ring's depth). `seats`: who comes and goes (Seat; none: slots < players all along). `script_check`: Run.script_check.
+run_synctest :: proc(
+	game: ^$G,
+	ticks, window: u32,
+	seed: u64,
+	players: int,
+	seats: []Seat = nil,
+	script_check := false,
+) -> Synctest_Result {
 	run := run_begin(game, seed, window = window)
+	run.script_check = script_check
 	defer run_end(&run)
 	for _ in 1 ..= ticks do run_scripted(&run, players, seats)
 	return run.result

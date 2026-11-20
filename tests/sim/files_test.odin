@@ -20,7 +20,7 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	for k in 0 ..< 50 {
 		inputs: toy.Inputs
 		inputs.present = {0, 1}
-		if k == 0 || k == 30 do sim.join(&inputs, 1, k + 2) // a join record, and another member later
+		if k == 0 || k == 30 do join_record(&inputs, 1, k + 2) // a join record, and another member later
 		inputs.replaced = {1} if k % 7 == 0 else {}
 		inputs.input[0] = toy.scripted_input(99, 0, u32(k + 1))
 		inputs.input[1] = toy.scripted_input(99, 1, u32(k + 1))
@@ -81,7 +81,7 @@ an_unended_log_with_a_cut_tail_keeps_its_whole_ticks :: proc(t: ^testing.T) {
 	for k in 0 ..< 20 {
 		inputs: toy.Inputs
 		inputs.present = {0}
-		if k == 0 do sim.join(&inputs, 0, 1)
+		if k == 0 do join_record(&inputs, 0, 1)
 		inputs.input[0] = toy.scripted_input(1, 0, u32(k + 1))
 		sim.log_stream_tick(&stream, &inputs)
 	}
@@ -122,7 +122,7 @@ log_checkpoints_round_trip :: proc(t: ^testing.T) {
 	for k in 0 ..< 40 {
 		inputs: toy.Inputs
 		inputs.present = {0}
-		if k == 0 do sim.join(&inputs, 0, 1)
+		if k == 0 do join_record(&inputs, 0, 1)
 		inputs.input[0] = toy.scripted_input(1, 0, u32(k + 5))
 		sim.log_stream_tick(&stream, &inputs)
 		sim.log_append(&expected, &inputs)
@@ -429,7 +429,7 @@ an_unended_log_damaged_in_the_middle_is_refused :: proc(t: ^testing.T) {
 		if k == 1 do second = len(recording)
 		inputs: toy.Inputs
 		inputs.present = {0}
-		if k == 0 do sim.join(&inputs, 0, 1)
+		if k == 0 do join_record(&inputs, 0, 1)
 		sim.log_stream_tick(&stream, &inputs)
 	}
 	recording[second] = 7 // an unknown record kind, four whole ticks after it

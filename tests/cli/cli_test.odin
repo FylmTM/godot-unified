@@ -10,6 +10,7 @@ import "core:strings"
 import "core:testing"
 import "core:time"
 import "unified:cli"
+import "unified:level"
 
 @(test)
 config_sections_keys_quotes_comments :: proc(t: ^testing.T) {
@@ -536,4 +537,22 @@ doc_source_block_takes_commented_bodies :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, len(cli.doc_source_block(commented)), 4)
 	testing.expect_value(t, len(cli.doc_source_block([]string{"Plain :: struct {", "\ta: int,", "}"})), 0)
+}
+
+// The .level uni bake writes before a level's first bake (cli.level_placeholders) reads as an empty level with the
+// current format: the extension that embeds it builds and runs until the bake replaces it.
+@(test)
+the_placeholder_level_is_a_valid_empty_one :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	bytes := cli.empty_level()
+	loaded, ok := level.load(bytes)
+	testing.expectf(
+		t,
+		ok,
+		"level.load refuses it (format version %d, level.VERSION %d)",
+		cli.LEVEL_FORMAT_VERSION,
+		level.VERSION,
+	)
+	testing.expect(t, len(loaded.bodies) == 0 && len(loaded.markers) == 0, "empty")
+	testing.expect_value(t, level.scene_of(bytes), "")
 }

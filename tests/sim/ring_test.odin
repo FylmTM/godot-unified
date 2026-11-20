@@ -13,7 +13,7 @@ run :: proc(simulation: ^toy.Sim, ticks: u32, players := 4) {
 		inputs: toy.Inputs
 		for slot in 0 ..< players {
 			inputs.present += {slot}
-			if sim.player_in_slot(simulation, slot) == {} do sim.join(&inputs, slot, slot + 1)
+			if sim.player_in_slot(simulation, slot) == {} do join_record(&inputs, slot, slot + 1)
 			inputs.input[slot] = toy.scripted_input(simulation.seed, slot, number)
 		}
 		sim.step(simulation, &inputs)

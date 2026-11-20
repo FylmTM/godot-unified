@@ -27,10 +27,14 @@ BLESS :: #config(UNIFIED_BLESS, false)
 
 // A game's suite: the game and the parameters of its runs.
 Suite :: struct($G: typeid) {
-	game:    ^G, // its scripted player (sim.Game.scripted_input) plays every run, on its levels (sim.Game.levels)
-	players: int, // scripted players in offline runs
-	seed:    u64,
-	ticks:   u32, // length of offline runs and sessions
+	game:               ^G, // its scripted player (sim.Game.scripted_input) plays every run, on its levels (sim.Game.levels)
+	players:            int, // scripted players in offline runs
+	seed:               u64,
+	ticks:              u32, // length of offline runs and sessions
+	// The game's scripted player steers by the state on purpose: rollback_every_tick and presence_churn don't ask it
+	// again with an older state (headless.Run.script_check; its sessions then play another player than its offline
+	// runs, and a Godot session's checksums are not the offline binary's).
+	script_reads_state: bool,
 }
 
 // Whether the game passes sim.game_violation (an event field named `kind`, a Setup that doesn't read as sent...): one
@@ -73,7 +77,14 @@ rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 	) {
 		return
 	}
-	result := headless.run_synctest(suite.game, suite.ticks, window, suite.seed, suite.players)
+	result := headless.run_synctest(
+		suite.game,
+		suite.ticks,
+		window,
+		suite.seed,
+		suite.players,
+		script_check = !suite.script_reads_state,
+	)
 	testing.expectf(
 		t,
 		result.mismatches == 0,
@@ -202,7 +213,15 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 		{tick = start + 12, slot = back, member = 0},
 		{tick = start + 20, slot = back, member = 1}, // member 1 comes back in another slot
 	}
-	result := headless.run_synctest(suite.game, suite.ticks, window, suite.seed, suite.players, seats)
+	result := headless.run_synctest(
+		suite.game,
+		suite.ticks,
+		window,
+		suite.seed,
+		suite.players,
+		seats,
+		script_check = !suite.script_reads_state,
+	)
 	testing.expectf(
 		t,
 		result.mismatches == 0,

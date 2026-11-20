@@ -10,7 +10,7 @@ import "unified:sim"
 presence_step :: proc(simulation: ^toy.Sim, slots: sim.Slots, joins: ..[2]int) {
 	inputs: toy.Inputs
 	inputs.present = slots
-	for join in joins do sim.join(&inputs, join[0], join[1])
+	for join in joins do join_record(&inputs, join[0], join[1])
 	sim.step(simulation, &inputs)
 }
 
@@ -122,7 +122,7 @@ a_slot_present_without_a_join_record_stays_absent :: proc(t: ^testing.T) {
 	inputs: toy.Inputs
 	inputs.present = {0, 1}
 	inputs.input[1].dx = 64
-	sim.join(&inputs, 0, 1)
+	join_record(&inputs, 0, 1)
 	sim.step(simulation, &inputs)
 	testing.expect_value(t, sim.player_in_slot(players, 1), sim.Player{})
 	present := 0
@@ -191,8 +191,8 @@ a_member_who_just_left_is_not_forgotten_on_that_tick :: proc(t: ^testing.T) {
 	inputs: sim.Inputs(Tight_Game)
 	swap :: proc(simulation: ^sim.Sim(Tight_Game), inputs: ^sim.Inputs(Tight_Game), a, b: int) {
 		inputs^ = {}
-		sim.join(inputs, 0, a)
-		sim.join(inputs, 1, b)
+		join_record(inputs, 0, a)
+		join_record(inputs, 1, b)
 		sim.step(simulation, inputs)
 	}
 	swap(simulation, &inputs, 1, 2)
@@ -229,4 +229,63 @@ the_queries_take_a_simulation :: proc(t: ^testing.T) {
 	for _ in sim.next(&present) do present_count += 1
 	for _ in sim.next(&known) do known_count += 1
 	testing.expect(t, present_count == 1 && known_count == 2, "present 1, known 2")
+}
+
+// A member seated once stays while each tick's inputs start from seated_inputs (one join record, on the first tick);
+// unseat lets them go on the next tick (their leave), and nobody is asked for after.
+@(test)
+seated_inputs_keep_a_member_seated_until_unseat :: proc(t: ^testing.T) {
+	simulation := sim.create(&toy.GAME, 3)
+	defer sim.destroy(simulation)
+	for tick in 1 ..= 20 {
+		inputs := sim.seated_inputs(simulation)
+		if tick == 1 {
+			sim.seat(&inputs, simulation, 1, 4)
+		} else {
+			testing.expect_value(t, inputs.joins[1], 0) // held already: no join record
+		}
+		sim.step(simulation, &inputs)
+		testing.expect_value(t, sim.player_in_slot(simulation, 1).id, 4)
+	}
+	sim.unseat(simulation, 1)
+	inputs := sim.seated_inputs(simulation)
+	testing.expect_value(t, inputs.present, sim.Slots{})
+	sim.step(simulation, &inputs)
+	testing.expect_value(t, sim.player_in_slot(simulation, 1), sim.Player{})
+	empty: toy.Inputs
+	sim.step(simulation, &empty) // nobody seated by hand: nobody asked for
+}
+
+// A member seated once, then a tick's inputs made without them (a zero Inputs): step names the slot and the cause
+// rather than letting them leave unseen.
+@(test)
+a_seated_member_left_out_of_a_tick_panics :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the panic ends the test before destroy
+	simulation := sim.create(&toy.GAME, 3)
+	inputs: toy.Inputs
+	sim.seat(&inputs, simulation, 0, 1)
+	sim.step(simulation, &inputs)
+	testing.expect_assert_message(
+		t,
+		"sim.step: tick 2's inputs leave out slot 0, where sim.seat seated member 1 from tick 1. Inputs are one tick's: start each tick's from sim.seated_inputs (or seat the member every tick), and sim.unseat a member to have them leave",
+	)
+	fresh: toy.Inputs
+	sim.step(simulation, &fresh)
+}
+
+// A raw join record, as the relay writes one (sim.seat writes them for a test that seats members): `member` present
+// in `slot` for this tick's inputs only, bringing `profile` (the zero Profile when left out).
+join_record :: proc {
+	join_record_plain,
+	join_record_with_profile,
+}
+
+join_record_plain :: proc(inputs: ^sim.Inputs($G), slot: int, member: int) {
+	join_record_with_profile(inputs, slot, member, sim.part(G, sim.GAME_PROFILE){})
+}
+
+join_record_with_profile :: proc(inputs: ^sim.Inputs($G), slot: int, member: int, profile: $P) {
+	inputs.present += {slot}
+	inputs.joins[slot] = u16(member)
+	inputs.profiles[slot] = profile
 }

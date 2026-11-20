@@ -105,7 +105,7 @@ inputs_from_the_wire_read_as_declared :: proc(t: ^testing.T) {
 	defer sim.destroy(simulation)
 	inputs: sim.Inputs(Moded)
 	inputs.present = {0}
-	sim.join(&inputs, 0, 1)
+	join_record(&inputs, 0, 1)
 	inputs.input[0] = {
 		mode    = .Run,
 		buttons = {.Spawn},
@@ -207,7 +207,7 @@ fuzz_inputs_read_as_declared :: proc(t: ^testing.T) {
 	simulation := sim.create(&MIXED, 1)
 	defer sim.destroy(simulation)
 	inputs: sim.Inputs(Mixed)
-	sim.join(&inputs, 0, 1)
+	join_record(&inputs, 0, 1)
 	state: u64 = 0x9E37_79B9_7F4A_7C15
 	for k in 0 ..< 4000 {
 		bytes := cast(^[size_of(Mixed_Input)]u8)&inputs.input[0]
@@ -277,7 +277,7 @@ input_collections_read_as_declared :: proc(t: ^testing.T) {
 	simulation := sim.create(&LISTED, 1)
 	defer sim.destroy(simulation)
 	inputs: sim.Inputs(Listed)
-	sim.join(&inputs, 0, 1)
+	join_record(&inputs, 0, 1)
 	sim.append(&inputs.input[0].moves, 7)
 	sim.incl(&inputs.input[0].unlocked, 9)
 	valid := inputs.input[0]

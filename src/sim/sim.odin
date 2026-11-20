@@ -239,8 +239,12 @@ Game :: struct(
 	// called by the sim; without one they play zero Inputs): the input of the player in `slot` for `tick`, and right
 	// after it that player's commands (sim.send_command(out, command)).
 	// `state` is the caller's current state, never nil (a client without one yet, a late joiner before its snapshot,
-	// plays zero Inputs and sends no commands meanwhile); a script that answers from (seed, slot, tick) alone
-	// (sim.script_bits) gives every client of a session and every offline run the same player.
+	// plays zero Inputs and sends no commands meanwhile). The game's own script answers from (seed, slot, tick) alone
+	// (sim.script_bits), so every client of a session and every offline run play the same player: a session's clients
+	// each hand it their own prediction. The standard scenarios rollback_every_tick and presence_churn ask it again
+	// with an older state and fail when it answers otherwise (headless.Run.script_check), unless the game's suite says
+	// its script steers by the state (scenarios.Suite.script_reads_state). Nothing else checks it: a test's bot that
+	// steers by the state plugs in here, for its own runs and sessions.
 	scripted_input:        proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
 	scripted_commands:     proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^Command_Out(Cmd)),
 	// Optional, never called by the sim: the Profile a scripted player in `slot` joins with (without one: the zero
@@ -376,6 +380,7 @@ Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	// Game.save's answer for each stepped tick, by ring slot (nil without a Game.save): save_changed reads a verified
 	// tick's, whether or not the ring kept its state.
 	saves:        []Saved_Tick(part(G, GAME_SETUP)),
+	seats:        [part(G, GAME_PLAYERS)]Hand_Seat, // the members sim.seat seated by hand (step asks for them)
 }
 
 // Game.save's answer for a stepped tick: whether it gave a save, and the Setup.
@@ -764,10 +769,12 @@ ring_slot :: #force_inline proc(simulation: ^Sim($G), tick: u32) -> int {
 // timing the save apart); events_at answers for such a tick, state_at, restore and snapshot_encode don't. The slot is
 // the new tick's from the start: it never answers for the tick it held before. The State's Players is updated first
 // (players.odin) and its join and leave events emitted before the game's. Each Input is read as every peer reads
-// bytes from another machine (inputs_as_read); `inputs` itself is left as it is.
+// bytes from another machine (inputs_as_read); `inputs` itself is left as it is. Panics on inputs that leave out a
+// member `seat` seated by hand and no `unseat` let go (seats_check).
 step :: proc(simulation: ^Sim($G), inputs: ^Inputs(G), save := true) {
 	read := inputs_as_read(simulation, inputs) // as every peer reads them: `inputs` stays as sent
 	number := simulation.tick + 1
+	seats_check(simulation, read, number)
 	slot := &simulation.ring[ring_slot(simulation, number)]
 	slot.tick = number
 	slot.valid = true

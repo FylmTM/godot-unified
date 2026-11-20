@@ -1064,6 +1064,7 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 	input_sample_begin(dev_wants_keyboard())
 	if api.installed {
 		gd.emit_signal(session.obj, gd.sn("input_wanted")) // scripts set Unified.input for this very sample
+		control_hold_input() // what `uni drive values` holds, over what scripts set
 		api.sample_input()
 	}
 	if lobby != nil && lobby.main_frame != nil && api.running() do lobby.main_frame()

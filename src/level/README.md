@@ -101,4 +101,6 @@ other levels is refused. A game's World gets the levels from `world_create` and 
 The exported file is committed next to its scene (headless runs and CI need no Godot). `uni bake` writes it and
 checks that it is current (`uni help`). A game's level scenes are those in `game/levels/` (not its subfolders: they
 hold the parts a level instances), where a new one goes, and any other scene with its `.level` beside it, wherever
-the game keeps it.
+the game keeps it. A new level's sim embeds a file the bake makes, and the bake needs the game's extension, which
+holds the sim: `uni bake` first writes an empty `.level` beside each level scene that has none, so the extension
+builds, then bakes over it.
