@@ -556,3 +556,23 @@ the_placeholder_level_is_a_valid_empty_one :: proc(t: ^testing.T) {
 	testing.expect(t, len(loaded.bodies) == 0 && len(loaded.markers) == 0, "empty")
 	testing.expect_value(t, level.scene_of(bytes), "")
 }
+
+// `uni tool <script>`: a name ending in .gd is a script file by path, anywhere (an agent's throwaway script), handed
+// to Godot absolute with forward slashes; no such file: none.
+@(test)
+tool_script_takes_a_file_by_path :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	dir, temp_err := os.make_directory_temp("", "unified-cli-test-*", context.allocator)
+	testing.expect(t, temp_err == nil)
+	defer os.remove_all(dir)
+	path := cli.join(dir, "throwaway.gd")
+	testing.expect(t, cli.write_file(path, transmute([]byte)string("extends UnifiedTool\n")), path)
+	script := cli.tool_script({name = "game", dir = cli.join(dir, "game")}, path)
+	testing.expect(t, strings.has_suffix(script, "/throwaway.gd") && !strings.contains(script, "\\"), script)
+	testing.expect(t, os.is_absolute_path(script), script)
+	testing.expect_value(
+		t,
+		cli.tool_script({name = "game", dir = cli.join(dir, "game")}, cli.join(dir, "gone.gd")),
+		"",
+	)
+}

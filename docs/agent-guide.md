@@ -34,8 +34,9 @@ one's options. A game repo holds one game, so no command needs its name.
 - Before handing work back: `./uni verify`
 
 The multi-step procedures are skills in `.claude/skills/unified-*/SKILL.md` (plain Markdown, for any agent):
-`unified-godot` (checking and play-checking in Godot), `unified-sim-change` (a change that moves the sim's results)
-and `unified-desync` (finding a determinism bug).
+`unified-godot` (checking and play-checking in Godot), `unified-godot-authoring` (scenes, levels, input maps and UI
+without the editor), `unified-sim-change` (a change that moves the sim's results) and `unified-desync` (finding a
+determinism bug).
 
 ## How the integration works
 

@@ -538,7 +538,10 @@ tool_details :: proc() -> string {
 		"The result line on stdout ends with what the script added to its result (UnifiedTool.result) as JSON:\n" +
 		"`%s`. With --json, the whole UNIFIED_RESULT object\n" +
 		"(steps, errors and the script's own keys) is the result's `data`. To read a value out of Godot, a script\n" +
-		"puts it in `result`.",
+		"puts it in `result`.\n\n" +
+		"<script> is a name (game/tools/<name>.gd, else unified's) or a .gd file by path, anywhere: a throwaway\n" +
+		"script an agent writes to make or change the project's files through Godot's own API (a level scene\n" +
+		"saved with ResourceSaver, input actions with ProjectSettings.save()), run without joining the project.",
 		TOOL_TIMEOUT / 60,
 		`survivor validate: ok in 0.8s: {"contract":"ok",...}`,
 	)
@@ -577,7 +580,14 @@ cmd_tool :: proc(args: []string) -> Result {
 	}
 	script := tool_script(selected, name)
 	if script == "" {
-		usage("%s has no tool script %s (game/tools/ or unified's src/godot/tools/)", selected.name, name)
+		usage(
+			"%s has no tool script %s (game/tools/ or unified's src/godot/tools/, or a .gd file by path)",
+			selected.name,
+			name,
+		)
+	}
+	if strings.has_suffix(name, ".gd") {
+		name = strings.trim_suffix(os.base(name), ".gd") // the result line's and --shots' name
 	}
 	if opts.shots && !opts.window {
 		usage("--shots needs --window")

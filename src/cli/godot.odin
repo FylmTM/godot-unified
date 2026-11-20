@@ -450,8 +450,16 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 }
 
 // A tool script by name: the game's game/tools/<name>.gd, else unified's (src/godot/tools, mirrored as
-// res://addons/unified/) ("" when neither has it).
+// res://addons/unified/) ("" when neither has it). A name ending in .gd is a script file by path instead (relative to
+// the working directory), anywhere: an agent's throwaway script, run against the project without joining it. It comes
+// back absolute, which Godot's -s takes as it takes a res:// path ("" when there is no such file).
 tool_script :: proc(game: Game, name: string) -> string {
+	if strings.has_suffix(name, ".gd") {
+		if !os.is_file(name) do return ""
+		path, _ := os.get_absolute_path(name, context.allocator)
+		slashed, _ := strings.replace_all(path, "\\", "/")
+		return slashed
+	}
 	if os.is_file(join(game.dir, "game", "tools", aprintf("%s.gd", name))) {
 		return aprintf("res://game/tools/%s.gd", name)
 	}
