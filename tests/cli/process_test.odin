@@ -1,7 +1,8 @@
-// Captured runs (src/cli/process.odin): what they leave behind.
+// Captured runs (src/cli/process.odin): what they leave behind, and that every process start goes through cli.spawn.
 package test_cli
 
 import "core:os"
+import "core:strings"
 import "core:testing"
 import "unified:cli"
 
@@ -30,4 +31,36 @@ captured_runs_leave_nothing_behind :: proc(t: ^testing.T) {
 
 	entries, _ := os.read_all_directory_by_path(cli.join(dir, "tmp"), context.temp_allocator)
 	testing.expectf(t, len(entries) == 0, "%d files left in .out/tmp", len(entries))
+}
+
+// Every process start in the repo's Odin code goes through cli.spawn: a start of core:os's own (os.process_start,
+// os.process_exec) anywhere in a binary that holds the CLI, a test's included, would inherit the capture files a start
+// there makes inheritable for an instant (Windows) and keep them past their removal. Only start_process, spawn's own
+// (src/cli/spawn_*.odin), calls core:os.
+@(test)
+no_process_starts_outside_spawn :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	root := #directory + "/../.."
+	calls := []string{"os." + "process_start(", "os." + "process_exec("} // split: this file holds neither
+	walk :: proc(t: ^testing.T, dir: string, calls: []string) {
+		entries, _ := os.read_all_directory_by_path(dir, context.temp_allocator)
+		for entry in entries {
+			if entry.type == .Directory {
+				if !strings.has_prefix(entry.name, ".") && entry.name != "unified" do walk(t, entry.fullpath, calls)
+				continue
+			}
+			if !strings.has_suffix(entry.name, ".odin") || strings.has_prefix(entry.name, "spawn_") do continue
+			text, _ := os.read_entire_file(entry.fullpath, context.temp_allocator)
+			for call in calls {
+				testing.expectf(
+					t,
+					!strings.contains(string(text), call),
+					"%s calls %s: start processes with cli.run_proc or cli.start (cli.spawn)",
+					entry.fullpath,
+					call,
+				)
+			}
+		}
+	}
+	for dir in ([]string{"src", "tests", "tools", "examples"}) do walk(t, cli.join(root, dir), calls)
 }

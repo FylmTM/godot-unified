@@ -312,8 +312,11 @@ spawn_lock: sync.Mutex
 // Starts a process whose stdio are among `own`, files opened for it alone. On Windows a child inherits every
 // inheritable handle open while it starts, so those files are opened not inheritable and made so only for this start,
 // under a lock no other start runs beside: each child holds its own stdio and nothing else, and a capture file its
-// caller has collected can be removed though a sibling started later still runs. On macOS the child comes from
-// posix_spawn (spawn_darwin.odin: a forked child can be killed before it execs).
+// caller has collected can be removed though a sibling started later still runs. That holds only while every start in
+// the program takes the lock: one through os.process_start or os.process_exec, in the CLI or in a test sharing its
+// binary, would inherit whatever files a start here has made inheritable for that instant and hold them open
+// (tests/cli, no_process_starts_outside_spawn, fails on one). On macOS the child comes from posix_spawn
+// (spawn_darwin.odin: a forked child can be killed before it execs).
 spawn :: proc(desc: os.Process_Desc, own: ..^os.File) -> (os.Process, os.Error) {
 	sync.mutex_guard(&spawn_lock)
 	for file in own do set_inheritable(file, true)
