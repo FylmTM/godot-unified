@@ -1384,8 +1384,10 @@ make_frame :: proc(
 	local_players: [LOCAL_MAX]sim.Player,
 	out: ^Frame_Data,
 	poses: ^Pose_Memory,
-) -> Frame(G, View, MultiView) {
-	return {
+) -> (
+	frame: Frame(G, View, MultiView),
+) {
+	frame = {
 		state         = state,
 		world         = simulation.world,
 		tick          = tick,
@@ -1396,6 +1398,12 @@ make_frame :: proc(
 		out           = out,
 		poses         = poses,
 	}
+	when size_of(sim.part(G, sim.GAME_INPUT)) > 0 {
+		for &input, local in frame.local_inputs {
+			if local_players[local] != {} do input_sample_peek(local, sim.bytes_of(&input))
+		}
+	}
+	return
 }
 
 // Runs the game's fill_frame on a Frame, marked for the watchdog (a fill that never returns is a freeze).

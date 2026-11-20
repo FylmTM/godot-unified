@@ -136,6 +136,13 @@ input_sample_take :: proc(local: int, out: []u8) {
 	sync.atomic_store(&input_sample.locals[local].taken, input_sample.locals[local].seq)
 }
 
+// Session thread: local player `local`'s newest sample's bytes, leaving it untaken (Frame.local_inputs).
+@(private)
+input_sample_peek :: proc(local: int, out: []u8) {
+	sync.guard(&input_sample.mu)
+	copy(out, input_sample.locals[local].bytes[:len(out)])
+}
+
 // A new session: nothing sampled for it yet.
 @(private)
 input_sample_reset :: proc() {

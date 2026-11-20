@@ -34,6 +34,8 @@ seen: struct {
 	setup:        u32, // atomic: the last Frame's Setup's life_bonus + 1 (0: no Setup)
 	color:        u32, // atomic: the local player's colour (their Profile's)
 	second_color: u32, // atomic: the colour of whoever holds slot 1
+	local_dx:     i32, // atomic: the last Frame's local_inputs[0].dx + 100 when local player 0 plays (0: never)
+	nobody_dx:    i32, // atomic: the last Frame's local_inputs[1].dx (nobody plays local index 1)
 }
 
 @(private = "file")
@@ -60,6 +62,8 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 			})
 		}
 		if local := sim.player_data(&frame.state.players, frame.local_players[0]); local != nil {
+			sync.atomic_store(&seen.local_dx, i32(frame.local_inputs[0].dx) + 100)
+			sync.atomic_store(&seen.nobody_dx, i32(frame.local_inputs[1].dx))
 			sync.atomic_store(&seen.bumps, local.bumps)
 			sync.atomic_store(&seen.bump_fold, local.bump_fold)
 			sync.atomic_store(&seen.color, local.color)
@@ -294,6 +298,10 @@ driver_sessions :: proc(t: ^testing.T) {
 		}
 		testing.expect(t, frame != nil && frame.tick >= 23, "the last frame is at the end")
 		testing.expect(t, sync.atomic_load(&seen.extracted) > 0)
+		// fill_frame saw the main thread's newest sample (dx 1) as local player 0's, and nothing for a local index
+		// nobody plays
+		testing.expect_value(t, sync.atomic_load(&seen.local_dx), 101)
+		testing.expect_value(t, sync.atomic_load(&seen.nobody_dx), 0)
 		if frame != nil && frame.n_views == 1 && frame.n_multis == 1 {
 			// the sampled dx moved the dot every tick; the host remembered where it was one tick earlier
 			dot, spark := frame.views[0], frame.multis[0]
