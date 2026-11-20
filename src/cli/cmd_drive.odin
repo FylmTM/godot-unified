@@ -56,7 +56,8 @@ drive_details :: proc() -> string {
 		"                           script_errors when its log has any (a script loaded since start)\n" +
 		"  pause | resume           stop or restart a single-player session's clock (exact: nothing moves while paused)\n" +
 		"  step <n>                 a paused session steps exactly n ticks, sampling the input held now (it acts after the input delay)\n" +
-		"  press <action> [n]       hold an Input Map action (--strength); with n: for n ticks, then release (paused: steps them)\n" +
+		"  press <action> [n]       hold an Input Map action (--strength); with n: for n ticks, then release (paused: steps them);\n" +
+		"                           polling (Input.is_action_pressed) and input handlers (_unhandled_input) both see it\n" +
 		"  release <action>         let go of it\n" +
 		"  command <name> [k=v ..]  send one of the game's commands (any, Cmd_Dev_* too) as local player 0 (sim units; a player by its key)\n" +
 		"  state [path]             the newest predicted State as JSON (tables: live items by index), or the part a path names: players.slots[0]\n" +
@@ -496,10 +497,11 @@ drive_failed :: proc(format: string, args: ..any) -> Result {
 }
 
 // The godot suite's `drive` step: the game, headless with a single-player session at once, driven the way an agent
-// drives it: status, pause, exact steps, a timed press stepped while paused (the action released after), the state,
-// the sampled input, events, the menus' controls, a node found by its class, an expression, a refused screenshot (no
-// window), a resume and a wait on the session's own clock; its log clean until a script with a parse error is
-// loaded, which its log then names as `file:line` and which is all a stop finds. Quiet unless it fails.
+// drives it: status, pause, exact steps, a timed press stepped while paused (an _unhandled_input handler sees it; the
+// action released after), the state, the sampled input, events, the menus' controls, a node found by its class, an
+// expression, a refused screenshot (no window), a resume and a wait on the session's own clock; its log clean until a
+// script with a parse error is loaded, which its log then names as `file:line` and which is all a stop finds. Quiet
+// unless it fails.
 drive_check :: proc(game: Game) -> bool {
 	NAME :: "suite-check"
 	if instance, ok := drive_find(game, NAME); ok && process_alive(instance.pid) {
@@ -549,11 +551,30 @@ drive_check :: proc(game: Game) -> bool {
 	check(&failed, from == paused + 16, "step 16 from the pause went from %d to %d", paused, from)
 	stepped := tick(call(&instance, &failed, true, "step", "3"))
 	check(&failed, stepped == from + 3, "step 3 went from %d to %d", from, stepped)
+	// a node whose _unhandled_input records the press, as a game that sends its commands from a handler
+	for expression in ([]string {
+			`root.set_meta("drive_probe", Engine.get_singleton("ClassDB").instantiate("GDScript"))`,
+			`root.get_meta("drive_probe").set_source_code("extends Node
+var seen: bool = false
+func _unhandled_input(event: InputEvent) -> void:
+	if event.is_action_pressed(\"ui_right\"):
+		seen = true
+")`,
+			`root.get_meta("drive_probe").reload()`,
+			`root.set_meta("drive_probe_node", Engine.get_singleton("ClassDB").instantiate("Node"))`,
+			`root.get_meta("drive_probe_node").set_script(root.get_meta("drive_probe"))`,
+			`root.add_child(root.get_meta("drive_probe_node"))`,
+		}) {
+		call(&instance, &failed, true, "eval", expression)
+	}
 	pressed := tick(call(&instance, &failed, true, "press", "ui_right", "4"))
 	check(&failed, pressed == stepped + 4, "a press for 4 ticks went from %d to %d", stepped, pressed)
 	held := call(&instance, &failed, true, "eval", `Input.is_action_pressed("ui_right")`)
 	still, _ := held["value"].(json.Boolean)
 	check(&failed, !still, "the press was not released: %v", held["value"])
+	probe := call(&instance, &failed, true, "eval", `root.get_meta("drive_probe_node").seen`)
+	seen, _ := probe["value"].(json.Boolean)
+	check(&failed, failed != "" || bool(seen), "an _unhandled_input handler never saw the press: %v", probe["value"])
 	state := call(&instance, &failed, true, "state")
 	state_tick := tick(state)
 	check(&failed, state_tick == pressed, "the state is of tick %d, the session's newest is %d", state_tick, pressed)
