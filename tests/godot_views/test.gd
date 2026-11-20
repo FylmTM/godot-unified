@@ -8,6 +8,7 @@
 # press. Prints one line per check and "VIEWS TESTS: <n> failed"; exits with the failure count.
 extends SceneTree
 
+const Card := preload("res://views/card.gd")
 const POS_2D := Vector2(120, 80)
 const ANGLE_2D := 0.5
 const POS_3D := Vector3(1, 2, 3)
@@ -664,38 +665,59 @@ func check_card(card: Control, seen: Dictionary, hand: Node) -> void:
 		seen.despawns == 1 and not is_instance_valid(card), seen.despawns)
 
 
-# A hand: three things spawned a tick or two apart, each its own card in the hand's container at once, laid out in a
-# row, each with its own data and its own despawn; the hand is empty once they all went and lingered. Then the hand's
+# A hand: three or more things spawned one tap after another (until two lived at once), each its own card in the
+# hand's container while the sim has it, laid out in a row, each with its own data and its own despawn; the hand is
+# empty once they all went and lingered.
+# Timed by the sim's counters (DataToy.spawned, .recent) and the cards' own records, not by frames. Then the hand's
 # container is freed with cards in it: the next frame spawns them again under view_root (the path names no node,
 # reported once) and back in a new hand once it is there.
 func check_hand(session: UnifiedSession, hand: Container, me: int) -> void:
-	var seen := {}  # card instance id -> {key, holder, life_sets, despawns, events}
-	var most := 0
+	var toy: DataToy = Unified.data.toy
+	Card.made.clear()  # every card made from here on, recorded by the card itself: none missed between frames
+	var most := 0  # cards in the hand at once, in a frame whose things (toy.recent) were two or more
+	var together := 0  # frames whose things were two or more
 	var row := true  # every time 2 or more were in the hand, the container had them side by side
-	for k in 3:
-		press(&"ui_accept", true)
-		await create_timer(0.02).timeout
-		press(&"ui_accept", false)
-		await create_timer(0.02).timeout
-	for i in 150:  # up to ~3 s: a thing lives at most ~1 s
+	var missing: Array = []  # [tick, live things, cards] of a frame with a live thing whose card wasn't in the hand
+	var from := toy.spawned
+	var holding := false
+	var taps_counted := 0  # the things the sim had counted when the newest tap was made
+	var tapped_at := -1  # when the newest tap was made (ms; -1: none waits for its thing)
+	var deadline := Time.get_ticks_msec() + 15000  # three taps, then until their things lived (at most ~1 s) and went
+	while Time.get_ticks_msec() < deadline:  # every frame
 		var cards := hand.get_children().filter(func(c: Node) -> bool: return c.get_node_or_null(^"UnifiedView") != null)
-		most = maxi(most, cards.size())
-		for k in cards.size():
-			var card := cards[k] as Control
-			seen[card.get_instance_id()] = {key = (card.get("marker") as UnifiedView).key, holder = card.get("holder"),
-				life_sets = card.get("life_sets"), despawns = card.get("despawns"), events = card.get("events")}
-			if k > 0:
-				row = row and card.position.x > (cards[k - 1] as Control).position.x
-		if seen.size() >= 3 and cards.is_empty():
+		var card_keys := cards.map(func(c: Node) -> int: return (c.get("marker") as UnifiedView).key)
+		var live: Array = toy.recent
+		if not live.all(func(key: int) -> bool: return card_keys.has(key)):
+			missing.append([session.tick, live, card_keys])
+		if live.size() >= 2:
+			together += 1
+			most = maxi(most, cards.size())
+		for k in range(1, cards.size()):
+			row = row and (cards[k] as Control).position.x > (cards[k - 1] as Control).position.x
+		# a tap a frame long, the next once the sim counted its thing (again if it hasn't after a second), while that
+		# thing still lives (it lives 4 to 63 ticks): at least three, and on until two lived at once (at most eight)
+		var spawned := toy.spawned - from
+		if holding:
+			press(&"ui_accept", false)
+			holding = false
+		elif spawned < 3 or (together == 0 and spawned < 8):
+			var counted := spawned
+			if tapped_at < 0 or Time.get_ticks_msec() - tapped_at > 1000 or counted > taps_counted:
+				press(&"ui_accept", true)
+				holding = true
+				tapped_at = Time.get_ticks_msec()
+				taps_counted = counted
+		if spawned >= 3 and (together > 0 or spawned >= 8) and cards.is_empty() and Card.made.size() >= spawned \
+			and Card.made.all(func(r: Dictionary) -> bool: return r.despawns > 0):
 			break
-		await create_timer(0.02).timeout
-	var records: Array = seen.values()
+		await process_frame
+	var records: Array = Card.made.duplicate()
 	var keys := records.map(func(r: Dictionary) -> int: return r.key)
-	check("a hand: three cards, two or more in the container at once, side by side", seen.size() == 3 and most >= 2 \
-		and row, [seen.size(), most, row])
-	check("each card its own key and data", keys.size() == 3 and keys[0] != keys[1] and keys[1] != keys[2] \
-		and keys[0] != keys[2] and records.all(func(r: Dictionary) -> bool: return r.holder == me and r.life_sets > 0),
-		records)
+	check("a hand: a card per thing (three or more), every live thing's in the container, side by side, two or more at once",
+		records.size() >= 3 and records.size() == toy.spawned - from and missing.is_empty() and row and together > 0 \
+		and most >= 2, [records.size(), toy.spawned - from, missing.slice(0, 3), row, together, most])
+	check("each card its own key and data", keys.size() >= 3 and keys.all(func(key: int) -> bool: return keys.count(key) == 1) \
+		and records.all(func(r: Dictionary) -> bool: return r.holder == me and r.life_sets > 0), records)
 	check("each card its own despawn and its own Expired, then the hand is empty",
 		records.all(func(r: Dictionary) -> bool: return r.despawns == 1 \
 			and (r.events as Array).any(func(e: Array) -> bool: return e[0] is EventExpired)) \
