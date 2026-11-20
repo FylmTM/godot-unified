@@ -21,7 +21,8 @@ import "unified:sim"
 
 // The newest event states the socket keeps for `events` and `wait event`.
 CONTROL_EVENTS :: 1024
-// How long a waiting request waits unless it says (`timeout`, seconds).
+// How long a waiting request waits unless it says (`timeout`, seconds); one for ticks (step, a timed press, `wait
+// ticks`) this beyond twice their time at the tick rate.
 CONTROL_TIMEOUT :: 10 * time.Second
 // A request line longer than this is refused.
 CONTROL_REQUEST_MAX :: 64 * 1024
@@ -250,9 +251,20 @@ when DEVUI {
 			}
 		}
 		timeout := CONTROL_TIMEOUT
-		if seconds, has := request["timeout"].(json.Float); has do timeout = time.Duration(seconds * f64(time.Second))
-		if seconds, has := request["timeout"].(json.Integer); has do timeout = time.Duration(seconds) * time.Second
+		given := false // a timeout > 0: a wait for ticks then waits that long, not CONTROL_TIMEOUT beyond its ticks
+		if seconds, has := request["timeout"].(json.Float); has && seconds > 0 {
+			timeout, given = time.Duration(seconds * f64(time.Second)), true
+		}
+		if seconds, has := request["timeout"].(json.Integer); has && seconds > 0 {
+			timeout, given = time.Duration(seconds) * time.Second, true
+		}
 		client.deadline = time.tick_add(time.tick_now(), timeout)
+		// a wait for `ticks` ticks with no timeout given: CONTROL_TIMEOUT beyond twice their time at the tick rate
+		for_ticks :: proc(client: ^Control_Client, given: bool, ticks: int) {
+			if given do return
+			their_time := time.Duration(2 * f64(ticks) / f64(max(api.tick_hz, 1)) * f64(time.Second))
+			client.deadline = time.tick_add(time.tick_now(), CONTROL_TIMEOUT + their_time)
+		}
 		client.from = session.frame != nil ? session.frame.tick : 0
 		number :: proc(request: json.Object, key: string, default: f64) -> f64 {
 			#partial switch value in request[key] {
@@ -294,6 +306,7 @@ when DEVUI {
 			}
 			client.goal = sync.atomic_add(&step_req, u32(ticks)) + u32(ticks)
 			client.wait = .Step
+			for_ticks(client, given, ticks)
 			return false
 		case "press", "release":
 			if !want(args[:], 1, op == "press" ? 2 : 1) do break
@@ -322,6 +335,7 @@ when DEVUI {
 			}
 			client.text = strings.clone(action)
 			client.wait = .Press
+			for_ticks(client, given, ticks)
 			if sync.atomic_load(&pause_on) {
 				client.stepping, client.ticks = true, u32(ticks)
 			} else {
@@ -383,6 +397,7 @@ when DEVUI {
 				}
 				client.goal = client.from + u32(ticks)
 				client.wait = .Wait_Ticks
+				for_ticks(client, given, ticks)
 				return false
 			case "event":
 				client.text = strings.clone(args[1])

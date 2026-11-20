@@ -24,7 +24,7 @@ Drive_Opts :: struct {
 	name:     string `usage:"the instance (start: default the first free number; any other verb: default the only one running)"`,
 	headless: bool `usage:"start: no window (shot then fails); default: a window, muted, on the leftmost screen, never taking focus"`,
 	strength: f64 `usage:"press: the action's strength (default 1)"`,
-	timeout:  f64 `usage:"seconds a waiting verb (pause, step, press for ticks, wait, shot, click) waits (default 10)"`,
+	timeout:  f64 `usage:"seconds a waiting verb (pause, step, press for ticks, wait, shot, click) waits (default 10; for n ticks: 10 beyond twice their time)"`,
 	all:      bool `usage:"events: every event state kept, not only those since the last events"`,
 	overflow: [dynamic]string `hint:"[game] <verb> [args] [-- game args]" usage:"the game (default: the only one, or the only one with an instance), the verb and its arguments (below); start: the game's own arguments after --"`,
 }
@@ -67,7 +67,7 @@ drive_details :: proc() -> string {
 		"                           holds them over what scripts set, every frame, until `values clear`: aims a\n" +
 		"                           first-person game (a camera rig that keeps its own look still shows that look)\n" +
 		"  events [name]            event states since the last `events` (--all: every one kept)\n" +
-		"  wait ticks <n>           until the shown tick moved n ticks (running sessions)\n" +
+		"  wait ticks <n>           until the shown tick moved n ticks (running sessions; 10 s beyond twice their time)\n" +
 		"  wait event <name>        until an event of that kind arrives after the previous reply\n" +
 		"  shot [file.png]          the window as a PNG (default .out/drive/<name>-<n>.png in the game)\n" +
 		"  ui                       the visible buttons and texts (path, class, text, disabled, rect)\n" +
@@ -144,7 +144,7 @@ cmd_drive :: proc(args: []string) -> Result {
 	request := Drive_Request {
 		op       = verb,
 		args     = verb_args,
-		timeout  = opts.timeout > 0 ? opts.timeout : 10,
+		timeout  = opts.timeout, // 0: the game's default (control.odin, CONTROL_TIMEOUT: scaled for ticks)
 		strength = opts.strength > 0 ? opts.strength : 1,
 	}
 	switch verb {
@@ -202,7 +202,16 @@ drive_request :: proc(port: int, request: Drive_Request) -> (reply: string, ok: 
 	socket, dial_err := net.dial_tcp(net.Endpoint{net.IP4_Loopback, port})
 	if dial_err != nil do return aprintf("%v", dial_err), false
 	defer net.close(socket)
-	net.set_option(socket, .Receive_Timeout, time.Duration((request.timeout + 10) * f64(time.Second)))
+	// a backstop past the game's own deadline (it answers at that): with none given, the game's default for the most
+	// ticks an argument asks, at a tick rate of at least 1 Hz
+	backstop := request.timeout
+	if backstop <= 0 {
+		backstop = 10
+		for arg in request.args {
+			if ticks, parsed := strconv.parse_int(arg); parsed && ticks > 0 do backstop = max(backstop, 10 + 2 * f64(ticks))
+		}
+	}
+	net.set_option(socket, .Receive_Timeout, time.Duration((backstop + 10) * f64(time.Second)))
 	append_line := make([dynamic]u8)
 	append(&append_line, ..line)
 	append(&append_line, '\n')
@@ -570,6 +579,21 @@ drive_check :: proc(game: Game) -> bool {
 	call(&instance, &failed, false, "state", "no_such_field")
 	call(&instance, &failed, true, "resume")
 	call(&instance, &failed, true, "wait", "ticks", "8")
+	// no timeout given: the game's, scaled for the ticks; one given: that, however many ticks are asked
+	if failed == "" {
+		reply, _ := drive_request(instance.port, {op = "wait", args = {"ticks", "4"}})
+		check(&failed, strings.has_prefix(reply, `{"ok":true`), "wait ticks 4 with the game's timeout: %s", reply)
+		asked := time.tick_now()
+		reply, _ = drive_request(instance.port, {op = "wait", args = {"ticks", "100000"}, timeout = 0.3})
+		waited := time.duration_seconds(time.tick_since(asked))
+		check(
+			&failed,
+			strings.contains(reply, "timed out") && waited < 5,
+			"wait ticks 100000 --timeout 0.3: %s after %.1fs",
+			reply,
+			waited,
+		)
+	}
 	// a clean log so far; then a script with a parse error loaded: status names it (drive_script_errors), and it is
 	// all stop finds
 	log_text, _ := read_text(instance.log)
