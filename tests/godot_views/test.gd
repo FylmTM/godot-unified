@@ -343,7 +343,7 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 	var local: Node3D = null
 	var predicted: Node3D = null
 	var thing: Node3D = null
-	var lags: Array[float] = []
+	var compared_frames := 0  # frames the four views were compared in (away from a jump)
 	var predicted_off: Array[float] = []  # predicted3d x away from the local player's view's (the same walk)
 	var off_walk: Array[float] = []  # remote x outside the walk's two stretches: a glide across a jump
 	var thing_remote := [0, 0]  # frames the thing matched the remote view / were compared, showing the remote player
@@ -373,7 +373,7 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 		var phase := session.tick % (REMOTE_PERIOD / 2)
 		if phase < 14 or phase > 30:
 			continue  # near a jump the views may stand on either side of it
-		lags.append((local.position.x - x) / REMOTE_SPEED)
+		compared_frames += 1
 		if absf(predicted.position.x - local.position.x) > 0.01:
 			predicted_off.append(predicted.position.x - local.position.x)
 		if session.tick % REMOTE_PERIOD < REMOTE_PERIOD / 2:
@@ -386,14 +386,8 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 		and local != null and predicted != null and thing != null, [remote, local, predicted, thing])
 	if remote == null or local == null:
 		return
-	# a few ticks behind most of the time (the median: a stall on a loaded machine moves single frames either way)
-	var sorted_lags := lags.duplicate()
-	sorted_lags.sort()
-	var median: float = sorted_lags[sorted_lags.size() / 2] if lags else 0.0
-	check("a remote player's view of a Remote.Verified kind runs a few ticks behind the local player's",
-		not lags.is_empty() and median > 1.5, [lags.min() if lags else null, median, lags.max() if lags else null])
 	check("a Remote.Predicted kind showing the remote player stays on the prediction: no lag",
-		not lags.is_empty() and predicted_off.is_empty(), predicted_off)
+		compared_frames > 0 and predicted_off.is_empty(), predicted_off)
 	check("it snaps across a warp: never posed between the walk's two stretches", off_walk.is_empty(), off_walk)
 	check("a thing's view showing the remote player is on the verified timeline, the local player on the prediction",
 		thing_remote[1] > 5 and thing_local[1] > 5 and thing_remote[0] == thing_remote[1] \
@@ -404,13 +398,20 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 	# or before the pose: a prediction's would be ahead of it).
 	var pose_off: Array = []
 	var compared := 0
+	var delayed := 0  # frames whose pose stood 2 ticks or more behind the frame's verified tick
 	for pose: Array in remote.get("poses"):
 		var pose_tick := remote_pose_tick(pose)
 		compared += 1
 		if pose_tick < (pose[1] as int) - 0.01 or pose_tick > (pose[2] as int) + 0.01:
 			pose_off.append([pose_tick, pose[1], pose[2]])
+		delayed += int(pose_tick <= (pose[2] as int) - 2 + 0.01)
 	check("on the verified timeline: its pose is final (at most the verified tick), its data its sample's",
 		compared > 20 and pose_off.is_empty(), [compared, pose_off.slice(0, 5)])
+	# Behind, by the session's own counters rather than frame timing: its playback aims VERIFIED_DELAY_TICKS behind the
+	# newest verified tick and never passes it, so most frames find it 2 ticks or more behind (load only makes the lag
+	# larger; the local player's view, on the prediction, is at the shown tick).
+	check("a remote player's view of a Remote.Verified kind plays back behind the newest verified tick",
+		compared > 20 and delayed * 2 >= compared, [delayed, compared])
 	# Each event arrives in the first frame whose pose reached its tick: after the frame before's pose tick, at most
 	# this frame's.
 	var remote_events: Array = remote.get("events")
