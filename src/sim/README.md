@@ -303,9 +303,10 @@ anything that touches an unrevealed card, so unified offers none.
 ## Events
 
 Events tell the view what happened (a shot, a pickup). They are not state: not in the block, not hashed. One struct
-per event (1 to `EVENT_MAX` bytes) and a union of them, plain data like the block except that padding is allowed
-(events are never hashed or compared as bytes). An event never has a field named `tick`, `kind` or `id`: every event
-carries those already (`game_violation` refuses them).
+per event (up to `EVENT_MAX` bytes; one with nothing to say but that it happened is empty, like a command) and a union
+of them, plain data like the block except that padding is allowed (events are never hashed or compared as bytes). An
+event never has a field named `tick`, `kind` or `id`: every event carries those already (`game_violation` refuses
+them).
 
 ```odin
 Event_Coin_Picked :: struct {coin: sim.Handle(Coin), player: sim.Player, position: sim.Position, value: u32}

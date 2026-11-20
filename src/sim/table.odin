@@ -90,6 +90,16 @@ get :: proc(table: ^Table($T, $N), handle: Handle(T)) -> ^T {
 	return &table.items[handle.index] if slot.alive && slot.generation == handle.generation else nil
 }
 
+// The live item at table index `index` and its handle; ok is false for a free slot or an index out of range. For an
+// index structure the tick builds in scratch (items bucketed by cell, a chain of hits), which holds indices rather
+// than handles: despawn the item through the handle. Across ticks hold the handle, never the index.
+item_at :: proc(table: ^Table($T, $N), index: int) -> (item: ^T, handle: Handle(T), ok: bool) {
+	if index < 0 || index >= N || !table.slots[index].alive {
+		return
+	}
+	return &table.items[index], {u32(index), table.slots[index].generation}, true
+}
+
 
 // A u64 key unique among the live and past items of one table (generation << 32 | index): what views
 // key an entity by, matching it across predicted and verified frames.
