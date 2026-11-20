@@ -185,13 +185,19 @@ pin_first :: proc(
 	case 0:
 		return
 	case 1:
-		// from the type's name, so the literal reads as `new` writes it (`Reference {`, as odinfmt leaves a multi-line one)
-		brace := strings.index_byte(new, '{')
-		from := brace < 0 ? -1 : strings.last_index(new[:brace], type_name)
-		literal := from < 0 ? fmt.tprintf("%s %s", type_name, braced(new)) : new[from:]
+		literal := first_literal(type_name, new)
 		return strings.concatenate({source[:start], literal, source[end:]}, context.temp_allocator), true, ""
 	}
 	return source, false, fmt.tprintf("the file holds more than one %s that sets only those fields", type_name)
+}
+
+// What pin_first writes in the placeholder's place: `new` from its type's name on, so the literal reads as `new` writes
+// it (`Reference {`, as odinfmt leaves a multi-line one).
+@(private = "file")
+first_literal :: proc(type_name, new: string) -> string {
+	brace := strings.index_byte(new, '{')
+	from := brace < 0 ? -1 : strings.last_index(new[:brace], type_name)
+	return from < 0 ? fmt.tprintf("%s %s", type_name, braced(new)) : new[from:]
 }
 
 // Whether `tokens` (of `source`, from a `{`) open a flat literal setting exactly `fields` (pin_first); `close`: the
@@ -240,7 +246,7 @@ bless_first_pin :: proc(
 		context.allocator = context.temp_allocator
 		dir = filepath.dir(loc.file_path)
 	}
-	file, problem := repin_first(dir, type_name, fields, new)
+	file, problem, already := repin_first(dir, type_name, fields, new)
 	if problem != "" {
 		testing.expectf(
 			t,
@@ -253,6 +259,7 @@ bless_first_pin :: proc(
 		)
 		return false
 	}
+	if already do return true // another check of the same pin wrote it (the plain run after the bless compares both)
 	indented, _ := strings.replace_all(new, "\n", "\n\t", context.temp_allocator)
 	log.warnf("%s: pinned for the first time in %s:\n\t%s", what, shown_path(file), indented, location = loc)
 	name := declared_name(new, max(strings.index_byte(new, '{'), 0))
@@ -261,37 +268,47 @@ bless_first_pin :: proc(
 }
 
 // Pins `new` for the first time (pin_first) in the one .odin file of `dir` that holds the literal, and writes it back.
-// `problem` says why nothing was written: no file or several hold such a literal, a file holds it twice, or it can't be
-// written. Temp-allocated.
-repin_first :: proc(dir, type_name: string, fields: []Pin_Field, new: string) -> (file, problem: string) {
+// With no placeholder left, a file that holds `new`'s literal already (a second check of one pin: another pinned it) is
+// `already` pinned, and nothing is written. `problem` says why nothing was written otherwise: no file or several hold
+// such a literal, a file holds it twice, or it can't be written. Temp-allocated.
+repin_first :: proc(
+	dir, type_name: string,
+	fields: []Pin_Field,
+	new: string,
+) -> (
+	file, problem: string,
+	already: bool,
+) {
 	sync.guard(&pin_lock)
 	entries, err := os.read_all_directory_by_path(dir, context.temp_allocator)
-	if err != nil do return "", fmt.tprintf("cannot list %s", dir)
-	rewritten: string
+	if err != nil do return "", fmt.tprintf("cannot list %s", dir), false
+	rewritten, holds_new: string
 	holders := 0
+	literal := first_literal(type_name, new)
 	for entry in entries {
 		if entry.type == .Directory || !strings.has_suffix(entry.name, ".odin") do continue
 		data, read_err := os.read_entire_file(entry.fullpath, context.temp_allocator)
 		if read_err != nil do continue
+		if strings.contains(string(data), literal) do holds_new = entry.fullpath
 		text, found, file_problem := pin_first(string(data), type_name, fields, new)
-		if file_problem != "" do return entry.fullpath, file_problem
+		if file_problem != "" do return entry.fullpath, file_problem, false
 		if !found do continue
 		holders += 1
 		file, rewritten = entry.fullpath, text
 	}
 	switch {
+	case holders == 0 && holds_new != "":
+		return holds_new, "", true
 	case holders == 0:
-		return "", fmt.tprintf("no .odin file in %s holds a %s that sets only its parameters", dir, type_name)
+		return "", fmt.tprintf("no .odin file in %s holds a %s that sets only its parameters", dir, type_name), false
 	case holders > 1:
-		return "", fmt.tprintf(
-			"more than one .odin file in %s holds a %s that sets only its parameters",
-			dir,
-			type_name,
-		)
+		return "",
+			fmt.tprintf("more than one .odin file in %s holds a %s that sets only its parameters", dir, type_name),
+			false
 	case os.write_entire_file(file, transmute([]u8)rewritten) != nil:
-		return file, fmt.tprintf("cannot write %s", file)
+		return file, fmt.tprintf("cannot write %s", file), false
 	}
-	return file, ""
+	return file, "", false
 }
 
 // The environment variable that asks a bless run to pin values never pinned (bless_first_pin): `uni test <game>

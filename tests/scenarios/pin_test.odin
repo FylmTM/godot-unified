@@ -276,7 +276,8 @@ a_first_pin_replaces_the_placeholder_whole :: proc(t: ^testing.T) {
 	testing.expect(t, strings.contains(twice_problem, "more than one"), twice_problem)
 }
 
-// repin_first writes the one file of a directory that holds the placeholder; a second pin finds none.
+// repin_first writes the one file of a directory that holds the placeholder; a second check of the same pin finds it
+// pinned already.
 @(test)
 a_first_pin_writes_the_file_that_holds_it :: proc(t: ^testing.T) {
 	dir, _ := filepath.join({
@@ -289,11 +290,17 @@ a_first_pin_writes_the_file_that_holds_it :: proc(t: ^testing.T) {
 	pins, _ := filepath.join({dir, "reference.odin"}, context.temp_allocator)
 	placeholder := "package fixture\n\nREFERENCE :: scenarios.Reference{seed = 7, players = 4, ticks = 1200, snapshot_tick = 600}\n"
 	_ = os.write_entire_file(pins, transmute([]u8)placeholder)
-	file, problem := scenarios.repin_first(dir, "Reference", parameters, REFERENCE_NEW)
+	file, problem, already := scenarios.repin_first(dir, "Reference", parameters, REFERENCE_NEW)
 	testing.expect_value(t, problem, "")
+	testing.expect(t, !already, "the placeholder was pinned now")
 	testing.expect_value(t, filepath.base(file), "reference.odin")
 	written, _ := os.read_entire_file(pins, context.temp_allocator)
 	testing.expect_value(t, string(written), fmt.tprintf("package fixture\n\n%s\n", REFERENCE_NEW))
-	_, again := scenarios.repin_first(dir, "Reference", parameters, REFERENCE_NEW)
-	testing.expect(t, strings.contains(again, "no .odin file"), again)
+	// a second check of the same pin finds the literal there: pinned already, nothing written
+	again_file, again_problem, again_already := scenarios.repin_first(dir, "Reference", parameters, REFERENCE_NEW)
+	testing.expect(t, again_problem == "" && again_already, again_problem)
+	testing.expect_value(t, filepath.base(again_file), "reference.odin")
+	// neither the placeholder nor the literal: nothing to pin
+	_, missing, _ := scenarios.repin_first(dir, "Reference", parameters, REFERENCE_OLD)
+	testing.expect(t, strings.contains(missing, "no .odin file"), missing)
 }
