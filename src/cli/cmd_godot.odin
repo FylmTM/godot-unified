@@ -541,7 +541,9 @@ tool_details :: proc() -> string {
 		"puts it in `result`.\n\n" +
 		"<script> is a name (game/tools/<name>.gd, else unified's) or a .gd file by path, anywhere: a throwaway\n" +
 		"script an agent writes to make or change the project's files through Godot's own API (a level scene\n" +
-		"saved with ResourceSaver, input actions with ProjectSettings.save()), run without joining the project.",
+		"saved with ResourceSaver, input actions with ProjectSettings.save()), run without joining the project.\n" +
+		"It must extend UnifiedTool (or SceneTree or MainLoop): any other is refused before Godot starts, since\n" +
+		"Godot would run the main scene instead.",
 		TOOL_TIMEOUT / 60,
 		`survivor validate: ok in 0.8s: {"contract":"ok",...}`,
 	)
@@ -578,6 +580,10 @@ cmd_tool :: proc(args: []string) -> Result {
 	case:
 		usage("name the script: uni tool [game] <script>")
 	}
+	is_path := strings.has_suffix(name, ".gd")
+	if is_path && !os.is_file(name) {
+		usage("no such file: %s", name)
+	}
 	script := tool_script(selected, name)
 	if script == "" {
 		usage(
@@ -586,7 +592,21 @@ cmd_tool :: proc(args: []string) -> Result {
 			name,
 		)
 	}
-	if strings.has_suffix(name, ".gd") {
+	library := join(state.project.unified, TOOLS_SOURCE)
+	file := script
+	if strings.has_prefix(script, "res://" + TOOLS_DIR + "/") {
+		file = join(library, script[len("res://" + TOOLS_DIR + "/"):])
+	} else if strings.has_prefix(script, "res://") {
+		file = join(selected.dir, script[len("res://"):])
+	}
+	if runs, extends := tool_script_runs(file, selected.dir, library); !runs {
+		usage(
+			"%s extends %s: a tool script extends UnifiedTool (or SceneTree or MainLoop), else Godot runs the main scene instead",
+			name,
+			extends == "" ? "nothing" : extends,
+		)
+	}
+	if is_path {
 		name = strings.trim_suffix(os.base(name), ".gd") // the result line's and --shots' name
 	}
 	if opts.shots && !opts.window {

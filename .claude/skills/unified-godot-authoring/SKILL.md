@@ -97,12 +97,11 @@ Every warning is an error. These are the ones that catch everybody:
 - **A Variant where a type is needed**: an Array or Dictionary element, `get()`, or an untyped return. `x as float`
   on a Variant is "Casting "Variant" to "float" is unsafe", and `look_at(a[0])` is "requires the subtype". Assign it
   to a typed local first (`var tilt: float = piece[3]`).
-- **An unused `@onready` variable**: "declared but never used in the class". Delete it.
+- **An unused private (`_name`) member**, an `@onready` one included: "declared but never used in the class".
+  Delete it.
 - **Integer division** (`int / int`). Divide floats, or `@warning_ignore("integer_division")` where truncating is
   meant.
 - **A void function used as a value** (`if not check()`): a parse error.
-- **The game's enums**: `EnumPhase.LOBBY` and friends; the level enum is `EnumLevel`, whatever the game named it
-  (`unified/src/godot/README.md`). `EnumX.name(value)` returns a Variant: `String(EnumX.name(value)).capitalize()`.
 
 ## UI games
 
@@ -116,14 +115,14 @@ Every warning is an error. These are the ones that catch everybody:
 
 ## The check loop
 
-1. After every script or scene change: `./uni test --suite godot --only validate`. It stops at the first error.
-2. Look at it: `./uni drive start`, play to the state you changed, then `shot` and read the PNG (the `unified-godot`
-   skill). `find`, `values` and `state` answer most questions. Use `eval <expression>` for engine state no other verb
-   gives, such as a node's rect or a property; write GDScript strings in it with single quotes.
-3. A UI game gets a walk early: `game/tools/ui_walk.gd`, a `UnifiedTool` that plays the menus and flows with real
-   clicks (`click`, `click_at`), as `unified/examples/deckbuilder/game/tools/ui_walk.gd` does. The godot suite runs
-   it as its `walk` step. Run it 5 or more times in a row (`./uni tool ui_walk`): a lost click shows in one run of
-   several.
+Validate after every change, then play-check with `uni drive` screenshots: the `unified-godot` skill. On top of it:
+
+- `./uni drive eval <expression>` reads engine state that `state` and `find` don't give, such as a node's rect or a
+  property. Write GDScript strings in it with single quotes.
+- A UI game gets a walk early: `game/tools/ui_walk.gd`, a `UnifiedTool` that plays the menus and flows with real
+  clicks (`click`, `click_at`), as `unified/examples/deckbuilder/game/tools/ui_walk.gd` does. The godot suite runs
+  it as its `walk` step. Run it 5 or more times in a row (`./uni tool ui_walk`): a lost click shows in one run of
+  several.
 
 ## Writing files on Windows
 

@@ -557,22 +557,59 @@ the_placeholder_level_is_a_valid_empty_one :: proc(t: ^testing.T) {
 	testing.expect_value(t, level.scene_of(bytes), "")
 }
 
-// `uni tool <script>`: a name ending in .gd is a script file by path, anywhere (an agent's throwaway script), handed
-// to Godot absolute with forward slashes; no such file: none.
+// `uni tool <script>`: a name ending in .gd is a script file by path, anywhere (an agent's throwaway script), absolute
+// or relative to the working directory, handed to Godot absolute with forward slashes; no such file: none.
 @(test)
 tool_script_takes_a_file_by_path :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	cwd, cwd_err := os.get_working_directory(context.allocator)
+	testing.expect(t, cwd_err == nil)
+	dir, temp_err := os.make_directory_temp(cwd, "unified-cli-test-*", context.allocator) // here: relative paths too
+	testing.expect(t, temp_err == nil)
+	defer os.remove_all(dir)
+	game := cli.Game {
+		name = "game",
+		dir  = cli.join(dir, "game"),
+	}
+	path := cli.join(dir, "throwaway.gd")
+	testing.expect(t, cli.write_file(path, transmute([]byte)string("extends UnifiedTool\n")), path)
+	script := cli.tool_script(game, path)
+	testing.expect(t, strings.has_suffix(script, "/throwaway.gd") && !strings.contains(script, "\\"), script)
+	testing.expect(t, os.is_absolute_path(script), script)
+	testing.expect_value(t, cli.tool_script(game, cli.aprintf("%s/throwaway.gd", os.base(dir))), script)
+	testing.expect_value(t, cli.tool_script(game, cli.join(dir, "gone.gd")), "")
+}
+
+// `uni tool` refuses a script Godot wouldn't run as its main loop (it would run the main scene, never ending): one
+// runs when it extends SceneTree or MainLoop through the project's classes, unified's tools and res:// scripts.
+@(test)
+tool_script_runs_only_a_main_loop :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
 	dir, temp_err := os.make_directory_temp("", "unified-cli-test-*", context.allocator)
 	testing.expect(t, temp_err == nil)
 	defer os.remove_all(dir)
-	path := cli.join(dir, "throwaway.gd")
-	testing.expect(t, cli.write_file(path, transmute([]byte)string("extends UnifiedTool\n")), path)
-	script := cli.tool_script({name = "game", dir = cli.join(dir, "game")}, path)
-	testing.expect(t, strings.has_suffix(script, "/throwaway.gd") && !strings.contains(script, "\\"), script)
-	testing.expect(t, os.is_absolute_path(script), script)
-	testing.expect_value(
-		t,
-		cli.tool_script({name = "game", dir = cli.join(dir, "game")}, cli.join(dir, "gone.gd")),
-		"",
-	)
+	game, library := cli.join(dir, "game"), cli.join(dir, "library")
+	files := [][2]string {
+		{"library/tool.gd", "class_name UnifiedTool\nextends SceneTree\n"},
+		{"library/export.gd", "extends SceneTree # a comment\n"},
+		{"game/game/tools/menu_tool.gd", "class_name MenuTool extends UnifiedTool\n"},
+		{"game/game/tools/walk.gd", "@tool\n## A walk.\nextends MenuTool\n\nfunc _run() -> void:\n\tpass\n"},
+		{"game/game/tools/tour.gd", "extends \"res://game/tools/walk.gd\"\n"},
+		{"game/game/tools/check.gd", "extends 'res://addons/unified/export.gd'\n"},
+		{"game/game/ui/score.gd", "extends Control\n"},
+		{"game/game/ui/bare.gd", "func f() -> void:\n\tpass\n"},
+	}
+	for file in files {
+		path := cli.join(dir, file[0])
+		os.make_directory_all(cli.join(dir, file[0][:strings.last_index(file[0], "/")]))
+		testing.expect(t, cli.write_file(path, transmute([]byte)file[1]), path)
+	}
+	for runs in ([]string{"walk", "tour", "check"}) {
+		ok, _ := cli.tool_script_runs(cli.join(game, "game", "tools", cli.aprintf("%s.gd", runs)), game, library)
+		testing.expect(t, ok, runs)
+	}
+	ok, extends := cli.tool_script_runs(cli.join(game, "game", "ui", "score.gd"), game, library)
+	testing.expect(t, !ok && extends == "Control", extends)
+	ok, extends = cli.tool_script_runs(cli.join(game, "game", "ui", "bare.gd"), game, library)
+	testing.expect(t, !ok && extends == "", extends)
 }
