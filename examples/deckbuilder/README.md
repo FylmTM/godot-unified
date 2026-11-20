@@ -19,7 +19,17 @@ The mouse. Click a card to play it: a card at one enemy or at a hero is held up 
 target (an enemy, or a hero's panel); right click or Esc puts it down. Hand Off takes the card to hand over, then the
 ally. End turn (or Play on, to take it back while the turn lasts) at the top right. The camp, map, reward and rest
 panels are buttons. The camp offers the class (Vanguard or Arcanist: the session starts again with it while nobody
-else is here), Start a run, Continue the saved run, and Open to the LAN; F1 is the dev UI.
+else is here), Start a run, Continue the saved run (playing alone), and the ways to play together; F1 is the dev UI.
+
+## Playing together
+
+The camp is where players get together. Alone, it opens the camp's session to friends (`UnifiedSession.open_online`:
+an EOS lobby, its code shown with Copy; or `open_direct` on the LAN, `LAN_PORT`, its address shown) or joins a
+friend's, by lobby code or by host:port. Hosting, Play alone ends the session for everyone; joined, Leave goes back to
+playing alone. A session that ends without the player leaving (the host left, a join failed) leaves the camp saying
+why, with Play alone and the join fields. The camp follows the session's status, so the session flags and `uni coop`
+work as before. Online play needs a build with the EOS IDs compiled in: `uni run` with `.env` set, or the zip `uni
+release deckbuilder` makes (`docs/EOS.md`).
 
 ## Heroes
 

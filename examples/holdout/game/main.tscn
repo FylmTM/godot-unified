@@ -4,6 +4,7 @@
 [ext_resource type="PackedScene" path="res://game/hud.tscn" id="2"]
 [ext_resource type="Script" path="res://game/rig.gd" id="3"]
 [ext_resource type="Script" path="res://game/effects.gd" id="4"]
+[ext_resource type="PackedScene" path="res://game/start_panel.tscn" id="5"]
 
 [sub_resource type="StandardMaterial3D" id="gun_material"]
 albedo_color = Color(0.16, 0.17, 0.19, 1)
@@ -116,3 +117,5 @@ kind = "grenade"
 [node name="HudLayer" type="CanvasLayer" parent="."]
 
 [node name="Hud" parent="HudLayer" instance=ExtResource("2")]
+
+[node name="StartPanel" parent="HudLayer" instance=ExtResource("5")]

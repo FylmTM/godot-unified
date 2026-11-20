@@ -3,7 +3,9 @@ extends Control
 ## local hand), the phase's panel (camp, map, reward, rest, the run's end) and the play itself. A card is played by
 ## clicking it, then its target (an enemy, or a hero's panel for an ally card; Hand Off: the card to hand, then the
 ## ally); a card with no target plays at once. What the player holds up and at whom is their aim (Unified.input), which
-## every ally sees. The save follows the session's save_changed into user://.
+## every ally sees. The save follows the session's save_changed into user://. The camp is also where players get
+## together: it hosts the camp's session online (a lobby code) or on the LAN, joins a friend's by code or address, and
+## says why a session ended.
 
 const SAVE_PATH := "user://deckbuilder_save.json"
 const LAN_PORT := 7400
@@ -13,6 +15,9 @@ var _selected: DeckCard
 var _extra: DeckCard  # Hand Off: the card it hands
 var _log: Array[String] = []
 var _panel_shown := ""  # what the phase's panel shows now: it is rebuilt only when that changes
+var _connection := ""  # the camp's word on the session: connecting, or why it ended
+var _code_typed := ""  # what the camp's join fields hold, kept across its rebuilds
+var _address_typed := ""
 
 @onready var session: UnifiedSession = %UnifiedSession
 @onready var _status: Label = %Status
@@ -31,6 +36,9 @@ func _ready() -> void:
 	session.sim_event.connect(_on_sim_event)
 	session.save_changed.connect(_on_save_changed)
 	session.roster_changed.connect(_refresh)
+	session.status_changed.connect(_on_status_changed)
+	session.join_code_changed.connect(_refresh.unbind(1))
+	session.mode_changed.connect(_on_mode_changed)
 	Unified.data.run.changed.connect(_refresh)
 	Unified.data.heroes.changed.connect(_refresh)
 	_end_turn.pressed.connect(_on_end_turn)
@@ -190,11 +198,11 @@ func _show_panel(run: DataRun) -> void:
 			_overlay.visible = false
 
 
-## What the phase's panel shows (the camp's buttons depend on nothing the session sends).
+## What the phase's panel shows (the camp's: how the session runs and what friends join it with).
 func _panel_key(run: DataRun) -> String:
 	match run.phase:
 		EnumPhase.CAMP:
-			return "camp"
+			return "camp|%d|%d|%s|%s" % [session.status, session.mode, session.join_code, _connection]
 		EnumPhase.MAP:
 			return "map|%d|%d|%s|%s" % [run.floor, run.lane, run.votes, run.can_go]
 		EnumPhase.REWARD:
@@ -208,9 +216,14 @@ func _panel_key(run: DataRun) -> String:
 
 func _camp_panel() -> void:
 	_title.text = "The camp"
-	_label("Start a run with everyone here (others join with uni coop, or on the LAN).")
+	if session.status not in [UnifiedSession.STATUS_CONNECTED, UnifiedSession.STATUS_RECONNECTING, UnifiedSession.STATUS_RECOVERING]:
+		_label(_connection)
+		_button("Cancel" if session.status == UnifiedSession.STATUS_CONNECTING else "Play alone", session.start_single)
+		_join_rows()
+		return
+	_label("Start a run with everyone here.")
 	_button("Start a run", func() -> void: session.send_command(CommandStartRun.new()))
-	var saved := _saved_run()
+	var saved := _saved_run() if session.mode == UnifiedSession.MODE_SINGLE else ""  # a host's restart would end it for the others
 	if saved != "":
 		var problem := UnifiedSetup.json_problem(saved)
 		if problem == "":
@@ -228,8 +241,63 @@ func _camp_panel() -> void:
 		pick.focus_mode = Control.FOCUS_NONE
 		pick.pressed.connect(_choose_class.bind(hero_class))
 		row.add_child(pick)
-	if session.mode == UnifiedSession.MODE_SINGLE:
-		_button("Open to the LAN (port %d)" % LAN_PORT, func() -> void: session.open_direct(LAN_PORT))
+	_together()
+
+
+## The camp's ways to play together: alone, it opens to friends (online or on the LAN) or joins one; hosting, what they
+## join with; joined, leaving. Leaving and playing alone are a new single-player session (the start leaves this one).
+func _together() -> void:
+	match session.mode:
+		UnifiedSession.MODE_SINGLE:
+			_button("Host online (a lobby code to share)", session.open_online)
+			_button("Host on the LAN (port %d)" % LAN_PORT, session.open_direct.bind(LAN_PORT))
+			_join_rows()
+		UnifiedSession.MODE_HOST_ONLINE, UnifiedSession.MODE_HOST_DIRECT:
+			var code := session.join_code
+			if code == "":
+				_label("Opening to friends...")
+			else:
+				var online := session.mode == UnifiedSession.MODE_HOST_ONLINE
+				_label(("Lobby code  %s" if online else "LAN address  %s") % code)
+				_button("Copy", func() -> void: DisplayServer.clipboard_set(code))
+			_button("Play alone (ends it for everyone)", session.start_single)
+		_:
+			_label("In a friend's camp.")
+			_button("Leave (play alone)", session.start_single)
+
+
+## Joining a friend: by lobby code (online) or by address (LAN).
+func _join_rows() -> void:
+	var code := _field("Lobby code", _code_typed, func(text: String) -> void: _code_typed = text)
+	_field_button(code, "Join by code", func() -> void:
+		if _code_typed.strip_edges() != "":
+			session.join_online(_code_typed))
+	var address := _field("127.0.0.1:%d" % LAN_PORT, _address_typed, func(text: String) -> void: _address_typed = text)
+	_field_button(address, "Join on the LAN", func() -> void:
+		var typed := _address_typed.strip_edges()
+		session.join_direct(typed if typed != "" else "127.0.0.1:%d" % LAN_PORT))
+
+
+func _field(placeholder: String, text: String, typed: Callable) -> LineEdit:
+	var row := HBoxContainer.new()
+	_body.add_child(row)
+	var field := LineEdit.new()
+	field.placeholder_text = placeholder
+	field.text = text
+	field.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	field.text_changed.connect(typed)
+	row.add_child(field)
+	return field
+
+
+func _field_button(field: LineEdit, text: String, action: Callable) -> void:
+	var button := Button.new()
+	button.text = text
+	button.focus_mode = Control.FOCUS_NONE
+	button.custom_minimum_size = Vector2(150, 0)
+	button.pressed.connect(action)
+	field.text_submitted.connect(action.unbind(1))
+	field.get_parent().add_child(button)
 
 
 func _map_panel(run: DataRun) -> void:
@@ -335,6 +403,28 @@ func _choose_class(hero_class: int) -> void:
 
 func _card_name(id: int) -> String:
 	return EnumCardId.name(id).capitalize()
+
+
+func _on_status_changed(status: UnifiedSession.Status, detail: String) -> void:
+	match status:
+		UnifiedSession.STATUS_CONNECTING:
+			_connection = "Connecting..."
+		UnifiedSession.STATUS_FAILED:
+			_connection = "Could not start: %s" % detail if detail != "" else "Could not start."
+		UnifiedSession.STATUS_DISCONNECTED:
+			_connection = "Disconnected: %s" % detail if detail != "" else "Disconnected."
+		UnifiedSession.STATUS_LEFT:
+			_connection = "You left."
+		_:
+			_connection = ""
+	_refresh()
+
+
+## A single-player camp opened to friends, or an open that failed (`detail` says why).
+func _on_mode_changed(_mode: UnifiedSession.Mode, detail: String) -> void:
+	if detail != "":
+		_say(detail)
+	_refresh()
 
 
 # --- the save

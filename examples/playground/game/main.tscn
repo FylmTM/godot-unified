@@ -4,6 +4,7 @@
 [ext_resource type="PackedScene" path="res://game/hud.tscn" id="2"]
 [ext_resource type="Script" path="res://game/camera_rig.gd" id="3"]
 [ext_resource type="Shader" path="res://game/capsule.gdshader" id="4"]
+[ext_resource type="PackedScene" path="res://game/start_panel.tscn" id="5"]
 
 [sub_resource type="StandardMaterial3D" id="tinted"]
 vertex_color_use_as_albedo = true
@@ -99,3 +100,5 @@ current = true
 fov = 70.0
 
 [node name="Hud" parent="." instance=ExtResource("2")]
+
+[node name="StartPanel" parent="." instance=ExtResource("5")]

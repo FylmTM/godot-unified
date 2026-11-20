@@ -3,6 +3,7 @@
 // the camera rig become an Input (input.odin). Built by `uni build playground`.
 package playground_extension
 
+import "unified:eos"
 import "unified:godot"
 
 import g "../playground"
@@ -21,5 +22,6 @@ playground_init :: proc "c" (
 	library: godot.Class_Library,
 	initialization: ^godot.Initialization,
 ) -> godot.Init_Result {
-	return godot.init(&g.GAME, GLUE, get_proc_address, library, initialization)
+	// online play: EOS lobbies and P2P
+	return godot.init(&g.GAME, GLUE, get_proc_address, library, initialization, eos.lobby({}))
 }

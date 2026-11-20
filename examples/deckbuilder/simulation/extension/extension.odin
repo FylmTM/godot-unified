@@ -2,6 +2,7 @@ package deckbuilder_extension
 
 import "core:fmt"
 import "core:strings"
+import "unified:eos"
 import "unified:godot"
 
 import g "../deckbuilder"
@@ -21,7 +22,8 @@ deckbuilder_init :: proc "c" (
 	library: godot.Class_Library,
 	initialization: ^godot.Initialization,
 ) -> godot.Init_Result {
-	return godot.init(&g.GAME, GLUE, get_proc_address, library, initialization, constants = constants)
+	// online play: EOS lobbies and P2P
+	return godot.init(&g.GAME, GLUE, get_proc_address, library, initialization, eos.lobby({}), constants = constants)
 }
 
 // What a card says, made from its rules (g.CARDS), so the text never disagrees with them.

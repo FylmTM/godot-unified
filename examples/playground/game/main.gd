@@ -1,6 +1,7 @@
 extends Node3D
-## The play scene: starts a session (a single-player one unless the session's flags say host or join), loads each
-## scene's level under Level, and turns the tools' keys into commands (the grab is a held button of the Input).
+## The play scene: the session (started from the start panel, or by the session's flags or `uni coop`), each scene's
+## level under Level, and the tools' keys turned into commands while it plays (the grab is a held button of the
+## Input).
 
 @onready var session: UnifiedSession = %UnifiedSession
 @onready var hud: Hud = $Hud
@@ -12,11 +13,11 @@ var spawn_shape := 0
 func _ready() -> void:
 	session.view_root = %Views
 	session.level_root = %Level
-	if not session.running:
-		session.start_single()
 
 
 func _unhandled_input(event: InputEvent) -> void:
+	if session.status != UnifiedSession.STATUS_CONNECTED:
+		return
 	if event.is_action_pressed(&"shoot"):
 		session.send_command(CommandShoot.new())
 	elif event.is_action_pressed(&"spawn"):

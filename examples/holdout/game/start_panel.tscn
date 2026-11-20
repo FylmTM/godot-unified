@@ -1,0 +1,157 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://game/start_panel.gd" id="1"]
+
+[sub_resource type="StyleBoxFlat" id="backing"]
+bg_color = Color(0.17, 0.18, 0.21, 1)
+corner_radius_top_left = 6
+corner_radius_top_right = 6
+corner_radius_bottom_right = 6
+corner_radius_bottom_left = 6
+content_margin_left = 24.0
+content_margin_top = 20.0
+content_margin_right = 24.0
+content_margin_bottom = 20.0
+
+[sub_resource type="StyleBoxFlat" id="tag"]
+bg_color = Color(0, 0, 0, 0.55)
+corner_radius_top_left = 4
+corner_radius_top_right = 4
+corner_radius_bottom_right = 4
+corner_radius_bottom_left = 4
+content_margin_left = 10.0
+content_margin_top = 4.0
+content_margin_right = 10.0
+content_margin_bottom = 4.0
+
+[node name="StartPanel" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1")
+
+[node name="Menu" type="ColorRect" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+color = Color(0.03, 0.035, 0.045, 0.82)
+
+[node name="Center" type="CenterContainer" parent="Menu"]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+
+[node name="Panel" type="PanelContainer" parent="Menu/Center"]
+custom_minimum_size = Vector2(440, 0)
+layout_mode = 2
+theme_override_styles/panel = SubResource("backing")
+
+[node name="Rows" type="VBoxContainer" parent="Menu/Center/Panel"]
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Title" type="Label" parent="Menu/Center/Panel/Rows"]
+layout_mode = 2
+theme_override_font_sizes/font_size = 34
+text = "holdout"
+horizontal_alignment = 1
+
+[node name="Status" type="Label" parent="Menu/Center/Panel/Rows"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(392, 0)
+layout_mode = 2
+horizontal_alignment = 1
+autowrap_mode = 3
+
+[node name="Single" type="Button" parent="Menu/Center/Panel/Rows"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Play alone"
+
+[node name="HostOnline" type="Button" parent="Menu/Center/Panel/Rows"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Host online (a lobby code to share)"
+
+[node name="CodeRow" type="HBoxContainer" parent="Menu/Center/Panel/Rows"]
+layout_mode = 2
+
+[node name="Code" type="LineEdit" parent="Menu/Center/Panel/Rows/CodeRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+placeholder_text = "Lobby code"
+
+[node name="JoinOnline" type="Button" parent="Menu/Center/Panel/Rows/CodeRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 0)
+layout_mode = 2
+text = "Join by code"
+
+[node name="HostLan" type="Button" parent="Menu/Center/Panel/Rows"]
+unique_name_in_owner = true
+layout_mode = 2
+text = "Host on the LAN"
+
+[node name="AddressRow" type="HBoxContainer" parent="Menu/Center/Panel/Rows"]
+layout_mode = 2
+
+[node name="Address" type="LineEdit" parent="Menu/Center/Panel/Rows/AddressRow"]
+unique_name_in_owner = true
+layout_mode = 2
+size_flags_horizontal = 3
+
+[node name="JoinLan" type="Button" parent="Menu/Center/Panel/Rows/AddressRow"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(150, 0)
+layout_mode = 2
+text = "Join on the LAN"
+
+[node name="Cancel" type="Button" parent="Menu/Center/Panel/Rows"]
+unique_name_in_owner = true
+visible = false
+layout_mode = 2
+text = "Cancel"
+
+[node name="Corner" type="HBoxContainer" parent="."]
+unique_name_in_owner = true
+visible = false
+layout_mode = 1
+anchors_preset = 1
+anchor_left = 1.0
+anchor_right = 1.0
+offset_left = -520.0
+offset_top = 10.0
+offset_right = -12.0
+offset_bottom = 42.0
+grow_horizontal = 0
+mouse_filter = 2
+alignment = 2
+
+[node name="Shared" type="Label" parent="Corner"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_styles/normal = SubResource("tag")
+
+[node name="Copy" type="Button" parent="Corner"]
+unique_name_in_owner = true
+layout_mode = 2
+focus_mode = 0
+text = "Copy"
+
+[node name="Leave" type="Button" parent="Corner"]
+unique_name_in_owner = true
+layout_mode = 2
+focus_mode = 0
+text = "Leave"

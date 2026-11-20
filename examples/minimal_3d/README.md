@@ -35,7 +35,7 @@ template:
 
 - **Playing together:** the session's flags and `uni coop`. Direct (LAN) works as is; online (EOS lobbies and P2P)
   once the game passes `eos.lobby({})` to `godot.init` and `lobbies` to `modes.run` (drift's extension, survivor's
-  headless main).
+  headless main). Hosting and joining from inside the game: holdout's start panel (`game/start_panel.tscn`).
 - **A physics World on a level with markers:** friendslop (3D: characters, joints, sensors), drift (2D on a plane).
 - **Level changes:** friendslop (`Game.levels`, a travel command, `physics.level_change`, the session's `level_root`).
 - **Several local players on one machine:** drift (a pad joins with Start; the extension's `sample_input` reads each

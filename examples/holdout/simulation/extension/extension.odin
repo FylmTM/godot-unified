@@ -5,6 +5,7 @@
 package holdout_extension
 
 import "unified:dmath"
+import "unified:eos"
 import "unified:godot"
 
 import g "../holdout"
@@ -15,7 +16,8 @@ holdout_init :: proc "c" (
 	library: godot.Class_Library,
 	initialization: ^godot.Initialization,
 ) -> godot.Init_Result {
-	return godot.init(&g.GAME, GLUE, get_proc_address, library, initialization, constants = constants)
+	// online play: EOS lobbies and P2P
+	return godot.init(&g.GAME, GLUE, get_proc_address, library, initialization, eos.lobby({}), constants = constants)
 }
 
 GLUE := godot.Glue(g.Game, View, MultiView) {
