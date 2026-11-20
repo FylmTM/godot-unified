@@ -14,6 +14,7 @@ import "core:strconv"
 import "core:strings"
 import "core:testing"
 
+import "unified:cli"
 import "unified:eos"
 
 OUT_DIR :: #directory + "/../../.out"
@@ -241,6 +242,7 @@ CONSTANTS := []Constant {
 
 @(test)
 bindings_match_the_sdk_headers :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // cli.run_proc never frees: the CLI is short-lived
 	include := fmt.tprintf("%s/Include", sdk_dir())
 	if sdk_dir() == "" || !os.exists(fmt.tprintf("%s/eos_sdk.h", include)) {
 		log.info("no EOS SDK (UNIFIED_EOS_SDK); layout check skipped")
@@ -302,23 +304,22 @@ bindings_match_the_sdk_headers :: proc(t: ^testing.T) {
 	testing.expect(t, os.write_entire_file(src, transmute([]u8)probe) == nil)
 	defer os.remove(src)
 	defer os.remove(exe)
-	compile_state, _, cerr, err := os.process_exec(
-		{command = {cc, "-I", include, "-o", exe, src}},
-		context.temp_allocator,
-	)
-	if !testing.expectf(
-		t,
-		err == nil && compile_state.exit_code == 0,
-		"compiling the layout probe failed: %v\n%s",
-		err,
-		string(cerr),
-	) {
+	// Through the CLI's process starts (cli.run_proc), never os.process_exec: tests/cli runs in the same binary, and a
+	// start of our own would inherit the files a captured run holds open while its child starts (Windows), keeping
+	// them past their removal.
+	logs, _ := filepath.join({dir, "unified-eos-layout"}, context.temp_allocator)
+	defer for suffix in ([]string{".stdout", ".stderr"}) {
+		os.remove(strings.concatenate({logs, suffix}, context.temp_allocator))
+	}
+	compiled := cli.run_proc({cmd = {cc, "-I", include, "-o", exe, src}, capture = true, quiet = true, log_to = logs})
+	if !testing.expectf(t, compiled.ok, "compiling the layout probe failed:\n%s", compiled.stderr) {
 		return
 	}
-	run_state, out, _, err2 := os.process_exec({command = {exe}}, context.temp_allocator)
-	if !testing.expect(t, err2 == nil && run_state.exit_code == 0, "running the layout probe failed") {
+	ran := cli.run_proc({cmd = {exe}, capture = true, quiet = true, log_to = logs})
+	if !testing.expect(t, ran.ok, "running the layout probe failed") {
 		return
 	}
+	out := ran.stdout
 	c_vals := make(map[string]i64, context.temp_allocator)
 	for line in strings.split_lines(string(out), context.temp_allocator) {
 		parts := strings.fields(line, context.temp_allocator)
