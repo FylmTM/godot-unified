@@ -2,11 +2,13 @@
 
 [![ci](https://github.com/FylmTM/godot-unified/actions/workflows/ci.yml/badge.svg?branch=main)](https://github.com/FylmTM/godot-unified/actions/workflows/ci.yml)
 
-**Write a co-op game as if it were local multiplayer. unified makes it online.**
+**Write a co-op game as if it were local multiplayer. Unified makes it online.**
 
-Every player runs the same deterministic simulation, and only input crosses the network. unified predicts the other
-players' input, rolls back when it guessed wrong and runs the ticks again, physics included. You write the game's rules
-in [Odin](https://odin-lang.org); [Godot](https://godotengine.org) renders them, plays the audio and draws the UI.
+Every player runs the same deterministic simulation, and only input crosses the network. Unified predicts the other
+players' input, rolls back when it guessed wrong and runs the ticks again, physics included.
+
+You write the game's rules in [Odin](https://odin-lang.org). [Godot](https://godotengine.org) is the view layer: it
+renders the simulation, plays its sound and draws the UI, and never changes the game's state.
 
 > [!NOTE]
 > **Pre-1.0.** The API is not stable yet, and breaking changes land without notice.
@@ -33,14 +35,16 @@ window and **Join on the LAN** in the other.
 ./uni run holdout
 ```
 
-Before writing gameplay, read your game's `GUIDE.md`: the patterns that survive rollback.
+Before writing gameplay, read [`GUIDE.md`](examples/minimal_3d/GUIDE.md) (every new game gets a copy): the patterns
+that survive rollback.
 
 ## What you get
 
-- **Rollback netcode, no server to run.** One player hosts. Friends join by LAN address or by an Epic Online Services
-  lobby code (peer-to-peer, relay fallback). Late join and rejoin work mid-match.
-- **Physics inside the rollback.** [Box3D](https://github.com/erincatto/box3d) bodies, joints, characters and ragdolls
-  are saved, restored and re-simulated with the rest of the state.
+- **Rollback netcode, no server to run.** One player hosts. Friends join by LAN address, or online through a lobby
+  service: Epic Online Services is built in (lobby codes, peer-to-peer with relay fallback). Late join and rejoin
+  work mid-match.
+- **Physics inside the rollback.** [Box3D](https://github.com/FylmTM/unified-box3d) bodies, joints, characters and
+  ragdolls are saved, restored and re-simulated with the rest of the state.
 - **One code path for every mode.** Single player, couch co-op and online run the same simulation.
 - **Desyncs caught before players find them.** A sync-test rolls back every tick and compares checksums. Recorded
   sessions replay as regression tests. CI checks that every example computes the same bits on every platform.
@@ -95,9 +99,10 @@ move_players :: proc(t: ^Tick) {
 predicted event can be cancelled by a rollback, so an effect plays on `EMITTED` and a score waits for `CONFIRMED`.
 
 ```gdscript
-var throw := CommandThrowBall.new()
-throw.speed = 4
-session.send_command(throw)
+func throw_ball() -> void:
+	var throw := CommandThrowBall.new()
+	throw.speed = 4
+	session.send_command(throw)
 
 func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if event is EventBallThrown and state == UnifiedSession.EVENT_EMITTED:
@@ -152,6 +157,25 @@ checkout.
 | [holdout](examples/holdout/)         | First-person shooter defending a core  | Shots land where the shooter saw the target, a 3D navmesh       |
 | [playground](examples/playground/)   | Box3D's sample scenes, played together | Every joint type, ragdolls and cars, all under rollback         |
 
+## The `uni` CLI
+
+One command runs everything in a game repo. In the unified checkout, name the game: `./uni run holdout`. The most
+useful commands:
+
+```sh
+./uni run                                         # play the game in a window
+./uni editor                                      # open the game in the Godot editor
+./uni test                                        # the sim tests and the determinism lint
+./uni headless -- synctest --ticks 600 --window 8 # the sim without Godot, rolled back every tick
+./uni coop --lan                                  # a host and a joiner on this machine
+./uni bake                                        # turn level scenes into sim data, navmesh included
+./uni verify                                      # format check, vet and every test suite
+./uni release                                     # a playable build of the game, zipped
+./uni doc <package>                               # a package's API, with its doc comments
+```
+
+`./uni help` lists every command, and `-h` on one shows its options.
+
 ## Where it fits
 
 Built for co-op games of 1–4 players, the range the examples test (the library allows up to 32), on Windows x64,
@@ -166,12 +190,11 @@ macOS ARM64 and Linux x64. It does not fit, today:
 
 ## Learn more
 
-- `GUIDE.md` in every game ([minimal_3d's](examples/minimal_3d/GUIDE.md)): the patterns that survive rollback, and
+- [`GUIDE.md`](examples/minimal_3d/GUIDE.md), copied into every new game: the patterns that survive rollback, and
   the gotchas by symptom.
 - [`docs/getting-started.md`](docs/getting-started.md): the toolchain, editor setup, local overrides.
-- `./uni help` lists every command. `./uni doc <package>` prints a package's API.
 - [`src/README.md`](src/README.md): how the core works inside, with a README per package.
-- [`docs/EOS.md`](docs/EOS.md): setting up online play.
+- [`docs/EOS.md`](docs/EOS.md): setting up online play with Epic Online Services.
 - [`docs/agent-guide.md`](docs/agent-guide.md): coding agents in a game repo.
 
 ## License
