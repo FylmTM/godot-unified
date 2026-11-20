@@ -5,7 +5,8 @@ core in the middle of a walled yard against `WAVES` waves from three gates, with
 bouncing grenade, and revives for downed teammates. Enemies walk the yard's navigation mesh: down from the raised
 deck the east gate opens onto, over the bridge across the trench. A Godot project (this folder is `res://`): the sim,
 its tests, the headless binary and the GDExtension in `simulation/` (Odin), everything Godot in `game/`. `uni run
-holdout` plays it alone; `uni coop holdout` plays a host and a joiner.
+holdout` plays it (alone, or with friends online or on the LAN: Playing together); `uni coop holdout` plays a
+host and a joiner.
 
 Metres and seconds at `TICK_HZ`; the ground is the XZ plane, Y is up. Every rule number is a named constant in
 `simulation/holdout/tuning.odin`; this README names them.
@@ -26,6 +27,15 @@ Mouse / right stick to look, WASD / arrows / left stick to move, Space / pad A t
 fire, G / right mouse / pad RB to throw a grenade, E / pad X (held) to revive, R / Enter / Start to start the run in the
 lobby, Tab / pad LB to cycle a few views of the yard and back, Esc to free the mouse (a click takes it again), F1 for
 the dev UI.
+
+## Playing together
+
+The start panel (`game/start_panel.tscn`) comes up before a session and again when one ends, saying why: Play alone,
+Host online (an EOS lobby, its code in the top right corner to share; Copy puts it on the clipboard), Join by code,
+Host on the LAN (`LAN_PORT`, the address in the corner) and Join on the LAN (host:port). Leave, in the corner, ends the
+session (a host's ends it for everyone); Esc frees the mouse to reach it. The panel follows the session's status, so the session flags and `uni coop`
+start without it. Online play needs a build with the EOS IDs compiled in: `uni run` with `.env` set, or the zip `uni
+release holdout` makes (`docs/EOS.md`).
 
 ## World
 
@@ -131,7 +141,7 @@ for in any order. Four of them play every rule within a few minutes, a run lost 
 - **Constants** (`Unified.constants`): the player's and enemies' sizes, the pitch limit, the fire interval, the blast
   radius, the core's health and the wave count.
 
-The Godot side (`game/`): `main.tscn` holds the session, the level and view roots, the rig, the effects and the HUD.
+The Godot side (`game/`): `main.tscn` holds the session, the level and view roots, the rig, the effects, the HUD and the start panel.
 `rig.gd` is the first-person camera: it keeps yaw and pitch in turns and hands them over on `input_wanted`, sits at
 the local player's view at eye height, and kicks the viewmodel on a shot the sim will fire. `player.gd` draws a
 shot's tracer: your own at once (EMITTED), a teammate's when their late body fires it (CONFIRMED). `effects.gd` plays
