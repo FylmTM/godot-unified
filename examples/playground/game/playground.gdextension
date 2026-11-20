@@ -1,0 +1,23 @@
+; The game's GDExtension: the sim run by unified's Godot host, built from simulation/extension into the hidden
+; artifacts folder (git-ignored) by `uni build` (and on demand by every command that runs the game).
+[configuration]
+
+entry_symbol = "playground_init"
+compatibility_minimum = "4.7"
+reloadable = true
+
+[libraries]
+
+macos.debug = "res://.out/bin/libplayground.dylib"
+macos.release = "res://.out/bin/libplayground.dylib"
+windows.x86_64 = "res://.out/bin/playground.dll"
+linux.x86_64 = "res://.out/bin/libplayground.so"
+
+; Runtime libraries Godot loads with ours and the export ships next to it, from what the extension links (Box3D,
+; the EOS SDK): written by `uni build`, which also copies this OS's into .out/bin.
+[dependencies]
+
+macos.debug = { "res://.out/bin/libbox3d.dylib": "Contents/Frameworks" }
+macos.release = { "res://.out/bin/libbox3d.dylib": "Contents/Frameworks" }
+windows.x86_64 = { "res://.out/bin/box3d.dll": "" }
+linux.x86_64 = { "res://.out/bin/libbox3d.so": "" }

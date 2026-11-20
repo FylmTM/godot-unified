@@ -135,6 +135,8 @@ Example co-op games, each a Godot project with its Odin sim in `simulation/`; a 
 - [`examples/deckbuilder/`](examples/deckbuilder/): co-op card battler, a run up one act (turns, no physics, a UI of
   Controls, a saved run to continue).
 - [`examples/holdout/`](examples/holdout/): first-person co-op shooter defending a core, enemies on a 3D navmesh.
+- [`examples/playground/`](examples/playground/): co-op physics playground of Box3D's sample scenes: flying cameras with
+  tools, ragdolls, cars, every joint, a benchmark row per scene (3D).
 
 ## Documentation
 

@@ -47,6 +47,8 @@ template:
 - **Pausing:** the co-op pause here (a `sim.Clock` and a command, as state); the single-player pause,
   `UnifiedSession.paused`, in the other games' pause menus.
 - **Tables, handles, a view per entity, rule tests on `headless.Run`:** drift.
+- **A benchmark row per level (`Game.benches` on a Setup each), MultiMesh views of every body by its shape, ragdolls,
+  joints and cars:** playground.
 - **A population, a benchmark with `bench_prepare`, keyed rolls, a tuning variant:** survivor, with dev commands,
   timing zones, debug draws, a `sim.Grid`, `sim.due` and a roll its HUD peeks.
 - **How a view is shown:** friendslop (a script-posed view, `Glue.view_policy`: the held item at the hand), drift and

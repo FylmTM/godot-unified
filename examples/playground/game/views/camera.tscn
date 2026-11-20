@@ -1,0 +1,46 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://game/views/camera_view.gd" id="1"]
+
+[sub_resource type="StandardMaterial3D" id="body_material"]
+resource_local_to_scene = true
+roughness = 0.6
+
+[sub_resource type="BoxMesh" id="body_mesh"]
+size = Vector3(0.5, 0.35, 0.45)
+
+[sub_resource type="CylinderMesh" id="lens_mesh"]
+top_radius = 0.12
+bottom_radius = 0.16
+height = 0.2
+
+[sub_resource type="StandardMaterial3D" id="beam_material"]
+shading_mode = 0
+albedo_color = Color(1, 0.9, 0.3, 1)
+
+[sub_resource type="SphereMesh" id="grab_mesh"]
+radius = 0.08
+height = 0.16
+
+[node name="camera" type="Node3D"]
+script = ExtResource("1")
+
+[node name="UnifiedView" type="UnifiedView" parent="."]
+kind = "camera"
+
+[node name="Body" type="MeshInstance3D" parent="."]
+unique_name_in_owner = true
+mesh = SubResource("body_mesh")
+material_override = SubResource("body_material")
+
+[node name="Lens" type="MeshInstance3D" parent="Body"]
+transform = Transform3D(1, 0, 0, 0, 0, -1, 0, 1, 0, 0, 0, -0.3)
+mesh = SubResource("lens_mesh")
+material_override = SubResource("body_material")
+
+[node name="GrabPoint" type="MeshInstance3D" parent="."]
+unique_name_in_owner = true
+top_level = true
+visible = false
+mesh = SubResource("grab_mesh")
+material_override = SubResource("beam_material")

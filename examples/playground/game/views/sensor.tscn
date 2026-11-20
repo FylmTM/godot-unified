@@ -1,0 +1,30 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://game/views/sensor_view.gd" id="1"]
+
+[sub_resource type="StandardMaterial3D" id="volume_material"]
+resource_local_to_scene = true
+transparency = 1
+shading_mode = 0
+albedo_color = Color(0.3, 0.9, 0.6, 0.18)
+
+[sub_resource type="BoxMesh" id="volume_mesh"]
+size = Vector3(1, 1, 1)
+
+[node name="sensor" type="Node3D"]
+script = ExtResource("1")
+
+[node name="UnifiedView" type="UnifiedView" parent="."]
+kind = "sensor"
+
+[node name="Volume" type="MeshInstance3D" parent="."]
+unique_name_in_owner = true
+mesh = SubResource("volume_mesh")
+material_override = SubResource("volume_material")
+
+[node name="Count" type="Label3D" parent="."]
+unique_name_in_owner = true
+transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 1.6, 0)
+billboard = 1
+font_size = 48
+outline_size = 10
