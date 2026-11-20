@@ -637,7 +637,7 @@ declaration_violation :: proc(
 	if reason := union_violation(commands, 0, COMMAND_MAX, COMMAND_PREFIX); reason != "" {
 		return fmt.tprintf("%s: commands: %s", name, reason)
 	}
-	if reason := union_violation(events, 1, EVENT_MAX, EVENT_PREFIX, padding = true); reason != "" {
+	if reason := union_violation(events, 0, EVENT_MAX, EVENT_PREFIX, padding = true); reason != "" {
 		return fmt.tprintf("%s: events: %s", name, reason)
 	}
 	for variant in union_variants(events) {

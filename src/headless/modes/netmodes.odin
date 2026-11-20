@@ -54,7 +54,7 @@ Session_Options :: struct {
 	latency:   int `hint:"MS"`, // a profile of its own: one way, with --jitter (ms) and --loss (per mille)
 	jitter:    int `hint:"MS"`,
 	loss:      int `hint:"PERMILLE"`,
-	late_join: string `hint:"P@T"`,
+	late_join: string `hint:"P@T|last@T"`, // slot P (last: the last client; none with one client) joins at tick T
 	script:    string `hint:"steady|churn"`,
 	log:       string `hint:"F"`,
 	seed:      int `hint:"S"`,
@@ -107,15 +107,22 @@ mode_session :: proc(game: ^$G, args: ^Args) -> bool {
 		slot, tick: int
 		slot_ok, tick_ok: bool
 		if len(parts) == 2 {
-			slot, slot_ok = strconv.parse_int(parts[0])
+			if parts[0] == "last" {
+				slot, slot_ok = cfg.clients - 1, true
+			} else {
+				slot, slot_ok = strconv.parse_int(parts[0])
+			}
 			tick, tick_ok = strconv.parse_int(parts[1])
 		}
-		if !slot_ok || !tick_ok || slot < 1 || slot >= cfg.clients || tick < 2 || u32(tick) > cfg.ticks {
-			die("session: --late-join must be P@T with 1 <= P < clients and 2 <= T <= ticks")
+		last_alone := slot_ok && parts[0] == "last" && cfg.clients == 1 // one client: nobody to join late
+		if !last_alone {
+			if !slot_ok || !tick_ok || slot < 1 || slot >= cfg.clients || tick < 2 || u32(tick) > cfg.ticks {
+				die("session: --late-join must be P@T or last@T with 1 <= P < clients and 2 <= T <= ticks")
+			}
+			cfg.late_slot = slot
+			cfg.late_tick = u32(tick)
+			cfg.late_as_player = true // the join row times what a player waits
 		}
-		cfg.late_slot = slot
-		cfg.late_tick = u32(tick)
-		cfg.late_as_player = true // the join row times what a player waits
 	}
 	start := time.tick_now()
 	result := uheadless.session_run(game, cfg)

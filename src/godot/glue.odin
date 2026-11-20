@@ -76,6 +76,11 @@ Frame :: struct($G, $View, $MultiView: typeid) {
 	// Who this client's local players are at this tick, by local index ({}: nobody, e.g. before a join tick): one
 	// player's game reads [0]; is_local asks about a player.
 	local_players: [LOCAL_MAX]sim.Player,
+	// Each local player's newest input sample when the frame was filled, by local index: what the next tick that
+	// samples will carry, ahead of the state by the input delay. For a view that follows the player's own input at
+	// once (a placement preview at the cursor, an aim line), computed with the rules' own procs; never part of the sim.
+	// Zero for a local index nobody plays and in a replay.
+	local_inputs:  [LOCAL_MAX]sim.part(G, sim.GAME_INPUT),
 	seed:          u64, // the session's seed: a keyed roll the sim will make, computed early (sim.roll_below_at)
 	setup:         ^sim.part(G, sim.GAME_SETUP), // the session's Setup (fixed for the session; a joiner's is the host's)
 	time:          sim.Game_Time, // at this tick (sim.game_time): what a view reads timers and stamps with

@@ -25,9 +25,9 @@ bench_details :: proc() -> string {
 		"steps its setup and, every tick, rolls back to the prediction cap and re-simulates (the worst case the\n" +
 		"netcode makes: a bound, not a typical frame); the first window + 64 ticks run untimed. The target: a step, a\n" +
 		"restore, that re-sim and a deep checksum within %.0f ms at their p99. A re-sim whose checksum differs fails\n" +
-		"the run. Then the game's `session` on the virtual clock, 4 clients:\n" +
-		"on the game's own script for the bytes a session moves, under `bad` (the stress case) and under `wan` (the\n" +
-		"common case) with the 4th connecting halfway and joining as a player does (the join: Hello to playing, the\n" +
+		"the run. Then the game's `session` on the virtual clock, 4 clients (as\n" +
+		"many as the game has players, when fewer): on the game's own script for the bytes a session moves, under\n" +
+		"`bad` (the stress case) and under `wan` (the common case) with the last client connecting halfway and joining as a player does (the join: Hello to playing, the\n" +
 		"bytes it took, the snapshot's transfer and the joiner's catch-up step); then a shorter one under `bad` whose\n" +
 		"inputs change every tick (--script churn: rollbacks on most ticks, a bound from above) for the rollbacks, the\n" +
 		"stalls and every client step that stepped the sim (p99, worst): the measure the target models. Then the\n" +
@@ -217,7 +217,7 @@ cmd_bench :: proc(args: []string) -> Result {
 			out:  ^Net_Report,
 		} {
 			{"bad", {"session", "--profile", "bad"}, &rows.bad},
-			{"wan", {"session", "--profile", "wan", "--late-join", "3@600"}, &rows.wan},
+			{"wan", {"session", "--profile", "wan", "--late-join", "last@600"}, &rows.wan},
 			{"churn", {"session", "--profile", "bad", "--script", "churn", "--ticks", BENCH_CHURN_TICKS}, &rows.churn},
 		}
 		net_ok := true
@@ -253,7 +253,7 @@ cmd_bench :: proc(args: []string) -> Result {
 			join_text := ""
 			if net.late_join != 0 {
 				join_text = aprintf(
-					"; the 4th joined at tick %d in %.0f ms (%.0f kB; its %.0f kB snapshot in %.0f ms, %.0f kB/s; catch-up step %.2f ms)",
+					"; the last client joined at tick %d in %.0f ms (%.0f kB; its %.0f kB snapshot in %.0f ms, %.0f kB/s; catch-up step %.2f ms)",
 					net.late_join,
 					net.join_ms,
 					f64(net.join_bytes) / 1000,

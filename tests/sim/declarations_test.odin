@@ -177,8 +177,8 @@ Event_Ticked :: struct {
 }
 
 // What game_violation accepts and refuses: commands are plain data without padding, 0..COMMAND_MAX bytes, names
-// unique; events may be padded but hold no pointer and no field named tick, kind or id; neither union is #no_nil;
-// the tick rate is a power of two, 32..128; the State is plain data.
+// unique; events are 0..EVENT_MAX bytes and may be padded but hold no pointer and no field named tick, kind or id;
+// neither union is #no_nil; the tick rate is a power of two, 32..128; the State is plain data.
 @(test)
 declarations_are_checked :: proc(t: ^testing.T) {
 	Case :: struct {
@@ -219,8 +219,17 @@ declarations_are_checked :: proc(t: ^testing.T) {
 					Left,
 					struct{},
 				}),
+			"",
+		}, // an empty event: the kind alone says what happened
+		{
+			declared(toy.Cmd, union {
+					Joined,
+					struct {
+						data: [sim.EVENT_MAX + 1]u8,
+					},
+				}),
 			"bytes",
-		}, // an event says something: 1..EVENT_MAX bytes
+		}, // an event over EVENT_MAX bytes
 		{
 			declared(union {
 					string,

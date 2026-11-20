@@ -884,6 +884,28 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 	views := make([dynamic]^runtime.Type_Info, context.temp_allocator)
 	for view in glue.views do if view.data != nil do append(&views, type_info_of(view.data))
 	name_problems(views[:], true, &problems)
+	State :: sim.part(G, sim.GAME_STATE)
+	level_enum: typeid
+	when intrinsics.type_has_field(State, "level") {
+		when intrinsics.type_is_specialization_of(intrinsics.type_field_type(State, "level"), sim.Active_Level) {
+			level_enum = intrinsics.type_field_type(intrinsics.type_field_type(State, "level"), "id")
+		}
+	}
+	view_data := make([dynamic]typeid, context.temp_allocator)
+	for view in glue.views do append(&view_data, view.data)
+	class_problems({
+			events       = sim.part(G, sim.GAME_EVENT),
+			commands     = sim.part(G, sim.GAME_CMD),
+			data         = glue.data,
+			view_data    = view_data[:],
+			constants    = constants,
+			input_values = glue.input_values,
+			setup        = sim.part(G, sim.GAME_SETUP),
+			profile      = sim.part(G, sim.GAME_PROFILE),
+			view_enum    = View,
+			multi_enum   = MultiView,
+			level_enum   = level_enum,
+		}, &problems)
 	for view, kind in glue.views do policy_problems(view.policy, fmt.tprint(kind), false, &problems)
 	for policy, kind in glue.multi_policy do policy_problems(policy, fmt.tprint(kind), true, &problems)
 	return problems[:]
@@ -1362,8 +1384,10 @@ make_frame :: proc(
 	local_players: [LOCAL_MAX]sim.Player,
 	out: ^Frame_Data,
 	poses: ^Pose_Memory,
-) -> Frame(G, View, MultiView) {
-	return {
+) -> (
+	frame: Frame(G, View, MultiView),
+) {
+	frame = {
 		state         = state,
 		world         = simulation.world,
 		tick          = tick,
@@ -1374,6 +1398,12 @@ make_frame :: proc(
 		out           = out,
 		poses         = poses,
 	}
+	when size_of(sim.part(G, sim.GAME_INPUT)) > 0 {
+		for &input, local in frame.local_inputs {
+			if local_players[local] != {} do input_sample_peek(local, sim.bytes_of(&input))
+		}
+	}
+	return
 }
 
 // Runs the game's fill_frame on a Frame, marked for the watchdog (a fill that never returns is a freeze).

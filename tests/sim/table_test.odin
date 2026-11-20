@@ -1,4 +1,4 @@
-// Tables and handles: null and stale handles, the walk, despawn_all.
+// Tables and handles: null and stale handles, the walk, an item by index, despawn_all.
 package test_sim
 
 import "core:testing"
@@ -44,6 +44,29 @@ stale_handles_are_rejected :: proc(t: ^testing.T) {
 	}
 	_, _, full := sim.spawn(&table)
 	testing.expect(t, !full)
+}
+
+@(test)
+an_item_by_index_is_the_live_one_with_its_handle :: proc(t: ^testing.T) {
+	table: Small
+	_, first, _ := sim.spawn(&table)
+	_, second, _ := sim.spawn(&table)
+	sim.despawn(&table, first)
+	_, _, free := sim.item_at(&table, 0)
+	testing.expect(t, !free)
+	item, handle, ok := sim.item_at(&table, 1)
+	testing.expect(t, ok)
+	testing.expect_value(t, handle, second)
+	testing.expect(t, item == sim.get(&table, second))
+	_, _, unused := sim.item_at(&table, 2) // never spawned
+	testing.expect(t, !unused)
+	_, _, below := sim.item_at(&table, -1)
+	_, _, above := sim.item_at(&table, 4)
+	testing.expect(t, !below && !above)
+	_, reused, _ := sim.spawn(&table) // slot 0 again, its next generation
+	_, again, _ := sim.item_at(&table, 0)
+	testing.expect_value(t, again, reused)
+	testing.expect(t, again != first)
 }
 
 @(test)

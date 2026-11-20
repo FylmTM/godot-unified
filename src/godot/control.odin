@@ -178,7 +178,7 @@ when DEVUI {
 
 	@(private = "file")
 	control_drop :: proc(client: ^Control_Client) {
-		if client.wait == .Press && client.text != "" do gd.Input_action_release(gd.Input_singleton(), client.text)
+		if client.wait == .Press && client.text != "" do drive_action(client.text, false)
 		net.close(client.socket)
 		delete(client.received)
 		delete(client.text)
@@ -315,19 +315,19 @@ when DEVUI {
 				return control_reply(client, control_error("no input action %q (the project's Input Map)", action))
 			}
 			if op == "release" {
-				gd.Input_action_release(gd.Input_singleton(), action)
+				drive_action(action, false)
 				reply = control_ok(session)
 				break
 			}
 			strength := number(request, "strength", 1)
-			gd.Input_action_press(gd.Input_singleton(), action, f32(strength))
+			drive_action(action, true, f32(strength))
 			if len(args) == 1 {
 				reply = control_ok(session)
 				break
 			}
 			ticks, ok := count(args[1])
 			if !ok {
-				gd.Input_action_release(gd.Input_singleton(), action)
+				drive_action(action, false)
 				return control_reply(
 					client,
 					control_error("press takes a tick count after the action, got %q", args[1]),
@@ -489,7 +489,7 @@ when DEVUI {
 			}
 			done := client.stepping ? stepped(session, client.goal) : shown >= client.goal
 			if done || late || !api.running() {
-				gd.Input_action_release(gd.Input_singleton(), client.text)
+				drive_action(client.text, false)
 				delete(client.text)
 				client.text = ""
 				if !done do return control_reply(client, control_error("the press did not last its ticks (the session ended?)"))
@@ -995,6 +995,29 @@ when DEVUI {
 		size := gd.Control_get_size(control)
 		in_canvas := apply(gd.CanvasItem_get_global_transform_with_canvas(control), {size.x / 2, size.y / 2})
 		return apply(gd.Viewport_get_final_transform(gd.Node_get_viewport(control)), in_canvas)
+	}
+
+	// Holds (pressed) or lets go of an input action as a player's input does: Input's action state, what polling
+	// (Input.is_action_pressed, sample_input) reads, and an InputEventAction through the scene tree's input, what an
+	// _input or _unhandled_input handler (event.is_action_pressed) sees. Input.action_press alone sends no event, so
+	// a game that sends its commands from a handler would never see a driven press. The event goes to the root
+	// viewport (Viewport.push_input) rather than through Input.parse_input_event, which would change the action's
+	// state a second time, a frame later.
+	@(private = "file")
+	drive_action :: proc(action: string, pressed: bool, strength: f32 = 1) {
+		if pressed {
+			gd.Input_action_press(gd.Input_singleton(), action, strength)
+		} else {
+			gd.Input_action_release(gd.Input_singleton(), action)
+		}
+		tree := gd.cast_to(gd.SceneTree, gd.Engine_get_main_loop(gd.Engine_singleton()))
+		if tree.ptr == nil do return
+		event := gd.InputEventAction_new()
+		defer gd.unref(event)
+		gd.InputEventAction_set_action(event, action)
+		gd.InputEventAction_set_pressed(event, pressed)
+		gd.InputEventAction_set_strength(event, pressed ? strength : 0)
+		gd.Viewport_push_input(gd.SceneTree_get_root(tree), event)
 	}
 
 	// One frame of a click, as a player's mouse: the motion onto the control, the press, the release.

@@ -413,6 +413,46 @@ level_scenes_are_found_wherever_a_game_keeps_them :: proc(t: ^testing.T) {
 	)
 }
 
+// A game's name is the library its .gdextension loads from res://.out/bin/, whatever its folder is called (a worktree,
+// a clone into another folder); the folder's name only when no .gdextension names one.
+@(test)
+a_game_is_named_by_its_gdextension :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	dir, temp_err := os.make_directory_temp("", "unified-cli-test-*", context.allocator)
+	testing.expect(t, temp_err == nil)
+	defer os.remove_all(dir)
+	testing.expect_value(t, cli.game_name(dir), os.base(dir)) // nothing names it
+	os.make_directory_all(cli.join(dir, "addons", "steam"))
+	extension := `[configuration]
+entry_symbol = "steam_init"
+[libraries]
+windows.x86_64 = "res://addons/steam/steam.dll"
+`
+	testing.expect(
+		t,
+		cli.write_file(cli.join(dir, "addons", "steam", "steam.gdextension"), transmute([]byte)extension),
+	)
+	testing.expect_value(t, cli.game_name(dir), os.base(dir)) // another extension's library is not the game's
+	os.make_directory_all(cli.join(dir, "game"))
+	extension = `; the game's
+[configuration]
+entry_symbol = "rebuild_init"
+[libraries]
+macos.debug = "res://.out/bin/libuniblock.dylib"
+windows.x86_64 = "res://.out/bin/uniblock.dll"
+linux.x86_64 = "res://.out/bin/libuniblock.so"
+`
+	testing.expect(t, cli.write_file(cli.join(dir, "game", "uniblock.gdextension"), transmute([]byte)extension))
+	testing.expect_value(t, cli.game_name(dir), "uniblock")
+	os.remove(cli.join(dir, "game", "uniblock.gdextension"))
+	os.make_directory_all(cli.join(dir, "bin"))
+	extension = `[libraries]
+linux.x86_64 = "res://.out/bin/libelsewhere.so"
+`
+	testing.expect(t, cli.write_file(cli.join(dir, "bin", "game.gdextension"), transmute([]byte)extension))
+	testing.expect_value(t, cli.game_name(dir), "elsewhere") // kept anywhere Godot sees
+}
+
 // What fails a Godot run: a game script's warning (its backtrace names res://game/), a leak at exit and an error line;
 // the engine's own warnings pass.
 @(test)

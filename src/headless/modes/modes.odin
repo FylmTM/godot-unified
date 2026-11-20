@@ -57,7 +57,7 @@ run :: proc(game: ^$G, variants: []^G = nil, lobbies: []^netcode.Lobby = nil, ow
 	}, Mode(G) {
 		name    = "session",
 		options = Session_Options,
-		help    = "a relay and scripted clients in this process on a virtual clock behind a network profile: rollbacks, stalls, step times, each client step's time (p99, worst), bytes per second; --late-join P@T: slot P connects at tick T and joins as a player does (its join, snapshot transfer and catch-up); --script churn: every slot's input changes every tick (rollbacks on most ticks)",
+		help    = "a relay and scripted clients in this process on a virtual clock behind a network profile: rollbacks, stalls, step times, each client step's time (p99, worst), bytes per second; --late-join P@T: slot P (last@T: the last client, none with one client) connects at tick T and joins as a player does (its join, snapshot transfer and catch-up); --script churn: every slot's input changes every tick (rollbacks on most ticks)",
 		run     = mode_session,
 	}, Mode(G) {
 		name    = "relay",

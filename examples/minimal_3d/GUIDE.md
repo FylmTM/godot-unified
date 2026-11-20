@@ -42,7 +42,9 @@ each time; the views show the newest guess and are told when it changes.
 - A kind whose spawns must never show mispredicted is `Appear.Verified`; its smoothing and who poses it are its
   policy, in its `Glue.views` / `multi_policy` entry (Filling a frame).
 - What a view shows of the rules' next move (the item a grab would take, the next upgrade) calls the proc `tick`
-  calls, from `fill_frame`, so the two cannot disagree.
+  calls, from `fill_frame`, so the two cannot disagree. A preview that follows the player's own input (a piece under
+  the cursor, an aim line) reads `Frame.local_inputs`, the newest sample, not the state's, which trails it by the
+  input delay.
 - Mispredictions hide behind acceleration rather than an instant velocity, behind an action whose animation starts at
   once and whose effect a few ticks later, and behind a projectile that is a ray cast per tick with a view-only tracer.
 

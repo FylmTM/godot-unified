@@ -35,6 +35,7 @@ ImageTexture
 Input
 InputEvent
 InputEventKey
+InputEventAction
 InputEventMouseButton
 InputEventMouseMotion
 InputMap

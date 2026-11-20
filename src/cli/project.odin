@@ -14,7 +14,7 @@ Project :: struct {
 
 // A game: a Godot project with simulation/ (its Odin code), the project root or each examples/*/ (EXAMPLES).
 Game :: struct {
-	name: string, // the directory's name, also its sim.Game name and its library's stem
+	name: string, // game_name: its library's stem, also its sim.Game name and what commands take as [game]
 	dir:  string,
 }
 
@@ -41,18 +41,53 @@ find_project :: proc() -> (project: Project) {
 find_games :: proc(root: string) -> []Game {
 	if is_game(root) {
 		games := make([]Game, 1)
-		games[0] = {os.base(root), root}
+		games[0] = {game_name(root), root}
 		return games
 	}
 	games: [dynamic]Game
 	dirs, _ := os.read_all_directory_by_path(join(root, EXAMPLES), context.allocator)
 	for entry in dirs {
 		if entry.type == .Directory && is_game(entry.fullpath) {
-			append(&games, Game{strings.clone(entry.name), strings.clone(entry.fullpath)})
+			append(&games, Game{game_name(entry.fullpath), strings.clone(entry.fullpath)})
 		}
 	}
 	slice.sort_by(games[:], proc(first, second: Game) -> bool {return first.name < second.name})
 	return games[:]
+}
+
+// The name of the game in `dir`: the stem of the library its .gdextension loads from res://.out/bin/
+// (minimal_3d.dll, libminimal_3d.so -> minimal_3d), a fact of the repo rather than of where it is checked out, so a
+// worktree or a clone into another folder builds the library Godot loads. The directory's name when no .gdextension
+// names one. Looks in game/ and the project root first, then anywhere Godot sees (godot_files).
+game_name :: proc(dir: string) -> string {
+	from_file :: proc(path: string) -> string {
+		config, ok := config_load(path)
+		if !ok do return ""
+		libraries, has := config.sections["libraries"]
+		if !has do return ""
+		keys := make([dynamic]string, context.temp_allocator)
+		for key in libraries do append(&keys, key)
+		slice.sort(keys[:]) // the same answer whatever the map's order
+		for key in keys {
+			file := strings.trim_prefix(libraries[key], "res://.out/bin/")
+			if file == libraries[key] || strings.contains_any(file, "/\\") do continue
+			stem := file[:strings.last_index_byte(file, '.')] if strings.contains_rune(file, '.') else file
+			if strings.has_suffix(file, ".so") || strings.has_suffix(file, ".dylib") {
+				stem = strings.trim_prefix(stem, "lib")
+			}
+			if stem != "" do return strings.clone(stem)
+		}
+		return ""
+	}
+	for place in ([]string{join(dir, "game"), dir}) {
+		entries, _ := os.read_all_directory_by_path(place, context.temp_allocator)
+		for entry in entries {
+			if entry.type != .Regular || !strings.has_suffix(entry.name, ".gdextension") do continue
+			if name := from_file(entry.fullpath); name != "" do return name
+		}
+	}
+	for path in gdextensions(dir) do if name := from_file(path); name != "" do return name
+	return strings.clone(os.base(dir))
 }
 
 @(private)
