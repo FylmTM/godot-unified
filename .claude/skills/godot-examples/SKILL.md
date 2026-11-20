@@ -1,6 +1,6 @@
 ---
 name: godot-examples
-description: This repo's example games under examples/<game> (survivor, friendslop, drift, deckbuilder, holdout, minimal_3d) and the Godot-side library code (src/godot, src/gdext) - the app layer survivor, friendslop and drift each copy, what a new example takes, and the suites to run before handing back. Use with the unified-godot skill (the godot suite, levels, uni drive, windowed checks) after changing an example's GDScript, scenes or extension, or src/godot or src/gdext.
+description: This repo's example games under examples/<game> (survivor, friendslop, drift, deckbuilder, holdout, playground, minimal_3d) and the Godot-side library code (src/godot, src/gdext) - the app layer survivor, friendslop and drift each copy, what a new example takes, and the suites to run before handing back. Use with the unified-godot skill (the godot suite, levels, uni drive, windowed checks) after changing an example's GDScript, scenes or extension, or src/godot or src/gdext.
 ---
 
 # The example games and the Godot-side library

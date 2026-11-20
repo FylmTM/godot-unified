@@ -1,0 +1,7 @@
+[gd_resource type="Resource" format=3]
+
+[resource]
+metadata/views = {
+"camera": "res://game/views/camera.tscn",
+"sensor": "res://game/views/sensor.tscn"
+}

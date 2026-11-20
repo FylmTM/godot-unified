@@ -1,0 +1,101 @@
+[gd_scene format=3 uid="uid://byprqi62jjijv"]
+
+[ext_resource type="Script" uid="uid://4aws88bjjqoj" path="res://game/main.gd" id="1"]
+[ext_resource type="PackedScene" path="res://game/hud.tscn" id="2"]
+[ext_resource type="Script" path="res://game/camera_rig.gd" id="3"]
+[ext_resource type="Shader" path="res://game/capsule.gdshader" id="4"]
+
+[sub_resource type="StandardMaterial3D" id="tinted"]
+vertex_color_use_as_albedo = true
+roughness = 0.8
+
+[sub_resource type="BoxMesh" id="box_mesh"]
+material = SubResource("tinted")
+size = Vector3(1, 1, 1)
+
+[sub_resource type="MultiMesh" id="boxes"]
+transform_format = 1
+use_colors = true
+mesh = SubResource("box_mesh")
+
+[sub_resource type="SphereMesh" id="sphere_mesh"]
+material = SubResource("tinted")
+radius = 0.5
+height = 1.0
+
+[sub_resource type="MultiMesh" id="spheres"]
+transform_format = 1
+use_colors = true
+mesh = SubResource("sphere_mesh")
+
+[sub_resource type="ShaderMaterial" id="capsule_material"]
+shader = ExtResource("4")
+
+[sub_resource type="SphereMesh" id="capsule_mesh"]
+material = SubResource("capsule_material")
+radius = 1.0
+height = 2.0
+
+[sub_resource type="MultiMesh" id="capsules"]
+transform_format = 1
+use_colors = true
+use_custom_data = true
+mesh = SubResource("capsule_mesh")
+
+[sub_resource type="CylinderMesh" id="cylinder_mesh"]
+material = SubResource("tinted")
+top_radius = 0.5
+bottom_radius = 0.5
+height = 1.0
+radial_segments = 16
+
+[sub_resource type="MultiMesh" id="cylinders"]
+transform_format = 1
+use_colors = true
+mesh = SubResource("cylinder_mesh")
+
+[node name="Main" type="Node3D"]
+script = ExtResource("1")
+
+[node name="UnifiedSession" type="UnifiedSession" parent="."]
+unique_name_in_owner = true
+
+[node name="Level" type="Node3D" parent="."]
+unique_name_in_owner = true
+
+[node name="Views" type="Node3D" parent="."]
+unique_name_in_owner = true
+
+[node name="Boxes" type="MultiMeshInstance3D" parent="."]
+multimesh = SubResource("boxes")
+
+[node name="UnifiedMultiView" type="UnifiedMultiView" parent="Boxes"]
+kind = "box"
+
+[node name="Spheres" type="MultiMeshInstance3D" parent="."]
+multimesh = SubResource("spheres")
+
+[node name="UnifiedMultiView" type="UnifiedMultiView" parent="Spheres"]
+kind = "sphere"
+
+[node name="Capsules" type="MultiMeshInstance3D" parent="."]
+multimesh = SubResource("capsules")
+
+[node name="UnifiedMultiView" type="UnifiedMultiView" parent="Capsules"]
+kind = "capsule"
+
+[node name="Cylinders" type="MultiMeshInstance3D" parent="."]
+multimesh = SubResource("cylinders")
+
+[node name="UnifiedMultiView" type="UnifiedMultiView" parent="Cylinders"]
+kind = "cylinder"
+
+[node name="CameraRig" type="Node3D" parent="."]
+unique_name_in_owner = true
+script = ExtResource("3")
+
+[node name="Camera3D" type="Camera3D" parent="CameraRig"]
+current = true
+fov = 70.0
+
+[node name="Hud" parent="." instance=ExtResource("2")]
