@@ -301,8 +301,7 @@ drive_start :: proc(game: Game, opts: Drive_Opts, game_args: []string) -> Result
 	if opts.headless {
 		append(&cmd, "--headless")
 	} else {
-		append(&cmd, "--resolution", "1280x720")
-		append(&cmd, ..window_args(AGENT_WINDOW))
+		append(&cmd, ..window_args(AGENT_WINDOW)) // the project's window size
 	}
 	append(&cmd, "--path", game.dir, "--", "--no-settings", "--local-net", "--control", port_file)
 	append(&cmd, ..game_args)

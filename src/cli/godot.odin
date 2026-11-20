@@ -147,7 +147,8 @@ script_errors :: proc(text: string) -> []string {
 }
 
 // A Godot run's output with a crash's C++ backtrace (from the `CrashHandlerException` line to `-- END OF C++
-// BACKTRACE --`, with the rules around it) left out, for a run whose script errors (script_errors) say the cause.
+// BACKTRACE --`, with the rules around it) left out, for a crash right after a debugger break (the break's script
+// error, script_errors, is the cause).
 without_backtrace :: proc(text: string) -> string {
 	out := strings.builder_make()
 	skipping := false
@@ -166,6 +167,15 @@ without_backtrace :: proc(text: string) -> string {
 		strings.write_byte(&out, '\n')
 	}
 	return strings.to_string(out)
+}
+
+// A tool run's output as uni shows it: a crash right after a debugger break (a parse error in the `-s` script itself)
+// without its backtrace (without_backtrace), as the break's script error (listed last) is the cause; any other output,
+// another crash's included (a window or coop run, which has no debugger), as it is.
+tool_output_shown :: proc(out: string) -> string {
+	crash_at := strings.index(out, "CrashHandlerException")
+	break_at := strings.index(out, "Debugger Break")
+	return crash_at >= 0 && break_at >= 0 && break_at < crash_at ? without_backtrace(out) : out
 }
 
 // What fails a Godot run besides its exit code, each with what it is: a script error (script_errors) first, an error
@@ -367,8 +377,7 @@ tool_cmd :: proc(tool_run: Tool_Run) -> []string {
 	cmd: [dynamic]string
 	append(&cmd, godot())
 	if tool_run.window {
-		append(&cmd, "--resolution", "1280x720")
-		append(&cmd, ..window_args(tool_run.place))
+		append(&cmd, ..window_args(tool_run.place)) // the project's window size, as a headless run's (UnifiedTool)
 	} else {
 		append(&cmd, "--headless", "-d")
 	}
@@ -403,9 +412,8 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 	}
 	problems: [dynamic]string
 	append(&problems, ..godot_problems(out))
-	// a script error that crashed Godot: its backtrace is noise, the script error (listed last) the cause
 	crashed := strings.contains(out, "CrashHandlerException")
-	shown := crashed && len(script_errors(out)) > 0 ? without_backtrace(out) : out
+	shown := tool_output_shown(out)
 	for line in strings.split_lines(shown) {
 		if strings.has_prefix(line, RESULT_MARKER) {
 			value, err := json.parse_string(line[len(RESULT_MARKER):], parse_integers = true)

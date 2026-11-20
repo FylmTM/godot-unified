@@ -474,9 +474,12 @@ script_errors_name_the_cause_of_a_crash :: proc(t: ^testing.T) {
 	testing.expect(t, len(errors) == 1 && errors[0] == want, fmt.tprint(errors))
 	problems := cli.godot_problems(crash)
 	testing.expect(t, len(problems) > 0 && problems[0] == fmt.tprintf("script error: %s", want), fmt.tprint(problems))
-	shown := cli.without_backtrace(crash)
+	shown := cli.tool_output_shown(crash)
 	testing.expect(t, !strings.contains(shown, "main+40d4d61") && !strings.contains(shown, "====="), shown)
 	testing.expect(t, strings.contains(shown, "*Frame 0 - res://game/tools/broken.gd:5"), shown)
+	// a crash with no debugger break before it (a window or coop run): its backtrace stays, the only clue
+	other_crash := "SCRIPT ERROR: x\n   at: f (res://a.gd:1)\nCrashHandlerException: Program crashed with signal 11\n[1] main+40\n"
+	testing.expect_value(t, cli.tool_output_shown(other_crash), other_crash)
 	plain := cli.script_errors(
 		"SCRIPT ERROR: Parse Error: Identifier \"Foo\" not declared in the current scope.\n" +
 		"          at: GDScript::reload (res://game/main.gd:12)\n" +
