@@ -9,35 +9,13 @@ const BIG := Vector2(112, 156)
 const ATTACK_COLOR := Color(0.55, 0.28, 0.24)
 const SKILL_COLOR := Color(0.27, 0.34, 0.58)
 
-# Card_View (simulation/extension/frame.odin), set by the host on spawn and when a field changes.
-var id := 0:
+# View_Card (simulation/extension/frame.odin): set by the host before _ready, and anew each time it changes.
+var data: ViewCard:
 	set(value):
-		id = value
-		_refresh()
-var upgraded := false:
-	set(value):
-		upgraded = value
-		_refresh()
-var hero := 0:
-	set(value):
-		hero = value
-		_place.call_deferred()
-var slot := 0:
-	set(value):
-		slot = value
-		_place.call_deferred()
-var cost := 0:
-	set(value):
-		cost = value
-		_refresh()
-var target := 0
-var playable := false:
-	set(value):
-		playable = value
-		_refresh()
-var held := false:
-	set(value):
-		held = value
+		var moved := data == null or value.hero != data.hero or value.slot != data.slot
+		data = value
+		if moved:
+			_place.call_deferred()
 		_refresh()
 var selected := false:
 	set(value):
@@ -70,19 +48,19 @@ func key() -> int:
 
 ## Whether the local hero holds it.
 func is_local() -> bool:
-	return hero == Unified.data.run.local_hero
+	return data.hero == Unified.data.run.local_hero
 
 
 ## Into its holder's hand, at its slot: the local hero's hand is the big one.
 func _place() -> void:
 	if _gone or not is_inside_tree():
 		return
-	var hand := get_tree().get_first_node_in_group(&"hand_local" if is_local() else StringName("hand_%d" % hero))
+	var hand := get_tree().get_first_node_in_group(&"hand_local" if is_local() else StringName("hand_%d" % data.hero))
 	if hand == null:
 		return
 	if get_parent() != hand:
 		reparent(hand, false)
-	hand.move_child(self, mini(slot, hand.get_child_count() - 1))
+	hand.move_child(self, mini(data.slot, hand.get_child_count() - 1))
 	custom_minimum_size = BIG if is_local() else SMALL
 	_refresh()
 
@@ -90,18 +68,18 @@ func _place() -> void:
 func _refresh() -> void:
 	if not is_node_ready():
 		return
-	var info: DataCardText = Unified.constants.cards[id]
+	var info: DataCardText = Unified.constants.cards[data.id]
 	var big := is_local()
-	_cost.text = str(cost)
-	_name.text = EnumCardId.name(id).capitalize() + ("+" if upgraded else "")
-	_text.text = info.upgraded if upgraded else info.text
+	_cost.text = str(data.cost)
+	_name.text = EnumCardId.name(data.id).capitalize() + ("+" if data.upgraded else "")
+	_text.text = info.upgraded if data.upgraded else info.text
 	_text.visible = big
 	_cost.visible = big
 	_name.add_theme_font_size_override(&"font_size", 13 if big else 10)
-	var attack := target == EnumTargetKind.ENEMY or target == EnumTargetKind.ALL_ENEMIES
-	_style.bg_color = (ATTACK_COLOR if attack else SKILL_COLOR).darkened(0.0 if playable or not big else 0.45)
-	_style.border_color = Color.GOLD if selected else (Color.YELLOW if held else Color(0.1, 0.1, 0.12))
-	_style.set_border_width_all(4 if selected or held else 2)
+	var attack := data.target == EnumTargetKind.ENEMY or data.target == EnumTargetKind.ALL_ENEMIES
+	_style.bg_color = (ATTACK_COLOR if attack else SKILL_COLOR).darkened(0.0 if data.playable or not big else 0.45)
+	_style.border_color = Color.GOLD if selected else (Color.YELLOW if data.held else Color(0.1, 0.1, 0.12))
+	_style.set_border_width_all(4 if selected or data.held else 2)
 
 
 func _on_gui_input(event: InputEvent) -> void:

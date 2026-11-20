@@ -1,15 +1,16 @@
 extends Node2D
 ## The station: a Node2D view with a UnifiedView marker. The host sets its
-## position and rotation (it turns slowly), and `hp_frac` from Station_View; it flashes when that drops. Drawn in
+## position and rotation (it turns slowly), and its View_Station `data`; it flashes when its HP drops. Drawn in
 ## code: the hexagon the sim simulates (Unified.constants.station_shape at radius `station_radius`), and an HP ring
 ## that stays upright. Also the menu's backdrop decoration (no session there).
 
-## Station_View (simulation/extension), set by the host when it changes: 0..1.
-var hp_frac := 1.0:
-	set(v):
-		if v < hp_frac - 0.001:
+## View_Station (simulation/extension): set by the host before _ready, and anew each time it changes. Null on the
+## menu's backdrop (no session): full HP.
+var data: ViewStation:
+	set(value):
+		if data != null and value.hp_frac < data.hp_frac - 0.001:
 			_flash = 1.0
-		hp_frac = v
+		data = value
 		queue_redraw()
 
 var _r: float  ## the hexagon's corner radius (the sim's station_radius), in pixels
@@ -33,6 +34,7 @@ func _draw() -> void:
 	for corner: Vector2 in Unified.constants.station_shape:
 		hex.append(corner * _r)
 		inner.append(corner * _r * 0.55)
+	var hp_frac := data.hp_frac if data != null else 1.0
 	var hurt := 1.0 - hp_frac
 	var fill := Color("1f2a3a").lerp(Color("3a1f26"), hurt * 0.8)
 	draw_colored_polygon(hex, fill.lerp(Color.WHITE, _flash * 0.6))

@@ -5,13 +5,13 @@ extends Node3D
 
 const KIND_COLORS: Array[Color] = [Color(0.95, 0.35, 0.2), Color(0.45, 0.25, 0.6), Color(0.45, 0.8, 0.25)]
 
-## Enemy_View, set by the host when it changes (before the first _process).
-var kind := 0:
+## View_Enemy (simulation/extension): set by the host before _ready, and anew each time it changes.
+var data: ViewEnemy:
 	set(value):
-		kind = value
-		if is_node_ready():
+		var reshaped := data == null or value.kind != data.kind
+		data = value
+		if reshaped and is_node_ready():
 			_shape()
-var hp := 1.0
 
 var _flash := 0.0
 var _dying := false
@@ -44,7 +44,7 @@ func _sim_despawned() -> void:
 
 ## The body (a capsule from the feet) and the head (a sphere on top) of its kind's size, in its colour.
 func _shape() -> void:
-	var size: DataEnemySize = Unified.constants.enemy_sizes[kind]
+	var size: DataEnemySize = Unified.constants.enemy_sizes[data.kind]
 	var capsule := _body.mesh as CapsuleMesh
 	capsule.radius = size.radius
 	capsule.height = 2 * (size.radius + size.half_height)
@@ -53,4 +53,4 @@ func _shape() -> void:
 	sphere.radius = size.head_radius
 	sphere.height = 2 * size.head_radius
 	_head.position.y = 2 * (size.radius + size.half_height) + size.head_radius * 0.7
-	_material.albedo_color = KIND_COLORS[kind]
+	_material.albedo_color = KIND_COLORS[data.kind]

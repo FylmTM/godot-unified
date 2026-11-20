@@ -112,10 +112,15 @@ last fill's, because the hand-off drops frames the main thread never took. It is
 re-simulated teleport bumps the counter to the same value, an undone one puts the old value back and the view snaps
 back. A long move with no bump still snaps past the smoothing's `teleport_dist`, the fallback.
 
-**View kinds.** Each scene view kind is described in one place, its entry in the Glue's `views` (`godot.View_Kind`):
-the data its views carry and how they are shown, its **policy**. A MultiMesh kind carries no data, so its entry is its
-policy alone (`multi_policy`). Policies are Odin literals, not properties spread over the kinds' scenes: a kind's
+**View kinds.** A scene view kind is a struct, the data its views carry, and the game's scene views are a union of
+them (`View :: union {View_Card, View_Enemy}`; a kind with no data is an empty struct), as events, commands and session
+data are: the type is the kind. `push_view` takes the data and so names the kind, and a value of a type the union
+lacks does not compile; nothing pairs a kind with its data at run time. The kind's name is its type's without `View_`,
+lowercased (`card`: its scenes' marker, the view index, `EnumView.CARD`). A MultiMesh kind carries no data, so the
+MultiMesh kinds stay an enum. How a kind is shown is its **policy** (`Glue.view_policy`, by its type, only for a kind
+that isn't the default; `multi_policy`): Odin literals, not properties spread over the kinds' scenes: a kind's
 smoothing (a bullet, a heavy crate and a remote player want different ones) and, for a scene view, who poses its root.
+How it looks stays in its scene: the marker's linger time and the node its views spawn under.
 A script-posed kind's root is left alone and its script gets the pose the host would have set (`Posed_By.Script`), so
 it can draw what the local player holds at render rate from the camera. A MultiMesh kind keeps a track per instance
 only when its policy sets a smoothing: thousands of instances cost nothing per instance by default.
@@ -156,17 +161,15 @@ the tail after a `bool`, is an explicit `_pad: [n]u8` field), because the host c
 refuses a type that isn't, naming the `_pad` to add; `godot.install_problems` reports the same without Godot, and a
 game's own `the_extension_installs` test (the template's) calls it, so `uni test` catches it.
 
-The host registers a class per such type at load, plus one per **nested struct** any of them, the event and command
-unions, the Setup, the Profile or a declared view data type (`View_Kind.data`) hold (`Hud_Player` -> `DataHudPlayer`,
-a RefCounted value: each read is a new one, its fields settable, so a command can take it), and a class per enum they
-use. Every view kind that pushes data declares its type in its `Glue.views` entry, as `Glue.data` declares the
-session data (a push of a kind not declared, or of another type, panics). The engine singleton `Unified` holds the data, the constants, the
-input values and the session. Godot classes have no namespaces, so prefixes group them (`Data`, `Event`, `Command`,
-`Enum`); a name that clashes with an existing class is an error and is not registered. What GDScript can't take is an
-install problem naming the field: a generic struct (`Ring($T=u8, $N=4)`, which no class can be named after; sim's
-List, Queue and Bits are Arrays); a class's field named `true`, `false` or `null` (read as the literal; every other
-keyword reads as the attribute); and a view data field, which is its root script's own `var`, named like a keyword, a
-built-in type (`int`, `float`, `bool`), `_`, or with a capital (it would shadow a class).
+The host registers a class per such type at load, one per **view kind** (`View_Card` -> `ViewCard`), plus one per
+**nested struct** any of them, the event and command unions, the Setup or the Profile hold (`Hud_Player` ->
+`DataHudPlayer`, a RefCounted value: each read is a new one, its fields settable, so a command can take it), and a
+class per enum they use. The view kinds are plain like session data (the host compares their bytes too). The engine
+singleton `Unified` holds the data, the constants, the input values and the session. Godot classes have no namespaces,
+so prefixes group them (`Data`, `View`, `Event`, `Command`, `Enum`); a name that clashes with an existing class is an
+error and is not registered. What GDScript can't take is an install problem naming the field: a generic struct
+(`Ring($T=u8, $N=4)`, which no class can be named after; sim's List, Queue and Bits are Arrays), and a class's field
+named `true`, `false` or `null` (read as the literal; every other keyword reads as the attribute).
 
 Every sim-facing field (events, commands, view and session data, constants, input values) converts by type, the same
 everywhere:
@@ -201,11 +204,15 @@ tree, or from a tool script. A game's app layer reacts to `status_changed` and `
 `uni coop` and the flags work in every game. Nothing about the session answers once it is over. A client's LAN token
 is kept under `user://`, one per running copy of the game (`token_claim`), so a restarted copy takes its token back.
 
-The game's `View` and `MultiView` enums and the State's level enum are the classes `EnumView`, `EnumMultiView` and
-`EnumLevel`, whatever the game named them; every enum class has `name(value)` and `names()` (a menu's options, in
-value order).
-A scene view's scene holds a **`UnifiedView`** marker as a direct child of its root, its kind set in the scene by the
-member's lowercased name (which stays right when the enum is reordered); the root's class decides how it is posed: a
+The game's view kinds (its `View` union's, by index), its `MultiView` enum and the State's level enum are the classes
+`EnumView`, `EnumMultiView` and `EnumLevel`, whatever the game named them; every enum class has `name(value)` and
+`names()` (a menu's options, in value order).
+A scene view's scene holds a **`UnifiedView`** marker as a direct child of its root, its kind set in the scene by name
+(the inspector's list; a name stays right when the union is reordered). Its root script declares `var data: ViewCard`
+when the kind carries data: the host sets a new object before the view's `_ready`, so `_ready` reads it, and again
+each time the data's bytes change, so a setter sees the old value and the new one and a view reacts to what changed
+(a setter that uses `@onready` nodes waits for `is_node_ready()`). The data has a property of its own, so a field
+never collides with the root's (a Control's `size`, a Node's `owner`). The root's class decides how it is posed: a
 Node3D gets position and rotation, a Node2D position and angle, and any other root (a `Control`: a card in a hand, a
 panel) only its data, never a pose. Its events, `_sim_despawned` and its linger are a posed view's. A kind's views
 spawn under `view_root`, or under the node its marker's `parent_path` names from there (a hand's `HBoxContainer`,
@@ -316,7 +323,7 @@ and its reply, a JSON line each; `uni drive -h` lists the verbs.
 name to its scene's path), committed next to the game; every build of the game's library refreshes it, and the godot
 suite's `bake` step fails when the committed one is stale. Games keep their scenes wherever they like (a level scene
 outside `game/levels/` by its committed `.level`: `src/level/README.md`, Baking). At the first session the host checks
-that every `View` member has a scene and every indexed kind is a member.
+that every view kind has a scene and every indexed kind is one of them.
 
 ## How it works
 
@@ -343,9 +350,11 @@ that every `View` member has a scene and every indexed kind is a member.
   offset that decays (`Smoothing`). A key missing from a frame lingers (an exit animation, or a rollback that brings
   it back: it is revived, not respawned). Re-simulations of ticks at or below the verified one are ignored, since
   they are final.
-- **Data.** A view's data is set after the view entered the tree (setters may use `@onready` nodes), then only for
-  fields whose bytes changed; a root without a property for a field is an error (once per kind and field). A field
-  named like one of the root's own properties sets it (`visible` on purpose, `owner` or `size` by mistake).
+- **Data.** A view's data is set before the view enters the tree, then whenever its bytes differ from the last
+  set's: its bytes copied into an object, fields converted only when a script reads them. Each view alternates two
+  objects and refills the spare only when no script holds it, so a change makes no object (a script that keeps an old
+  value keeps it unchanged: the view makes a new spare). A root script without `data` for a kind that carries some is
+  an error, once per kind.
 - **Remote links** go through a live netsim (`netcode.netsim_live`) the dev UI's Conditions panel impairs.
 - **The dev UI** (`dev.odin`, the only file that reaches `unified:devui`) graphs the frame, the sim and the net, and
   feeds its panels. Dev UI builds also record the session as it is verified (a portable snapshot of the first saved

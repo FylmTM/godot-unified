@@ -258,6 +258,15 @@ elements_variant :: proc(
 // fields and put it into a command).
 nested_variant :: proc(nested: ^Data_Class, bytes: []u8, units: Units) -> gd.Variant {
 	object := gd.Object{gd.construct_object_named(nested.class_sn)}
+	nested_fill(nested, object, bytes, units)
+	// the Variant holds a reference and ours goes: the object lives as long as a script keeps it
+	value := gd.variant_from_any(object)
+	gd.unref(transmute(gd.RefCounted)object)
+	return value
+}
+
+// Copies a value's bytes into an object of its class, its positions mapped to view units when they are in sim units.
+nested_fill :: proc(nested: ^Data_Class, object: gd.Object, bytes: []u8, units: Units) {
 	instance := (^Data_Object)(gd.instance_of(object, &nested.class))
 	copy(instance.bytes, bytes)
 	if units == .Sim {
@@ -266,10 +275,6 @@ nested_variant :: proc(nested: ^Data_Class, bytes: []u8, units: Units) -> gd.Var
 			position^ = sim.Position(to_view_units(([3]f32)(position^)))
 		}
 	}
-	// the Variant holds a reference and ours goes: the object lives as long as a script keeps it
-	value := gd.variant_from_any(object)
-	gd.unref(transmute(gd.RefCounted)object)
-	return value
 }
 
 // An anonymous struct (it has no class): its fields into a Dictionary (`_` fields are padding).

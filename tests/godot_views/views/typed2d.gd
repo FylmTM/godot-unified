@@ -6,23 +6,23 @@ var last_position := Vector2.INF
 var last_rotation := 0.0
 var events: Array[Array] = []  # [event, state]
 
-# Typed2D_Data (ext/ext.odin), set by the host on spawn and when a field's bytes change.
-var shown := false
-var mode := 0
-var hp := 0:
-	set(v):
-		hp = v
-		hp_sets += 1
+# View_Typed2D (ext/ext.odin): set by the host before _ready, and anew each time its bytes change.
+var data: ViewTyped2d:
+	set(value):
+		if data == null or value.hp != data.hp:
+			hp_sets += 1
+		if data == null or value.ticks != data.ticks:
+			ticks_sets += 1
+		data = value
+		data_sets += 1
+var data_sets := 0
 var hp_sets := 0
-var ticks := 0:
-	set(v):
-		ticks = v
-		ticks_sets += 1
 var ticks_sets := 0
-var charge := 0.0
-var dir := Vector2.ZERO
-var tint := Color.BLACK
-var area: DataMarkArea
+var data_at_ready: ViewTyped2d  # what _ready found: the host sets the data before it
+
+
+func _ready() -> void:
+	data_at_ready = data
 
 
 # The host posed it before any other node's _process (its own runs at priority -1000).

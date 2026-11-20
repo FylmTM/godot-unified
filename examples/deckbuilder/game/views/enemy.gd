@@ -6,18 +6,8 @@ extends PanelContainer
 
 const HERO_COLORS: Array[Color] = [Color(1, 0.45, 0.4), Color(0.5, 1, 0.45), Color(0.4, 0.85, 1), Color(0.85, 0.5, 1)]
 
-# Enemy_View (simulation/extension/frame.odin).
-var kind := 0
-var weak := 0
-var vulnerable := 0
-var intent := 0
-var intent_target := 0
-var aimed := 0
-var index := 0
-var hp := 0
-var max_hp := 0
-var block := 0
-var intent_amount := 0
+# View_Enemy (simulation/extension/frame.odin): set by the host before _ready, and anew each time it changes.
+var data: ViewEnemy
 
 var _style := StyleBoxFlat.new()
 
@@ -41,24 +31,24 @@ func _ready() -> void:
 	mouse_entered.connect(func() -> void: get_tree().call_group(&"table", &"enemy_hovered", self))
 
 
-## Every field is set before any node's _process, so one redraw a frame shows them all.
+## The data is set before any node's _process, so one redraw a frame shows it.
 func _process(_delta: float) -> void:
-	_name.text = EnumEnemyKind.name(kind).capitalize()
-	_hp.max_value = maxi(max_hp, 1)
-	_hp.value = hp
-	var stats := "%d / %d HP" % [hp, max_hp]
-	if block > 0:
-		stats += "   %d block" % block
-	if weak > 0:
-		stats += "\nWeak %d" % weak
-	if vulnerable > 0:
-		stats += "\nVulnerable %d" % vulnerable
+	_name.text = EnumEnemyKind.name(data.kind).capitalize()
+	_hp.max_value = maxi(data.max_hp, 1)
+	_hp.value = data.hp
+	var stats := "%d / %d HP" % [data.hp, data.max_hp]
+	if data.block > 0:
+		stats += "   %d block" % data.block
+	if data.weak > 0:
+		stats += "\nWeak %d" % data.weak
+	if data.vulnerable > 0:
+		stats += "\nVulnerable %d" % data.vulnerable
 	_stats.text = stats
 	_intent.text = _intent_text()
 	_style.border_color = Color(0.1, 0.1, 0.1)
 	_style.set_border_width_all(2)
 	for hero in 4:
-		if aimed & (1 << hero):
+		if data.aimed & (1 << hero):
 			_style.border_color = HERO_COLORS[hero]
 			_style.set_border_width_all(5)
 
@@ -73,14 +63,14 @@ func hero_name(hero: int) -> String:
 
 
 func _intent_text() -> String:
-	var at := "everyone" if intent_target == 255 else hero_name(intent_target)
-	match intent:
+	var at := "everyone" if data.intent_target == 255 else hero_name(data.intent_target)
+	match data.intent:
 		EnumIntentKind.ATTACK, EnumIntentKind.CRUSH:
-			return "attacks %s: %d" % [at, intent_amount]
+			return "attacks %s: %d" % [at, data.intent_amount]
 		EnumIntentKind.ATTACK_ALL:
-			return "attacks everyone: %d" % intent_amount
+			return "attacks everyone: %d" % data.intent_amount
 		EnumIntentKind.DEFEND, EnumIntentKind.FORTIFY:
-			return "defends: %d" % intent_amount
+			return "defends: %d" % data.intent_amount
 		EnumIntentKind.WEAKEN:
 			return "weakens %s" % at
 		EnumIntentKind.MARK:

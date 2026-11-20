@@ -10,9 +10,8 @@ import g "../playground"
 
 GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
-	fill_frame = fill_frame,
-	data = Data,
-	views = {.Camera = {data = Camera_View}, .Sensor = {data = Sensor_View}},
+	fill_frame   = fill_frame,
+	data         = Data,
 	input_values = Input_Values,
 }
 

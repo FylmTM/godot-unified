@@ -34,8 +34,8 @@ Data_Layout :: struct {
 	property: string, // Unified.data.hud
 }
 
-// A struct as a class (Data_Role: session data, the constants, the input values, a nested struct) and its one live
-// instance (none for a nested struct: a new value per read).
+// A struct as a class (Data_Role: session data, the constants, the input values, a nested struct, a view kind) and its
+// one live instance (none for a nested struct or a view kind: a new value per read).
 Data_Class :: struct {
 	using class: gd.Class,
 	class_sn:    ^gd.StringName, // its name, interned: a nested value is made per read
@@ -53,11 +53,12 @@ Data_Object :: struct {
 	bytes:     []u8,
 }
 
-// An enum type as a class of integer constants.
+// An enum type as a class of integer constants (EnumView: the View union's kinds, by index).
 Enum_Class :: struct {
 	using class: gd.Class,
-	type:        ^runtime.Type_Info,
-	info:        runtime.Type_Info_Enum,
+	type:        ^runtime.Type_Info, // the enum (EnumView: the View union)
+	names:       []string, // its members' names, by member
+	values:      []i64, // their values
 }
 
 CONSTANTS_CLASS :: "UnifiedConstants"
@@ -73,6 +74,7 @@ D: struct {
 	profile:       ^Data_Class, // UnifiedProfile (Unified.profile)
 	local_inputs:  [LOCAL_MAX]gd.Object, // local players 1.. input values (Unified.local_input; [0] unused: Unified.input)
 	nested:        map[typeid]^Data_Class, // the nested structs' classes, by type
+	views:         []^Data_Class, // the view kinds' classes (ViewCard), by kind (nil: not registered)
 	enums:         [dynamic]^Enum_Class,
 	unified:       gd.Class,
 	holder:        gd.Class, // UnifiedData
@@ -128,91 +130,29 @@ data_problems :: proc(data: typeid, constants: typeid, input_values: typeid, pro
 @(private)
 CLASS_FIELD_RESERVED :: []string{"true", "false", "null"}
 
-// What a field of declared view data (View_Kind.data) can't be named: it is set on the root script's own `var` of that
-// name, which can't be a GDScript keyword, a built-in type's name or `_` (a capitalised name is refused too: it would
-// shadow a class, String, Color, Node...).
-@(private)
-VIEW_FIELD_RESERVED :: []string {
-	"and",
-	"as",
-	"assert",
-	"await",
-	"bool",
-	"break",
-	"breakpoint",
-	"class",
-	"class_name",
-	"const",
-	"continue",
-	"elif",
-	"else",
-	"enum",
-	"extends",
-	"false",
-	"float",
-	"for",
-	"func",
-	"if",
-	"in",
-	"int",
-	"is",
-	"match",
-	"namespace",
-	"not",
-	"null",
-	"or",
-	"pass",
-	"preload",
-	"return",
-	"self",
-	"signal",
-	"static",
-	"super",
-	"trait",
-	"true",
-	"var",
-	"void",
-	"when",
-	"while",
-	"yield",
-	"_",
-}
-
 // A problem for every field GDScript can't take as it is, in these types and the structs, arrays and collections they
-// hold: a name it can't read (CLASS_FIELD_RESERVED; `view_data`: the types' own fields are root script vars,
-// VIEW_FIELD_RESERVED), and a generic struct (its type's name holds its parameters: `Ring($T=u8, $N=4)`), which no
-// GDScript class can be named after. sim's List, Queue and Bits are Arrays (collections.odin), a handle an int.
-name_problems :: proc(types: []^runtime.Type_Info, view_data: bool, problems: ^[dynamic]string) {
+// hold: a name it can't read (CLASS_FIELD_RESERVED), and a generic struct (its type's name holds its parameters:
+// `Ring($T=u8, $N=4)`), which no GDScript class can be named after. sim's List, Queue and Bits are Arrays
+// (collections.odin), a handle an int.
+name_problems :: proc(types: []^runtime.Type_Info, problems: ^[dynamic]string) {
 	context.allocator = runtime.heap_allocator()
-	walk :: proc(type: ^runtime.Type_Info, root_vars: bool, seen: ^[dynamic]typeid, problems: ^[dynamic]string) {
+	walk :: proc(type: ^runtime.Type_Info, seen: ^[dynamic]typeid, problems: ^[dynamic]string) {
 		if type == nil || type.id == sim.Position || type.id == sim.Player || is_handle(type) do return
 		if collection, is_collection := collection_of(type); is_collection {
-			walk(collection.elem, false, seen, problems)
+			walk(collection.elem, seen, problems)
 			return
 		}
 		#partial switch info in runtime.type_info_base(type).variant {
 		case runtime.Type_Info_Array:
-			walk(info.elem, false, seen, problems)
+			walk(info.elem, seen, problems)
 		case runtime.Type_Info_Enumerated_Array:
-			walk(info.elem, false, seen, problems)
+			walk(info.elem, seen, problems)
 		case runtime.Type_Info_Struct:
 			for known in seen do if known == type.id do return
 			append(seen, type.id)
 			for i in 0 ..< int(info.field_count) {
 				name := info.names[i]
-				if root_vars {
-					capitalised := len(name) > 0 && name[0] >= 'A' && name[0] <= 'Z'
-					if slice.contains(VIEW_FIELD_RESERVED, name) || capitalised {
-						append(
-							problems,
-							fmt.aprintf(
-								"%v.%s: a view's data field is its root script's var, which can't be named so: rename it",
-								type.id,
-								name,
-							),
-						)
-					}
-				} else if slice.contains(CLASS_FIELD_RESERVED, name) {
+				if slice.contains(CLASS_FIELD_RESERVED, name) {
 					append(problems, fmt.aprintf("%v.%s: GDScript reads it as the literal: rename it", type.id, name))
 				}
 				field := info.types[i]
@@ -235,12 +175,12 @@ name_problems :: proc(types: []^runtime.Type_Info, view_data: bool, problems: ^[
 					)
 					continue
 				}
-				walk(field, false, seen, problems)
+				walk(field, seen, problems)
 			}
 		}
 	}
 	seen := make([dynamic]typeid, context.temp_allocator)
-	for type in types do walk(type, view_data, &seen, problems)
+	for type in types do walk(type, &seen, problems)
 }
 
 // A Glue struct type's problems: not a struct, not plain (`plain`: padding-free, no pointers: sim.plain_violation), or
@@ -317,7 +257,7 @@ register_nested_classes :: proc() {
 	for layout in api.events do append(&roots, layout.type)
 	for layout in api.commands do append(&roots, layout.type)
 	for layout in api.data do append(&roots, layout.type)
-	for type in api.view_data do if type != nil do append(&roots, type_info_of(type))
+	for type in api.view_types do append(&roots, type)
 	if api.constants.type != nil do append(&roots, api.constants.type)
 	if api.input_values.type != nil do append(&roots, api.input_values.type)
 	if api.setup.type != nil do append(&roots, api.setup.type)
@@ -333,19 +273,36 @@ register_nested_classes :: proc() {
 		}
 		if nested := register_data_class(layout, .Nested); nested != nil do D.nested[type.id] = nested
 	}
+	// the view kinds' classes, after the structs they hold
+	D.views = make([]^Data_Class, len(api.view_types))
+	for type, kind in api.view_types {
+		layout := Data_Layout {
+			type  = type,
+			class = strings.clone(view_class_name(type)),
+		}
+		D.views[kind] = register_data_class(layout, .View)
+	}
+}
+
+// A view kind's class: `View` + its type name without View_ in PascalCase (View_Card -> ViewCard).
+view_class_name :: proc(type: ^runtime.Type_Info) -> string {
+	return pascal_name("View", sim.variant_name(type, VIEW_PREFIX))
 }
 
 // Registers the enum, data, constants and input classes and the Unified singleton.
 register_data_classes :: proc() {
 	context.allocator = runtime.heap_allocator()
 	if api.installed {
-		// the view kinds: EnumView and EnumMultiView whatever the game named its enums (get_view and the scene's kind)
-		register_enum_class(api.view_enum, "EnumView")
+		// the view kinds: EnumView names the View union's kinds by index; EnumMultiView whatever the game named its
+		// enum (get_view and the scene's kind)
+		view_values := make([]i64, len(api.view_names))
+		for &value, i in view_values do value = i64(i)
+		register_names_class(api.view_union, "EnumView", api.view_names, view_values)
 		register_enum_class(api.multi_enum, "EnumMultiView")
 		// the State's level enum: EnumLevel whatever the game named it (UnifiedSession.level and its signals)
 		if api.level_enum != nil do register_enum_class(api.level_enum, "EnumLevel")
 		for type in api.enum_types {
-			if type.id == api.view_enum.id || type.id == api.multi_enum.id do continue
+			if type.id == api.multi_enum.id do continue
 			if api.level_enum != nil && type.id == api.level_enum.id do continue
 			register_enum_class(type)
 		}
@@ -482,6 +439,7 @@ Data_Role :: enum u8 {
 	Constants, // UnifiedConstants: one live instance, set at load
 	Input, // UnifiedInput: one live instance, set by scripts, read by sample_input
 	Nested, // a nested struct: a RefCounted value per read, settable
+	View, // a view kind's data (ViewCard): a RefCounted value per change, the root script's `data`; settable
 	Setup, // UnifiedSetup: a RefCounted value (new(): the game's default Setup), settable; start_single(setup)
 	Profile, // UnifiedProfile: one live instance (Unified.profile), set by scripts, sent when a session starts
 }
@@ -502,7 +460,7 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 	data_class^ = {
 		class = {
 			name = layout.class,
-			parent = role == .Nested || role == .Setup ? "RefCounted" : "Object",
+			parent = role == .Nested || role == .Setup || role == .View ? "RefCounted" : "Object",
 			size = size_of(Data_Object),
 			init = proc(instance: rawptr) {
 				object := (^Data_Object)(instance)
@@ -533,6 +491,9 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 	case .Nested:
 		data_class.doc_brief = fmt.aprintf("The game's struct %v, nested in its events, commands or data.", type_name)
 		data_class.doc = "A value: each read of a field of this type makes a new one. Set its fields to put it into a command."
+	case .View:
+		data_class.doc_brief = fmt.aprintf("The data of the game's view kind %v.", type_name)
+		data_class.doc = "A scene view's [code]data[/code] (its root script declares [code]var data: ...[/code] of this class): a new value each time the view's data changes, set before the view's [code]_ready[/code], so a setter sees the old value and the new one. Positions are in view units. No members for a kind without data."
 	case .Setup:
 		data_class.doc_brief = "The game's session Setup (sim.Game's Setup): what differs between two sessions of this build."
 		data_class.doc = "A value: [code]UnifiedSetup.new()[/code] starts as the game's default (Game.setup); set its fields and pass it to [method UnifiedSession.start_single], [method UnifiedSession.host_online] or [method UnifiedSession.host_direct]. [member UnifiedSession.setup] reads the running session's. No members when the game has none."
@@ -545,7 +506,7 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 		data_class.fields = struct_sim_fields(layout.type)
 		position_offsets(layout.type, 0, &data_class.positions)
 	}
-	settable := role == .Input || role == .Nested || role == .Setup || role == .Profile
+	settable := role == .Input || role == .Nested || role == .Setup || role == .Profile || role == .View
 	for &field in data_class.fields {
 		gd.bind_dynamic_property(
 			&data_class.class,
@@ -558,7 +519,7 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 	}
 	if role == .Data do gd.bind_signal(&data_class.class, "changed", doc = "A value changed (a new tick's, or the reset when a session ends).")
 	if role == .Setup do bind_setup_json(&data_class.class)
-	if role != .Nested && role != .Setup {
+	if role != .Nested && role != .Setup && role != .View {
 		data_class.object = {gd.construct_object(layout.class)}
 		data_class.instance = (^Data_Object)(gd.instance_of(data_class.object, &data_class.class))
 	}
@@ -644,14 +605,15 @@ struct_sim_fields :: proc(type: ^runtime.Type_Info) -> []Sim_Field {
 // The game's types that become classes at load, as install keeps them (api): what class_problems names.
 Class_Sources :: struct {
 	events, commands, data:                  typeid, // the unions: a class per variant
-	view_data:                               []typeid, // each view kind's declared data (nil: none)
+	views:                                   typeid, // the View union: a class per kind (ViewCard), and EnumView
 	constants, input_values, setup, profile: typeid, // nil: none
-	view_enum, multi_enum, level_enum:       typeid, // EnumView, EnumMultiView, EnumLevel (level: nil for none)
+	multi_enum, level_enum:                  typeid, // EnumMultiView, EnumLevel (level: nil for none)
 }
 
 // Every class name two of the game's types would both take, a problem naming both (install collects them): the class
-// of each event and command kind (class_name_of), each data type (data_layout), each named nested struct
-// (register_nested_classes) and each enum (register_data_classes), computed as registration computes them. Godot
+// of each event and command kind (class_name_of), each data type (data_layout), each view kind (view_class_name),
+// each named nested struct (register_nested_classes) and each enum (register_data_classes), computed as registration
+// computes them. Godot
 // refuses the second class at load, which leaves its type out of GDScript (`Data_Stats` and a nested `Stats` are both
 // DataStats).
 class_problems :: proc(sources: Class_Sources, problems: ^[dynamic]string) {
@@ -686,7 +648,10 @@ class_problems :: proc(sources: Class_Sources, problems: ^[dynamic]string) {
 		append(&roots, variant)
 		take(&taken, problems, data_layout(variant).class, variant.id)
 	}
-	for type in sources.view_data do if type != nil do append(&roots, type_info_of(type))
+	for variant in sim.union_variants(sources.views) {
+		append(&roots, variant)
+		take(&taken, problems, view_class_name(variant), variant.id)
+	}
 	for type in ([]typeid{sources.constants, sources.input_values, sources.setup, sources.profile}) {
 		if type != nil do append(&roots, type_info_of(type))
 	}
@@ -697,13 +662,13 @@ class_problems :: proc(sources: Class_Sources, problems: ^[dynamic]string) {
 			take(&taken, problems, pascal_name("Data", named.name), type.id)
 		}
 	}
-	take(&taken, problems, "EnumView", sources.view_enum)
+	take(&taken, problems, "EnumView", sources.views)
 	take(&taken, problems, "EnumMultiView", sources.multi_enum)
 	if sources.level_enum != nil do take(&taken, problems, "EnumLevel", sources.level_enum)
 	enums := make([dynamic]^runtime.Type_Info, context.temp_allocator)
 	enum_types_of(roots[:], &enums)
 	for type in enums {
-		if type.id == sources.view_enum || type.id == sources.multi_enum || type.id == sources.level_enum do continue
+		if type.id == sources.multi_enum || type.id == sources.level_enum do continue
 		take(&taken, problems, enum_class_name(type), type.id)
 	}
 }
@@ -741,7 +706,15 @@ enum_class_name :: proc(type: ^runtime.Type_Info) -> string {
 }
 
 register_enum_class :: proc(type: ^runtime.Type_Info, class_name := "") {
-	name := class_name != "" ? class_name : enum_class_name(type)
+	info := runtime.type_info_base(type).variant.(runtime.Type_Info_Enum)
+	values := make([]i64, len(info.values))
+	for &value, i in values do value = i64(info.values[i])
+	register_names_class(type, class_name != "" ? class_name : enum_class_name(type), info.names, values)
+}
+
+// Registers a class of integer constants named `names` (upper-cased) with `values`, its `name` and `names` methods
+// giving them lowercased: an enum's (register_enum_class), or the View union's kinds (EnumView).
+register_names_class :: proc(type: ^runtime.Type_Info, name: string, names: []string, values: []i64) {
 	if gdi.classdb_get_class_tag(gd.sn(name)) != nil {
 		gd.print_error(
 			fmt.tprintf("unified: the enum %v would be the class %s, which exists already: rename it", type.id, name),
@@ -757,23 +730,28 @@ register_enum_class :: proc(type: ^runtime.Type_Info, class_name := "") {
 			doc       = "Compare a field with its constants; [method name] gives a member's name for display.",
 		},
 		type = type,
-		info = runtime.type_info_base(type).variant.(runtime.Type_Info_Enum),
+		names = names,
+		values = values,
+	}
+	if name == "EnumView" {
+		enum_class.doc_brief = fmt.aprintf("The game's scene view kinds: the variants of %v, by index.", type.id)
+		enum_class.doc = "A kind is its type's name without View_ ([code]View_Card[/code]: [code]EnumView.CARD[/code]); [method name] gives the name its scene's UnifiedView marker holds."
 	}
 	gd.register_class(&enum_class.class)
-	for member, i in enum_class.info.names {
+	for member, i in enum_class.names {
 		gd.bind_constant(
 			&enum_class.class,
 			"",
 			strings.to_upper(member, context.temp_allocator),
-			i64(enum_class.info.values[i]),
+			enum_class.values[i],
 			doc = fmt.tprintf("%v.%s", type.id, member),
 		)
 	}
 	gd.bind_dynamic_method(&enum_class.class, "name", proc(user: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
 			enum_class := (^Enum_Class)(user)
 			value, _ := gd.from_variant(i64, args[0])
-			for member, i in enum_class.info.values {
-				if i64(member) == value do return gd.to_variant(strings.to_lower(enum_class.info.names[i], context.temp_allocator))
+			for member, i in enum_class.values {
+				if member == value do return gd.to_variant(strings.to_lower(enum_class.names[i], context.temp_allocator))
 			}
 			return gd.to_variant(fmt.tprintf("%d", value))
 		}, enum_class, {{"value", .INT, ""}}, gd.Dynamic_Arg{"", .STRING, ""}, static = true, doc = "The member's name, lowercased (its value as text for none).")
@@ -782,7 +760,7 @@ register_enum_class :: proc(type: ^runtime.Type_Info, class_name := "") {
 		"names",
 		proc(user: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
 			enum_class := (^Enum_Class)(user)
-			values := enum_class.info.values
+			values := enum_class.values
 			order := make([]int, len(values), context.temp_allocator)
 			for &k, i in order do k = i
 			for i in 1 ..< len(order) { 	// value order (insertion sort: an enum is short)
@@ -792,7 +770,7 @@ register_enum_class :: proc(type: ^runtime.Type_Info, class_name := "") {
 			}
 			names := gd.array_new()
 			gd.array_set_typed(&names, .STRING)
-			for k in order do gd.array_push(&names, strings.to_lower(enum_class.info.names[k], context.temp_allocator))
+			for k in order do gd.array_push(&names, strings.to_lower(enum_class.names[k], context.temp_allocator))
 			return array_variant(&names)
 		},
 		enum_class,
@@ -869,5 +847,7 @@ data_classes_forget :: proc() {
 	clear(&D.data)
 	clear(&D.enums)
 	clear(&D.nested)
+	delete(D.views)
+	D.views = nil
 	D.constants, D.input, D.setup, D.profile, D.singleton = nil, nil, nil, nil, {}
 }

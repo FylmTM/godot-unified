@@ -22,14 +22,11 @@ holdout_init :: proc "c" (
 
 GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
-	fill_frame = fill_frame,
-	data = Data,
-	views = #partial {
-		// teammates on the verified timeline: a few ticks late, never corrected (src/godot/README.md)
-		.Player = {data = Player_View, policy = {remote = .Verified}},
-		.Enemy = {data = Enemy_View},
-	},
-	event_key = event_key,
+	fill_frame   = fill_frame,
+	data         = Data,
+	// teammates on the verified timeline: a few ticks late, never corrected (src/godot/README.md)
+	view_policy  = {{View_Player, {remote = .Verified}}},
+	event_key    = event_key,
 	input_values = Input_Values,
 }
 

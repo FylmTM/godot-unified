@@ -9,12 +9,12 @@ import g "../drift"
 
 // ---- the view contract
 
-// Scene views (the view index: a scene per kind, with a UnifiedView marker), each with its typed data (set as the
-// view's properties).
-View :: enum u8 {
-	Ship,
-	Station,
-	Gate,
+// Scene views (the view index: a scene per kind, with a UnifiedView marker), each kind its data (the view script's
+// `data`).
+View :: union {
+	View_Ship,
+	View_Station,
+	View_Gate,
 }
 
 // MultiMesh views (MultiMeshInstance2D, TRANSFORM_2D, colors + custom data): a rock mesh per variant (a unit-radius
@@ -33,18 +33,18 @@ MultiView :: enum u8 {
 
 Frame :: godot.Frame(g.Game, View, MultiView)
 
-Ship_View :: struct {
+View_Ship :: struct {
 	boost_ready: f32, // 0 just boosted .. 1 ready
 	thrust:      bool,
 	local:       bool, // one of this machine's players (godot.is_local): no name tag, louder sounds
 	_pad:        [2]u8,
 }
 
-Station_View :: struct {
+View_Station :: struct {
 	hp_frac: f32, // 0..1
 }
 
-Gate_View :: struct {
+View_Gate :: struct {
 	charge: f32, // 0 ready .. 1 just used
 }
 
@@ -53,10 +53,10 @@ Gate_View :: struct {
 
 // Station hits go to the station's view (they have no subject); the rest by their subject: a player's events to
 // their ship (keyed by their player key), a rock's to its shooter's ship (no scene view has a rock's key).
-event_key :: proc(event: g.Event, _: godot.Subject) -> godot.Event_Target(View) {
+event_key :: proc(event: g.Event, _: godot.Subject) -> godot.Event_Target {
 	#partial switch _ in event {
 	case g.Event_Station_Hit:
-		return godot.to_view(View.Station)
+		return godot.to_view(View_Station)
 	}
 	return {}
 }
@@ -75,26 +75,23 @@ fill_frame :: proc(f: ^Frame) {
 	ships := sim.iterate_present(&f.state.players)
 	for ship, player in sim.next(&ships) {
 		godot.push_view(f, player, {
-			kind = .Ship,
 			pos  = sim.position_2d(physics.body_position_2d(f.world.phys, ship.body)),
 			rot  = physics.quat_2d(physics.body_rotation_2d(f.world.phys, ship.body)),
 			warp = physics.body_warp(f.world.phys, ship.body),
-		}, Ship_View {
+		}, View_Ship {
 			boost_ready = sim.timer_fraction(f.time, ship.boost_cooldown),
 			thrust      = ship.thrust,
 			local       = godot.is_local(f, player),
 		})
 	}
 	godot.push_view(f, {
-		kind = .Station,
-		pos  = sim.position_2d(physics.body_position_2d(f.world.phys, f.state.station)),
-		rot  = physics.quat_2d(physics.body_rotation_2d(f.world.phys, f.state.station)),
-	}, Station_View{hp_frac = f32(f.state.station_hp) / g.STATION_HP})
+		pos = sim.position_2d(physics.body_position_2d(f.world.phys, f.state.station)),
+		rot = physics.quat_2d(physics.body_rotation_2d(f.world.phys, f.state.station)),
+	}, View_Station{hp_frac = f32(f.state.station_hp) / g.STATION_HP})
 	for gate_def, gate in sim.slice(&f.world.gates) {
 		godot.push_view(f, sim.entity(gate), {
-			kind = .Gate,
-			pos  = sim.position_2d(gate_def.pos),
-		}, Gate_View{charge = 1 - sim.timer_fraction(f.time, f.state.gates[gate].charge)})
+			pos = sim.position_2d(gate_def.pos),
+		}, View_Gate{charge = 1 - sim.timer_fraction(f.time, f.state.gates[gate].charge)})
 	}
 	// rocks: rotation from the body, scaled per axis by the radius (squashed for a moment when hit)
 	rocks := sim.iterate(&f.state.rocks)

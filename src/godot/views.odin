@@ -6,7 +6,6 @@
 #+private
 package godot
 
-import "base:runtime"
 import "core:fmt"
 import "core:math"
 import "core:slice"
@@ -32,27 +31,29 @@ View_Id :: struct {
 }
 
 Scene_View :: struct {
-	node:        gd.Node, // the scene's root
-	mode:        Root_Mode,
-	id:          u64,
-	marker:      gd.Node, // its UnifiedView (nil: the scene has none)
-	marker_id:   u64,
-	kind:        u8,
-	player:      u64, // the player's key (sim.player_key; 0: none)
-	key:         u64, // its subject's key (push_view)
-	subject:     typeid, // its subject's type (push_view; nil: none): only events with a subject of this type reach it
-	linger_s:    f64, // its marker's
-	spawn_tick:  u32, // the tick it first appeared at
-	verified:    bool, // its spawn tick has been verified: from then on it can't be a cancelled spawn
-	gone:        bool, // _sim_despawned was called (and no _sim_revived since)
-	warp:        u8, // the warp epoch last shown: another one resets the track (the view snaps)
-	track:       Track,
-	shown:       Pose, // the pose last set on the root (view units), so an unchanged one isn't set again
-	posed:       bool,
-	held_back:   bool, // hidden by the host: a verified-timeline view with no sample yet (verified_players.odin)
-	gone_tick:   u32, // the tick of the first frame that lacked its key while it plays late (0: in the frame)
-	using hooks: View_Hooks, // the root's script's
-	data:        []u8, // the data last set as properties
+	node:         gd.Node, // the scene's root
+	mode:         Root_Mode,
+	id:           u64,
+	marker:       gd.Node, // its UnifiedView (nil: the scene has none)
+	marker_id:    u64,
+	kind:         u8,
+	player:       u64, // the player's key (sim.player_key; 0: none)
+	key:          u64, // its subject's key (push_view)
+	subject:      typeid, // its subject's type (push_view; nil: none): only events with a subject of this type reach it
+	linger_s:     f64, // its marker's
+	spawn_tick:   u32, // the tick it first appeared at
+	verified:     bool, // its spawn tick has been verified: from then on it can't be a cancelled spawn
+	gone:         bool, // _sim_despawned was called (and no _sim_revived since)
+	warp:         u8, // the warp epoch last shown: another one resets the track (the view snaps)
+	track:        Track,
+	shown:        Pose, // the pose last set on the root (view units), so an unchanged one isn't set again
+	posed:        bool,
+	held_back:    bool, // hidden by the host: a verified-timeline view with no sample yet (verified_players.odin)
+	gone_tick:    u32, // the tick of the first frame that lacked its key while it plays late (0: in the frame)
+	using hooks:  View_Hooks, // the root's script's
+	data:         []u8, // the bytes of the data object last set as the root's `data`
+	data_objects: [2]View_Data_Object, // the shown one and the spare (set_data)
+	data_shown:   int, // which of them is the root's `data`
 }
 
 // Which optional callbacks a view kind's root script has: looked up at the kind's first spawn (every view of a kind
@@ -60,6 +61,7 @@ Scene_View :: struct {
 View_Hooks :: struct {
 	has_event:    bool,
 	has_sim_pose: bool,
+	has_data:     bool, // its kind carries data and the script declares `data`
 	callbacks:    [View_Callback]bool,
 }
 
@@ -81,6 +83,7 @@ NAMES: struct {
 	view_event: ^gd.StringName, // a scene view's _sim_event
 	sim_pose:   ^gd.StringName, // a script-posed view's _sim_pose (Posed_By.Script)
 	sim_event:  ^gd.StringName, // UnifiedSession.sim_event (the signal)
+	data:       ^gd.StringName, // a scene view's `data` property
 	callbacks:  [View_Callback]^gd.StringName,
 }
 
@@ -128,7 +131,6 @@ V: struct {
 	frame:       int,
 	fresh_count: int,
 	clock:       time.Tick,
-	fields:      map[typeid][]Sim_Field, // per view data type, built on first use
 	hooks:       map[u8]View_Hooks, // per scene view kind, at its first spawn
 	reported:    map[string]bool, // warnings and errors given once per process
 	stats:       Sync_Stats,
@@ -176,6 +178,7 @@ register_classes :: proc() {
 		}
 	}
 	NAMES.view_event, NAMES.sim_event, NAMES.sim_pose = gd.sn("_sim_event"), gd.sn("sim_event"), gd.sn("_sim_pose")
+	NAMES.data = gd.sn("data")
 	for name, callback in VIEW_CALLBACK_NAMES do NAMES.callbacks[callback] = gd.sn(name)
 	register_session_class()
 	register_nested_classes() // before the classes whose fields hold them
@@ -186,7 +189,7 @@ register_classes :: proc() {
 		parent = "Node",
 		size = size_of(Unified_View_Node),
 		doc_brief = "Marks a scene as the view of one kind of the game's scene views.",
-		doc = "A direct child of the scene's root. [code]uni bake[/code] indexes the scenes by it; the host sets [member key] and keeps [member player] current. The root may be a Node3D (position and quaternion), a Node2D (position and rotation) or anything else (data only), posed before any other node's [code]_process[/code]; a kind the game's view policy script-poses is not posed: the host calls its script's [code]_sim_pose(position: Vector3, rotation: Quaternion)[/code] (2D: [code](position: Vector2, rotation: float)[/code]) with that pose whenever it changes. Its script may define [code]_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState)[/code], properties named after the fields of the view's data, and the lifecycle callbacks [code]_sim_despawned()[/code] (its key is gone: it lingers [member linger_s], no longer posed, then is freed), [code]_sim_revived()[/code] (a rollback brought it back while it lingered) and [code]_sim_cancelled()[/code] (a rollback removed it before its spawn tick was verified: freed at once).",
+		doc = "A direct child of the scene's root. [code]uni bake[/code] indexes the scenes by it; the host sets [member key] and keeps [member player] current. The root may be a Node3D (position and quaternion), a Node2D (position and rotation) or anything else (data only), posed before any other node's [code]_process[/code]; a kind the game's view policy script-poses is not posed: the host calls its script's [code]_sim_pose(position: Vector3, rotation: Quaternion)[/code] (2D: [code](position: Vector2, rotation: float)[/code]) with that pose whenever it changes. Its script declares [code]var data: ViewCard[/code] when its kind carries data (the kind's class: the host sets a new object before [code]_ready[/code] and whenever the data changes, so a setter sees the old value and the new one), and may define [code]_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState)[/code] and the lifecycle callbacks [code]_sim_despawned()[/code] (its key is gone: it lingers [member linger_s], no longer posed, then is freed), [code]_sim_revived()[/code] (a rollback brought it back while it lingered) and [code]_sim_cancelled()[/code] (a rollback removed it before its spawn tick was verified: freed at once).",
 		init = proc(instance: rawptr) {(^Unified_View_Node)(instance).linger_s = LINGER_S},
 		fini = proc(instance: rawptr) {
 			delete((^Unified_View_Node)(instance).kind)
@@ -203,9 +206,9 @@ register_classes :: proc() {
 			delete(node.kind)
 			node.kind = strings.clone(kind)
 		},
-		hint = .ENUM_SUGGESTION,
+		hint = .ENUM,
 		hint_string = strings.join(api.view_names, ",", context.temp_allocator),
-		doc = "The view kind (the game's View enum member, lowercased: the inspector offers them), set in the scene.",
+		doc = "The view kind (its type in the game's View union without View_, lowercased: the inspector lists them), set in the scene. Stored by name, so reordering the union changes no scene.",
 	)
 	gd.bind_property(
 		class,
@@ -330,10 +333,7 @@ views_check_index :: proc() {
 		if !known {
 			report_once(
 				fmt.tprintf("index-unknown:%s", kind),
-				fmt.tprintf(
-					"unified: the view index has kind %q, which is not a member of the game's View enum",
-					kind,
-				),
+				fmt.tprintf("unified: the view index has kind %q, which is not a kind of the game's View union", kind),
 			)
 		}
 	}
@@ -422,40 +422,33 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 		hooks.has_event = gd.has_script_method(node, NAMES.view_event)
 		hooks.has_sim_pose = gd.has_script_method(node, NAMES.sim_pose)
 		for name, callback in NAMES.callbacks do hooks.callbacks[callback] = gd.has_script_method(node, name)
+		hooks.has_data = item.data_type != nil && declares_property(node, "data")
 		V.hooks[item.kind] = hooks
 		if kind_of(item.kind).pose == .Script && !hooks.has_sim_pose && scene_view.mode != .Other {
 			report_once(
 				fmt.tprintf("sim_pose:%s", kind),
 				fmt.tprintf(
-					"unified: view kind %q is script-posed (Glue.views: policy.pose) but its root's script has no _sim_pose(position, rotation): the host poses it",
+					"unified: view kind %q is script-posed (Glue.view_policy: pose) but its root's script has no _sim_pose(position, rotation): the host poses it",
 					kind,
+				),
+			)
+		}
+		if item.data_type != nil && !hooks.has_data {
+			report_once(
+				fmt.tprintf("data:%s", kind),
+				fmt.tprintf(
+					"unified: the root script of view kind %q has no `var data: %s`: its data is not shown",
+					kind,
+					D.views[item.kind].name if D.views[item.kind] != nil else "its class",
 				),
 			)
 		}
 	}
 	scene_view.hooks = hooks
 	pose_view(scene_view, {to_view_units(item.pos), item.rot})
+	// data before _ready, so _ready reads it (a setter that uses @onready nodes waits for is_node_ready)
+	if hooks.has_data do set_data(scene_view, frame.data[item.data_offset:][:item.data_size], true)
 	gd.Node_add_child(view_parent(root, scene_view, kind), node, false, .INTERNAL_MODE_DISABLED)
-	// data after _ready: a script's property setters may use its @onready nodes
-	if item.data_type != nil {
-		fields := data_fields(item.data_type)
-		for &field in fields {
-			property := gd.Object_get(node, field.name_sn)
-			if gd.variant_type(&property) == .NIL && !declares_property(node, field.name) { 	// a null object var is nil too
-				report_once(
-					fmt.tprintf("prop:%s:%s", kind, field.name),
-					fmt.tprintf(
-						"unified: scene view %q has no property %q for its data (%v)",
-						kind,
-						field.name,
-						item.data_type,
-					),
-				)
-			}
-			gd.variant_destroy(&property)
-		}
-		set_data(scene_view, fields, frame.data[item.data_offset:][:item.data_size], true)
-	}
 	return scene_view
 }
 
@@ -501,34 +494,46 @@ set_pose :: proc(scene_view: ^Scene_View, pose: Pose) {
 	}
 }
 
-// The fields of a view data type, built once (each set as the view's property of the same name, converted like an
-// event's: events.odin field_variant).
-data_fields :: proc(data_type: typeid) -> []Sim_Field {
-	if fields, ok := V.fields[data_type]; ok do return fields
-	fields: []Sim_Field
-	if _, is_struct := runtime.type_info_base(type_info_of(data_type)).variant.(runtime.Type_Info_Struct); is_struct {
-		fields = struct_sim_fields(type_info_of(data_type))
-	} else {
-		gd.print_error(fmt.tprintf("unified: view data %v must be a struct", data_type))
-	}
-	V.fields[data_type] = fields
-	return fields
-}
-
-// Sets every data field whose bytes changed (all of them on a fresh view) as a property.
-set_data :: proc(scene_view: ^Scene_View, fields: []Sim_Field, data: []u8, fresh: bool) {
-	fresh := fresh
+// Sets the root's `data` to another object of its kind's class (ViewX) when the data's bytes changed (always on a fresh
+// view): a script's setter sees the old object and the new one. Nothing for a root without a `data` property.
+//
+// The view keeps two objects and alternates: the one shown, and a spare it refills only when nothing but the view
+// holds it (a script that kept an old value keeps it as it was; the view makes a new spare instead). So a change
+// costs no object per frame, and a script never sees a value it holds change under it.
+set_data :: proc(scene_view: ^Scene_View, data: []u8, fresh: bool) {
+	if !scene_view.has_data do return
+	if !fresh && len(scene_view.data) == len(data) && string(scene_view.data) == string(data) do return
 	if len(scene_view.data) != len(data) {
 		delete(scene_view.data)
 		scene_view.data = make([]u8, len(data))
-		fresh = true
-	}
-	for &field in fields {
-		bytes := data[field.offset:][:field.type.size]
-		if !fresh && string(bytes) == string(scene_view.data[field.offset:][:len(bytes)]) do continue
-		set_prop(scene_view.node, field.name_sn, field_variant(field.type, bytes, .Sim))
 	}
 	copy(scene_view.data, data)
+	view_class := D.views[scene_view.kind]
+	if view_class == nil do return // its class failed to register (reported at load)
+	spare := &scene_view.data_objects[1 - scene_view.data_shown]
+	if spare.object.ptr == nil || gd.RefCounted_get_reference_count(transmute(gd.RefCounted)spare.object) != 1 {
+		data_object_drop(spare)
+		spare.object = {gd.construct_object_named(view_class.class_sn)}
+		spare.held = gd.variant_from_any(spare.object) // the view's reference: the Variant holds it, ours goes
+		gd.unref(transmute(gd.RefCounted)spare.object)
+	}
+	nested_fill(view_class, spare.object, data, .Sim)
+	value: gd.Variant
+	gdi.variant_new_copy(&value, &spare.held)
+	set_prop(scene_view.node, NAMES.data, value)
+	scene_view.data_shown = 1 - scene_view.data_shown
+}
+
+// One of a scene view's two data objects (set_data): the view's reference to it, and the object (nil: none yet).
+View_Data_Object :: struct {
+	held:   gd.Variant,
+	object: gd.Object,
+}
+
+// Lets go of a view's data object (a script that holds it keeps it).
+data_object_drop :: proc(data_object: ^View_Data_Object) {
+	if data_object.object.ptr != nil do gdi.variant_destroy(&data_object.held)
+	data_object^ = {}
 }
 
 set_prop :: proc(object: gd.Object, name: ^gd.StringName, value: gd.Variant) {
@@ -555,7 +560,7 @@ view_parent :: proc(root: gd.Node, scene_view: ^Scene_View, kind: string) -> gd.
 }
 
 // Whether `node` declares a property `name`: a script's `var`, even one holding null (Object.get reads that as nil, as
-// it reads a property that isn't there). Walks the property list: once per kind and field, on a nil read only.
+// it reads a property that isn't there). Walks the property list: once per view kind, at its first spawn.
 declares_property :: proc(node: gd.Node, name: string) -> bool {
 	list := gd.Object_get_property_list(node)
 	defer gd.Array_destroy(&list)
@@ -575,6 +580,7 @@ declares_property :: proc(node: gd.Node, name: string) -> bool {
 free_view :: proc(scene_view: ^Scene_View) {
 	if scene_view == nil do return
 	if alive(scene_view.id) do gd.Node_queue_free(scene_view.node)
+	for &data_object in scene_view.data_objects do data_object_drop(&data_object)
 	delete(scene_view.data)
 	free(scene_view)
 }
@@ -608,10 +614,8 @@ views_clear :: proc() {
 	delete(V.scenes)
 	delete(V.missing)
 	V.scenes, V.missing = nil, nil
-	for _, fields in V.fields do delete(fields)
-	delete(V.fields)
 	delete(V.hooks)
-	V.fields, V.hooks = nil, nil
+	V.hooks = nil
 	for kind, path in V.index {
 		delete(kind)
 		delete(path)
@@ -708,12 +712,7 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 			// a view on the verified timeline takes its data from its samples (when its kind's data fits one)
 			late_data := verified_players_applies(scene_view) && item.data_size <= VERIFIED_DATA_MAX
 			if !spawned && alive(scene_view.id) && item.data_type != nil && !late_data {
-				set_data(
-					scene_view,
-					data_fields(item.data_type),
-					frame.data[item.data_offset:][:item.data_size],
-					false,
-				)
+				set_data(scene_view, frame.data[item.data_offset:][:item.data_size], false)
 			}
 			if scene_view.mode == .Other do continue
 			track_warp(&scene_view.track, &scene_view.warp, item.warp) // teleported: snaps
@@ -775,7 +774,7 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 		if applies {
 			pose = late
 			if sample.data_type != nil && sample.data_size > 0 {
-				set_data(scene_view, data_fields(sample.data_type), sample.data[:sample.data_size], false)
+				set_data(scene_view, sample.data[:sample.data_size], false)
 			}
 		}
 		pose.pos = to_view_units(pose.pos)
@@ -797,7 +796,7 @@ view_kind_of :: proc(kind: i64, caller: string) -> int {
 	if kind >= 0 && kind < i64(len(api.view_names)) do return int(kind)
 	report_once(
 		fmt.tprintf("view-kind:%d", kind),
-		fmt.tprintf("unified: %s: %d is not a member of the game's View enum (EnumView)", caller, kind),
+		fmt.tprintf("unified: %s: %d is not a kind of the game's View union (EnumView)", caller, kind),
 	)
 	return -1
 }
@@ -860,7 +859,17 @@ views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, even
 		switch event_route {
 		case .Subject:
 		case .View:
-			if entry := set_get(&V.set, View_Id{kind, key}); entry != nil do call_sim_event(entry.view, event, state, tick)
+			if kind < 0 {
+				report_once(
+					fmt.tprintf("event-key:%v", layout.type.id),
+					fmt.tprintf(
+						"unified: Glue.event_key sent %v to a type that is no View kind: to_view takes a variant of the View union",
+						layout.type.id,
+					),
+				)
+				return
+			}
+			if entry := set_get(&V.set, View_Id{u8(kind), key}); entry != nil do call_sim_event(entry.view, event, state, tick)
 			return
 		case .No_View:
 			return

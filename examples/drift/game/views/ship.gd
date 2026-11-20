@@ -1,6 +1,6 @@
 extends Node2D
 ## A player's ship, drawn in code. The host sets the root's position (pixels) and rotation (the heading: 0 = +x,
-## the nose) and the Ship_View data below; everything else is view-only: the hull in the colour of the player's slot,
+## the nose) and its View_Ship `data`; everything else is view-only: the hull in the colour of the player's slot,
 ## a flame while thrusting, a ring that fills while boost recharges, a squash on shots and boosts, a muzzle flash, a
 ## warp flash, a name tag over other players' ships, and a shrink when the ship leaves. The view outlives a leave:
 ## a player who comes back (in any slot) gets it back, in their new slot's colour.
@@ -8,14 +8,12 @@ extends Node2D
 ## The view's marker: `player` is the ship's player's key (set by the host before _ready).
 @onready var view: UnifiedView = %UnifiedView
 
-## Ship_View (simulation/extension), set by the host when it changes.
-var boost_ready := 1.0:  ## 0 just boosted .. 1 ready
-	set(v):
-		if v >= 1.0 and boost_ready < 1.0:
-			_ready_pulse = 1.0
-		boost_ready = v
-var thrust := false
-var local := false  ## one of this machine's players (godot.is_local)
+## View_Ship (simulation/extension): set by the host before _ready, and anew each time it changes.
+var data: ViewShip:
+	set(value):
+		if data != null and value.boost_ready >= 1.0 and data.boost_ready < 1.0:
+			_ready_pulse = 1.0  # boost recharged
+		data = value
 
 var _r: float  ## the sim's ship radius, in pixels
 var _color := Color.WHITE
@@ -54,7 +52,7 @@ func _process(delta: float) -> void:
 	_ready_pulse = maxf(_ready_pulse - delta * 3.0, 0.0)
 	_leaving = move_toward(_leaving, 1.0 if _gone else 0.0, delta * 4.0)
 	_follow_slot()
-	_tag.visible = not local and _leaving < 0.5
+	_tag.visible = not data.local and _leaving < 0.5
 	if _tag.visible:
 		var tag := Unified.session.get_player_name(view.player)  # the synced name, else "P<slot + 1>"
 		if _tag.text != tag:
@@ -72,13 +70,13 @@ func _draw() -> void:
 	var r := _r
 	# boost: a faint ring that fills as it recharges, bright for a moment when ready
 	var ring_r := r * 1.55
-	if boost_ready < 1.0:
-		draw_arc(Vector2.ZERO, ring_r, -PI / 2.0, -PI / 2.0 + TAU * boost_ready, 32, Color(_color, 0.45), 2.0, true)
+	if data.boost_ready < 1.0:
+		draw_arc(Vector2.ZERO, ring_r, -PI / 2.0, -PI / 2.0 + TAU * data.boost_ready, 32, Color(_color, 0.45), 2.0, true)
 	else:
 		draw_arc(Vector2.ZERO, ring_r, 0.0, TAU, 32, Color(_color, 0.18 + 0.6 * _ready_pulse),
 			1.5 + 2.0 * _ready_pulse, true)
 	# thrust flame behind the hull, flickering
-	if thrust:
+	if data.thrust:
 		var f := 0.8 + 0.25 * sin(_t * 47.0) + 0.15 * sin(_t * 31.0)
 		var flame := PackedVector2Array([Vector2(-r * 0.55, -r * 0.38), Vector2(-r * (0.9 + 0.75 * f), 0),
 			Vector2(-r * 0.55, r * 0.38)])
@@ -120,7 +118,7 @@ func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 			UnifiedSession.EVENT_EMITTED:
 				_muzzle = 1.0
 				_squash = minf(_squash, -0.25)
-				_shots[event.id] = Sfx.play(&"fire", -12.0 if local else -18.0, randf_range(0.95, 1.08))
+				_shots[event.id] = Sfx.play(&"fire", -12.0 if data.local else -18.0, randf_range(0.95, 1.08))
 			UnifiedSession.EVENT_CANCELLED:
 				_muzzle = 0.0
 				if _shots.has(event.id):
@@ -133,8 +131,8 @@ func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 		return
 	if event is EventBoosted:
 		_squash = 1.0
-		Sfx.play(&"boost", -4.0 if local else -10.0)
-		if local:
+		Sfx.play(&"boost", -4.0 if data.local else -10.0)
+		if data.local:
 			Game.rumble(0.3, 0.2, 0.12)
 	elif event is EventWarped:
 		_warp = 1.0

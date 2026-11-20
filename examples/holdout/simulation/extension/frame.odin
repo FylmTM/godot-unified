@@ -8,11 +8,12 @@ import "unified:sim"
 
 import g "../holdout"
 
-// Scene views (the view index: a scene per kind, with a UnifiedView marker): a player's, keyed by sim.player_key, and
-// an enemy's, keyed by its handle (its events' `enemy`). The core and the level are the level scene's.
-View :: enum u8 {
-	Player,
-	Enemy,
+// Scene views (the view index: a scene per kind, with a UnifiedView marker), each kind its data: a player's, keyed by
+// sim.player_key, and an enemy's, keyed by its handle (its events' `enemy`). The core and the level are the level
+// scene's.
+View :: union {
+	View_Player,
+	View_Enemy,
 }
 
 // MultiMesh views: bolts and grenades, keyed by their handles.
@@ -30,8 +31,8 @@ PLAYER_COLORS := [g.PLAYERS]godot.Color {
 	{0.85, 0.55, 1, 1},
 }
 
-// The player view's data: set as its properties when it changes. Its pose is its feet, turned by its aim's yaw.
-Player_View :: struct {
+// A player: its pose is its feet, turned by its aim's yaw.
+View_Player :: struct {
 	color:  godot.Color,
 	pitch:  f32, // the aim's pitch, turns: the head and the gun tilt by it
 	hp:     i16,
@@ -40,8 +41,8 @@ Player_View :: struct {
 	revive: f32, // a teammate's progress getting them up, 0..1
 }
 
-// The enemy view's data. Its pose is its feet, turned to where it faces.
-Enemy_View :: struct {
+// An enemy: its pose is its feet, turned to where it faces.
+View_Enemy :: struct {
 	kind: g.Enemy_Kind, // EnumEnemyKind: which body the view shows
 	_pad: [3]u8,
 	hp:   f32, // left, 0..1
@@ -49,7 +50,7 @@ Enemy_View :: struct {
 
 // Events go by their subject (a shot, a hurt or a throw to the player's view, an enemy's hit to its view), except
 // what is no one view's: a death (its enemy is gone) and a revive (two players) go to the sim_event signal only.
-event_key :: proc(event: g.Event, _: godot.Subject) -> godot.Event_Target(View) {
+event_key :: proc(event: g.Event, _: godot.Subject) -> godot.Event_Target {
 	#partial switch _ in event {
 	case g.Event_Enemy_Died, g.Event_Player_Revived:
 		return {route = .No_View}
@@ -66,11 +67,10 @@ fill_frame :: proc(f: ^Frame) {
 		forward, _ := dmath.aim_flat(data.aim)
 		slot := sim.player_slot(&f.state.players, player)
 		godot.push_view(f, player, {
-			kind = .Player,
 			pos  = sim.Position(center - {0, g.PLAYER_HALF_HEIGHT + g.PLAYER_RADIUS, 0}),
 			rot  = dmath.quat_yaw(forward.xz),
 			warp = data.warp,
-		}, Player_View {
+		}, View_Player {
 			color  = PLAYER_COLORS[slot],
 			pitch  = dmath.aim_pitch(data.aim),
 			hp     = data.hp,
@@ -81,11 +81,10 @@ fill_frame :: proc(f: ^Frame) {
 	enemies := sim.iterate(&f.state.enemies)
 	for enemy, handle in sim.next(&enemies) {
 		godot.push_view(f, handle, {
-			kind = .Enemy,
 			pos  = sim.Position(enemy.pos),
 			rot  = dmath.quat_yaw(enemy.facing),
 			warp = enemy.warp,
-		}, Enemy_View{kind = enemy.kind, hp = f32(enemy.hp) / f32(g.ENEMY_SPECS[enemy.kind].hp)})
+		}, View_Enemy{kind = enemy.kind, hp = f32(enemy.hp) / f32(g.ENEMY_SPECS[enemy.kind].hp)})
 	}
 	bolts := sim.iterate(&f.state.bolts)
 	for bolt, handle in sim.next(&bolts) {

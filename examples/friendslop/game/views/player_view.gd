@@ -4,12 +4,9 @@ extends Node3D
 ## lean into motion, squash on jumps and landings, tip over while stunned or held, arms out while holding, a name tag
 ## and a throw-charge ring.
 
-## The sim's Player_View data (simulation/extension), set by the host when it changes.
-## Stunned or held: the body tips over.
-var limp := false
-var holding := false
-## The throw charge, 0..1.
-var charge := 0.0
+## View_Player (simulation/extension): set by the host before _ready, and anew each time it changes. Stunned or held
+## (`limp`): the body tips over; `charge`: the throw charge, 0..1.
+var data: ViewPlayer
 
 var _last_pos := Vector3.ZERO
 var _vel := Vector3.ZERO
@@ -54,7 +51,7 @@ func _process(delta: float) -> void:
 	_t += delta
 	_vel = _vel.lerp((position - _last_pos) / delta, 1.0 - exp(-delta * 10.0))
 	_last_pos = position
-	_tip = move_toward(_tip, 1.0 if limp else 0.0, delta * (6.0 if limp else 3.0))
+	_tip = move_toward(_tip, 1.0 if data.limp else 0.0, delta * (6.0 if data.limp else 3.0))
 	_squash = move_toward(_squash, 0.0, delta * 4.0)
 	# Lean into the horizontal motion (in the root's frame, which turns with the facing).
 	var local_v := global_transform.basis.inverse() * Vector3(_vel.x, 0, _vel.z)
@@ -62,9 +59,9 @@ func _process(delta: float) -> void:
 	_body.rotation = Vector3(lean.x + _tip * 1.35, 0, lean.z + sin(_t * 9.0) * 0.05 * _tip)
 	var s := 1.0 + _squash * 0.25
 	_body.scale = Vector3(s, 1.0 / s, s)
-	_arms.visible = holding
-	_ring.visible = charge > 0.01
-	_ring.scale = Vector3.ONE * (0.6 + charge * 0.8)
+	_arms.visible = data.holding
+	_ring.visible = data.charge > 0.01
+	_ring.scale = Vector3.ONE * (0.6 + data.charge * 0.8)
 	var player := _view_marker.player
 	var player_name := Unified.session.get_player_name(player)
 	if _tag.text != player_name:

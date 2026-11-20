@@ -155,7 +155,7 @@ plate's mass, a spawn per slot, an item kind or platform mode the sim knows).
   `UnifiedSession.level_marker`.
 - Scene views: `player` (keyed by `sim.player_key`; data `limp`, `holding`, `charge`) and `marker`, every sim object
   the active level placed (items, platforms, bells, plates, switches, locks), keyed by its level marker index (data
-  `held_by`: the player holding a one-handle item). Markers are script-posed (`Glue.views`): the view takes
+  `held_by`: the player holding a one-handle item). Markers are script-posed (`Glue.view_policy`): the view takes
   the sim's pose, except an item the local player holds, drawn at their hand every rendered frame. A respawn, a park
   below the level and an item sent home teleport a body, which moves its warp epoch on (`physics.body_warp`): the
   view snaps there instead of gliding. An event about a player goes to that player's view, so grabbed, dropped and thrown stay

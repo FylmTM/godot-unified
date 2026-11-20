@@ -12,9 +12,9 @@ import g "../friendslop"
 // sim.player_key. Every sim object the level placed (items, platforms, bells, plates, switches, locks) is a `marker`
 // view keyed by its level marker index (its events' `entity` is sim.entity of that index); the view adopts that
 // marker's visuals.
-View :: enum u8 {
-	Player,
-	Marker,
+View :: union {
+	View_Player,
+	View_Marker,
 }
 
 // No MultiMesh views.
@@ -25,13 +25,13 @@ Frame :: godot.Frame(g.Game, View, MultiView)
 // An event about a player goes to that player's view. So grabbed, dropped and thrown stay with the holder's view, and
 // a switch a player touched with the player's, where the default routing would send them to the item's or the
 // switch's view (its `entity`: the marker view keyed by that marker's index). The rest: by their subject.
-event_key :: proc(_: g.Event, subject: godot.Subject) -> godot.Event_Target(View) {
-	if subject.player != {} do return godot.to_view(View.Player, subject.player)
+event_key :: proc(_: g.Event, subject: godot.Subject) -> godot.Event_Target {
+	if subject.player != {} do return godot.to_view(View_Player, subject.player)
 	return {}
 }
 
-// The player view's data: set as its properties when it changes.
-Player_View :: struct {
+// A player.
+View_Player :: struct {
 	limp:    bool, // stunned or held: the body tips over
 	holding: bool,
 	_pad:    [2]u8,
@@ -42,11 +42,10 @@ fill_frame :: proc(f: ^Frame) {
 	players := sim.iterate_present(&f.state.players)
 	for character, player in sim.next(&players) {
 		godot.push_view(f, player, {
-			kind = .Player,
 			pos  = sim.Position(physics.body_position(f.world.phys, character.controller.body)),
 			rot  = dmath.quat_yaw(character.facing),
 			warp = physics.body_warp(f.world.phys, character.controller.body),
-		}, Player_View {
+		}, View_Player {
 			limp    = sim.timer_running(f.time, character.stun) || character.held_by != {},
 			holding = character.held_kind != .None,
 			charge  = f32(character.charge) / f32(g.THROW_CHARGE_TICKS),
@@ -62,16 +61,15 @@ fill_frame :: proc(f: ^Frame) {
 	for def in sim.slice(&places.triggers) {
 		marker := def.marker
 		godot.push_view(f, sim.entity(marker), {
-			kind = .Marker,
-			pos  = sim.Position(def.volume.pos),
-			rot  = physics.level_data(f.world.phys, f.state.level.id).markers[marker].rot,
-		}, Marker_View{})
+			pos = sim.Position(def.volume.pos),
+			rot = physics.level_data(f.world.phys, f.state.level.id).markers[marker].rot,
+		}, View_Marker{})
 	}
 	godot.push_data(f, hud_of(f))
 }
 
-// The marker view's data: an item's holder, whom the view follows when that is the local player (marker_view.gd).
-Marker_View :: struct {
+// A marker's thing: an item's holder, whom the view follows when that is the local player (marker_view.gd).
+View_Marker :: struct {
 	held_by: sim.Player, // the one player holding a one-handle item ({}: nobody, a two-handle item, not an item)
 }
 
@@ -79,11 +77,10 @@ Marker_View :: struct {
 push_body :: proc(f: ^Frame, body: physics.Body_Ref, marker: int, warp: u8 = 0, held_by: sim.Player = {}) {
 	if body == {} do return
 	godot.push_view(f, sim.entity(marker), {
-		kind = .Marker,
 		pos  = sim.Position(physics.body_position(f.world.phys, body)),
 		rot  = physics.body_rotation(f.world.phys, body),
 		warp = warp,
-	}, Marker_View{held_by = held_by})
+	}, View_Marker{held_by = held_by})
 }
 
 // Who holds a one-handle item ({} for a two-handle one: it hangs from its grab point, not at the hand).

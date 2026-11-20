@@ -1,13 +1,13 @@
 extends Node2D
-## A warp gate. The host sets its position and `charge` from Gate_View: 0 ready .. 1 just used. A ring of the
+## A warp gate. The host sets its position and its View_Gate `data` (its charge: 0 ready .. 1 just used). A ring of the
 ## sim's `gate_radius` that dims while charging (an arc shows the recharge), with a slow swirl inside.
 
-## Gate_View (simulation/extension), set by the host when it changes.
-var charge := 0.0:
-	set(v):
-		if v > charge + 0.25:
+## View_Gate (simulation/extension): set by the host before _ready, and anew each time it changes.
+var data: ViewGate:
+	set(value):
+		if data != null and value.charge > data.charge + 0.25:
 			_burst = 1.0  # just used
-		charge = v
+		data = value
 
 var _r: float  ## the sim's gate radius, in pixels
 var _t := 0.0
@@ -26,8 +26,8 @@ func _process(delta: float) -> void:
 
 
 func _draw() -> void:
-	var ready_frac := clampf(1.0 - charge, 0.0, 1.0)
-	var on := charge <= 0.0
+	var ready_frac := clampf(1.0 - data.charge, 0.0, 1.0)
+	var on := data.charge <= 0.0
 	var col := UiTheme.CYAN
 	var a := 1.0 if on else 0.25 + 0.25 * ready_frac
 	draw_circle(Vector2.ZERO, _r, Color(col, 0.08 + 0.1 * a))

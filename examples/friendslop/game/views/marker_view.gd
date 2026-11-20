@@ -1,12 +1,13 @@
 extends Node3D
 ## A sim object the level placed (item, platform, bell, plate, switch): the view takes over its level marker's
 ## visuals (key = marker index, Unified.level_markers order), so the level scene is the only place
-## they are authored. The sim moves the view (its pose handed over: GLUE.views, .Marker is script-posed); an
+## they are authored. The sim moves the view (its pose handed over: GLUE.view_policy, View_Marker is script-posed); an
 ## item the local player holds is drawn at their hand instead, every rendered frame, so it stays with them and the
 ## camera; bells and plates also react to their events.
 
-## The sim's Marker_View data: the key of the player holding this one-handle item (0: nobody).
-var held_by := 0
+## View_Marker (simulation/extension), set by the host before _ready and anew each time it changes: `held_by`, the key
+## of the player holding this one-handle item (0: nobody).
+var data: ViewMarker
 
 var _sim_position := Vector3.ZERO
 var _sim_rotation := Quaternion.IDENTITY
@@ -55,8 +56,8 @@ func _process(delta: float) -> void:
 ## view and the camera's look.
 func _place(delta: float) -> void:
 	var holder: Node3D = null
-	if held_by != 0 and held_by == Unified.session.local_player:
-		holder = Unified.session.get_player_view(EnumView.PLAYER, held_by) as Node3D
+	if data.held_by != 0 and data.held_by == Unified.session.local_player:
+		holder = Unified.session.get_player_view(EnumView.PLAYER, data.held_by) as Node3D
 	if holder != null:
 		var look: Vector3 = Unified.input.look
 		var facing := holder.quaternion * Vector3.BACK  # the sim's facing turns +z

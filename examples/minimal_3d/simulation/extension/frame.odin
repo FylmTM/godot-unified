@@ -7,8 +7,9 @@ import g "../minimal_3d"
 
 Frame :: godot.Frame(g.Game, View, MultiView)
 
-View :: enum u8 {
-	Player,
+// The scene views, a struct per kind: what its view's script reads as `data` (ViewPlayer).
+View :: union {
+	View_Player,
 }
 
 MultiView :: enum u8 {
@@ -24,7 +25,7 @@ PLAYER_COLORS := [g.PLAYERS]godot.Color {
 
 GONE_COLOR :: godot.Color{0.5, 0.5, 0.5, 1}
 
-Player_View_Data :: struct {
+View_Player :: struct {
 	color: godot.Color,
 }
 
@@ -55,10 +56,7 @@ fill_frame_players :: proc(f: ^Frame) {
 	players := sim.iterate_present(&f.state.players)
 	for data, player in sim.next(&players) {
 		slot := sim.player_slot(&f.state.players, player)
-		godot.push_view(f, player, {
-			kind = .Player,
-			pos  = sim.position_floor(data.position),
-		}, Player_View_Data{color = PLAYER_COLORS[slot]})
+		godot.push_view(f, player, {pos = sim.position_floor(data.position)}, View_Player{color = PLAYER_COLORS[slot]})
 	}
 }
 

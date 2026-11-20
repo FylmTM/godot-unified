@@ -1,7 +1,12 @@
 extends Node3D
 
 @onready var marker: UnifiedView = $UnifiedView
-var tick := 0  # Remote3D_Data.tick: the tick its data is of (on the verified timeline, its sample's)
+# View_Remote3D (ext/ext.odin): set by the host before _ready, and anew each time it changes.
+var data: ViewRemote3d:
+	set(value):
+		data = value
+		tick = value.tick
+var tick := 0  # data.tick: the tick its data is of (on the verified timeline, its sample's)
 var shown_early := false  # visible before it had data: posed without a sample
 var poses: Array[Array] = []  # [x, data tick, the session's verified tick] each frame it shows, until it despawns
 var events: Array[Array] = []  # [event, state, the frame's pose ([x, data tick]), the frame before's (or [])]

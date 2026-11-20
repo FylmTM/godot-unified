@@ -23,12 +23,12 @@ survivor_init :: proc "c" (
 
 // ---- the view contract
 
-// Scene views (the view index: a scene per kind, with a UnifiedView marker): players, crates and barrels (the
-// player's data: Player_View).
-View :: enum u8 {
-	Player,
-	Crate,
-	Barrel,
+// Scene views (the view index: a scene per kind, with a UnifiedView marker), each kind its data: players, crates and
+// barrels.
+View :: union {
+	View_Player,
+	View_Crate,
+	View_Barrel,
 }
 
 // MultiMesh views (MultiMeshInstance3D, 3D transforms + custom data: r = hit flash 0..1, g = age in s, no
@@ -48,21 +48,24 @@ MultiView :: enum u8 {
 
 Frame :: godot.Frame(g.Game, View, MultiView)
 
-// The player view's data: set as its properties when it changes.
-Player_View :: struct {
+// A player.
+View_Player :: struct {
 	hp:      i32,
 	dashing: bool, // the dash's speed-up is on (the view's after-image trail)
 	_pad:    [3]u8,
 }
+
+// A crate or a barrel: no data, its pose is its body's.
+View_Crate :: struct {}
+View_Barrel :: struct {}
 
 // Events reach views by the host's default routing: a player's events (`player`) its player view, a barrel's
 // explosion (`entity`: sim.entity of the item's index) the barrel's view (keyed by that index); enemies and gems are
 // MultiMesh instances, so their events (by handle) reach no view.
 GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
-	fill_frame = fill_frame,
-	data = Data,
-	views = #partial{.Player = {data = Player_View}},
+	fill_frame   = fill_frame,
+	data         = Data,
 }
 
 // ---- constants for the scripts (Unified.constants, class UnifiedConstants), from the sim's own definitions

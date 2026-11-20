@@ -25,16 +25,15 @@ var player: int:
 var velocity: Vector3:
 	get:
 		return _vel
-## The sim's Player_View data (simulation/extension), set by the host when it changes: a drop flashes.
-var hp := -1:
-	set(v):
-		if hp >= 0 and v < hp:
+## View_Player (simulation/extension): set by the host before _ready, and anew each time it changes. An HP drop
+## flashes; `dashing` leaves an after-image trail while it lasts.
+var data: ViewPlayer:
+	set(value):
+		if data != null and value.hp < data.hp:
 			_flash = 1.0
 			if _is_local():
 				Sfx.play(&"hit", -4.0)
-		hp = v
-## The sim's Player_View data: the dash is on (an after-image trail while it lasts).
-var dashing := false
+		data = value
 var _yaw := 0.0
 var _flash := 0.0
 var _ghost_t := 0.0
@@ -80,7 +79,7 @@ func _process(dt: float) -> void:
 	_bob += dt * speed * 2.2
 	_body.position.y = absf(sin(_bob)) * 0.08 * minf(speed / 6.0, 1.0)
 	_update_hud_state(dt)
-	if dashing:
+	if data.dashing:
 		_ghost_t -= dt
 		if _ghost_t <= 0.0:
 			_ghost_t = GHOST_EVERY

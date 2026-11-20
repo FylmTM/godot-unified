@@ -6,16 +6,13 @@ extends Node3D
 
 const TRACER_S := 0.1
 
-## Player_View, set by the host when it changes.
-var color := Color.WHITE:
+## View_Player (simulation/extension): set by the host before _ready, and anew each time it changes.
+var data: ViewPlayer:
 	set(value):
-		color = value
-		if is_node_ready():
-			_body_material.albedo_color = value
-var pitch := 0.0
-var hp := 0
-var downed := false
-var revive := 0.0
+		var recolored := data == null or value.color != data.color
+		data = value
+		if recolored and is_node_ready():
+			_body_material.albedo_color = value.color
 
 var _hurt := 0.0
 
@@ -28,7 +25,7 @@ var _hurt := 0.0
 
 
 func _ready() -> void:
-	_body_material.albedo_color = color
+	_body_material.albedo_color = data.color
 
 
 func _process(delta: float) -> void:
@@ -36,11 +33,11 @@ func _process(delta: float) -> void:
 	var shadow := GeometryInstance3D.SHADOW_CASTING_SETTING_SHADOWS_ONLY if mine else GeometryInstance3D.SHADOW_CASTING_SETTING_ON
 	for mesh: MeshInstance3D in [$Body/Torso, $Body/Head/Skull, $Body/Head/Visor, $Body/Head/Rifle/Barrel]:
 		mesh.cast_shadow = shadow
-	_head.rotation.x = -pitch * TAU  # the model faces +Z: a positive pitch looks up
-	_body.rotation.z = lerpf(_body.rotation.z, PI / 2 if downed else 0.0, 1.0 - exp(-delta * 8.0))
-	_body.position.y = lerpf(_body.position.y, 0.35 if downed else 0.0, 1.0 - exp(-delta * 8.0))
-	_revive_ring.visible = downed and not mine
-	_revive_ring.scale = Vector3.ONE * (0.4 + revive * 0.8)
+	_head.rotation.x = -data.pitch * TAU  # the model faces +Z: a positive pitch looks up
+	_body.rotation.z = lerpf(_body.rotation.z, PI / 2 if data.downed else 0.0, 1.0 - exp(-delta * 8.0))
+	_body.position.y = lerpf(_body.position.y, 0.35 if data.downed else 0.0, 1.0 - exp(-delta * 8.0))
+	_revive_ring.visible = data.downed and not mine
+	_revive_ring.scale = Vector3.ONE * (0.4 + data.revive * 0.8)
 	_hurt = move_toward(_hurt, 0.0, delta * 4.0)
 	_body_material.emission_energy_multiplier = _hurt * 2.0
 

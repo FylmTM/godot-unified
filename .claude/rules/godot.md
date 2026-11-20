@@ -27,7 +27,9 @@ paths:
   `Settings` or `Sfx` (reach them through the scene tree). Scripts the play scene loads never `preload()`.
 - Sim data is typed end to end: an event handler dispatches by class (`if event is EventRockHit: var hit := event
   as EventRockHit`) with `state: UnifiedSession.EventState`, never on `event.kind`; nested data is read as its class
-  (`for p: DataHudPlayer in Unified.data.hud.players`), never with `.get("field")`.
+  (`for p: DataHudPlayer in Unified.data.hud.players`), never with `.get("field")`. A view's data is its root
+  script's `var data: ViewCard` (the kind's class), set before `_ready` and anew on each change: react in its setter
+  (old value vs new), and from another script read it typed (`var card_data: ViewCard = node.get(&"data")`).
 - GDScript belongs to the view layer only. It reads the sim and never writes it: input and commands are the only way
   in. Anything performance-critical is Odin.
 - After editing a level scene in `game/levels/`, run `./uni bake <game>` and commit both files.

@@ -218,8 +218,8 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 			{
 				"unified: send_command: ",
 				"unified: CommandMark.",
-				`has no property "pad_check"`,
-				"is not a member of the game's View enum",
+				"has no `var data: ViewDecoy2d`",
+				"is not a kind of the game's View union",
 				"is not a thing's index",
 				"unified: UnifiedSetup.from_json: ",
 				"which view_root has no node at",
