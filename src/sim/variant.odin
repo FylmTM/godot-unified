@@ -10,7 +10,7 @@ import "core:fmt"
 import "core:strconv"
 import "core:strings"
 
-COMMAND_PREFIX :: "Cmd_" // a command's name is its type name without it, lowercased
+COMMAND_PREFIX :: "Command_" // a command's name is its type name without it, lowercased
 EVENT_PREFIX :: "Event_" // an event's name is its type name without it (when it has it), lowercased
 
 // The union's variants (nil for a nil typeid).
@@ -29,7 +29,7 @@ variant_kind :: proc(type: typeid, variant: typeid) -> int {
 	return -1
 }
 
-// A variant's name: its type name without `prefix`, lowercased ("Cmd_Drop_Coin" -> "drop_coin",
+// A variant's name: its type name without `prefix`, lowercased ("Command_Drop_Coin" -> "drop_coin",
 // "Event_Coin_Picked" and "Coin_Picked" -> "coin_picked"). Temp-allocated.
 variant_name :: proc(type: ^runtime.Type_Info, prefix: string) -> string {
 	name := fmt.tprint(type.id)
@@ -39,7 +39,7 @@ variant_name :: proc(type: ^runtime.Type_Info, prefix: string) -> string {
 
 // Why a union can't be a command or event union ("" when it can, or when `type` is nil): a union
 // (not #no_nil, not #shared_nil), at most 255 variants, each plain data (plain_violation; events: padding allowed,
-// padded_violation) of min_size..max_size bytes (a command may be empty: `Cmd_Start :: struct {}`), names unique.
+// padded_violation) of min_size..max_size bytes (a command may be empty: `Command_Start :: struct {}`), names unique.
 @(private)
 union_violation :: proc(type: typeid, min_size, max_size: int, prefix: string, padding := false) -> string {
 	if type == nil do return ""

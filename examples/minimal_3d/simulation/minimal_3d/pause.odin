@@ -10,14 +10,14 @@ Event_Paused :: struct {
 	paused: bool,
 }
 
-// Each present player's `Cmd_Set_Paused` pauses or resumes, from the next tick (announced once per change). Read on
+// Each present player's `Command_Set_Paused` pauses or resumes, from the next tick (announced once per change). Read on
 // every tick, paused ones too, and before tick returns early: a command arrives once, so a command the paused systems
 // would skip is gone (a throw sent during a pause is dropped).
 apply_pause :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for _, player in sim.next(&players) {
 		for sent in sim.commands(t, player) {
-			pause := sent.(Cmd_Set_Paused) or_continue
+			pause := sent.(Command_Set_Paused) or_continue
 			if t.state.clock.paused == pause.paused do continue
 			sim.set_paused(t, pause.paused)
 			sim.emit(t, Event_Paused{player = player, paused = pause.paused})

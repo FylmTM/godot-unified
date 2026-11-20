@@ -70,7 +70,7 @@ travel :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for _, player in sim.next(&players) {
 		for sent in sim.commands(t, player) {
-			command := sent.(Cmd_Travel) or_continue
+			command := sent.(Command_Travel) or_continue
 			if command.to == t.state.level.id do continue
 			switch command.to {
 			case .Hub:

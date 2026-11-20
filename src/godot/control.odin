@@ -719,7 +719,7 @@ when DEVUI {
 		return control_ok(session, strings.to_string(out))
 	}
 
-	// A command of the game's union from its name (`drop`, `Cmd_Drop`) and `key=value,...`, sent as local player 0's
+	// A command of the game's union from its name (`drop`, `Command_Drop`) and `key=value,...`, sent as local player 0's
 	// like a script's send_command (sim units: what the state reads; a player field by its key).
 	@(private = "file")
 	control_command :: proc(session: ^Session_Node, name: string, text: string) -> string {

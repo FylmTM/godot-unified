@@ -76,7 +76,7 @@ Scripted_User :: struct($G: typeid) {
 scripted_hooks :: proc(scripted: ^Scripted_User($G)) -> netcode.Hooks(G) {
 	State :: sim.part(G, sim.GAME_STATE)
 	Input :: sim.part(G, sim.GAME_INPUT)
-	Cmd :: sim.part(G, sim.GAME_CMD)
+	Command :: sim.part(G, sim.GAME_COMMAND)
 	hooks := netcode.Hooks(G) {
 		user = scripted,
 	}
@@ -92,7 +92,13 @@ scripted_hooks :: proc(scripted: ^Scripted_User($G)) -> netcode.Hooks(G) {
 		}
 	}
 	if scripted.game.scripted_commands != nil {
-		hooks.commands = proc(user: rawptr, local, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
+		hooks.commands = proc(
+			user: rawptr,
+			local, slot: int,
+			tick: u32,
+			state: ^State,
+			out: ^sim.Command_Out(Command),
+		) {
 			if state == nil do return
 			scripted := (^Scripted_User(G))(user)
 			scripted.game.scripted_commands(scripted.seed, slot, tick, state, out)

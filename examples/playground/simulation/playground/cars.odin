@@ -79,7 +79,7 @@ reset_car :: proc(t: ^Tick, index: int) {
 	build_car(t, index)
 }
 
-// Cmd_Drive: a driver gets out; anyone else takes the nearest free car whose chassis is within DRIVE_RANGE of their
+// Command_Drive: a driver gets out; anyone else takes the nearest free car whose chassis is within DRIVE_RANGE of their
 // camera (they let go of what they hold).
 toggle_car :: proc(t: ^Tick, player: sim.Player) {
 	data := sim.player_data(t, player)

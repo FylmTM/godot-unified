@@ -13,7 +13,7 @@ import "unified:sim"
 
 // One kind of the game's command union.
 Command_Layout :: struct {
-	name:      string, // the type name without `Cmd_`, lowercased ("drop")
+	name:      string, // the type name without `Command_`, lowercased ("drop")
 	type:      ^runtime.Type_Info,
 	positions: [dynamic]int, // offsets of the sim.Position fields, nested structs' too: view units to sim units
 }

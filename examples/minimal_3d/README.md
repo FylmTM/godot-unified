@@ -16,7 +16,7 @@ everyone: Godot's `ui_*` actions, so the project has no InputMap of its own.
 
 - **State and players.** A pointer-free `State`: the players in a `sim.Players` (per-player data by handle) and the
   balls in a `sim.Table`.
-- **Commands and events.** Two commands (`Cmd_Throw_Ball`, `Cmd_Set_Paused`) and two game events
+- **Commands and events.** Two commands (`Command_Throw_Ball`, `Command_Set_Paused`) and two game events
   (`Event_Ball_Thrown`, `Event_Paused`) next to the library's join and leave events.
 - **Game time and the co-op pause.** A `sim.Clock` in the State: anyone pauses the game for everyone with a command,
   `tick` returns early while paused, and the throw cooldown (a `sim.Timer` on game time) waits the pause out.
@@ -66,20 +66,20 @@ people (the library's 2 × `PLAYERS`). A ball keeps its thrower (`sim.Player`), 
 ## Input and commands
 
 - `Input`: a stick. A player moves at up to `MOVE_SPEED` in its direction.
-- `Cmd_Throw_Ball {speed}`: the sender throws a ball from their position, `HAND_HEIGHT` up, at `speed` straight up,
+- `Command_Throw_Ball {speed}`: the sender throws a ball from their position, `HAND_HEIGHT` up, at `speed` straight up,
   at most `THROW_SPEED_MAX` (a faster throw is thrown at the cap), at most once per `THROW_COOLDOWN_S` (a throw
   sooner is dropped).
-- `Cmd_Set_Paused {paused}`: pauses or resumes the game for everyone (a value, not a toggle: two players pausing at
+- `Command_Set_Paused {paused}`: pauses or resumes the game for everyone (a value, not a toggle: two players pausing at
   once agree).
 
 ## Systems (`tick`, in this order)
 
 1. `place_new_players`: someone new starts at x = their slot; someone who comes back keeps their position (paused
    or not: people come and go during a pause).
-2. `apply_pause`: each `Cmd_Set_Paused` that changes the pause sets it from the next tick (`Event_Paused`). While
+2. `apply_pause`: each `Command_Set_Paused` that changes the pause sets it from the next tick (`Event_Paused`). While
    paused, `tick` stops here: the other commands of a paused tick are dropped.
 3. `move_players`: the present players by their input.
-4. `throw_balls`: each `Cmd_Throw_Ball` spawns a ball owned by its thrower; with `MAX_BALLS` in the air (two players
+4. `throw_balls`: each `Command_Throw_Ball` spawns a ball owned by its thrower; with `MAX_BALLS` in the air (two players
    throwing at once fill it) a throw is lost, costs no cooldown, and no event says so.
 5. `move_balls`: balls fall at `GRAVITY` and despawn on landing (`BALL_RADIUS`).
 

@@ -32,7 +32,7 @@ playing stay.
 - **Finish:** the trophy in the finish volume ends the run (the best time is kept); after `FINISH_HOLD_S` the team is
   back in the hub level, everyone at their hub spawn and every item, platform and trigger as the hub makes them. When
   the last player leaves, a run ends there the same way.
-- **Travel:** the pause menu's "Back to hub" (`Cmd_Travel`) takes the team to the hub, ending a run; a travel to the
+- **Travel:** the pause menu's "Back to hub" (`Command_Travel`) takes the team to the hub, ending a run; a travel to the
   route starts one.
 - **A level change** (`enter_level`): everyone lets go and their bodies go, the old level's items, platforms and
   trigger sensors go, the static geometry is swapped (`physics.level_change`), the new level's things are made in
@@ -118,7 +118,7 @@ Solo finishes every beat; co-op is faster or opens a shortcut.
 9. `recover_from_stuns`, `respawn_fallen` (`Event_Fell`, `Event_Respawned`), `return_fallen_items`.
 10. `advance_phase`: the start gate (`Event_Run_Started`, the route), checkpoints (`Event_Checkpoint`), the finish
     (`Event_Run_Finished`), the return to the hub (`Event_Respawned`).
-11. `travel`: the players' travel commands (`Cmd_Travel`), the first that goes somewhere.
+11. `travel`: the players' travel commands (`Command_Travel`), the first that goes somewhere.
 
 ## Events
 
@@ -131,7 +131,7 @@ too.
 
 A world-space stick (the client rotates it by its camera), the camera's look direction as the aim, and jump, grab and
 throw, held (presses and releases from `sim.buttons`). No angles cross the wire, so the sim needs no trig. One
-command, `Cmd_Travel` (the pause menu's "Back to hub"); the scripted player sends it too, so every scripted session,
+command, `Command_Travel` (the pause menu's "Back to hub"); the scripted player sends it too, so every scripted session,
 replay and reference run crosses level changes.
 
 ## Levels

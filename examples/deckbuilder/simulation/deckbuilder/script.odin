@@ -20,15 +20,15 @@ scripted_profile :: proc(seed: u64, slot: int) -> Profile {
 // The slot's commands for a tick: a play every SCRIPT_PLAY_EVERY ticks (a starter of its own deck at an enemy and an
 // ally), its turn ended every SCRIPT_END_TURN_EVERY, a vote, a reward and a rest every SCRIPT_CHOOSE_EVERY, and from
 // slot 0 a new run every SCRIPT_START_EVERY. At most two a tick.
-scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
+scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Command)) {
 	bits := sim.script_bits(seed, slot, tick, 1)
-	if slot == 0 && tick % SCRIPT_START_EVERY == 9 do sim.send_command(out, Cmd_Start_Run{})
+	if slot == 0 && tick % SCRIPT_START_EVERY == 9 do sim.send_command(out, Command_Start_Run{})
 	phase := (tick + u32(slot) * 3) % SCRIPT_CHOOSE_EVERY
 	if phase % SCRIPT_PLAY_EVERY == 0 {
 		starter :: proc(slot: int, pick: u32) -> sim.Handle(Card) {
 			return {index = u32(slot * STARTER_SIZE) + pick % STARTER_SIZE, generation = 1}
 		}
-		sim.send_command(out, Cmd_Play_Card {
+		sim.send_command(out, Command_Play_Card {
 			card = starter(slot, bits),
 			enemy = {index = (bits >> 8) % 3, generation = 1},
 			extra = starter(slot, bits >> 16),
@@ -37,15 +37,15 @@ scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^
 	}
 	switch phase {
 	case 1:
-		sim.send_command(out, Cmd_Vote{lane = u8(bits % LANES)})
+		sim.send_command(out, Command_Vote{lane = u8(bits % LANES)})
 	case 3:
-		sim.send_command(out, Cmd_Pick_Reward{offer = u8(bits % (OFFERS + 1)) if bits % 5 != 0 else SKIP})
+		sim.send_command(out, Command_Pick_Reward{offer = u8(bits % (OFFERS + 1)) if bits % 5 != 0 else SKIP})
 	case 5:
-		sim.send_command(out, Cmd_Rest {
+		sim.send_command(out, Command_Rest {
 			choice = Rest_Choice(bits % 2),
 			card = {index = u32(slot * STARTER_SIZE) + (bits >> 4) % STARTER_SIZE, generation = 1},
 		})
 	case 7:
-		if (tick + u32(slot) * 16) % SCRIPT_END_TURN_EVERY < SCRIPT_CHOOSE_EVERY do sim.send_command(out, Cmd_End_Turn{ready = true})
+		if (tick + u32(slot) * 16) % SCRIPT_END_TURN_EVERY < SCRIPT_CHOOSE_EVERY do sim.send_command(out, Command_End_Turn{ready = true})
 	}
 }

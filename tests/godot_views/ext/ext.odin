@@ -103,7 +103,7 @@ Data_Toy :: struct {
 	recent:      sim.List(sim.Handle(toy.Thing), 4), // the live things (up to 4): an Array of their keys
 	queue:       sim.Queue(u8, 3), // 2, 3, 4 (wrapped): an Array, oldest first
 	_pad3:       [7]u8,
-	trail:       sim.List(sim.Position, 3), // the local player's last Cmd_Trail: an Array of view-unit Vector2s
+	trail:       sim.List(sim.Position, 3), // the local player's last Command_Trail: an Array of view-unit Vector2s
 	trail_box:   Trail_Box, // the same, inside a nested struct
 	areas:       sim.List(toy.Mark_Area, 2), // an Array of DataMarkArea objects
 	trail_first: [3]f32, // the trail's first point in sim units (the sim got it so)

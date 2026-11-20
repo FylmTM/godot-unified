@@ -40,14 +40,14 @@ The arena is a level drawn in Godot's 2D editor (`game/levels/arena.tscn`, baked
 - `Input`: a move stick and an aim direction (none keeps the heading), in world space, and fire and boost, both held.
 - Players are session members: a ship is its player's data (`sim.Players`). One who leaves loses the body and keeps
   the rest (shots, gems, cooldowns) until the session forgets them; someone new starts with a zeroed ship.
-- `Cmd_Start` (lobby → match; anyone may send it) and `Cmd_Restart` (over → lobby at once). Each is ignored outside
+- `Command_Start` (lobby → match; anyone may send it) and `Command_Restart` (over → lobby at once). Each is ignored outside
   its phase.
 
 ## Phases
 
 - **lobby** (tick 0, and after every reset): ships fly, no rocks.
-- **match** (after `Cmd_Start`): waves of rocks; the match is over when the station's HP is 0 (`Event_Match_Over`).
-- **over**: the station stops turning and takes no hits. After `OVER_HOLD_TICKS`, or on `Cmd_Restart`, the world resets
+- **match** (after `Command_Start`): waves of rocks; the match is over when the station's HP is 0 (`Event_Match_Over`).
+- **over**: the station stops turning and takes no hits. After `OVER_HOLD_TICKS`, or on `Command_Restart`, the world resets
   (`reset_world`) and the lobby begins again.
 - With nobody present: a reset.
 
@@ -55,7 +55,7 @@ The arena is a level drawn in Godot's 2D editor (`game/levels/arena.tscn`, baked
 
 1. `update_players`: a player who left loses their body; one who joined or came back gets one at their slot's spawn
    (`Event_Spawned`).
-2. `apply_commands`: `Cmd_Start` and `Cmd_Restart`, in slot order.
+2. `apply_commands`: `Command_Start` and `Command_Restart`, in slot order.
 3. `fly_ships`: thrust (`THRUST_ACCEL`), turning toward the aim (`TURN_GAIN`, `TURN_MAX`), boost (`BOOST_SPEED`,
    `BOOST_COOLDOWN_TICKS`) and fire (`FIRE_EVERY_TICKS`, `BULLET_SPEED`, `Event_Fired`).
 4. `turn_station`: `STATION_SPIN`, 0 while over.
@@ -82,14 +82,14 @@ The arena is a level drawn in Godot's 2D editor (`game/levels/arena.tscn`, baked
 
 `Event_Spawned`, `Event_Fired`, `Event_Boosted`, `Event_Warped`, `Event_Rock_Hit`, `Event_Rock_Split`,
 `Event_Rock_Destroyed`, `Event_Station_Hit`, `Event_Gem_Picked`, `Event_Wave`, `Event_Match_Started` (who sent
-`Cmd_Start`), `Event_Match_Over`, and the library's joins and leaves. Positions are in metres in the sim and in pixels
+`Command_Start`), `Event_Match_Over`, and the library's joins and leaves. Positions are in metres in the sim and in pixels
 in GDScript, like the views.
 
 ## Scripted inputs
 
 The game's scripted player (`script.odin`) is stateless: a hash of (seed, slot, `SCRIPT_PERIOD`-tick block) moves the
 ship in one of 8 directions or not at all, aims it in one of 8, fires most of the time and boosts now and then. Slot 0
-sends `Cmd_Start` and `Cmd_Restart` on a fixed beat (`SCRIPT_COMMAND_EVERY`), so scripted runs play whole matches; a
+sends `Command_Start` and `Command_Restart` on a fixed beat (`SCRIPT_COMMAND_EVERY`), so scripted runs play whole matches; a
 session and an offline run agree.
 
 ## View contract (`simulation/extension`)
@@ -118,5 +118,5 @@ session and an offline run agree.
   rollback cancels loses its muzzle flash and sound (the ship view, by the event's `id`).
 - Input: the movement, fire and boost from the InputMap, and the aim the arena sets on every sample (`input_wanted`, the
   input value `aim`): the mouse's world position relative to the local ship, else the right stick. A Camera2D follows
-  the local ship within the arena. The HUD sends `Cmd_Start` (`CommandStart`) in the lobby and `Cmd_Restart` when the
+  the local ship within the arena. The HUD sends `Command_Start` (`CommandStart`) in the lobby and `Command_Restart` when the
   match is over.

@@ -22,7 +22,7 @@ Level_Id :: enum u8 {
 	Arena,
 }
 
-Game :: sim.Game(State, Input, World, Event, Cmd, Setup, Profile, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Command, Setup, Profile, PLAYERS)
 Tick :: sim.Tick(Game)
 
 // The game as played (the `play` tuning).
@@ -129,13 +129,13 @@ apply_dev_commands :: proc(t: ^Tick) {
 	for _, player in sim.next(&players) {
 		for sent in sim.commands(t, player) {
 			#partial switch command in sent {
-			case Cmd_Dev_Give_Xp:
+			case Command_Dev_Give_Xp:
 				if character := sim.player_data(t, command.player); character != nil do character.xp += command.xp
-			case Cmd_Dev_Skip_Wave:
+			case Command_Dev_Skip_Wave:
 				// The wave is the match's age (advance_phase), so the match starts one wave earlier. Early in a match
 				// that is before tick 0: the u32 wraps, and the age, a difference, stays exact.
 				if t.state.phase == .Match do t.state.match_tick -= sim.Game_Time(t.state.tuning.wave_ticks)
-			case Cmd_Dev_Spawn:
+			case Command_Dev_Spawn:
 				for i in 0 ..< int(command.count) {
 					if !spawn_enemy(t.state, command.kind, dmath.DIR8[i % 8] * SPAWN_RING, t.time) do break
 				}

@@ -15,7 +15,7 @@ names_derive_from_the_types :: proc(t: ^testing.T) {
 		for variant, i in variants do out[i] = sim.variant_name(variant, prefix)
 		return out
 	}
-	commands := names(toy.Cmd, sim.COMMAND_PREFIX)
+	commands := names(toy.Command, sim.COMMAND_PREFIX)
 	testing.expect(
 		t,
 		len(commands) == 6 &&
@@ -31,7 +31,7 @@ names_derive_from_the_types :: proc(t: ^testing.T) {
 		t,
 		len(events) == 4 && events[0] == "player_joined" && events[1] == "player_left" && events[3] == "expired",
 	)
-	// an event type may carry an Event_ prefix: the name leaves it out, like a command's Cmd_
+	// an event type may carry an Event_ prefix: the name leaves it out, like a command's Command_
 	prefixed := names(Prefixed_Events, sim.EVENT_PREFIX)
 	testing.expect(t, len(prefixed) == 2 && prefixed[0] == "rock_hit" && prefixed[1] == "plain")
 }
@@ -117,7 +117,16 @@ Probe_World :: struct {
 	tick_dt:     f32,
 }
 
-Probe_Game :: sim.Game(toy.State, toy.Input, Probe_World, toy.Event, toy.Cmd, sim.No_Setup, toy.Profile, toy.PLAYERS)
+Probe_Game :: sim.Game(
+	toy.State,
+	toy.Input,
+	Probe_World,
+	toy.Event,
+	toy.Command,
+	sim.No_Setup,
+	toy.Profile,
+	toy.PLAYERS,
+)
 Probe_Tick :: sim.Tick(Probe_Game)
 Probe_Inputs :: sim.Inputs(Probe_Game)
 

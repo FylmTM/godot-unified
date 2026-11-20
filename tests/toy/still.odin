@@ -22,7 +22,7 @@ Still_State :: struct {
 	things:  sim.Table(Thing, 32),
 }
 
-Still_Game :: sim.Game(Still_State, sim.No_Input, World, Event, Cmd, Setup, Profile, PLAYERS)
+Still_Game :: sim.Game(Still_State, sim.No_Input, World, Event, Command, Setup, Profile, PLAYERS)
 Still_Tick :: sim.Tick(Still_Game)
 
 STILL := Still_Game {
@@ -35,7 +35,7 @@ STILL := Still_Game {
 	},
 	init = proc(t: ^Still_Tick) {sim.level_enter(t, Area.Meadow)},
 	tick = still_tick,
-	scripted_commands = proc(seed: u64, slot: int, tick: u32, state: ^Still_State, out: ^sim.Command_Out(Cmd)) {
+	scripted_commands = proc(seed: u64, slot: int, tick: u32, state: ^Still_State, out: ^sim.Command_Out(Command)) {
 		commands_of(seed, slot, tick, out, 3)
 	},
 	scripted_profile = scripted_profile,
@@ -50,7 +50,7 @@ still_tick :: proc(t: ^Still_Tick) {
 	for data, player in sim.next(&players) {
 		for sent in sim.commands(t, player) {
 			switch command in sent {
-			case Cmd_Bump:
+			case Command_Bump:
 				data.bumps += 1
 				if t.state.things.count < 32 {
 					thing, handle, _ := sim.spawn(&t.state.things)
@@ -60,14 +60,14 @@ still_tick :: proc(t: ^Still_Tick) {
 					t.state.spawned += 1
 					sim.emit(t, Event_Spawned{thing = handle, position = sim.position_2d(thing.pos), player = player})
 				}
-			case Cmd_Mark:
+			case Command_Mark:
 				data.pos = command.at
-			case Cmd_Clear_Bumps:
+			case Command_Clear_Bumps:
 				data.bumps = 0
-			case Cmd_Travel:
+			case Command_Travel:
 				if command.to != t.state.level.id do sim.level_enter(t, command.to)
-			case Cmd_Trail:
-			case Cmd_Pause:
+			case Command_Trail:
+			case Command_Pause:
 				sim.set_paused(t, command.paused)
 			case:
 				panic("sim.commands yielded a nil entry")

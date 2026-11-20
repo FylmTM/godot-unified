@@ -403,9 +403,9 @@ input_before :: proc(tick: ^Tick($G), player: Player) -> part(G, GAME_INPUT) {
 // whose bytes don't decode is left out on every peer alike). Valid until the tick returns:
 //
 //   for sent in sim.commands(t, player) {
-//       switch command in sent { case Cmd_Pick: ... }
+//       switch command in sent { case Command_Pick: ... }
 //   }
-commands :: proc(tick: ^Tick($G), player: Player) -> []part(G, GAME_CMD) {
+commands :: proc(tick: ^Tick($G), player: Player) -> []part(G, GAME_COMMAND) {
 	slot := player_slot_of_tick(tick, player)
 	return commands_of_slot(tick.commands, slot) if slot >= 0 else nil
 }

@@ -14,7 +14,7 @@ TICK_HZ :: 64
 VERSION :: "1"
 
 // The game's types for unified:sim: no World (no physics, no level).
-Game :: sim.Game(State, Input, sim.No_World, Event, Cmd, sim.No_Setup, sim.No_Profile, PLAYERS)
+Game :: sim.Game(State, Input, sim.No_World, Event, Command, sim.No_Setup, sim.No_Profile, PLAYERS)
 // What every system gets: the state, the inputs and commands, the tick's player changes.
 Tick :: sim.Tick(Game)
 

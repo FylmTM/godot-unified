@@ -62,7 +62,7 @@ a_play_resolves_on_the_tick_it_lands :: proc(t: ^testing.T) {
 	target, enemy := first_enemy(&run)
 	hp := enemy.hp
 	card := hand_card(&run, 0, 0)
-	headless.run_command(&run, 0, g.Cmd_Play_Card{card = card, enemy = target})
+	headless.run_command(&run, 0, g.Command_Play_Card{card = card, enemy = target})
 	testing.expect_value(t, headless.run_events(&run, g.Event_Card_Played), 1)
 	testing.expect_value(t, enemy.hp, hp - 6)
 	testing.expect_value(t, state.heroes[0].energy, g.ENERGY - 1)
@@ -84,9 +84,9 @@ an_allys_kill_refuses_the_play :: proc(t: ^testing.T) {
 	strikes := int(enemy.hp + 5) / 6 // what kills it (no block yet on the first turn)
 	testing.expect(t, strikes <= 3, "the first enemy falls to the first hero's energy")
 	inputs := headless.run_inputs(&run)
-	for k in 0 ..< strikes do sim.add_command(&inputs, 0, g.Cmd_Play_Card{card = hand_card(&run, 0, k), enemy = target})
+	for k in 0 ..< strikes do sim.add_command(&inputs, 0, g.Command_Play_Card{card = hand_card(&run, 0, k), enemy = target})
 	late := hand_card(&run, 1, 0)
-	sim.add_command(&inputs, 1, g.Cmd_Play_Card{card = late, enemy = target})
+	sim.add_command(&inputs, 1, g.Command_Play_Card{card = late, enemy = target})
 	headless.run_step(&run, &inputs)
 	refused, found := headless.run_last_event(&run, g.Event_Play_Refused)
 	testing.expect(t, found && refused.reason == .No_Target && refused.hero == 1, "the late play is refused")
@@ -103,13 +103,13 @@ a_play_needs_its_card_and_the_energy :: proc(t: ^testing.T) {
 	run := fight_of(run_of({.Defend, .Defend, .Defend, .Defend, .Defend}))
 	defer headless.run_end(&run)
 	inputs := headless.run_inputs(&run)
-	for k in 0 ..< 4 do sim.add_command(&inputs, 0, g.Cmd_Play_Card{card = hand_card(&run, 0, k)})
+	for k in 0 ..< 4 do sim.add_command(&inputs, 0, g.Command_Play_Card{card = hand_card(&run, 0, k)})
 	headless.run_step(&run, &inputs)
 	refused, _ := headless.run_last_event(&run, g.Event_Play_Refused)
 	testing.expect_value(t, refused.reason, g.Refusal.No_Energy)
 	testing.expect_value(t, run.simulation.state.heroes[0].block, 15)
 	played := run.simulation.state.heroes[0].discard.items[0]
-	headless.run_command(&run, 0, g.Cmd_Play_Card{card = played})
+	headless.run_command(&run, 0, g.Command_Play_Card{card = played})
 	refused, _ = headless.run_last_event(&run, g.Event_Play_Refused)
 	testing.expect_value(t, refused.reason, g.Refusal.Not_In_Hand)
 	scenarios.expect_synced(t, &run)
@@ -136,10 +136,10 @@ ally_cards_reach_the_ally :: proc(t: ^testing.T) {
 	cover, rally, channel := find(&run, .Cover), find(&run, .Rally), find(&run, .Channel)
 	hand_off, strike := find(&run, .Hand_Off), find(&run, .Strike)
 	inputs := headless.run_inputs(&run)
-	sim.add_command(&inputs, 0, g.Cmd_Play_Card{card = cover, ally = 2})
-	sim.add_command(&inputs, 0, g.Cmd_Play_Card{card = rally, ally = 2})
-	sim.add_command(&inputs, 0, g.Cmd_Play_Card{card = channel, ally = 2})
-	sim.add_command(&inputs, 0, g.Cmd_Play_Card{card = hand_off, ally = 2, extra = strike})
+	sim.add_command(&inputs, 0, g.Command_Play_Card{card = cover, ally = 2})
+	sim.add_command(&inputs, 0, g.Command_Play_Card{card = rally, ally = 2})
+	sim.add_command(&inputs, 0, g.Command_Play_Card{card = channel, ally = 2})
+	sim.add_command(&inputs, 0, g.Command_Play_Card{card = hand_off, ally = 2, extra = strike})
 	headless.run_step(&run, &inputs)
 	ally := &state.heroes[1]
 	testing.expect_value(t, ally.block, 7)
@@ -148,7 +148,7 @@ ally_cards_reach_the_ally :: proc(t: ^testing.T) {
 	testing.expect_value(t, int(ally.draw_pile.count), 8 - g.HAND_SIZE - 2)
 	testing.expect_value(t, sim.get(&state.cards, strike).holder, 1)
 	testing.expect_value(t, int(state.heroes[0].exhaust.count), 1) // Channel exhausts
-	headless.run_command(&run, 0, g.Cmd_Dev_Win_Fight{})
+	headless.run_command(&run, 0, g.Command_Dev_Win_Fight{})
 	testing.expect_value(t, state.phase, g.Phase.Reward)
 	testing.expect_value(t, sim.get(&state.cards, strike).holder, 0) // home after the fight
 	scenarios.expect_synced(t, &run)
@@ -161,9 +161,9 @@ the_enemies_act_one_per_beat :: proc(t: ^testing.T) {
 	run := fight_of(run_of(STRIKES, STRIKES))
 	defer headless.run_end(&run)
 	state := &run.simulation.state
-	headless.run_command(&run, 0, g.Cmd_End_Turn{ready = true})
+	headless.run_command(&run, 0, g.Command_End_Turn{ready = true})
 	testing.expect_value(t, state.phase, g.Phase.Heroes) // the other hero is not ready
-	headless.run_command(&run, 1, g.Cmd_End_Turn{ready = true})
+	headless.run_command(&run, 1, g.Command_End_Turn{ready = true})
 	testing.expect_value(t, state.phase, g.Phase.Enemies)
 	enemies := int(state.enemies.count)
 	acted: [dynamic]u32
@@ -191,7 +191,7 @@ an_absent_players_hero_sleeps :: proc(t: ^testing.T) {
 	state := &run.simulation.state
 	headless.run_seat(&run, 1, 0) // slot 1's player leaves
 	headless.run_step(&run)
-	headless.run_command(&run, 0, g.Cmd_End_Turn{ready = true})
+	headless.run_command(&run, 0, g.Command_End_Turn{ready = true})
 	testing.expect_value(t, state.phase, g.Phase.Enemies) // the sleeping hero counts as ready
 	for state.phase == .Enemies do headless.run_step(&run)
 	testing.expect_value(t, state.heroes[1].hp, g.VANGUARD_HP) // never targeted
@@ -214,10 +214,10 @@ the_deal_does_not_depend_on_the_tick :: proc(t: ^testing.T) {
 	hands :: proc(wait: int) -> (ids: [2][g.HAND_SIZE]g.Card_Id) {
 		run := headless.run_begin(&g.GAME, 3, seated = 2)
 		defer headless.run_end(&run)
-		headless.run_command(&run, 0, g.Cmd_Start_Run{})
+		headless.run_command(&run, 0, g.Command_Start_Run{})
 		for _ in 0 ..< wait do headless.run_step(&run)
 		inputs := headless.run_inputs(&run)
-		for slot in 0 ..< 2 do sim.add_command(&inputs, slot, g.Cmd_Vote{lane = 1})
+		for slot in 0 ..< 2 do sim.add_command(&inputs, slot, g.Command_Vote{lane = 1})
 		headless.run_step(&run, &inputs)
 		state := &run.simulation.state
 		for &hero, index in state.heroes[:2] {
@@ -233,13 +233,13 @@ the_deal_does_not_depend_on_the_tick :: proc(t: ^testing.T) {
 the_party_votes_on_the_next_node :: proc(t: ^testing.T) {
 	run := headless.run_begin(&g.GAME, 3, seated = 3)
 	defer headless.run_end(&run)
-	headless.run_command(&run, 0, g.Cmd_Start_Run{})
+	headless.run_command(&run, 0, g.Command_Start_Run{})
 	inputs := headless.run_inputs(&run)
-	sim.add_command(&inputs, 0, g.Cmd_Vote{lane = 2})
-	sim.add_command(&inputs, 1, g.Cmd_Vote{lane = 0})
+	sim.add_command(&inputs, 0, g.Command_Vote{lane = 2})
+	sim.add_command(&inputs, 1, g.Command_Vote{lane = 0})
 	headless.run_step(&run, &inputs)
 	testing.expect_value(t, run.simulation.state.phase, g.Phase.Map) // the third hero has not voted
-	headless.run_command(&run, 2, g.Cmd_Vote{lane = 2})
+	headless.run_command(&run, 2, g.Command_Vote{lane = 2})
 	testing.expect_value(t, run.simulation.state.floor, 0)
 	testing.expect_value(t, run.simulation.state.lane, 2)
 	scenarios.expect_synced(t, &run)
@@ -251,9 +251,9 @@ the_party_votes_on_the_next_node :: proc(t: ^testing.T) {
 a_save_continues_the_run :: proc(t: ^testing.T) {
 	run := headless.run_begin(&g.GAME, 5, seated = 2)
 	defer headless.run_end(&run)
-	headless.run_command(&run, 0, g.Cmd_Start_Run{})
+	headless.run_command(&run, 0, g.Command_Start_Run{})
 	inputs := headless.run_inputs(&run)
-	for slot in 0 ..< 2 do sim.add_command(&inputs, slot, g.Cmd_Vote{lane = 0})
+	for slot in 0 ..< 2 do sim.add_command(&inputs, slot, g.Command_Vote{lane = 0})
 	headless.run_step(&run, &inputs)
 	state := &run.simulation.state
 	saved := run.simulation.setup

@@ -12,7 +12,7 @@ import "unified:sim"
 
 // What toy.burst_commands sends from `player` over ticks first..last, in order.
 sent_commands :: proc(player: int, first, last: u32) -> [dynamic]sim.Raw_Command {
-	out := sim.Command_Out(toy.Cmd) {
+	out := sim.Command_Out(toy.Command) {
 		slot = player,
 		cap  = 1 << 20,
 	}
@@ -123,7 +123,7 @@ commands_arrive_exactly_once_in_order_under_loss_duplication_and_reordering :: p
 		sum: i32
 		bumps: u32
 		for &command in got {
-			if bump, ok := sim.command_value(&command, toy.Cmd).(toy.Cmd_Bump); ok {
+			if bump, ok := sim.command_value(&command, toy.Command).(toy.Command_Bump); ok {
 				bumps += 1
 				sum += bump.amount
 				fold = toy.bump_fold(fold, bump.amount)
@@ -150,10 +150,10 @@ sender_hooks :: proc(sender: ^Sender, watch: ^Watch) -> Hooks {
 		local, slot: int,
 		tick: u32,
 		state: ^toy.State,
-		out: ^sim.Command_Out(toy.Cmd),
+		out: ^sim.Command_Out(toy.Command),
 	) {
 		sender := (^Sender)(user)
-		if sender.armed && sim.send_command(out, toy.Cmd_Bump{777}) {
+		if sender.armed && sim.send_command(out, toy.Command_Bump{777}) {
 			sender.armed = false
 			sender.sent = tick
 		}
@@ -264,18 +264,18 @@ an_empty_command_crosses_the_relay :: proc(t: ^testing.T) {
 		local, slot: int,
 		tick: u32,
 		state: ^toy.State,
-		out: ^sim.Command_Out(toy.Cmd),
+		out: ^sim.Command_Out(toy.Command),
 	) {
 		ticks_in := (^int)(user)
 		if state == nil || toy.in_slot(state, slot) == nil do return
 		ticks_in^ += 1
 		switch ticks_in^ {
 		case 10:
-			sim.send_command(out, toy.Cmd_Bump{777})
+			sim.send_command(out, toy.Command_Bump{777})
 		case 20:
-			sim.send_command(out, toy.Cmd_Clear_Bumps{})
+			sim.send_command(out, toy.Command_Clear_Bumps{})
 		case 30:
-			sim.send_command(out, toy.Cmd_Bump{5})
+			sim.send_command(out, toy.Command_Bump{5})
 		}
 	}
 	client := net_join(&session, profile = .Ideal, config = Client_Config{slot = -1}, hooks = hooks)
@@ -348,10 +348,10 @@ a_joiners_first_commands_land_after_its_snapshot :: proc(t: ^testing.T) {
 		local, slot: int,
 		tick: u32,
 		state: ^toy.State,
-		out: ^sim.Command_Out(toy.Cmd),
+		out: ^sim.Command_Out(toy.Command),
 	) {
 		early := (^Early)(user)
-		if early.sent < 20 && sim.send_command(out, toy.Cmd_Bump{i32(tick)}) do early.sent += 1
+		if early.sent < 20 && sim.send_command(out, toy.Command_Bump{i32(tick)}) do early.sent += 1
 	}
 	hooks.frame, hooks.verified, hooks.status, hooks.verified_state = nil, nil, nil, nil // they take user as a ^Watch
 	joiner := net_join(&session, name = "Linus", hooks = hooks)

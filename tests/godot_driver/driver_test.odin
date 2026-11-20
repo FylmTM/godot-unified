@@ -260,7 +260,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, godot.api.sampler() != nil, "a .Verified kind: the session samples the verified timeline")
 		godot.api.sample_input() // the main thread's sample (the session took none yet: a start clears it)
 		for amount in ([]i32{3, -1, 8}) {
-			command := sim.command_make(toy.Cmd, toy.Cmd_Bump{amount})
+			command := sim.command_make(toy.Command, toy.Command_Bump{amount})
 			testing.expect(t, godot.api.send(command, 0))
 		}
 		messages := make([dynamic]godot.Message, context.temp_allocator)
@@ -540,7 +540,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, ok, err)
 		godot.api.sample_input()
 		for amount in ([]i32{3, -1}) {
-			testing.expect(t, godot.api.send(sim.command_make(toy.Cmd, toy.Cmd_Bump{amount}), 0))
+			testing.expect(t, godot.api.send(sim.command_make(toy.Command, toy.Command_Bump{amount}), 0))
 		}
 		messages := make([dynamic]godot.Message, context.temp_allocator)
 		testing.expect(t, drain(&messages, 5000, is_result), "the session ends with a result")

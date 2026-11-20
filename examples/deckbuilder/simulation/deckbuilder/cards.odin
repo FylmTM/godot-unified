@@ -32,9 +32,9 @@ REWARD_FIRST :: Card_Id.Cleave // the cards a reward offers: REWARD_FIRST ..= ma
 // Whom a card is played at.
 Target_Kind :: enum u8 {
 	Self,
-	Enemy, // one living enemy (Cmd_Play_Card.enemy)
+	Enemy, // one living enemy (Command_Play_Card.enemy)
 	All_Enemies,
-	Ally, // any hero in the run, the player's own included (Cmd_Play_Card.ally)
+	Ally, // any hero in the run, the player's own included (Command_Play_Card.ally)
 }
 
 // One step of a card's effect, in order.
@@ -120,11 +120,11 @@ op_amount :: proc(op: Op, upgraded: bool) -> i16 {
 	return i16(op.amount) + (i16(op.plus) if upgraded else 0)
 }
 
-// Plays a card: the hero's command (Cmd_Play_Card) checked against the state as it is on this tick (an ally's play may
+// Plays a card: the hero's command (Command_Play_Card) checked against the state as it is on this tick (an ally's play may
 // have changed it since the player sent it), then paid and resolved op by op. A refusal changes nothing and says why.
-play_card :: proc(t: ^Tick, hero_index: int, play: Cmd_Play_Card) {
+play_card :: proc(t: ^Tick, hero_index: int, play: Command_Play_Card) {
 	hero := &t.state.heroes[hero_index]
-	refuse :: proc(t: ^Tick, hero_index: int, play: Cmd_Play_Card, why: Refusal) {
+	refuse :: proc(t: ^Tick, hero_index: int, play: Command_Play_Card, why: Refusal) {
 		sim.emit(t, Event_Play_Refused{card = play.card, hero = u8(hero_index), reason = why})
 	}
 	if t.state.phase != .Heroes && t.state.phase != .Enemies do return // no fight: nothing to refuse

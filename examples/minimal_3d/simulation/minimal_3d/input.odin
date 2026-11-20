@@ -16,18 +16,18 @@ Inputs :: sim.Inputs(Game)
 THROW_SPEED_MAX :: 8 // metres per second: a faster throw is thrown at this speed
 
 // `throw_ball` (GDScript: CommandThrowBall): the sender throws a ball straight up at `speed` metres per second.
-Cmd_Throw_Ball :: struct {
+Command_Throw_Ball :: struct {
 	speed: u8,
 }
 
 // `set_paused` (GDScript: CommandSetPaused): pauses or resumes the game for everyone. A value, not a toggle, so two
 // players pausing at once agree.
-Cmd_Set_Paused :: struct {
+Command_Set_Paused :: struct {
 	paused: bool,
 }
 
 // Every command a player can send.
-Cmd :: union {
-	Cmd_Throw_Ball,
-	Cmd_Set_Paused,
+Command :: union {
+	Command_Throw_Ball,
+	Command_Set_Paused,
 }

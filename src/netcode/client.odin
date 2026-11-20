@@ -74,7 +74,7 @@ Hooks :: struct($G: typeid) {
 		local, slot: int,
 		tick: u32,
 		state: ^usim.part(G, usim.GAME_STATE),
-		out: ^usim.Command_Out(usim.part(G, usim.GAME_CMD)),
+		out: ^usim.Command_Out(usim.part(G, usim.GAME_COMMAND)),
 	),
 	// Optional: local player `local` was seated (Welcome, Seated) or refused (`why`; Reject of its Join).
 	seat:           proc(user: rawptr, local: int, seated: bool, why: Reject_Reason),
@@ -276,7 +276,7 @@ Client :: struct($G: typeid) {
 	},
 	// own players: their inputs and commands
 	locals:         [LOCAL_MAX]Local_Seat(G),
-	cmd_out:        usim.Command_Out(usim.part(G, usim.GAME_CMD)), // for hooks.commands
+	cmd_out:        usim.Command_Out(usim.part(G, usim.GAME_COMMAND)), // for hooks.commands
 	// time sync
 	started:        bool,
 	offset_us:      f64, // relay time - local time

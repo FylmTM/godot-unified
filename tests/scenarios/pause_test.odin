@@ -8,7 +8,7 @@ import "unified:netcode"
 import "unified:sim"
 
 // A co-op pause in a 2-client session on the virtual clock under a bad network: the toy's slot 0 pauses for 40 ticks
-// (its Cmd_Pause, state set by a command, every peer at the same tick). No desync, and the relay's log replayed shows
+// (its Command_Pause, state set by a command, every peer at the same tick). No desync, and the relay's log replayed shows
 // game time standing still for exactly those 40 ticks, then moving on.
 @(test)
 a_co_op_pause_holds_in_a_session :: proc(t: ^testing.T) {

@@ -32,7 +32,7 @@ Thing :: struct {
 
 // Commands: a bump (counted, summed and folded in order: exactly-once and order checks), a mark (every
 // field kind the Godot host converts from a Dictionary: tests/godot_views) and an empty one (zero bytes).
-Cmd_Bump :: struct {
+Command_Bump :: struct {
 	amount: i32,
 }
 
@@ -44,7 +44,7 @@ Shape :: enum u8 {
 
 Shapes :: bit_set[Shape;u8]
 
-Cmd_Mark :: struct {
+Command_Mark :: struct {
 	at:     [2]f32,
 	normal: [3]f32,
 	weight: f32,
@@ -65,7 +65,7 @@ Mark_Area :: struct {
 }
 
 // A command without fields (zero bytes): the sender's bump counters start over.
-Cmd_Clear_Bumps :: struct {}
+Command_Clear_Bumps :: struct {}
 
 // The toy's levels, in GAME.levels' order.
 Area :: enum u8 {
@@ -74,27 +74,27 @@ Area :: enum u8 {
 }
 
 // Pauses or resumes the game for everyone (the co-op pause: sim.set_paused).
-Cmd_Pause :: struct {
+Command_Pause :: struct {
 	paused: bool,
 }
 
 // Takes the team to a level (nothing when it is the active one).
-Cmd_Travel :: struct {
+Command_Travel :: struct {
 	to: Area,
 }
 
 // A trail of up to 3 points (a List of positions: view units in GDScript, sim units in the sim), kept by the sender.
-Cmd_Trail :: struct {
+Command_Trail :: struct {
 	points: sim.List(sim.Position, 3),
 }
 
-Cmd :: union {
-	Cmd_Bump,
-	Cmd_Mark,
-	Cmd_Clear_Bumps,
-	Cmd_Travel,
-	Cmd_Pause,
-	Cmd_Trail,
+Command :: union {
+	Command_Bump,
+	Command_Mark,
+	Command_Clear_Bumps,
+	Command_Travel,
+	Command_Pause,
+	Command_Trail,
 }
 
 // A player's data (sim.Players): zeroed when someone new joins, kept while they are away.
@@ -105,8 +105,8 @@ Player_Data :: struct {
 	bump_sum:  i32,
 	bump_fold: u32, // bump_fold(fold, amount) over the bumps in order
 	marks:     u32,
-	last_mark: Cmd_Mark,
-	trail:     sim.List(sim.Position, 3), // the last Cmd_Trail's
+	last_mark: Command_Mark,
+	trail:     sim.List(sim.Position, 3), // the last Command_Trail's
 	color:     u32, // their Profile's, from the tick they arrived
 }
 
@@ -126,7 +126,7 @@ State :: struct {
 	spawned: u32,
 	level:   sim.Active_Level(Area),
 	_pad:    u32,
-	clock:   sim.Clock, // game time: a Cmd_Pause stops it (the co-op pause)
+	clock:   sim.Clock, // game time: a Command_Pause stops it (the co-op pause)
 	players: sim.Players(Player_Data, Profile, Input, PLAYERS),
 	things:  sim.Table(Thing, 32),
 }
@@ -155,7 +155,7 @@ Event :: union {
 	Event_Expired,
 }
 
-Game :: sim.Game(State, Input, World, Event, Cmd, Setup, Profile, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Command, Setup, Profile, PLAYERS)
 Sim :: sim.Sim(Game)
 Inputs :: sim.Inputs(Game)
 Tick :: sim.Tick(Game)
@@ -199,20 +199,20 @@ tick :: proc(t: ^Tick) {
 	for data, player in sim.next(&players) {
 		for sent in sim.commands(t, player) {
 			switch command in sent {
-			case Cmd_Bump:
+			case Command_Bump:
 				data.bumps += 1
 				data.bump_sum += command.amount
 				data.bump_fold = bump_fold(data.bump_fold, command.amount)
-			case Cmd_Mark:
+			case Command_Mark:
 				data.marks += 1
 				data.last_mark = command
-			case Cmd_Clear_Bumps:
+			case Command_Clear_Bumps:
 				data.bumps, data.bump_sum, data.bump_fold = 0, 0, 0
-			case Cmd_Travel:
+			case Command_Travel:
 				if command.to != t.state.level.id do sim.level_enter(t, command.to)
-			case Cmd_Trail:
+			case Command_Trail:
 				data.trail = command.points
-			case Cmd_Pause:
+			case Command_Pause:
 				sim.set_paused(t, command.paused)
 			case:
 				panic("sim.commands yielded a nil entry") // it never does: an undecodable command is left out
@@ -285,36 +285,36 @@ bump_fold :: proc(fold: u32, amount: i32) -> u32 {
 // of 3 bumps every 200th tick (tick % 200 == 50), a mark every 64th, and from slot 0 a travel to the cave every 300th
 // tick (tick % 300 == 120) and back 90 ticks later, and from slot 0 a pause of 40 ticks of every 512 (from tick 300):
 // never more than a tick takes (offline runs play it).
-scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
+scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Command)) {
 	commands_of(seed, slot, tick, out, 3)
 }
 
 // The same with a burst of 6 bumps: more than a tick takes, so two of them wait for the next tick (the netcode's
 // tests: the relay holds them).
-burst_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
+burst_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Command)) {
 	commands_of(seed, slot, tick, out, 6)
 }
 
 @(private)
-commands_of :: proc(seed: u64, slot: int, tick: u32, out: ^sim.Command_Out(Cmd), burst: int) {
+commands_of :: proc(seed: u64, slot: int, tick: u32, out: ^sim.Command_Out(Command), burst: int) {
 	x := u32(seed) * 0x85EBCA77 ~ u32(slot + 1) * 0x9E3779B1 ~ tick * 0x27D4EB2F
 	x ~= x >> 15
 	x *= 0x2C1B3C6D
 	x ~= x >> 13
 	if x % 16 == 0 {
-		sim.send_command(out, Cmd_Bump{i32((x >> 8) % 1000) - 500})
+		sim.send_command(out, Command_Bump{i32((x >> 8) % 1000) - 500})
 	}
 	if tick % 200 == 50 {
 		for k in 0 ..< burst {
-			sim.send_command(out, Cmd_Bump{i32(slot * 100 + k)})
+			sim.send_command(out, Command_Bump{i32(slot * 100 + k)})
 		}
 	}
-	if slot == 0 && tick % 300 == 120 do sim.send_command(out, Cmd_Travel{.Cave})
-	if slot == 0 && tick % 300 == 210 do sim.send_command(out, Cmd_Travel{.Meadow})
-	if slot == 0 && tick % 512 == 300 do sim.send_command(out, Cmd_Pause{true}) // never a travel tick
-	if slot == 0 && tick % 512 == 340 do sim.send_command(out, Cmd_Pause{false})
+	if slot == 0 && tick % 300 == 120 do sim.send_command(out, Command_Travel{.Cave})
+	if slot == 0 && tick % 300 == 210 do sim.send_command(out, Command_Travel{.Meadow})
+	if slot == 0 && tick % 512 == 300 do sim.send_command(out, Command_Pause{true}) // never a travel tick
+	if slot == 0 && tick % 512 == 340 do sim.send_command(out, Command_Pause{false})
 	if tick % 64 == 7 { 	// never a burst tick (50 + 200k is even mod 64, 7 is odd)
-		sim.send_command(out, Cmd_Mark {
+		sim.send_command(out, Command_Mark {
 			at    = {f32(slot), f32(tick % 7)},
 			count = i16(tick % 100),
 			shape = .Ring,

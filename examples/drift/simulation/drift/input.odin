@@ -23,12 +23,12 @@ Input :: struct {
 Inputs :: sim.Inputs(Game)
 
 // `start` (GDScript: CommandStart): the lobby becomes a match. Ignored outside the lobby.
-Cmd_Start :: struct {}
+Command_Start :: struct {}
 
 // `restart` (CommandRestart): an over match goes back to the lobby at once. Ignored unless the match is over.
-Cmd_Restart :: struct {}
+Command_Restart :: struct {}
 
-Cmd :: union {
-	Cmd_Start,
-	Cmd_Restart,
+Command :: union {
+	Command_Start,
+	Command_Restart,
 }

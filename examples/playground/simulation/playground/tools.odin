@@ -13,22 +13,22 @@ use_tools :: proc(t: ^Tick) {
 	for data, player in sim.next(&players) {
 		grab(t, player, data)
 		for sent in sim.commands(t, player) {
-			if _, is_drive := sent.(Cmd_Drive); is_drive {
+			if _, is_drive := sent.(Command_Drive); is_drive {
 				toggle_car(t, player)
 				continue
 			}
 			if sim.timer_running(t, data.cooldown) do continue
 			switch command in sent {
-			case Cmd_Shoot:
+			case Command_Shoot:
 				shoot(t, player, data)
 				sim.timer_start_ticks(t, &data.cooldown, SHOT_COOLDOWN_TICKS)
-			case Cmd_Spawn:
+			case Command_Spawn:
 				spawn(t, player, data, command.shape)
 				sim.timer_start_ticks(t, &data.cooldown, SPAWN_COOLDOWN_TICKS)
-			case Cmd_Explode:
+			case Command_Explode:
 				explode(t, player, data)
 				sim.timer_start_ticks(t, &data.cooldown, EXPLODE_COOLDOWN_TICKS)
-			case Cmd_Scene, Cmd_Drive: // change_scene's, above
+			case Command_Scene, Command_Drive: // change_scene's, above
 			}
 		}
 	}

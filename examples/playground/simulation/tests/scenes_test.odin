@@ -109,7 +109,7 @@ the_grab_pulls_and_the_reset_rebuilds :: proc(t: ^testing.T) {
 	testing.expect(t, sim.slot_data(&run.simulation.state.players, 0).grab == {}, "let go")
 	testing.expect_value(t, headless.run_events(&run, g.Event_Released), 1)
 
-	headless.run_command(&run, inputs_of(look), 0, g.Cmd_Scene{scene = .Pyramid})
+	headless.run_command(&run, inputs_of(look), 0, g.Command_Scene{scene = .Pyramid})
 	testing.expect_value(t, headless.run_events(&run, g.Event_Scene_Entered), 1)
 	testing.expect_value(t, count_role(&run.simulation.state, .Scene), g.PYRAMID_ROWS * (g.PYRAMID_ROWS + 1) / 2)
 	scenarios.expect_synced(t, &run)
@@ -122,15 +122,15 @@ shoot_spawn_explode :: proc(t: ^testing.T) {
 	run := scene_run(.Pyramid, seated = 1)
 	defer headless.run_end(&run)
 	look := [3]f32{0, -0.2, -1}
-	headless.run_command(&run, inputs_of(look), 0, g.Cmd_Shoot{})
-	headless.run_command(&run, inputs_of(look), 0, g.Cmd_Shoot{}) // in the cooldown: dropped
+	headless.run_command(&run, inputs_of(look), 0, g.Command_Shoot{})
+	headless.run_command(&run, inputs_of(look), 0, g.Command_Shoot{}) // in the cooldown: dropped
 	testing.expect_value(t, headless.run_events(&run, g.Event_Shot), 1)
 	testing.expect_value(t, count_role(&run.simulation.state, .Bullet), 1)
 	for _ in 0 ..< g.SHOT_TICKS do headless.run_step(&run, inputs_of(look))
 	testing.expect_value(t, count_role(&run.simulation.state, .Bullet), 0)
 
 	for shape in g.Shape {
-		headless.run_command(&run, inputs_of(look), 0, g.Cmd_Spawn{shape = shape})
+		headless.run_command(&run, inputs_of(look), 0, g.Command_Spawn{shape = shape})
 		for _ in 0 ..< g.SPAWN_COOLDOWN_TICKS do headless.run_step(&run, inputs_of(look))
 	}
 	testing.expect_value(t, count_role(&run.simulation.state, .Spawned), len(g.Shape))
@@ -140,7 +140,7 @@ shoot_spawn_explode :: proc(t: ^testing.T) {
 		&run,
 		inputs_of({0, 0.4, 0} - sim.slot_data(&run.simulation.state.players, 0).pos),
 		0,
-		g.Cmd_Explode{},
+		g.Command_Explode{},
 	)
 	testing.expect_value(t, headless.run_events(&run, g.Event_Exploded), 1)
 	for _ in 0 ..< 8 do headless.run_step(&run, inputs_of(look))
@@ -148,8 +148,8 @@ shoot_spawn_explode :: proc(t: ^testing.T) {
 	scenarios.expect_synced(t, &run)
 }
 
-// In Driving, Cmd_Drive takes the nearest car; the stick's forward drives it along its +x and its right steers it right,
-// the camera riding behind; Cmd_Drive again gets out.
+// In Driving, Command_Drive takes the nearest car; the stick's forward drives it along its +x and its right steers it right,
+// the camera riding behind; Command_Drive again gets out.
 @(test)
 a_car_drives_forward :: proc(t: ^testing.T) {
 	run := scene_run(.Driving, seated = 1)
@@ -173,7 +173,7 @@ a_car_drives_forward :: proc(t: ^testing.T) {
 		to := physics.body_position(world, car.chassis) - sim.slot_data(&run.simulation.state.players, 0).pos
 		headless.run_step(&run, inputs_of(to, stick = {0, 0, 127}))
 	}
-	headless.run_command(&run, inputs_of({0, 0, -1}), 0, g.Cmd_Drive{})
+	headless.run_command(&run, inputs_of({0, 0, -1}), 0, g.Command_Drive{})
 	if !testing.expect_value(t, sim.slot_data(&run.simulation.state.players, 0).car, i8(nearest)) do return
 	start := physics.body_position(world, car.chassis)
 	forward := physics.body_world_vector(world, car.chassis, {1, 0, 0})
@@ -185,7 +185,7 @@ a_car_drives_forward :: proc(t: ^testing.T) {
 	for _ in 0 ..< 64 do headless.run_step(&run, inputs_of({0, 0, -1}, stick = {127, 0, 127}))
 	turned := physics.body_world_vector(world, car.chassis, {1, 0, 0})
 	testing.expectf(t, dmath.dot3(turned, right) > 0.03, "steered right: %v from %v", turned, forward)
-	headless.run_command(&run, inputs_of({0, 0, -1}), 0, g.Cmd_Drive{})
+	headless.run_command(&run, inputs_of({0, 0, -1}), 0, g.Command_Drive{})
 	testing.expect_value(t, sim.slot_data(&run.simulation.state.players, 0).car, i8(-1))
 	scenarios.expect_synced(t, &run)
 }
@@ -196,7 +196,7 @@ an_explosion_breaks_the_wall :: proc(t: ^testing.T) {
 	run := scene_run(.Breakable, seated = 1)
 	defer headless.run_end(&run)
 	look := [3]f32{0, 1.5, 0} - sim.slot_data(&run.simulation.state.players, 0).pos
-	headless.run_command(&run, inputs_of(look), 0, g.Cmd_Explode{})
+	headless.run_command(&run, inputs_of(look), 0, g.Command_Explode{})
 	for _ in 0 ..< 30 do headless.run_step(&run, inputs_of(look))
 	testing.expectf(t, headless.run_events(&run, g.Event_Joint_Broke) > 0, "welds broke")
 	scenarios.expect_synced(t, &run)

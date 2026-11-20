@@ -343,7 +343,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	State :: sim.part(G, sim.GAME_STATE)
 	Input :: sim.part(G, sim.GAME_INPUT)
 	Event :: sim.part(G, sim.GAME_EVENT)
-	Cmd :: sim.part(G, sim.GAME_CMD)
+	Command :: sim.part(G, sim.GAME_COMMAND)
 	Setup :: sim.part(G, sim.GAME_SETUP)
 	Profile :: sim.part(G, sim.GAME_PROFILE)
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
@@ -376,8 +376,8 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		is_2d         = glue.is_2d,
 		view_scale    = glue.view_scale == 0 ? 1 : glue.view_scale,
 		events        = event_layouts(Event),
-		commands      = command_layouts(Cmd),
-		commands_type = Cmd,
+		commands      = command_layouts(Command),
+		commands_type = Command,
 		level_offset  = -1,
 	}
 	when intrinsics.type_has_field(State, "level") {
@@ -875,7 +875,7 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 	// every type GDScript reads by field names and classes
 	named := make([dynamic]^runtime.Type_Info, context.temp_allocator)
 	for variant in sim.union_variants(sim.part(G, sim.GAME_EVENT)) do append(&named, variant)
-	for variant in sim.union_variants(sim.part(G, sim.GAME_CMD)) do append(&named, variant)
+	for variant in sim.union_variants(sim.part(G, sim.GAME_COMMAND)) do append(&named, variant)
 	for variant in sim.union_variants(glue.data) do append(&named, variant)
 	if constants != nil do append(&named, type_info_of(constants))
 	if glue.input_values != nil do append(&named, type_info_of(glue.input_values))
@@ -895,7 +895,7 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 	for view in glue.views do append(&view_data, view.data)
 	class_problems({
 			events       = sim.part(G, sim.GAME_EVENT),
-			commands     = sim.part(G, sim.GAME_CMD),
+			commands     = sim.part(G, sim.GAME_COMMAND),
 			data         = glue.data,
 			view_data    = view_data[:],
 			constants    = constants,
@@ -1154,7 +1154,7 @@ driver_local_requests :: proc(driver: ^Driver($G, $View, $MultiView), now: i64) 
 driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G) {
 	State :: sim.part(G, sim.GAME_STATE)
 	Input :: sim.part(G, sim.GAME_INPUT)
-	Cmd :: sim.part(G, sim.GAME_CMD)
+	Command :: sim.part(G, sim.GAME_COMMAND)
 	This_Driver :: Driver(G, View, MultiView)
 	hooks := netcode.Hooks(G) {
 		user = driver,
@@ -1180,7 +1180,7 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 			return input
 		},
 		// Commands sent from GDScript (send_command), in order; what the client can't take yet stays queued.
-		commands = proc(user: rawptr, local, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
+		commands = proc(user: rawptr, local, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Command)) {
 			driver := (^This_Driver)(user)
 			if driver.req.scripted {
 				if driver.game.scripted_commands != nil && state != nil {
