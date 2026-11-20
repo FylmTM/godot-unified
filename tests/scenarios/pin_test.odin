@@ -241,3 +241,66 @@ a_reference_verdict_follows_what_moved :: proc(t: ^testing.T) {
 		testing.expect_value(t, scenarios.reference_verdict(predates, pinned, bless), scenarios.Pin_Verdict.Predates)
 	}
 }
+
+// A reference never pinned (its parameters alone) is replaced whole (scenarios.pin_first): the token rewrite can't add
+// the fields it lacks. Its fields may come in any order, a zero one left out; a literal that sets anything else, or
+// another value, is not it; two of them are refused.
+@(test)
+a_first_pin_replaces_the_placeholder_whole :: proc(t: ^testing.T) {
+	parameters := []scenarios.Pin_Field{{"seed", 7}, {"players", 4}, {"ticks", 1200}, {"snapshot_tick", 600}}
+	placeholder := "REFERENCE :: scenarios.Reference {\n\tseed          = 7,\n\tplayers       = 4,\n\tticks         = 1200,\n\tsnapshot_tick = 600,\n}"
+	source := fmt.tprintf("package fixture\n\n// the run\n%s\n\nOTHER :: 3\n", placeholder)
+	rewritten, found, problem := scenarios.pin_first(source, "Reference", parameters, REFERENCE_NEW)
+	testing.expect_value(t, problem, "")
+	testing.expect(t, found)
+	want, _ := strings.replace(source, placeholder, REFERENCE_NEW, 1, context.temp_allocator)
+	testing.expect(t, rewritten == want, "the placeholder becomes the literal; every other byte stays")
+	// one line, another order, a comment, seed 0 left out
+	zero_seed := []scenarios.Pin_Field{{"seed", 0}, {"players", 4}, {"ticks", 1200}, {"snapshot_tick", 600}}
+	terse := "R :: Reference{ticks = 1200, /* half */ snapshot_tick = 600, players = 4}\n"
+	terse_rewritten, terse_found, _ := scenarios.pin_first(terse, "Reference", zero_seed, REFERENCE_NEW)
+	testing.expect(t, terse_found, "any order, a zero field left out")
+	testing.expect(t, strings.has_prefix(terse_rewritten, "R :: Reference {\n\tseed          = 7,"), terse_rewritten)
+	others := []string {
+		"R :: Reference{seed = 7, players = 4, ticks = 1200, snapshot_tick = 600, trace = 1}", // pinned
+		"R :: Reference{seed = 8, players = 4, ticks = 1200, snapshot_tick = 600}", // another seed
+		"R :: Reference{seed = 7, players = 4, ticks = 1200}", // a parameter missing
+		"R :: Other{seed = 7, players = 4, ticks = 1200, snapshot_tick = 600}", // another type
+	}
+	for other in others {
+		unchanged, other_found, other_problem := scenarios.pin_first(other, "Reference", parameters, REFERENCE_NEW)
+		testing.expectf(t, !other_found && other_problem == "" && unchanged == other, "not a placeholder: %s", other)
+	}
+	twice := fmt.tprintf("%s\n%s\n", placeholder, placeholder)
+	_, _, twice_problem := scenarios.pin_first(twice, "Reference", parameters, REFERENCE_NEW)
+	testing.expect(t, strings.contains(twice_problem, "more than one"), twice_problem)
+}
+
+// repin_first writes the one file of a directory that holds the placeholder; a second check of the same pin finds it
+// pinned already.
+@(test)
+a_first_pin_writes_the_file_that_holds_it :: proc(t: ^testing.T) {
+	dir, _ := filepath.join({
+			os.temp_directory(context.temp_allocator) or_else ".",
+			fmt.tprintf("unified-first-pin-test-%d", os.get_pid()),
+		}, context.temp_allocator)
+	_ = os.make_directory_all(dir)
+	defer os.remove_all(dir)
+	parameters := []scenarios.Pin_Field{{"seed", 7}, {"players", 4}, {"ticks", 1200}, {"snapshot_tick", 600}}
+	pins, _ := filepath.join({dir, "reference.odin"}, context.temp_allocator)
+	placeholder := "package fixture\n\nREFERENCE :: scenarios.Reference{seed = 7, players = 4, ticks = 1200, snapshot_tick = 600}\n"
+	_ = os.write_entire_file(pins, transmute([]u8)placeholder)
+	file, problem, already := scenarios.repin_first(dir, "Reference", parameters, REFERENCE_NEW)
+	testing.expect_value(t, problem, "")
+	testing.expect(t, !already, "the placeholder was pinned now")
+	testing.expect_value(t, filepath.base(file), "reference.odin")
+	written, _ := os.read_entire_file(pins, context.temp_allocator)
+	testing.expect_value(t, string(written), fmt.tprintf("package fixture\n\n%s\n", REFERENCE_NEW))
+	// a second check of the same pin finds the literal there: pinned already, nothing written
+	again_file, again_problem, again_already := scenarios.repin_first(dir, "Reference", parameters, REFERENCE_NEW)
+	testing.expect(t, again_problem == "" && again_already, again_problem)
+	testing.expect_value(t, filepath.base(again_file), "reference.odin")
+	// neither the placeholder nor the literal: nothing to pin
+	_, missing, _ := scenarios.repin_first(dir, "Reference", parameters, REFERENCE_OLD)
+	testing.expect(t, strings.contains(missing, "no .odin file"), missing)
+}

@@ -20,7 +20,8 @@ The determinism lint (in `./uni test`) and `./uni vet` enforce the simulation's 
 Everything runs through `./uni` (`uni.cmd` on Windows): `./uni help` lists the commands, `./uni <command> -h` has
 one's options. A game repo holds one game, so no command needs its name.
 
-- Test the sim (rules, lint, reference run, replay regressions): `./uni test`; bless a meant change: `--bless`
+- Test the sim (rules, lint, reference run, replay regressions): `./uni test`; bless a meant change: `--bless`;
+  pin the reference run the first time, once the rules settle: `./uni test <game> --bless`
 - Sync-test, offline runs, traces, replays: `./uni headless -- synctest | sim | replay` (`-- help`: every mode)
 - A session with many clients on a virtual clock behind a network profile: `./uni headless -- session`
 - The game under headless Godot: `./uni test --suite godot`

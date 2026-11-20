@@ -387,7 +387,9 @@ when DEVUI {
 		snapshot, input_log: [dynamic]u8
 		defer delete(snapshot)
 		defer delete(input_log)
-		if !api.installed || session.mode == .Replay do return
+		// while a start waits, the Result is the left session's: its mode, not the waiting start's
+		mode := session.has_pending ? session.left_mode : session.mode
+		if !api.installed || mode == .Replay do return
 		info, recorded := api.recording(&snapshot, &input_log)
 		if !recorded do return
 		root := fmt.tprintf("%s/recordings", gd.OS_get_user_data_dir(gd.OS_singleton()))

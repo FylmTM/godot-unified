@@ -20,7 +20,7 @@ private_suites :: proc() -> []cli.Suite {
 			},
 			{
 				name = "godot-bindings",
-				summary = "tests/godot and tests/godot_views (views, the level marker order, the session lifecycle) under headless Godot",
+				summary = "tests/godot and tests/godot_views (views, the level marker order, the session lifecycle, UnifiedTool) under headless Godot",
 				run = suite_godot_bindings,
 				beside = true,
 				prepare = proc() {
@@ -187,8 +187,8 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 // --- godot-bindings ---------------------------------------------------------------------------------------------
 
 // The Godot-side library tests: the gdext bindings (tests/godot), unified:godot's views and send_command's refusals,
-// Unified.level_markers against the level exporter, and its session lifecycle (tests/godot_views), each an extension
-// plus a test script under headless Godot.
+// Unified.level_markers against the level exporter, its session lifecycle and UnifiedTool's helpers (tests/godot_views),
+// each an extension plus a test script under headless Godot.
 // `expected`: error lines the test provokes on purpose (they must show up, and nothing else may). A passing run says
 // nothing (--verbose: each PASS line); a failing one prints that Godot run's whole output.
 suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool {
@@ -230,6 +230,7 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 			nil,
 		},
 		{views, cli.join(views, "ext"), "views_test", "markers_check.gd", "MARKERS TESTS", nil, nil},
+		{views, cli.join(views, "ext"), "views_test", "tool_check.gd", "TOOL TESTS", nil, nil},
 	}
 	// The session check mostly waits on purpose (goodbyes, timers), so its sections run in groups, each in a Godot
 	// process of its own beside the rest, so no group outlasts views' test.gd.
@@ -275,9 +276,10 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 		}
 	}
 	// tests/godot runs unified's level exporter (mirrored as res://addons/unified/, so it is imported first);
-	// tests/godot_views/markers_check.gd extends it (loaded by path: no import)
+	// tests/godot_views/markers_check.gd extends it (loaded by path), and tool_check.gd extends UnifiedTool (by its
+	// class name: imported too)
 	cli.ensure_imported(projects[0].dir)
-	cli.sync_tools(views)
+	cli.ensure_imported(views)
 	// One more run beside them: a script error under the debugger (-d, as `uni tool` runs headless) must end the run
 	// at once through the `quit` on its stdin, with the error printed (tests/godot/debugger_error.gd).
 	runs := make([]cli.Run, len(projects) + 1)
@@ -395,7 +397,7 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 
 // The session check's sections (tests/godot_views/session_check.gd) by Godot process: about as long each (3 hosts again
 // on the port 2 hosted on; 7 records the session it replays).
-SESSION_CHECK_GROUPS :: []string{"1", "2,3,6", "4,5", "7"}
+SESSION_CHECK_GROUPS :: []string{"1", "2,3,6", "4,5,8", "7"}
 
 // How long the debugger-error run may take: it ends in about a second; the prompt waiting for good would hit this.
 DEBUGGER_ERROR_TIMEOUT :: 15 * time.Second

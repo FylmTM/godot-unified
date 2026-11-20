@@ -25,7 +25,7 @@ CONTROL_EVENTS :: 1024
 CONTROL_TIMEOUT :: 10 * time.Second
 // A request line longer than this is refused.
 CONTROL_REQUEST_MAX :: 64 * 1024
-// The controls `ui` lists at most.
+// The controls `ui` lists, and the nodes `find` does, at most.
 CONTROL_UI_MAX :: 256
 
 when DEVUI {
@@ -391,6 +391,9 @@ when DEVUI {
 		case "ui":
 			if !want(args[:], 0, 0) do break
 			reply = control_ui(session)
+		case "find":
+			if len(args) < 1 do break
+			reply = control_find_nodes(session, strings.join(args[:], " ", context.temp_allocator))
 		case "click":
 			if !want(args[:], 1, 1) do break
 			target, problem := control_find(session, args[0])
@@ -782,6 +785,83 @@ when DEVUI {
 			rect.size.y,
 		)
 		return strings.to_string(out), true
+	}
+
+	// Every node, hidden ones too, whose name, class (its own, one it extends, or its script's class_name) or text holds
+	// `query` (any case; a class it extends by its exact name), in tree order, the dev UI's left out: its path, name,
+	// class, script class, text, whether it is visible, and a control's rect. What an agent looks a node path up with.
+	@(private = "file")
+	control_find_nodes :: proc(session: ^Session_Node, query: string) -> string {
+		Search :: struct {
+			query: string, // lowercased
+			exact: string, // as typed: a class the node extends (Object.is_class)
+			out:   strings.Builder,
+			found: int,
+		}
+		search := Search {
+			query = strings.to_lower(query, context.temp_allocator),
+			exact = query,
+			out   = strings.builder_make(context.temp_allocator),
+		}
+		strings.write_string(&search.out, `,"nodes":[`)
+		walk :: proc(node: gd.Node, search: ^Search) {
+			if search.found >= CONTROL_UI_MAX do return
+			name := gd.Node_get_name(node)
+			if name == "DevUI" do return
+			class := gd.Object_get_class(node)
+			script_class := ""
+			script_variant := gd.Object_get_script(node)
+			defer gd.variant_destroy(&script_variant)
+			if script, _ := gd.from_variant(gd.Object, &script_variant); script.ptr != nil {
+				global := gd.Object_call(script, "get_global_name")
+				defer gd.variant_destroy(&global)
+				script_class = variant_text(&global)
+			}
+			text_value := gd.Object_get(node, "text")
+			defer gd.variant_destroy(&text_value)
+			text, _ := gd.from_variant(string, &text_value)
+			holds :: proc(value, query: string) -> bool {
+				return value != "" && strings.contains(strings.to_lower(value, context.temp_allocator), query)
+			}
+			if holds(name, search.query) ||
+			   holds(class, search.query) ||
+			   holds(script_class, search.query) ||
+			   holds(text, search.query) ||
+			   gd.Object_is_class(node, search.exact) {
+				if search.found > 0 do strings.write_byte(&search.out, ',')
+				search.found += 1
+				fmt.sbprintf(
+					&search.out,
+					`{{"path":%s,"name":%s,"class":%s,"script_class":%s,"text":%s`,
+					quoted(gd.Node_get_path(node)),
+					quoted(name),
+					quoted(class),
+					quoted(script_class),
+					quoted(text),
+				)
+				if item := gd.object_cast(gd.CanvasItem, node); item.ptr != nil {
+					fmt.sbprintf(&search.out, `,"visible":%v`, gd.CanvasItem_is_visible_in_tree(item))
+				} else if spatial := gd.object_cast(gd.Node3D, node); spatial.ptr != nil {
+					fmt.sbprintf(&search.out, `,"visible":%v`, gd.Node3D_is_visible_in_tree(spatial))
+				}
+				if control := gd.object_cast(gd.Control, node); control.ptr != nil {
+					rect := gd.Control_get_global_rect(control)
+					fmt.sbprintf(
+						&search.out,
+						`,"rect":[%.0f,%.0f,%.0f,%.0f]`,
+						rect.position.x,
+						rect.position.y,
+						rect.size.x,
+						rect.size.y,
+					)
+				}
+				strings.write_byte(&search.out, '}')
+			}
+			for i in 0 ..< gd.Node_get_child_count(node, false) do walk(gd.Node_get_child(node, i, false), search)
+		}
+		walk(control_root(session), &search)
+		fmt.sbprintf(&search.out, `],"more":%v`, search.found >= CONTROL_UI_MAX)
+		return control_ok(session, strings.to_string(search.out))
 	}
 
 	// The control `target` names: a node path (`/root/Main/Hud/Start`, or `root/Main/Hud/Start`: Git Bash rewrites an

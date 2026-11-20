@@ -298,8 +298,9 @@ late_join_agrees :: proc(t: ^testing.T, suite: ^Suite($G), profile: netcode.Netw
 // moved, as a change that moves results bumps Game.version or sim.LIBRARY_VERSION (the unified-sim-change skill). To find the
 // first tick that differs between two builds, run `uni headless <game> -- sim --trace FILE` on both and compare the
 // files. A reference with only its four parameters set (seed, players, ticks, snapshot_tick: a new game's, the
-// template's) is not pinned yet: the run warns with the literal to paste instead of failing (BLESS leaves it), and its
-// replay and resume checks still hold.
+// template's) is not pinned yet: the run warns with the literal instead of failing, and its replay and resume checks
+// still hold; a bless that asks for first pins (bless_first: `uni test <game> --bless`) replaces it whole with the
+// literal (bless_first_pin), any other bless leaves it.
 reference_reproduces :: proc(t: ^testing.T, game: ^$G, reference: Reference, loc := #caller_location) {
 	if !game_ok(t, game) do return
 	what := fmt.tprintf("reference_reproduces (%s)", ref_params(reference))
@@ -333,9 +334,23 @@ reference_reproduces :: proc(t: ^testing.T, game: ^$G, reference: Reference, loc
 	case .Same:
 	case .Unpinned:
 		// a new game's (the template's): nothing to compare with yet; the replay and resume checks below still hold
+		if bless_first() {
+			parameters := []Pin_Field {
+				{"seed", reference.seed},
+				{"players", u64(reference.players)},
+				{"ticks", u64(reference.ticks)},
+				{"snapshot_tick", u64(reference.snapshot_tick)},
+			}
+			bless_first_pin(t, what, "Reference", parameters, literal, loc)
+			break
+		}
 		// the literal indented: a passing run shows a warning's indented lines
 		indented, _ := strings.replace_all(literal, "\n", "\n\t", context.temp_allocator)
-		log.warnf("%s: no reference pinned yet; once the game's rules settle, pin this run:\n\t%s", what, indented)
+		log.warnf(
+			"%s: no reference pinned yet; once the game's rules settle, pin this run (uni test <game> --bless):\n\t%s",
+			what,
+			indented,
+		)
 	case .Predates:
 		testing.expectf(
 			t,

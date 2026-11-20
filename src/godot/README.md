@@ -364,9 +364,12 @@ that every `View` member has a scene and every indexed kind is a member.
   tick, the zone stack), the recording plus the inputs the client stepped after the last verified tick, so the
   folder replays headless into the frozen tick, which a deterministic sim reproduces under a debugger (on Windows a
   minidump too); then the process aborts.
-- **Leave, then host or join.** `leave` asks the session to end; it says goodbye on its thread, for at most
-  `GOODBYE_US` (a host waiting for peers that don't answer). A start during the goodbye waits and starts as soon as
-  the old session is gone (the goodbye cut to `HURRY_US`); a `leave` before that cancels it.
+- **Starting over.** `leave` asks the session to end; it says goodbye on its thread, for at most `GOODBYE_US` (a
+  host waiting for peers that don't answer). A start on a running session leaves it the same way first, so a game
+  restarts or switches modes with one call, never a silent refusal. The start waits and begins as soon as the old
+  session is gone (the goodbye cut to `HURRY_US`); a newer start replaces it, a `leave` cancels it. A session is one
+  match: a host that restarts ends it for every player who joined (they get its goodbye and join the new one again),
+  so a co-op game that plays another round without losing its players does that inside its sim, not with a restart.
 - **Quitting** (`quit.odin`). Godot reports a sound's playback still held by the AudioServer at exit as a leak, so the
   session's quits (`UnifiedSession.quit`, and the one at the end of a `--quit-at-end` run) stop every audio player in
   the tree and quit once their playbacks are freed (at most `QUIT_AUDIO_WAIT`); meanwhile the session's frame does

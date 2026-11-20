@@ -102,20 +102,22 @@ OPENING := netcode.Lobby {
 	close = proc() {seen.closes += 1},
 }
 
-// Pops messages until `pred` holds or `ms` pass; returns every message seen.
+// Pops messages until `done` holds or `ms` pass; returns every message seen. The time is checked after a pop, never
+// between a sleep and the next one: a test thread descheduled past the deadline (a loaded CI runner, the session
+// thread at a higher priority) still sees the message that came meanwhile.
 @(private = "file")
 drain :: proc(out: ^[dynamic]godot.Message, ms: int, done: proc(message: godot.Message) -> bool) -> bool {
 	start := time.tick_now()
-	for time.duration_milliseconds(time.tick_since(start)) < f64(ms) {
+	for {
 		for {
 			message, ok := godot.api.pop()
 			if !ok do break
 			append(out, message)
 			if done(message) do return true
 		}
+		if time.duration_milliseconds(time.tick_since(start)) >= f64(ms) do return false
 		time.sleep(2 * time.Millisecond)
 	}
-	return false
 }
 
 @(private = "file")
@@ -438,7 +440,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		ok, _ := godot.api.start({mode = .Host_Online, seed = 3})
 		testing.expect(t, ok)
 		messages := make([dynamic]godot.Message, context.temp_allocator)
-		got_code := drain(&messages, 2000, proc(message: godot.Message) -> bool {
+		got_code := drain(&messages, 5000, proc(message: godot.Message) -> bool {
 			return message.kind == .Join_Code && text(message) == "ABC123"
 		})
 		testing.expect(t, got_code, "the lobby code is posted")
@@ -472,7 +474,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		ok, err := godot.api.start({mode = .Host_Direct, seed = 3, port = 0, local = true})
 		testing.expect(t, ok, err)
 		messages := make([dynamic]godot.Message, context.temp_allocator)
-		testing.expect(t, drain(&messages, 2000, proc(message: godot.Message) -> bool {
+		testing.expect(t, drain(&messages, 5000, proc(message: godot.Message) -> bool {
 				return message.kind == .Join_Code
 			}), "a join code is posted")
 		code := text(messages[len(messages) - 1]) if len(messages) > 0 else ""

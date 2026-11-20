@@ -494,8 +494,11 @@ suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 	records := join(state.project.out, "test", "bless.jsonl")
 	os.remove(records)
 	_ = os.set_env(BLESS_LOG_ENV, records)
+	// a game named asks for its first pins too: a reference with its parameters alone is pinned whole
+	if opts.game != "" && opts.library_tests == "" do _ = os.set_env(BLESS_FIRST_ENV, "1")
 	passed := run_test_binaries(exes, opts.only)
 	_ = os.unset_env(BLESS_LOG_ENV)
+	_ = os.unset_env(BLESS_FIRST_ENV)
 	text, _ := read_text(records)
 	defer bless_summary(bless_changes(text), passed)
 	repinned := false
@@ -515,6 +518,10 @@ suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 // The environment variable naming the file a bless run's test binaries append their records to
 // (scenarios.BLESS_LOG_ENV: the CLI imports none of the library).
 BLESS_LOG_ENV :: "UNIFIED_BLESS_LOG"
+
+// The environment variable that asks a bless run's test binaries to pin what was never pinned (scenarios.BLESS_FIRST_ENV):
+// set when `test --bless` names a game.
+BLESS_FIRST_ENV :: "UNIFIED_BLESS_FIRST"
 
 // What a bless run changed, from its records (one JSON object per line: scenarios.Bless_Record), a line each: the
 // file, then the value with old -> new, or the replay blessed with what its run reported. Lines that aren't a record

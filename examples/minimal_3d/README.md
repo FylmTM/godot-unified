@@ -21,7 +21,9 @@ everyone: Godot's `ui_*` actions, so the project has no InputMap of its own.
 - **Game time and the co-op pause.** A `sim.Clock` in the State: anyone pauses the game for everyone with a command,
   `tick` returns early while paused, and the throw cooldown (a `sim.Timer` on game time) waits the pause out.
 - **Views and data.** A scene view per player, a MultiMesh view for the balls, and the HUD's session data
-  (`Data_Hud`, read by an ordinary scene as `Unified.data.hud`).
+  (`Data_Hud`, read by an ordinary scene as `Unified.data.hud`). The window stretches its 2D (`canvas_items`,
+  `expand`): the HUD is laid out at the project's size and scales with the window, as every example's UI is, while
+  the 3D renders at the window's own resolution.
 - **Co-op.** Players are handles, so someone who leaves and comes back gets their capsule and balls back in whatever
   slot is free.
 

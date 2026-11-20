@@ -8,7 +8,9 @@ extends SceneTree
 ## `step()`, `expect()` and `fail()`, and may `finish()` early. A failure ends the run at once: every wait returns and
 ## every input helper does nothing after it. The result carries `ok`, `ms`, `steps`, `failed`, `errors` and what the
 ## script adds to `result` (`uni tool` prints those on its result line: the way to read a value out of Godot). The
-## run ends through the game's own quit when it has a Game autoload with `quit_app(exit_code)`, else `quit()`.
+## run ends through the game's own quit when it has a Game autoload with `quit_app(exit_code)`, else `quit()`. A
+## headless run's window is the project's window size (Godot's headless one is 64x64), so a UI lays out as a player
+## sees it.
 ## unified's library tooling (src/godot/README.md, Library tooling), mirrored into every game as
 ## res://addons/unified/. It knows no game's menus: a game drives its own UI from its tool scripts (game/tools/).
 ##
@@ -55,6 +57,7 @@ func _process(_delta: float) -> bool:
 	if not _started:
 		_started = true
 		_t0 = Time.get_ticks_msec()
+		_size_headless_window()  # here: the engine sets the root's size once more after _init and _initialize
 		_start()
 	return false
 
@@ -174,15 +177,23 @@ func wait_for_scene(scene_name: String, timeout_s: float) -> void:
 # --- Input, as a player gives it ---------------------------------------------------------------------------------
 
 
-## A real click: motion, press and release at the control's centre, in window coordinates.
-func click(c: Control) -> void:
+## A real click of `button` on the control's centre: motion, press and release (click_at).
+func click(c: Control, button := MOUSE_BUTTON_LEFT) -> void:
 	if c == null or failed():
 		return
 	if not c.is_visible_in_tree():
 		fail("cannot click hidden " + str(c.get_path()))
 		return
 	var pos := c.get_viewport().get_final_transform() * (c.get_global_transform_with_canvas() * (c.size / 2.0))
-	Input.warp_mouse(pos)  # windowed: the real cursor sits on the control, so its motion can't pull the click off
+	await click_at(pos, button)
+
+
+## A real click of `button` at `pos`, in window coordinates (what `click` aims at, and an InputEventMouse's
+## `position`): motion, then press and release a frame apart, each through the event pipeline.
+func click_at(pos: Vector2, button := MOUSE_BUTTON_LEFT) -> void:
+	if failed():
+		return
+	Input.warp_mouse(pos)  # windowed: the real cursor sits on the target, so its motion can't pull the click off
 	var motion := InputEventMouseMotion.new()
 	motion.position = pos
 	motion.global_position = pos
@@ -190,7 +201,7 @@ func click(c: Control) -> void:
 	await process_frame
 	for pressed: bool in [true, false]:
 		var e := InputEventMouseButton.new()
-		e.button_index = MOUSE_BUTTON_LEFT
+		e.button_index = button
 		e.pressed = pressed
 		e.position = pos
 		e.global_position = pos
@@ -316,6 +327,19 @@ func load_session(timeout_s := 5.0) -> void:
 	if session == null:
 		change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
 	await wait_for(func() -> bool: return session != null, timeout_s, "a UnifiedSession in the tree")
+
+
+# Godot's headless display server leaves the root window 64x64, where a UI lays out unlike in any real window and a
+# click aimed at a control lands elsewhere: a headless run gets the window a player's opens at, the project's size.
+func _size_headless_window() -> void:
+	if DisplayServer.get_name() != "headless":
+		return
+	var width: int = ProjectSettings.get_setting("display/window/size/window_width_override", 0)
+	var height: int = ProjectSettings.get_setting("display/window/size/window_height_override", 0)
+	if width <= 0 or height <= 0:
+		width = ProjectSettings.get_setting("display/window/size/viewport_width", 1152)
+		height = ProjectSettings.get_setting("display/window/size/viewport_height", 648)
+	root.size = Vector2i(width, height)
 
 
 func _start() -> void:
