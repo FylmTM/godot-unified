@@ -19,7 +19,7 @@ GODOT_STEP_CHECKS :: []string {
 	"the view index and every .level file are current (uni bake --check)",
 	"every script compiles with warnings as errors and every scene loads; game/tools/validate.gd adds the game's own checks",
 	"game/tools/ui_walk.gd, when the game has one: a walk through its menus and flows with real input events, then its play smoke (a game without menus has none: skipped)",
-	"the game headless under uni drive, as an agent drives it: status, pause, exact steps, a timed press, state, input, events, ui, find, eval, a stop with a clean log (games with an extension)",
+	"the game headless under uni drive, as an agent drives it: status, pause, exact steps, a timed press, state, input, held input values, events, ui, find, eval, a script error named by file:line (games with an extension)",
 }
 
 // The `session` step's length: 1 s of a 64 Hz game (`test --long`: 4 s).

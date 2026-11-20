@@ -21,7 +21,8 @@ Play what you built, beside its tests (verbs: `./uni drive -h`):
 1. `./uni drive start -- --autostart` (or the session flags, or the menus through `ui` and `click`). A script
    error fails `start` (as `res://file.gd:line`) and stops the game; one loaded later shows in `status`.
 2. `pause`, then `press <action> <ticks>` or `step <n>`: paused, every tick is accounted for, so a check can say
-   where a thing must be after n ticks.
+   where a thing must be after n ticks. `values yaw=0.25` holds an input value (a first-person look) until
+   `values clear`.
 3. `state <path>` and `events` for what the sim computed; `shot`, then read the PNG, for what the player sees.
 4. `stop`: it fails on errors or leaks in the game's log. An instance runs the code it started with: after a change,
    `stop` and `start` again.

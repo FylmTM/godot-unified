@@ -75,6 +75,7 @@ when DEVUI {
 		clients:  [dynamic]Control_Client,
 		events:   [CONTROL_EVENTS]Control_Event, // a ring by serial
 		serial:   u64, // the newest event's (0: none yet)
+		held:     [dynamic]string, // `values`: the input values' assignments held (key=value, heap), in order
 	}
 
 	// Listens on 127.0.0.1 at a port the OS picks and writes it to `port_file` (session_ready, `--control`). False,
@@ -116,6 +117,8 @@ when DEVUI {
 		control.clients = {}
 		net.close(control.listener)
 		for &event in control.events do delete(event.fields)
+		for held in control.held do delete(held)
+		delete(control.held)
 		control = {}
 	}
 
@@ -135,6 +138,15 @@ when DEVUI {
 			kind   = kind,
 			fields = strings.to_string(out),
 		}
+	}
+
+	// Writes the input values `values` holds over what scripts set for local player 0 (session_process: after
+	// input_wanted, before the sample), so the sample takes them whatever a script set.
+	control_hold_input :: proc() {
+		if len(control.held) == 0 do return
+		instance := local_input_instance(0)
+		if instance == nil || api.input_values.type == nil do return
+		for held in control.held do sim.assign_text(raw_data(instance.bytes), api.input_values.type, held)
 	}
 
 	// One frame of the socket: new connections, requests that arrived, and the waits that are over.
@@ -344,6 +356,8 @@ when DEVUI {
 		case "changes":
 			if !want(args[:], 0, 0) do break
 			reply = control_changes(session)
+		case "values":
+			reply = control_values(session, args[:])
 		case "input":
 			if !want(args[:], 0, 1) do break
 			inputs := api.installed ? api.inputs() : nil
@@ -722,6 +736,61 @@ when DEVUI {
 		)
 	}
 
+	// `values`: with no arguments, local player 0's input values now and what is held; `clear` lets go of what is held;
+	// key=value assignments (sim.assign_text's) are held from this frame on (one replaces any held whose path is it or
+	// lies within it, or holds it: `aim` and `aim[0]`), written over what scripts set every frame until `values clear`
+	// (control_hold_input).
+	@(private = "file")
+	control_values :: proc(session: ^Session_Node, args: []string) -> string {
+		if api.input_values.type == nil do return control_error("the game has no input values (Glue.input_values)")
+		instance := local_input_instance(0)
+		if instance == nil do return control_error("no local player yet: its input values exist once the session's classes do")
+		if len(args) == 1 && args[0] == "clear" {
+			for held in control.held do delete(held)
+			clear(&control.held)
+		} else if len(args) > 0 {
+			scratch := make([]u8, len(instance.bytes), context.temp_allocator)
+			copy(scratch, instance.bytes)
+			for arg in args {
+				if strings.count(arg, "=") != 1 || strings.contains_rune(arg, ',') {
+					return control_error("%q: one key=value per argument", arg)
+				}
+				if problem := sim.assign_text(raw_data(scratch), api.input_values.type, arg); problem != "" {
+					return control_error("%s", problem)
+				}
+			}
+			// a path within another (`aim` and `aim[0]`, `area` and `area.layer`): one place written twice
+			overlap :: proc(a, b: string) -> bool {
+				within :: proc(path, outer: string) -> bool {
+					if !strings.has_prefix(path, outer) do return false
+					return len(path) == len(outer) || path[len(outer)] == '.' || path[len(outer)] == '['
+				}
+				return within(a, b) || within(b, a)
+			}
+			for arg in args {
+				key := strings.trim_space(arg[:strings.index_byte(arg, '=')])
+				for i := len(control.held) - 1; i >= 0; i -= 1 {
+					held := control.held[i]
+					if overlap(strings.trim_space(held[:strings.index_byte(held, '=')]), key) {
+						delete(held)
+						ordered_remove(&control.held, i)
+					}
+				}
+				append(&control.held, strings.clone(strings.trim_space(arg)))
+			}
+			control_hold_input()
+		}
+		out := strings.builder_make(context.temp_allocator)
+		strings.write_string(&out, `,"held":[`)
+		for held, i in control.held {
+			if i > 0 do strings.write_byte(&out, ',')
+			strings.write_quoted_string(&out, held)
+		}
+		strings.write_string(&out, `],"value":`)
+		sim.value_json(&out, api.input_values.type, raw_data(instance.bytes))
+		return control_ok(session, strings.to_string(out))
+	}
+
 	@(private = "file")
 	control_root :: proc(session: ^Session_Node) -> gd.Node {
 		return gd.cast_to(gd.Node, gd.SceneTree_get_root(gd.Node_get_tree(node_of(session))))
@@ -987,4 +1056,5 @@ when DEVUI {
 	control_close :: proc() {}
 	control_event :: proc(tick: u32, id: u64, action: Event_Action, kind: int, layout: ^Event_Layout, data: []u8) {}
 	control_poll :: proc(session: ^Session_Node) {}
+	control_hold_input :: proc() {}
 }

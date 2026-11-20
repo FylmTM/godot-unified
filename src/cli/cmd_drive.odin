@@ -7,6 +7,7 @@ import "core:encoding/json"
 import "core:fmt"
 import "core:net"
 import "core:os"
+import "core:slice"
 import "core:strconv"
 import "core:strings"
 import "core:time"
@@ -61,6 +62,10 @@ drive_details :: proc() -> string {
 		"  state [path]             the newest predicted State as JSON (tables: live items by index), or the part a path names: players.slots[0]\n" +
 		"  data [name[.path]]       the session data; constants [path]; input [path]: the local input sampled for the newest tick\n" +
 		"  changes                  what the newest tick changed against the one before (the op log)\n" +
+		"  values [k=v ..|clear]    the game's input values (Glue.input_values: what its scripts set, a camera's look) of\n" +
+		"                           local player 0, and those held; k=v (command's syntax, one each: yaw=0.25 look[2]=-1)\n" +
+		"                           holds them over what scripts set, every frame, until `values clear`: aims a\n" +
+		"                           first-person game (a camera rig that keeps its own look still shows that look)\n" +
 		"  events [name]            event states since the last `events` (--all: every one kept)\n" +
 		"  wait ticks <n>           until the shown tick moved n ticks (running sessions)\n" +
 		"  wait event <name>        until an event of that kind arrives after the previous reply\n" +
@@ -546,6 +551,7 @@ drive_check :: proc(game: Game) -> bool {
 	_, is_object := state["value"].(json.Object)
 	check(&failed, failed != "" || is_object, "the state is no object")
 	call(&instance, &failed, true, "input")
+	drive_check_values(&instance, &failed)
 	call(&instance, &failed, true, "events")
 	call(&instance, &failed, true, "ui")
 	sessions, _ := call(&instance, &failed, true, "find", "UnifiedSession")["nodes"].(json.Array)
@@ -596,6 +602,84 @@ drive_check :: proc(game: Game) -> bool {
 		if text, ok := read_text(instance.log); ok do log("%s", tail(text, 3000))
 	}
 	return failed == ""
+}
+
+// The drive step's `values` (a paused session): a game without input values says so; one with them holds a number
+// field (the first by name, or its first element) at what was set while frames step, whatever its scripts set every
+// frame, and lets go at `values clear`.
+@(private)
+drive_check_values :: proc(instance: ^Drive_Instance, failed: ^string) {
+	if failed^ != "" do return
+	values :: proc(instance: ^Drive_Instance, args: ..string) -> (object: json.Object, reply: string) {
+		reply, _ = drive_request(instance.port, {op = "values", args = args, timeout = 10})
+		value, _ := json.parse_string(reply, parse_integers = true)
+		object, _ = value.(json.Object)
+		return
+	}
+	shown, reply := values(instance)
+	if replied_ok, _ := shown["ok"].(json.Boolean); !replied_ok {
+		if !strings.contains(reply, "no input values") do failed^ = aprintf("values: %s", reply)
+		return
+	}
+	fields, _ := shown["value"].(json.Object)
+	names: [dynamic]string
+	for name in fields do append(&names, name)
+	slice.sort(names[:])
+	key := ""
+	for name in names {
+		#partial switch field in fields[name] {
+		case json.Float, json.Integer:
+			key = name
+		case json.Array:
+			if len(field) > 0 {
+				#partial switch _ in field[0] {
+				case json.Float, json.Integer:
+					key = aprintf("%s[0]", name)
+				}
+			}
+		}
+		if key != "" do break
+	}
+	if key == "" do return // no number to hold
+	number :: proc(object: json.Object, key: string) -> f64 {
+		fields, _ := object["value"].(json.Object)
+		name, _, _ := strings.partition(key, "[")
+		field := fields[name]
+		if list, is_list := field.(json.Array); is_list && len(list) > 0 do field = list[0]
+		#partial switch value in field {
+		case json.Float:
+			return value
+		case json.Integer:
+			return f64(value)
+		}
+		return -1
+	}
+	assignment := aprintf("%s=0.375", key)
+	set, reply_set := values(instance, assignment)
+	held, _ := set["held"].(json.Array)
+	if ok, _ := set["ok"].(json.Boolean); !ok || len(held) != 1 || number(set, key) != 0.375 {
+		failed^ = aprintf("values %s: %s", assignment, reply_set)
+		return
+	}
+	if reply_step, reached := drive_request(instance.port, {op = "step", args = {"3"}, timeout = 10}); !reached {
+		failed^ = aprintf("step 3 with %s held: %s", assignment, reply_step)
+		return
+	}
+	after, reply_after := values(instance)
+	if number(after, key) != 0.375 do failed^ = aprintf("%s did not stay held over 3 stepped frames: %s", assignment, reply_after)
+	again := aprintf("%s=0.25", key) // the same place again: replaces the held one, not a second
+	replaced, reply_replaced := values(instance, again)
+	held_now, _ := replaced["held"].(json.Array)
+	if (len(held_now) != 1 || number(replaced, key) != 0.25) && failed^ == "" {
+		failed^ = aprintf("values %s after %s: %s", again, assignment, reply_replaced)
+	}
+	refused, reply_refused := values(instance, "no_such_field=1")
+	if ok, _ := refused["ok"].(json.Boolean); ok && failed^ == "" do failed^ = aprintf("values no_such_field=1: %s", reply_refused)
+	cleared, reply_cleared := values(instance, "clear")
+	held_after, _ := cleared["held"].(json.Array)
+	if ok, _ := cleared["ok"].(json.Boolean); (!ok || len(held_after) != 0) && failed^ == "" {
+		failed^ = aprintf("values clear: %s", reply_cleared)
+	}
 }
 
 // The instance record `name`, if there is one.
