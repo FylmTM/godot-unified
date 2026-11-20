@@ -315,6 +315,30 @@ func _replay() -> bool:
 	if not await _wait_for(func() -> bool: return s.replay_player == 0, 2.0, "the followed player is set"):
 		return false
 	s.leave()
+	if not await _wait_for(func() -> bool: return not s.running, 5.0, "the replay ends"):
+		return false
+	# A replay started on a running live session: the live one is left and still keeps its recording.
+	check("a live single player", s.start_single())
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.tick > 60, 5.0, "the live session runs"):
+		return false
+	s.paused = true
+	if not await _wait_for(func() -> bool: return s.paused, 2.0, "the live session pauses"):
+		return false
+	await _sleep(0.3)  # every tick verified: its recording ends on the shown tick
+	var paused_on: int = s.tick
+	var before := Array(DirAccess.get_directories_at(OS.get_user_data_dir() + "/recordings"))
+	check("replay on the running live session", s.replay(folder))
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.replay_last_tick > 0, 5.0, "the replay runs after the live session"):
+		return false
+	await _sleep(0.2)
+	var kept := ""
+	var root := OS.get_user_data_dir() + "/recordings"
+	for name: String in DirAccess.get_directories_at(root):
+		var info: Variant = JSON.parse_string(FileAccess.get_file_as_string(root + "/" + name + "/session.json"))
+		if not before.has(name) and info is Dictionary and absi(int((info as Dictionary).get("to_tick", 0)) - paused_on) <= 2:
+			kept = name
+	check("the left live session kept its recording", kept != "", "paused on %d" % paused_on)
+	s.leave()
 	return await _wait_for(func() -> bool: return not s.running, 5.0, "the replay ends")
 
 
@@ -356,6 +380,19 @@ func _restart() -> bool:
 		return false
 	await _sleep(0.3)
 	check("the replaced start never ran", s.mode == UnifiedSession.MODE_SINGLE and s.join_code == "", "%d %s" % [s.mode, s.join_code])
+	# A start that comes after the left session ended but before the waiting start launched (the same frame): the
+	# waiting one is replaced, and the new session's messages reach the game.
+	check("host while single player runs (it waits)", s.host_direct(0))
+	var end := Time.get_ticks_msec() + 3000
+	while s.running and Time.get_ticks_msec() < end:
+		OS.delay_msec(5)  # this frame: the left session's thread ends, the waiting start has not launched
+	check("the left session ended within the frame", not s.running)
+	_statuses.clear()
+	check("single player then, in that frame", s.start_single())
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.local_player != 0, 5.0, "the newest start runs, its messages shown"):
+		return false
+	await _sleep(0.3)
+	check("the waiting host start never ran", s.mode == UnifiedSession.MODE_SINGLE and s.join_code == "", "%d %s" % [s.mode, s.join_code])
 	s.leave()
 	return await _wait_for(func() -> bool: return not s.running, 5.0, "the restarted session ends")
 

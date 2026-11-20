@@ -35,6 +35,7 @@ Session_Node :: struct {
 	sync_us:     f32,
 	pending:     Start, // a start that waits for the previous session's goodbye (has_pending)
 	has_pending: bool,
+	left_mode:   Mode, // while a start waits (has_pending): the mode of the session it left, whose Result is to come
 	roster_seen: u32, // roster.changes when roster_changed was last emitted
 	slots_seen:  [sim.MAX_PLAYERS]u64, // the shown frame's slots when roster_changed was last emitted
 	known_seen:  int, // the shown frame's n_members then
@@ -348,7 +349,7 @@ register_session_class :: proc() {
 		nil,
 		{setup_arg},
 		gd.Dynamic_Arg{"", .BOOL, ""},
-		doc = "Starts a single player session playing [param setup] (null: the game's default Setup). False, with an error, when it can't start or the setup does not read on this build. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced).",
+		doc = "Starts a single player session playing [param setup] (null: the game's default Setup). False, with an error, when it can't start or the setup does not read on this build. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced); a host's restart ends the session for every player who joined: they get its goodbye and must join again.",
 		defaults = no_setup,
 	)
 	gd.bind_dynamic_method(class, "host_online", proc(_: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
@@ -357,7 +358,7 @@ register_session_class :: proc() {
 			}
 			ok := setup_of(args[0], &request, "host_online") && session_start((^Session_Node)(instance), request)
 			return gd.to_variant(ok)
-		}, nil, {setup_arg}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Hosts an online session through the game's lobby service, playing [param setup] (null: the game's default); [member join_code] is the code to share once it is known. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced).", defaults = no_setup)
+		}, nil, {setup_arg}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Hosts an online session through the game's lobby service, playing [param setup] (null: the game's default); [member join_code] is the code to share once it is known. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced); a host's restart ends the session for every player who joined: they get its goodbye and must join again.", defaults = no_setup)
 	gd.bind_dynamic_method(class, "host_direct", proc(_: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
 			port, _ := gd.from_variant(i64, args[0])
 			request := Start {
@@ -366,7 +367,7 @@ register_session_class :: proc() {
 			}
 			ok := setup_of(args[1], &request, "host_direct") && session_start((^Session_Node)(instance), request)
 			return gd.to_variant(ok)
-		}, nil, {{"port", .INT, ""}, setup_arg}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Hosts on a UDP port (LAN), playing [param setup] (null: the game's default); 127.0.0.1 only when the process got [code]--local-net[/code]. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced).", defaults = no_setup)
+		}, nil, {{"port", .INT, ""}, setup_arg}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Hosts on a UDP port (LAN), playing [param setup] (null: the game's default); 127.0.0.1 only when the process got [code]--local-net[/code]. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced); a host's restart ends the session for every player who joined: they get its goodbye and must join again.", defaults = no_setup)
 	gd.bind_dynamic_property(class, {"setup", .OBJECT, SETUP_CLASS}, proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
 			session := (^Session_Node)(instance)
 			if D.setup == nil do return gd.variant_nil()
@@ -377,18 +378,18 @@ register_session_class :: proc() {
 			return session_start(session, {mode = .Join_Online, arg = code})
 		}, {
 			"code",
-		}, doc = "Joins an online session by its lobby code. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced).")
+		}, doc = "Joins an online session by its lobby code. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced); a host's restart ends the session for every player who joined: they get its goodbye and must join again.")
 	gd.bind_method(class, "join_direct", proc(session: ^Session_Node, address: string) -> bool {
 			return session_start(session, {mode = .Join_Direct, arg = address})
 		}, {
 			"address",
-		}, doc = "Joins a directly hosted session at [code]host:port[/code]. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced).")
+		}, doc = "Joins a directly hosted session at [code]host:port[/code]. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced); a host's restart ends the session for every player who joined: they get its goodbye and must join again.")
 	// replays
 	gd.bind_method(class, "replay", proc(session: ^Session_Node, folder: string) -> bool {
 			return session_start(session, {mode = .Replay, arg = globalize(folder)})
 		}, {
 			"folder",
-		}, doc = "Replays a recording: an F3 note's folder, a session's under [code]user://recordings[/code], or a freeze's (its [code]inputs.unil[/code], and the [code]snapshot.unis[/code] it continues, if any). The game's views, events and session data work as live; every tick is final (events arrive EVENT_EMITTED and EVENT_CONFIRMED together); [member local_player] is [member replay_player]. A note starts some seconds before its noted tick and pauses on it; a recording of another build plays, checked against its checkpoints. False, with a failed status, when the folder holds no recording of this game. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced).")
+		}, doc = "Replays a recording: an F3 note's folder, a session's under [code]user://recordings[/code], or a freeze's (its [code]inputs.unil[/code], and the [code]snapshot.unis[/code] it continues, if any). The game's views, events and session data work as live; every tick is final (events arrive EVENT_EMITTED and EVENT_CONFIRMED together); [member local_player] is [member replay_player]. A note starts some seconds before its noted tick and pauses on it; a recording of another build plays, checked against its checkpoints. False, with a failed status, when the folder holds no recording of this game. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced); a host's restart ends the session for every player who joined: they get its goodbye and must join again.")
 	gd.bind_property(
 		class,
 		"replay_speed",
@@ -910,7 +911,9 @@ session_start :: proc(session: ^Session_Node, request: Start) -> bool {
 	if api.running() {
 		// A start on a running session leaves it first, as leave does (a restart, a host after single player): the
 		// left session says goodbye (<= 1 s once hurried) and the new one starts when it is gone (session_process);
-		// its own messages are dropped meanwhile. A start already waiting is replaced: the newest one wins.
+		// its own messages are dropped meanwhile. A start already waiting is replaced: the newest one wins. The left
+		// session's mode is kept for its Result (its recording: dev_save_recording).
+		if !session.has_pending do session.left_mode = session.mode
 		api.stop()
 		clear_pending(session)
 		session.pending = request
@@ -921,6 +924,9 @@ session_start :: proc(session: ^Session_Node, request: Start) -> bool {
 		emit_status(session, .Connecting, "")
 		return true
 	}
+	// The left session may have ended after this frame's start_pending: its waiting start is replaced by this one
+	// (else it would launch after this session, and this one's messages be dropped as the left one's).
+	clear_pending(session)
 	return session_launch(session, request)
 }
 
@@ -1043,6 +1049,7 @@ emit_status :: proc(session: ^Session_Node, status: Status_Kind, detail: string)
 session_leave :: proc(session: ^Session_Node) {
 	if session.has_pending {
 		clear_pending(session)
+		session.mode = session.left_mode // the session still saying goodbye
 		emit_status(session, .Left, "")
 	}
 	if api.installed do api.stop()
