@@ -10,7 +10,7 @@ GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame = fill_frame,
 	data = Data,
-	view_data = {.Card = Card_View, .Enemy = Enemy_View}, // their enums are GDScript classes (EnumTargetKind, ...)
+	views = {.Card = {data = Card_View}, .Enemy = {data = Enemy_View}}, // their enums are GDScript classes (EnumTargetKind, ...)
 	input_values = Aim,
 	is_2d = true, // a Control UI: nothing is posed
 }

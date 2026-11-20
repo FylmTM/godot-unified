@@ -1,7 +1,7 @@
 extends Node3D
 ## A sim object the level placed (item, platform, bell, plate, switch): the view takes over its level marker's
 ## visuals (key = marker index, Unified.level_markers order), so the level scene is the only place
-## they are authored. The sim moves the view (its pose handed over: GLUE.view_policy, .Marker is script-posed); an
+## they are authored. The sim moves the view (its pose handed over: GLUE.views, .Marker is script-posed); an
 ## item the local player holds is drawn at their hand instead, every rendered frame, so it stays with them and the
 ## camera; bells and plates also react to their events.
 

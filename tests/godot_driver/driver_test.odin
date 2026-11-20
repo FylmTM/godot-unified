@@ -77,7 +77,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 	},
 	view_scale = 10, // event positions stay in sim units across the hand-off: the main thread maps them
 	// the driver also fills verified ticks (fill_verified) and samples them (verified_players.odin)
-	view_policy = {.Dot = {appear = .Verified, remote = .Verified}},
+	views = {.Dot = {policy = {appear = .Verified, remote = .Verified}}},
 }
 
 @(private = "file")
@@ -514,8 +514,8 @@ driver_sessions :: proc(t: ^testing.T) {
 		policies.multi_policy = {
 			.Spark = {pose = .Script, remote = .Verified},
 		}
-		policies.view_policy = {
-			.Dot = {smoothing = {ramp_dist = 2}},
+		policies.views[.Dot].policy = {
+			smoothing = {ramp_dist = 2},
 		}
 		godot.install(&toy.GAME, policies)
 		testing.expect(t, !godot.api.installed)
@@ -868,9 +868,7 @@ Dot_Keyword :: struct {
 a_name_gdscript_cant_take_is_an_install_problem :: proc(t: ^testing.T) {
 	glue := GLUE
 	glue.data = Keyword_Data
-	glue.view_data = {
-		.Dot = Dot_Keyword,
-	}
+	glue.views[.Dot].data = Dot_Keyword
 	problems := godot.install_problems(&toy.GAME, glue)
 	names := strings.join(problems, "\n", context.temp_allocator)
 	testing.expectf(t, len(problems) == 3, "%v", problems)

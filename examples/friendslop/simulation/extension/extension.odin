@@ -25,11 +25,13 @@ GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame = fill_frame,
 	data = Data,
-	view_data = {.Player = Player_View, .Marker = Marker_View},
+	views = {
+		.Player = {data = Player_View},
+		// an item the local player holds is drawn at their hand, at render rate (marker_view.gd)
+		.Marker = {data = Marker_View, policy = {pose = .Script}},
+	},
 	event_key = event_key,
 	input_values = Input_Values,
-	// an item the local player holds is drawn at their hand, at render rate (marker_view.gd)
-	view_policy = #partial{.Marker = {pose = .Script}},
 }
 
 // ---- constants for the scripts (Unified.constants), from the sim's own definitions

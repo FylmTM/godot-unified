@@ -128,7 +128,7 @@ data_problems :: proc(data: typeid, constants: typeid, input_values: typeid, pro
 @(private)
 CLASS_FIELD_RESERVED :: []string{"true", "false", "null"}
 
-// What a field of declared view data (Glue.view_data) can't be named: it is set on the root script's own `var` of that
+// What a field of declared view data (View_Kind.data) can't be named: it is set on the root script's own `var` of that
 // name, which can't be a GDScript keyword, a built-in type's name or `_` (a capitalised name is refused too: it would
 // shadow a class, String, Color, Node...).
 @(private)

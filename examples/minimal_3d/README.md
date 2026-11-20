@@ -51,7 +51,7 @@ template:
   joints and cars:** playground.
 - **A population, a benchmark with `bench_prepare`, keyed rolls, a tuning variant:** survivor, with dev commands,
   timing zones, debug draws, a `sim.Grid`, `sim.due` and a roll its HUD peeks.
-- **How a view is shown:** friendslop (a script-posed view, `Glue.view_policy`: the held item at the hand), drift and
+- **How a view is shown:** friendslop (a script-posed view, `Glue.views`: the held item at the hand), drift and
   friendslop (a teleported body's view snaps: `physics.body_warp`), survivor (a warp epoch of its own for a body made
   again).
 - **Shown by no game** (the declaration's doc comment says how): `Appear.Verified` and `Glue.multi_policy`,

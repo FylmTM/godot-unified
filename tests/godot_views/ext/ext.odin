@@ -17,9 +17,9 @@ View :: enum u8 {
 	Plain3D,
 	Decoy2D,
 	Card, // a Control: data only, never posed
-	Scripted3D, // posed by its script (GLUE.view_policy)
+	Scripted3D, // posed by its script (GLUE.views: pose = .Script)
 	Bench2D, // the view benchmark's player view: no data (typed2d's data leaves a field out on purpose)
-	Remote3D, // another player's on the verified timeline (GLUE.view_policy: remote = .Verified)
+	Remote3D, // another player's on the verified timeline (GLUE.views: remote = .Verified)
 	Rider3D, // a thing's that shows a player (a car's driver), the same policy
 	Predicted3D, // a kind left on the prediction, showing the remote player
 }
@@ -39,7 +39,7 @@ Frame :: godot.Frame(toy.Game, View, MultiView)
 // purpose: the host reports the missing property as an error the suite expects.
 Typed2D_Data :: struct {
 	shown:     bool,
-	mode:      Mode, // an enum only view data uses: an int, with its class (EnumMode): GLUE.view_data declares the type
+	mode:      Mode, // an enum only view data uses: an int, with its class (EnumMode): GLUE.views declares the type
 	_pad:      [2]u8,
 	hp:        i32,
 	ticks:     u32, // the frame's tick: changes every frame
@@ -182,13 +182,15 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 	view_scale = VIEW_SCALE,
 	event_key = event_key,
 	input_values = Input_Values,
-	view_data = #partial{.Typed2D = Typed2D_Data, .Card = Card_Data, .Remote3D = Remote3D_Data}, // every kind with data, as Glue.data's
-	view_policy = #partial {
-		.Scripted3D = {appear = .Verified, pose = .Script},
-		.Remote3D = {remote = .Verified},
-		.Rider3D = {remote = .Verified},
-		.Predicted3D = {remote = .Predicted},
-		.Plain3D = {smoothing = {tau_s = 0.05}},
+	views = #partial {
+		// every kind with data declares it, as Glue.data's
+		.Typed2D = {data = Typed2D_Data},
+		.Card = {data = Card_Data},
+		.Remote3D = {data = Remote3D_Data, policy = {remote = .Verified}},
+		.Scripted3D = {policy = {appear = .Verified, pose = .Script}},
+		.Rider3D = {policy = {remote = .Verified}},
+		.Predicted3D = {policy = {remote = .Predicted}},
+		.Plain3D = {policy = {smoothing = {tau_s = 0.05}}},
 	},
 	multi_policy = #partial{.Smooth3D = {smoothing = godot.SMOOTHING_DEFAULT}},
 }

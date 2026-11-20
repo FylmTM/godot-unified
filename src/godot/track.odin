@@ -12,7 +12,7 @@ Pose :: struct {
 
 IDENTITY :: [4]f32{0, 0, 0, 1}
 
-// How a view kind's track smooths rollback corrections (Glue.view_policy, multi_policy): the error offset decays
+// How a view kind's track smooths rollback corrections (View_Kind.policy, Glue.multi_policy): the error offset decays
 // exponentially, and a jump longer than teleport_dist snaps. In a policy every zero field is its default
 // (smoothing_of fills them in); the track procs take a filled-in one.
 Smoothing :: struct {

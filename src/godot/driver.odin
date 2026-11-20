@@ -30,7 +30,7 @@ Api :: struct {
 	level_enum:      ^runtime.Type_Info, // the State's level enum (the class EnumLevel; nil: no level field)
 	is_2d:           bool, // a sim.Position is a Vector2 (Glue.is_2d)
 	view_scale:      f32, // view units per sim unit (Glue.view_scale; 1 when unset)
-	view_policy:     []Kind_Policy, // Glue.view_policy by kind, filled in
+	view_policy:     []Kind_Policy, // each Glue.views entry's policy by kind, filled in
 	multi_policy:    []Kind_Policy, // Glue.multi_policy by kind, filled in
 	appear_verified: bool, // some kind appears on verified: the driver fills verified ticks too (verified_state)
 	remote_verified: bool, // some kind poses remote players on the verified timeline (Remote.Verified)
@@ -41,7 +41,7 @@ Api :: struct {
 	constants:       Data_Layout, // the constants' type (type nil: none)
 	constants_bytes: []u8, // the constants' value (install's)
 	input_values:    Data_Layout, // Glue.input_values (type nil: none)
-	view_data:       []typeid, // Glue.view_data, by view kind (nil: not declared)
+	view_data:       []typeid, // each Glue.views entry's data, by view kind (nil: not declared)
 	setup:           Data_Layout, // the game's Setup (sim.Game's; the class UnifiedSetup, no fields for sim.No_Setup)
 	setup_default:   []u8, // Game.setup's bytes: a new UnifiedSetup's
 	profile:         Data_Layout, // the game's Profile (the class UnifiedProfile, Unified.profile)
@@ -390,11 +390,11 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	for file, i in game.levels do api.level_scenes[i] = strings.clone(level.scene_of(file.bytes))
 	api.view_policy = make([]Kind_Policy, len(view_names))
 	api.multi_policy = make([]Kind_Policy, len(multi_names))
-	for policy, kind in glue.view_policy do api.view_policy[int(kind)] = kind_policy(policy, false)
+	for view, kind in glue.views do api.view_policy[int(kind)] = kind_policy(view.policy, false)
 	for policy, kind in glue.multi_policy do api.multi_policy[int(kind)] = kind_policy(policy, true)
-	for policy in glue.view_policy do api.appear_verified ||= policy.appear == .Verified
+	for view in glue.views do api.appear_verified ||= view.policy.appear == .Verified
 	for policy in glue.multi_policy do api.appear_verified ||= policy.appear == .Verified
-	for policy in glue.view_policy do api.remote_verified ||= policy.remote == .Verified
+	for view in glue.views do api.remote_verified ||= view.policy.remote == .Verified
 	for variant in sim.union_variants(glue.data) do append_elem(&kept_data, data_layout(variant))
 	api.data = kept_data[:]
 	if constants.id != nil {
@@ -403,7 +403,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	}
 	if glue.input_values != nil do api.input_values = data_layout(type_info_of(glue.input_values))
 	api.view_data = make([]typeid, len(view_names))
-	for type, kind in glue.view_data do api.view_data[int(kind)] = type
+	for view, kind in glue.views do api.view_data[int(kind)] = view.data
 	api.setup = data_layout(type_info_of(Setup))
 	api.setup_default = slice.clone(sim.bytes_of(&game.setup))
 	api.profile = data_layout(type_info_of(Profile))
@@ -791,7 +791,7 @@ kind_policy :: proc(policy: View_Policy, multi: bool) -> Kind_Policy {
 policy_problems :: proc(policy: View_Policy, kind: string, multi: bool, problems: ^[dynamic]string) {
 	finite :: proc(value: f32) -> bool {return value == value && value > -1e30 && value < 1e30}
 	smoothing := policy.smoothing
-	field := fmt.tprintf("Glue.%s[.%s]", multi ? "multi_policy" : "view_policy", kind)
+	field := multi ? fmt.tprintf("Glue.multi_policy[.%s]", kind) : fmt.tprintf("Glue.views[.%s].policy", kind)
 	if multi && policy.pose == .Script {
 		append(problems, fmt.aprintf("%s: pose = .Script is for scene views (an instance has no script)", field))
 	}
@@ -867,8 +867,10 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 		append(&problems, strings.clone(reason))
 	}
 	data_problems(glue.data, constants, glue.input_values, &problems)
-	for type, kind in glue.view_data {
-		if type != nil do struct_problems(fmt.tprintf("Glue.view_data[.%v]", kind), type_info_of(type), true, &problems)
+	for view, kind in glue.views {
+		if view.data != nil {
+			struct_problems(fmt.tprintf("Glue.views[.%v].data", kind), type_info_of(view.data), true, &problems)
+		}
 	}
 	// every type GDScript reads by field names and classes
 	named := make([dynamic]^runtime.Type_Info, context.temp_allocator)
@@ -880,9 +882,9 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 	append(&named, type_info_of(sim.part(G, sim.GAME_SETUP)), type_info_of(sim.part(G, sim.GAME_PROFILE)))
 	name_problems(named[:], false, &problems)
 	views := make([dynamic]^runtime.Type_Info, context.temp_allocator)
-	for type in glue.view_data do if type != nil do append(&views, type_info_of(type))
+	for view in glue.views do if view.data != nil do append(&views, type_info_of(view.data))
 	name_problems(views[:], true, &problems)
-	for policy, kind in glue.view_policy do policy_problems(policy, fmt.tprint(kind), false, &problems)
+	for view, kind in glue.views do policy_problems(view.policy, fmt.tprint(kind), false, &problems)
 	for policy, kind in glue.multi_policy do policy_problems(policy, fmt.tprint(kind), true, &problems)
 	return problems[:]
 }

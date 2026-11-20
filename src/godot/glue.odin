@@ -179,10 +179,10 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	fill_frame:   proc(frame: ^Frame(G, View, MultiView)),
 	// Optional: the game's session data types, a union of `Data_` structs (Unified.<name>, push_data).
 	data:         typeid,
-	// Each scene view kind's data type (push_view's `data`), `#partial {.Card = Card_View}`: a kind that pushes data
-	// declares it, as Glue.data declares the session data, so GDScript has the classes of what it holds at load (its
-	// enums, EnumX, and nested structs, DataX). A push with data of a kind not declared, or of another type, panics.
-	view_data:    [View]typeid,
+	// Each scene view kind, described in one place: its data type and how the host shows it (View_Kind), e.g.
+	// `#partial {.Card = {data = Card_View}, .Crate = {policy = {smoothing = {tau_s = 0.2}}}}`. A kind with no data
+	// and the default policy needs no entry.
+	views:        [View]View_Kind,
 	// Optional: what only scripts know for sample_input (a camera's look direction), a plain struct: scripts set its
 	// fields on Unified.input, sample_input reads them with input_values(T).
 	input_values: typeid,
@@ -191,13 +191,11 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	is_2d:        bool,
 	// Optional, the view space: view units per sim unit (zero: 1), e.g. 32 for 2D art drawn at 32 px per metre.
 	view_scale:   f32,
-	// Optional: how the host shows each scene view kind (`#partial {.Crate = {smoothing = {tau_s = 0.2}}}`); a kind
-	// left out is host-posed with SMOOTHING_DEFAULT.
-	view_policy:  [View]View_Policy,
-	// Optional: how the host shows each MultiMesh kind. A kind whose smoothing is left zero interpolates its keyed
-	// instances and lets corrections pop (no state per instance: the cheap default for thousands); one that sets it
-	// gives each keyed instance a track whose corrections glide like a scene view's (`godot.SMOOTHING_DEFAULT` for
-	// the defaults). `pose = .Script` is a scene view's only.
+	// Optional: how the host shows each MultiMesh kind (a MultiMesh kind has no data: its instances' fields are
+	// Multi_View_Item's). A kind whose smoothing is left zero interpolates its keyed instances and lets corrections pop
+	// (no state per instance: the cheap default for thousands); one that sets it gives each keyed instance a track
+	// whose corrections glide like a scene view's (`godot.SMOOTHING_DEFAULT` for the defaults). `pose = .Script` and
+	// `remote = .Verified` are a scene view's only.
 	multi_policy: [MultiView]View_Policy,
 
 	// Main thread, optional: where an event (the game's union) goes, named the way push_view names a view, by kind
@@ -209,7 +207,17 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	event_key:    proc(event: sim.part(G, sim.GAME_EVENT), subject: Subject) -> Event_Target(View),
 }
 
-// How the host shows one view kind (Glue.view_policy, multi_policy); the zero value is the default.
+// A scene view kind as the Glue describes it (Glue.views); the zero value: no data, the default policy.
+View_Kind :: struct {
+	// The data struct its views carry (push_view's `data`; nil: none). A kind that pushes data declares it, as
+	// Glue.data declares the session data, so GDScript has the classes of what it holds at load (its enums, EnumX, and
+	// nested structs, DataX), and install checks its field names and padding. A kind's first push panics when its data
+	// is not this type (data from a kind that declares none, none from one that does, or another type).
+	data:   typeid,
+	policy: View_Policy, // how the host shows it (zero: host-posed, SMOOTHING_DEFAULT, from the prediction)
+}
+
+// How the host shows one view kind (View_Kind.policy, Glue.multi_policy); the zero value is the default.
 View_Policy :: struct {
 	appear:    Appear,
 	pose:      Posed_By,

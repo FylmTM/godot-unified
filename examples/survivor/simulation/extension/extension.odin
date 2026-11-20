@@ -62,7 +62,7 @@ GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
 	fill_frame = fill_frame,
 	data = Data,
-	view_data = #partial{.Player = Player_View},
+	views = #partial{.Player = {data = Player_View}},
 }
 
 // ---- constants for the scripts (Unified.constants, class UnifiedConstants), from the sim's own definitions

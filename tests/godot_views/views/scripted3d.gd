@@ -8,7 +8,7 @@ var sim_position := Vector3.INF
 var sim_rotation := Quaternion.IDENTITY
 
 
-# The host hands the pose over instead of setting it (GLUE.view_policy: .Scripted3D = {pose = .Script}).
+# The host hands the pose over instead of setting it (GLUE.views: .Scripted3D = {policy = {pose = .Script}}).
 func _sim_pose(new_position: Vector3, new_rotation: Quaternion) -> void:
 	poses += 1
 	sim_position = new_position

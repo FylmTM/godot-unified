@@ -427,7 +427,7 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 			report_once(
 				fmt.tprintf("sim_pose:%s", kind),
 				fmt.tprintf(
-					"unified: view kind %q is script-posed (Glue.view_policy) but its root's script has no _sim_pose(position, rotation): the host poses it",
+					"unified: view kind %q is script-posed (Glue.views: policy.pose) but its root's script has no _sim_pose(position, rotation): the host poses it",
 					kind,
 				),
 			)
