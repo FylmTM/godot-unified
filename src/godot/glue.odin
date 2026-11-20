@@ -24,10 +24,10 @@ FRAME_MULTIS_LIMIT :: 1 << 22
 @(private)
 FRAME_DATA_LIMIT :: 1 << 26
 
-// A scene view this tick (fill_frame: push_view, after the subject it stands for). Its scene is the one the view index
-// maps `kind` to. A view is identified by its kind and its subject's key (UnifiedView.key): a new subject is a new view.
-View_Item :: struct($View: typeid) {
-	kind:   View,
+// A scene view's pose this tick (fill_frame: push_view, after the subject it stands for and before its data, whose
+// type is its kind). A view is identified by its kind and its subject's key (UnifiedView.key): a new subject is a new
+// view.
+View_Item :: struct {
 	// The player it shows ({}: its subject when that is a player, else none): get_player_view finds it by them, and
 	// their events that no view took by subject come here. A view of a thing may show a player (a car's driver).
 	player: sim.Player,
@@ -172,8 +172,9 @@ Frame_Data :: struct {
 	alloc:          runtime.Allocator, // the views', multis' and data's (they grow on the session thread)
 }
 
-// What a game provides, typed by its game (a sim.Game) and its view kinds (enums); install checks it. Its procs are
-// named procs, never inline lambdas.
+// What a game provides, typed by its game (a sim.Game), its scene view kinds (`View`: a union of `View_` structs, one
+// per kind, each the data its views carry: src/godot/README.md, View kinds) and its MultiMesh kinds (`MultiView`: an
+// enum); install checks it. Its procs are named procs, never inline lambdas.
 Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specialization_of(G, sim.Game) {
 	// Main thread, every frame, for each local player (`local`: its index): its Input from Godot's input (the action
 	// helpers read its device, input.odin; its input values: input_values). nil for a game without one (sim.No_Input):
@@ -184,10 +185,9 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	fill_frame:   proc(frame: ^Frame(G, View, MultiView)),
 	// Optional: the game's session data types, a union of `Data_` structs (Unified.<name>, push_data).
 	data:         typeid,
-	// Each scene view kind, described in one place: its data type and how the host shows it (View_Kind), e.g.
-	// `#partial {.Card = {data = Card_View}, .Crate = {policy = {smoothing = {tau_s = 0.2}}}}`. A kind with no data
-	// and the default policy needs no entry.
-	views:        [View]View_Kind,
+	// Optional: how the host shows each scene view kind whose policy isn't the default, by its type:
+	// `{{View_Crate, {smoothing = {tau_s = 0.2}}}, {View_Enemy, {appear = .Verified}}}`. Each kind at most once.
+	view_policy:  []View_Kind_Policy,
 	// Optional: what only scripts know for sample_input (a camera's look direction), a plain struct: scripts set its
 	// fields on Unified.input, sample_input reads them with input_values(T).
 	input_values: typeid,
@@ -204,25 +204,25 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	multi_policy: [MultiView]View_Policy,
 
 	// Main thread, optional: where an event (the game's union) goes, named the way push_view names a view, by kind
-	// and subject: `godot.to_view(View.Player, subject.player)`, `to_view(View.Gate, subject.entity)`,
-	// `to_view(View.Station)` (the one view of its kind); `{route = .No_View}`: none; the zero value (a bare
+	// and subject: `godot.to_view(View_Player, subject.player)`, `to_view(View_Gate, subject.entity)`,
+	// `to_view(View_Station)` (the one view of its kind); `{route = .No_View}`: none; the zero value (a bare
 	// `return`): the routing by its subject (its first handle or sim.Entity field: the views pushed with that subject;
 	// else, or when none is, its first sim.Player field: that player's views). So a game handles only its special
 	// events.
-	event_key:    proc(event: sim.part(G, sim.GAME_EVENT), subject: Subject) -> Event_Target(View),
+	event_key:    proc(event: sim.part(G, sim.GAME_EVENT), subject: Subject) -> Event_Target,
 }
 
-// A scene view kind as the Glue describes it (Glue.views); the zero value: no data, the default policy.
-View_Kind :: struct {
-	// The data struct its views carry (push_view's `data`; nil: none). A kind that pushes data declares it, as
-	// Glue.data declares the session data, so GDScript has the classes of what it holds at load (its enums, EnumX, and
-	// nested structs, DataX), and install checks its field names and padding. A kind's first push panics when its data
-	// is not this type (data from a kind that declares none, none from one that does, or another type).
-	data:   typeid,
-	policy: View_Policy, // how the host shows it (zero: host-posed, SMOOTHING_DEFAULT, from the prediction)
+// The prefix of a scene view kind's type: `View_Card` is the kind `card` (UnifiedView.kind, EnumView.CARD) and the
+// class ViewCard. A variant without it is named by its whole type name.
+VIEW_PREFIX :: "View_"
+
+// One entry of Glue.view_policy: a scene view kind (a variant of the game's View union) and its policy.
+View_Kind_Policy :: struct {
+	kind:   typeid,
+	policy: View_Policy, // zero: host-posed, SMOOTHING_DEFAULT, from the prediction
 }
 
-// How the host shows one view kind (View_Kind.policy, Glue.multi_policy); the zero value is the default.
+// How the host shows one view kind (Glue.view_policy, Glue.multi_policy); the zero value is the default.
 View_Policy :: struct {
 	appear:    Appear,
 	pose:      Posed_By,
@@ -289,14 +289,14 @@ Color :: distinct [4]f32
 Quat :: distinct [4]f32
 
 // Where Glue.event_key sends an event: to_view's scene view, `{route = .No_View}`, or the zero value (by its subject).
-Event_Target :: struct($View: typeid) {
-	kind:  View,
+Event_Target :: struct {
+	kind:  typeid, // the view kind's type (a variant of the game's View union; another type: no view, reported once)
 	key:   u64, // the view's key, as push_view keys it (to_view)
 	route: Event_Route,
 }
 
-// The scene view of `kind` that push_view made with this subject (none: the one view of its kind), as an
-// Event_Target: Glue.event_key's answer.
+// The scene view of kind `kind` (its type: `View_Player`) that push_view made with this subject (none: the one view
+// of its kind), as an Event_Target: Glue.event_key's answer.
 to_view :: proc {
 	to_view_alone,
 	to_view_of_player,
@@ -304,25 +304,25 @@ to_view :: proc {
 	to_view_of_handle,
 }
 
-// to_view of the one view of its kind (push_view_alone's, key 0).
-to_view_alone :: proc(kind: $View) -> Event_Target(View) {
+// to_view of the one view of its kind (pushed without a subject, key 0).
+to_view_alone :: proc(kind: typeid) -> Event_Target {
 	return {kind, 0, .View}
 }
 
 // to_view of a player's view.
-to_view_of_player :: proc(kind: $View, player: sim.Player) -> Event_Target(View) {
+to_view_of_player :: proc(kind: typeid, player: sim.Player) -> Event_Target {
 	return {kind, sim.player_key(player), .View}
 }
 
 // to_view of a fixed thing's view (keyed by its index, as push_view keys it).
-to_view_of_entity :: proc(kind: $View, entity: sim.Entity) -> Event_Target(View) {
+to_view_of_entity :: proc(kind: typeid, entity: sim.Entity) -> Event_Target {
 	index, ok := sim.entity_index(entity)
 	if !ok do return {}
 	return {kind, u64(index), .View}
 }
 
 // to_view of a table item's view.
-to_view_of_handle :: proc(kind: $View, handle: sim.Handle($T)) -> Event_Target(View) {
+to_view_of_handle :: proc(kind: typeid, handle: sim.Handle($T)) -> Event_Target {
 	return {kind, sim.handle_key(handle), .View}
 }
 
@@ -472,69 +472,48 @@ roster_reset :: proc() {
 	sync.atomic_add(&roster.changes, 1)
 }
 
-// Pushes a scene view from fill_frame (session thread): after the frame, the subject the view stands for, then the
-// item and, optionally, its data struct (set as the view's properties; a kind always pushes one data type and one
-// subject type). The subject is the view's identity and its key (UnifiedView.key), and decides which events reach it
-// (src/godot/README.md, Events): an event goes to the views pushed with its subject's type and key. The data, a plain
-// struct, is set as the root's properties of the same names, converted like every sim-facing field
-// (src/godot/README.md, Data and classes), when the view spawns and whenever its bytes change.
+// Pushes a scene view from fill_frame (session thread): after the frame, the subject the view stands for, then its
+// pose and its data, a value of one of the game's View structs, whose type is the view's kind (a value of another type
+// does not compile; a kind always pushes one subject type). The subject is the view's identity and its key
+// (UnifiedView.key), and decides which events reach it (src/godot/README.md, Events): an event goes to the views pushed
+// with its subject's type and key. The data is the root script's `data`, an object of the kind's class (ViewShip), set
+// when the view spawns and whenever its bytes change; a kind with no data is an empty struct.
 //
-//   godot.push_view(f, player, {kind = .Ship, pos = ...}, Ship_View{...})  // a player's: keyed by sim.player_key
-//   godot.push_view(f, sim.entity(i), {kind = .Gate, pos = ...})         // a fixed thing's: keyed by its index
-//   godot.push_view(f, handle, {kind = .Rock, pos = ...})                // a table item's: keyed by sim.handle_key
-//   godot.push_view(f, {kind = .Station, pos = ...})                     // none: the one view of its kind, key 0
+//   godot.push_view(f, player, {pos = ...}, View_Ship{...})    // a player's: keyed by sim.player_key
+//   godot.push_view(f, sim.entity(i), {pos = ...}, View_Gate{}) // a fixed thing's: keyed by its index
+//   godot.push_view(f, handle, {pos = ...}, View_Rock{...})     // a table item's: keyed by sim.handle_key
+//   godot.push_view(f, {pos = ...}, View_Station{})             // none: the one view of its kind, key 0
 push_view :: proc {
 	push_view_alone,
-	push_view_alone_data,
 	push_view_of_player,
-	push_view_of_player_data,
 	push_view_of_entity,
-	push_view_of_entity_data,
 	push_view_of_handle,
-	push_view_of_handle_data,
 }
 
 // No subject: the one view of its kind (key 0); only Glue.event_key sends it events. A player's view takes the player
-// as its subject (push_view(f, player, item)): `item.player` here panics, every player's view would be key 0.
-push_view_alone :: proc(frame: ^Frame($G, $View, $MultiView), item: View_Item(View), loc := #caller_location) {
-	if item.player != {} do panic(ALONE_WITH_PLAYER, loc)
-	push_view_out(frame, item, 0, nil, nil, nil, loc)
-}
-
-@(private)
-ALONE_WITH_PLAYER :: "push_view: a view without a subject shows a player; a player's view takes them as its subject: push_view(f, player, {kind = ...})"
-
-push_view_alone_data :: proc(
+// as its subject (push_view(f, player, item, data)): `item.player` here panics, every player's view would be key 0.
+push_view_alone :: proc(
 	frame: ^Frame($G, $View, $MultiView),
-	item: View_Item(View),
+	item: View_Item,
 	data: $D,
 	loc := #caller_location,
-) {
+) where intrinsics.type_is_variant_of(View, D) {
 	if item.player != {} do panic(ALONE_WITH_PLAYER, loc)
 	data := data
 	push_view_out(frame, item, 0, nil, D, ([^]u8)(&data)[:size_of(D)], loc)
 }
 
+@(private)
+ALONE_WITH_PLAYER :: "push_view: a view without a subject shows a player; a player's view takes them as its subject: push_view(f, player, item, data)"
+
 // A player's view: keyed by their key, through slot changes and rejoins; it shows them unless item.player says else.
 push_view_of_player :: proc(
 	frame: ^Frame($G, $View, $MultiView),
 	player: sim.Player,
-	item: View_Item(View),
-	loc := #caller_location,
-) {
-	if player == {} do panic("push_view: the subject is nobody (Player{})", loc)
-	item := item
-	if item.player == {} do item.player = player
-	push_view_out(frame, item, sim.player_key(player), sim.Player, nil, nil, loc)
-}
-
-push_view_of_player_data :: proc(
-	frame: ^Frame($G, $View, $MultiView),
-	player: sim.Player,
-	item: View_Item(View),
+	item: View_Item,
 	data: $D,
 	loc := #caller_location,
-) {
+) where intrinsics.type_is_variant_of(View, D) {
 	if player == {} do panic("push_view: the subject is nobody (Player{})", loc)
 	item, data := item, data
 	if item.player == {} do item.player = player
@@ -545,21 +524,10 @@ push_view_of_player_data :: proc(
 push_view_of_entity :: proc(
 	frame: ^Frame($G, $View, $MultiView),
 	entity: sim.Entity,
-	item: View_Item(View),
-	loc := #caller_location,
-) {
-	index, ok := sim.entity_index(entity)
-	if !ok do panic("push_view: the subject is the zero Entity (none)", loc)
-	push_view_out(frame, item, u64(index), sim.Entity, nil, nil, loc)
-}
-
-push_view_of_entity_data :: proc(
-	frame: ^Frame($G, $View, $MultiView),
-	entity: sim.Entity,
-	item: View_Item(View),
+	item: View_Item,
 	data: $D,
 	loc := #caller_location,
-) {
+) where intrinsics.type_is_variant_of(View, D) {
 	index, ok := sim.entity_index(entity)
 	if !ok do panic("push_view: the subject is the zero Entity (none)", loc)
 	data := data
@@ -570,40 +538,38 @@ push_view_of_entity_data :: proc(
 push_view_of_handle :: proc(
 	frame: ^Frame($G, $View, $MultiView),
 	handle: sim.Handle($T),
-	item: View_Item(View),
-	loc := #caller_location,
-) {
-	if handle == {} do panic("push_view: the subject is the null handle", loc)
-	push_view_out(frame, item, sim.handle_key(handle), sim.Handle(T), nil, nil, loc)
-}
-
-push_view_of_handle_data :: proc(
-	frame: ^Frame($G, $View, $MultiView),
-	handle: sim.Handle($T),
-	item: View_Item(View),
+	item: View_Item,
 	data: $D,
 	loc := #caller_location,
-) {
+) where intrinsics.type_is_variant_of(View, D) {
 	if handle == {} do panic("push_view: the subject is the null handle", loc)
 	data := data
 	push_view_out(frame, item, sim.handle_key(handle), sim.Handle(T), D, ([^]u8)(&data)[:size_of(D)], loc)
 }
 
+// A view kind's index: its type's place among the View union's variants (-1: not one), the u8 the host keys it by.
+@(private)
+view_kind_index :: proc($View: typeid, kind: typeid) -> int {
+	for variant, i in sim.union_variants(View) do if variant.id == kind do return i
+	return -1
+}
+
 @(private)
 push_view_out :: proc(
 	frame: ^Frame($G, $View, $MultiView),
-	item: View_Item(View),
+	item: View_Item,
 	key: u64,
 	subject: typeid,
-	data_type: typeid,
+	kind_type: typeid,
 	data: []u8,
 	loc := #caller_location,
 ) {
 	out := frame.out
 	room(&out.views, out.n_views + 1, FRAME_VIEWS_LIMIT, out.alloc, loc)
 	room(&out.data, out.n_data + len(data), FRAME_DATA_LIMIT, out.alloc, loc)
-	kind := u8(item.kind)
-	view_kind_types(kind, subject, data_type, loc)
+	kind := u8(view_kind_index(View, kind_type))
+	view_kind_subject(kind, subject, loc)
+	data_type := len(data) > 0 ? kind_type : nil // an empty struct: a kind with no data
 	view_out := &out.views[out.n_views]
 	out.n_views += 1
 	view_out^ = {

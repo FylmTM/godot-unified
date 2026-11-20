@@ -72,7 +72,8 @@ func _process(delta: float) -> void:
 		_viewmodel.visible = false
 		return
 	var constants := Unified.constants
-	var downed: bool = me.get("downed")
+	var my_data: ViewPlayer = me.get(&"data")
+	var downed := my_data.downed
 	# the view stands at the feet of the upright capsule: lying, the eye is about where its centre was
 	var centre: float = constants.player_radius + constants.player_half_height
 	var eye := centre if downed else centre + constants.eye_height

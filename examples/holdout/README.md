@@ -17,7 +17,7 @@ What it shows of unified:
 - **Shots that land where the shooter saw the target** (`sim.Seen`, `physics.world_cast_ray_closest_rewound`).
 - **Navigation in 3D** (`unified:nav` on the level's baked navigation mesh, `src/level/README.md`): distance fields
   memoized in the World, steering, and moves along the surface.
-- **Teammates on the verified timeline** (the player kind's policy in `Glue.views`, `remote = .Verified`;
+- **Teammates on the verified timeline** (`View_Player`'s policy in `Glue.view_policy`, `remote = .Verified`;
   `src/godot/README.md`): a few ticks late, never corrected, their shots and hits arriving with their bodies.
 - Kinematic Box3D enemies with a head shape of their own, a Box3D grenade in bullet mode, and swept bolts.
 
@@ -131,9 +131,9 @@ for in any order. Four of them play every rule within a few minutes, a run lost 
 
 ## View contract (`simulation/extension`)
 
-- **Views**: `player` (posed at the feet, turned by the aim's yaw; data `Player_View`: colour, the aim's pitch, HP,
+- **Views**: `player` (posed at the feet, turned by the aim's yaw; data `View_Player`: colour, the aim's pitch, HP,
   downed, revive progress), on the verified timeline when it shows a teammate; `enemy` (at the feet, facing where it
-  walks; data `Enemy_View`: kind and health), sized from the sim's own spec (`Unified.constants.enemy_sizes`), so a
+  walks; data `View_Enemy`: kind and health), sized from the sim's own spec (`Unified.constants.enemy_sizes`), so a
   shot that looks like a headshot is one.
 - **MultiViews**: `bolt`, `grenade`.
 - **Session data**: `Data_Hud` (`Unified.data.hud`): the phase and wave, the core's health, the enemies left, the

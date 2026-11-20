@@ -62,8 +62,8 @@ func _run() -> void:
 		fail("no playable card that targets an enemy in the opening hand")
 		return
 	await click(card)
-	await wait_for(func() -> bool: return Unified.input.card == card.slot + 1, 2.0, "the card held up (the aim)")
-	await wait_for(func() -> bool: return Table.local_row().aim_card == card.slot + 1, 3.0,
+	await wait_for(func() -> bool: return Unified.input.card == card.data.slot + 1, 2.0, "the card held up (the aim)")
+	await wait_for(func() -> bool: return Table.local_row().aim_card == card.data.slot + 1, 3.0,
 		"the aim reaches the hero's row (the Input)")
 	await click_at(Vector2(4, 4), MOUSE_BUTTON_RIGHT)  # the empty table
 	expect(Unified.input.card == 0, "a right click puts the card down")

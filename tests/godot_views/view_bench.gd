@@ -2,7 +2,7 @@
 #   godot [--headless] --path tests/godot_views -s res://view_bench.gd -- --bench N [--seconds S]
 # A single player toy session whose Glue (ext/ext.odin, bench_frame) makes every tick N moving instances of one
 # MultiMeshInstance3D (3D transforms and custom data, like the survivor's enemies), 64 moving and 64 resting plain3d scene views
-# with a _process script, and the local player's bench2d view; ui_accept is down on even ticks and up on odd ones, so the
+# with a _process script (the moving ones' data changes every tick, the resting ones' never), and the local player's bench2d view; ui_accept is down on even ticks and up on odd ones, so the
 # toy spawns a thing every other tick and expires as many (events to the player's view and the sim_event signal).
 # After a second of warm-up it reads UnifiedSession.take_sync_stats over S seconds (default 2) and prints one line,
 # "VIEW BENCH {json}": the per-frame means in microseconds and the per-event cost. Headless, set_buffer reaches

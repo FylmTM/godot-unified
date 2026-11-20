@@ -224,40 +224,23 @@ pose_remember :: proc(
 	}
 }
 
-// Each scene view kind's subject and data types, learned from push_view (session thread): a kind always pushes the
-// same two (so its keys, one subject's, are unique within it).
+// Each scene view kind's subject type, learned from push_view (session thread): a kind always pushes the same one (so
+// its keys, one subject's, are unique within it).
 @(private)
-View_Kind_Types :: struct {
-	pushed:    bool,
-	subject:   typeid,
-	data_type: typeid,
+View_Kind_Subject :: struct {
+	pushed:  bool,
+	subject: typeid,
 }
 
 @(private)
-view_kinds: [256]View_Kind_Types
+view_kinds: [256]View_Kind_Subject
 
 @(private)
-view_kind_types :: proc(kind: u8, subject, data_type: typeid, loc := #caller_location) {
+view_kind_subject :: proc(kind: u8, subject: typeid, loc := #caller_location) {
 	known := &view_kinds[kind]
 	if !known.pushed {
-		// the first push of the kind: its data is the declared type (View_Kind.data)
-		declared := api.view_data[kind] if int(kind) < len(api.view_data) else nil
-		if declared != data_type {
-			panic(
-				fmt.tprintf(
-					"push_view: view kind %d pushed %v, but its Glue.views entry declares data = %v (nil: none; a kind with data declares it)",
-					kind,
-					data_type,
-					declared,
-				),
-				loc,
-			)
-		}
-		known^ = {true, subject, data_type}
+		known^ = {true, subject}
 		return
-	}
-	if known.data_type != data_type {
-		panic(fmt.tprintf("push_view: view kind %d pushed %v, before %v", kind, data_type, known.data_type), loc)
 	}
 	if known.subject != subject {
 		panic(

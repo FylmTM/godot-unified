@@ -11,17 +11,38 @@ import "unified:sim"
 
 import "../../toy"
 
-View :: enum u8 {
-	Typed2D,
-	Plain2D,
-	Plain3D,
-	Decoy2D,
-	Card, // a Control: data only, never posed
-	Scripted3D, // posed by its script (GLUE.views: pose = .Script)
-	Bench2D, // the view benchmark's player view: no data (typed2d's data leaves a field out on purpose)
-	Remote3D, // another player's on the verified timeline (GLUE.views: remote = .Verified)
-	Rider3D, // a thing's that shows a player (a car's driver), the same policy
-	Predicted3D, // a kind left on the prediction, showing the remote player
+// The scene view kinds, each its data (an empty struct: none).
+View :: union {
+	View_Typed2D,
+	View_Plain2D,
+	View_Plain3D,
+	View_Decoy2D,
+	View_Card, // a Control: data only, never posed
+	View_Scripted3D, // posed by its script (GLUE.view_policy: pose = .Script)
+	View_Bench2D, // the view benchmark's player view
+	View_Remote3D, // another player's on the verified timeline (GLUE.view_policy: remote = .Verified)
+	View_Rider3D, // a thing's that shows a player (a car's driver), the same policy
+	View_Predicted3D, // a kind left on the prediction, showing the remote player
+}
+
+View_Plain2D :: struct {}
+
+// The plain3d views' data: the benchmark's circling views change it every tick (the data path's cost), the resting
+// ones never, the fixed one (key 2) keeps the zero value.
+View_Plain3D :: struct {
+	tick:  u32,
+	angle: f32,
+	lap:   i32,
+}
+View_Scripted3D :: struct {}
+View_Bench2D :: struct {}
+View_Rider3D :: struct {}
+View_Predicted3D :: struct {}
+
+// The decoy views' data. Their scene has no script, so no `data` for it, on purpose: the host reports that as an error
+// the suite expects.
+View_Decoy2D :: struct {
+	thing: u32,
 }
 
 // The decoy views' subject: another table's handle, given each thing's key (fill_frame).
@@ -35,29 +56,27 @@ MultiView :: enum u8 {
 
 Frame :: godot.Frame(toy.Game, View, MultiView)
 
-// The typed2d view's data: set as its properties, each when its bytes change. The script leaves out `pad_check` on
-// purpose: the host reports the missing property as an error the suite expects.
-Typed2D_Data :: struct {
-	shown:     bool,
-	mode:      Mode, // an enum only view data uses: an int, with its class (EnumMode): GLUE.views declares the type
-	_pad:      [2]u8,
-	hp:        i32,
-	ticks:     u32, // the frame's tick: changes every frame
-	charge:    f32,
-	dir:       [2]f32,
-	tint:      godot.Color,
-	pad_check: f32,
-	area:      toy.Mark_Area, // a nested struct: an object of its class (DataMarkArea)
+// The typed2d view's data: its script's `data` (ViewTyped2d), a new object each time its bytes change.
+View_Typed2D :: struct {
+	shown:  bool,
+	mode:   Mode, // an enum only view data uses: an int, with its class (EnumMode)
+	_pad:   [2]u8,
+	hp:     i32,
+	ticks:  u32, // the frame's tick: changes every frame
+	charge: f32,
+	dir:    [2]f32,
+	tint:   godot.Color,
+	weight: f32,
+	area:   toy.Mark_Area, // a nested struct: an object of its class (DataMarkArea)
 }
 
 // The remote3d views' data: the tick it is of (on the verified timeline, the sample's).
-Remote3D_Data :: struct {
+View_Remote3D :: struct {
 	tick: u32,
 }
 
-// The card view's data (a Control root: the host sets data, never a pose): one card per thing. `holder` is not
-// `owner`: a data field is set as the root's property, and a Node's own `owner` is another.
-Card_Data :: struct {
+// The card view's data (a Control root: the host sets data, never a pose): one card per thing.
+View_Card :: struct {
 	life:   i32,
 	shape:  toy.Shape,
 	_pad:   [3]u8,
@@ -182,15 +201,12 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 	view_scale = VIEW_SCALE,
 	event_key = event_key,
 	input_values = Input_Values,
-	views = #partial {
-		// every kind with data declares it, as Glue.data's
-		.Typed2D = {data = Typed2D_Data},
-		.Card = {data = Card_Data},
-		.Remote3D = {data = Remote3D_Data, policy = {remote = .Verified}},
-		.Scripted3D = {policy = {appear = .Verified, pose = .Script}},
-		.Rider3D = {policy = {remote = .Verified}},
-		.Predicted3D = {policy = {remote = .Predicted}},
-		.Plain3D = {policy = {smoothing = {tau_s = 0.05}}},
+	view_policy = {
+		{View_Remote3D, {remote = .Verified}},
+		{View_Scripted3D, {appear = .Verified, pose = .Script}},
+		{View_Rider3D, {remote = .Verified}},
+		{View_Predicted3D, {remote = .Predicted}},
+		{View_Plain3D, {smoothing = {tau_s = 0.05}}},
 	},
 	multi_policy = #partial{.Smooth3D = {smoothing = godot.SMOOTHING_DEFAULT}},
 }
@@ -213,18 +229,19 @@ bench_prepare :: proc(state: ^toy.State, world: ^toy.World, count: int) {
 // The benchmark's frame: the local player's bench2d view (the player's events reach it), BENCH_SCENE_VIEWS plain3d views circling, and the instances on a grid, each turning and bobbing (every value
 // changes every tick, so nothing is the same as the tick before).
 bench_frame :: proc(f: ^Frame) {
-	godot.push_view(f, f.local_players[0], {kind = .Bench2D})
+	godot.push_view(f, f.local_players[0], {}, View_Bench2D{})
 	seconds := f32(f.tick) / toy.HZ
 	for i in 0 ..< BENCH_SCENE_VIEWS {
 		angle := seconds + f32(i) * math.TAU / BENCH_SCENE_VIEWS
-		godot.push_view(f, sim.entity(100 + i), {
-			kind = .Plain3D,
-			pos  = {math.cos(angle), 0, math.sin(angle)},
-			rot  = quat_yaw_angle(angle),
-		})
+		godot.push_view(
+			f,
+			sim.entity(100 + i),
+			{pos = {math.cos(angle), 0, math.sin(angle)}, rot = quat_yaw_angle(angle)},
+			View_Plain3D{tick = f.tick, angle = angle, lap = i32(seconds)},
+		)
 	}
 	for i in 0 ..< BENCH_STATIC_VIEWS {
-		godot.push_view(f, sim.entity(200 + i), {kind = .Plain3D, pos = {f32(i % 8), 2, f32(i / 8)}})
+		godot.push_view(f, sim.entity(200 + i), {pos = {f32(i % 8), 2, f32(i / 8)}}, View_Plain3D{lap = i32(i)})
 	}
 	side := max(int(math.sqrt(f32(bench_instances))), 1)
 	for i in 0 ..< bench_instances {
@@ -269,11 +286,7 @@ fill_frame :: proc(f: ^Frame) {
 	}
 	q2 := godot.quat_turns_2d(ANGLE_2D / math.TAU)
 	q3 := quat_yaw_angle(YAW_3D)
-	godot.push_view(f, f.local_players[0], {
-		kind = .Typed2D,
-		pos  = POS_2D / VIEW_SCALE,
-		rot  = q2,
-	}, Typed2D_Data {
+	godot.push_view(f, f.local_players[0], {pos = POS_2D / VIEW_SCALE, rot = q2}, View_Typed2D {
 		shown = true,
 		mode = .Open,
 		hp = -3,
@@ -283,28 +296,13 @@ fill_frame :: proc(f: ^Frame) {
 		tint = {1, 0.5, 0.25, 1},
 		area = {corner = {1, 2}, layer = 3},
 	})
-	godot.push_view(f, sim.entity(2), {
-		kind = .Plain2D,
-		pos  = (POS_2D + {10, 0, 0}) / VIEW_SCALE,
-		rot  = q2,
-	})
+	godot.push_view(f, sim.entity(2), {pos = (POS_2D + {10, 0, 0}) / VIEW_SCALE, rot = q2}, View_Plain2D{})
 	// the same key in another kind: another view
-	godot.push_view(f, sim.entity(2), {
-		kind = .Plain3D,
-		pos  = POS_3D / VIEW_SCALE,
-		rot  = q3,
-	})
-	godot.push_view(f, sim.entity(3), {
-		kind = .Scripted3D,
-		pos  = POS_3D / VIEW_SCALE,
-		rot  = q3,
-	})
+	godot.push_view(f, sim.entity(2), {pos = POS_3D / VIEW_SCALE, rot = q3}, View_Plain3D{})
+	godot.push_view(f, sim.entity(3), {pos = POS_3D / VIEW_SCALE, rot = q3}, View_Scripted3D{})
 	remote_walk(f)
 	if f.tick >= BLINK_FROM && f.tick < BLINK_TO {
-		godot.push_view(f, sim.entity(5), {
-			kind = .Plain2D,
-			pos  = {-5, -5, 0},
-		})
+		godot.push_view(f, sim.entity(5), {pos = {-5, -5, 0}}, View_Plain2D{})
 	}
 	// A decoy per thing: a view of another table's handle with the thing's key. A Spawned event (its subject a
 	// Handle(Thing)) reaches only views pushed with a Handle(Thing), so not these: it falls back to its player's view.
@@ -314,12 +312,12 @@ fill_frame :: proc(f: ^Frame) {
 			index      = thing.index,
 			generation = thing.generation,
 		}
-		godot.push_view(f, decoy, {kind = .Decoy2D, pos = {-9, -9, 0}})
+		godot.push_view(f, decoy, {pos = {-9, -9, 0}}, View_Decoy2D{thing = u32(thing.index)})
 		godot.push_view(
 			f,
 			decoy,
-			{kind = .Card, pos = {5, 5, 0}}, // never shown: a data-only view is not posed
-			Card_Data{life = item.life, shape = toy.Shape(item.life % 3), holder = item.owner},
+			{pos = {5, 5, 0}}, // never shown: a data-only view is not posed
+			View_Card{life = item.life, shape = toy.Shape(item.life % 3), holder = item.owner},
 		)
 	}
 	mark := &local.last_mark
@@ -396,17 +394,17 @@ fill_frame :: proc(f: ^Frame) {
 // lingers), Joined to none (by its subject: the player's view), the remote player's Spawned (drawn_tick) to its
 // remote3d view, the rest by their subject (Spawned: the player's view, its thing having none: the decoys and cards
 // have its key, not its type).
-event_key :: proc(event: toy.Event, subject: godot.Subject) -> godot.Event_Target(View) {
+event_key :: proc(event: toy.Event, subject: godot.Subject) -> godot.Event_Target {
 	#partial switch value in event {
 	case toy.Event_Expired:
 		return godot.to_view(
-			View.Card,
+			View_Card,
 			sim.Handle(Decoy){index = value.thing.index, generation = value.thing.generation},
 		)
 	case sim.Event_Player_Joined:
 		return {route = .No_View}
 	case toy.Event_Spawned:
-		if value.player == REMOTE_PLAYER do return godot.to_view(View.Remote3D, REMOTE_PLAYER)
+		if value.player == REMOTE_PLAYER do return godot.to_view(View_Remote3D, REMOTE_PLAYER)
 	}
 	return {}
 }
@@ -442,24 +440,21 @@ remote_x :: proc(tick: u32) -> f32 {
 
 // The remote walk's views (REMOTE_PERIOD).
 remote_walk :: proc(f: ^Frame) {
-	item := godot.View_Item(View) {
-		kind = .Remote3D,
+	item := godot.View_Item {
 		pos  = {remote_x(f.tick), 0, 0},
 		warp = u8(f.tick / (REMOTE_PERIOD / 2)), // a teleport at each jump
 	}
-	data := Remote3D_Data{f.tick}
+	data := View_Remote3D{f.tick}
 	godot.push_view(f, REMOTE_PLAYER, item, data)
 	godot.push_view(f, f.local_players[0], item, data)
 	predicted := item
-	predicted.kind, predicted.player = .Predicted3D, REMOTE_PLAYER
-	godot.push_view(f, sim.entity(REMOTE_THING), predicted)
-	item.kind = .Rider3D
+	predicted.player = REMOTE_PLAYER
+	godot.push_view(f, sim.entity(REMOTE_THING), predicted, View_Predicted3D{})
 	item.player = REMOTE_PLAYER if f.tick % REMOTE_PERIOD < REMOTE_PERIOD / 2 else f.local_players[0]
-	godot.push_view(f, sim.entity(REMOTE_THING), item)
+	godot.push_view(f, sim.entity(REMOTE_THING), item, View_Rider3D{})
 	if f.tick >= REMOTE_BLINK_FROM && f.tick < REMOTE_BLINK_TO {
-		blink := godot.View_Item(View) {
-			kind = .Remote3D,
-			pos  = {REMOTE_SPEED * f32(f.tick - REMOTE_BLINK_FROM), 0, 5},
+		blink := godot.View_Item {
+			pos = {REMOTE_SPEED * f32(f.tick - REMOTE_BLINK_FROM), 0, 5},
 		}
 		godot.push_view(f, REMOTE_BLINK, blink, data)
 	}

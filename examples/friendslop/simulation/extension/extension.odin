@@ -23,14 +23,11 @@ friendslop_init :: proc "c" (
 
 GLUE := godot.Glue(g.Game, View, MultiView) {
 	sample_input = sample_input,
-	fill_frame = fill_frame,
-	data = Data,
-	views = {
-		.Player = {data = Player_View},
-		// an item the local player holds is drawn at their hand, at render rate (marker_view.gd)
-		.Marker = {data = Marker_View, policy = {pose = .Script}},
-	},
-	event_key = event_key,
+	fill_frame   = fill_frame,
+	data         = Data,
+	// an item the local player holds is drawn at their hand, at render rate (marker_view.gd)
+	view_policy  = {{View_Marker, {pose = .Script}}},
+	event_key    = event_key,
 	input_values = Input_Values,
 }
 

@@ -59,14 +59,14 @@ func _unhandled_input(event: InputEvent) -> void:
 func card_clicked(card: DeckCard) -> void:
 	if not card.is_local():
 		return
-	if _selected != null and _selected.id == EnumCardId.HAND_OFF and card != _selected:
+	if _selected != null and _selected.data.id == EnumCardId.HAND_OFF and card != _selected:
 		_extra = card
-		_hint.text = "Hand Off: now click the ally to give %s to" % _card_name(card.id)
+		_hint.text = "Hand Off: now click the ally to give %s to" % _card_name(card.data.id)
 		return
-	if not card.playable:
+	if not card.data.playable:
 		_hint.text = "Not now: not your turn, ended, or not enough energy"
 		return
-	match card.target:
+	match card.data.target:
 		EnumTargetKind.SELF, EnumTargetKind.ALL_ENEMIES:
 			_play(card, 0, 0)
 		_:
@@ -74,26 +74,26 @@ func card_clicked(card: DeckCard) -> void:
 
 
 func enemy_clicked(enemy: DeckEnemy) -> void:
-	if _selected != null and _selected.target == EnumTargetKind.ENEMY:
+	if _selected != null and _selected.data.target == EnumTargetKind.ENEMY:
 		_play(_selected, enemy.marker.key, 0)
 
 
 func enemy_hovered(enemy: DeckEnemy) -> void:
-	if _selected != null and _selected.target == EnumTargetKind.ENEMY:
-		Unified.input.enemy = enemy.index + 1
+	if _selected != null and _selected.data.target == EnumTargetKind.ENEMY:
+		Unified.input.enemy = enemy.data.index + 1
 
 
 func hero_clicked(index: int) -> void:
-	if _selected == null or _selected.target != EnumTargetKind.ALLY:
+	if _selected == null or _selected.data.target != EnumTargetKind.ALLY:
 		return
-	if _selected.id == EnumCardId.HAND_OFF and _extra == null:
+	if _selected.data.id == EnumCardId.HAND_OFF and _extra == null:
 		_hint.text = "Hand Off: first click the card to hand over"
 		return
 	_play(_selected, 0, index + 1)
 
 
 func hero_hovered(index: int) -> void:
-	if _selected != null and _selected.target == EnumTargetKind.ALLY:
+	if _selected != null and _selected.data.target == EnumTargetKind.ALLY:
 		Unified.input.hero = index + 1
 
 
@@ -103,13 +103,13 @@ func _select(card: DeckCard) -> void:
 		_selected.selected = false
 	_selected = card
 	_extra = null
-	Unified.input.card = card.slot + 1 if card != null else 0
+	Unified.input.card = card.data.slot + 1 if card != null else 0
 	Unified.input.enemy = 0
 	Unified.input.hero = 0
 	if card != null:
 		card.selected = true
-		_hint.text = "%s: click %s (right click: put it down)" % [_card_name(card.id),
-			"an enemy" if card.target == EnumTargetKind.ENEMY else "a hero"]
+		_hint.text = "%s: click %s (right click: put it down)" % [_card_name(card.data.id),
+			"an enemy" if card.data.target == EnumTargetKind.ENEMY else "a hero"]
 	else:
 		_hint.text = ""
 

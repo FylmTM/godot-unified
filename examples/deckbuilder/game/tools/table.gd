@@ -35,7 +35,7 @@ static func hand(scene: Node) -> Array[Node]:
 static func playable(scene: Node, target: int) -> DeckCard:
 	for node: Node in hand(scene):
 		var card := node as DeckCard
-		if card != null and card.playable and card.target == target and card.mouse_filter != Control.MOUSE_FILTER_IGNORE:
+		if card != null and card.data.playable and card.data.target == target and card.mouse_filter != Control.MOUSE_FILTER_IGNORE:
 			return card
 	return null
 

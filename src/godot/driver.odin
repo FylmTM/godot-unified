@@ -23,14 +23,14 @@ Api :: struct {
 	problems:        []string, // what install found wrong with the game (reported at load; nothing registered)
 	game_name:       string,
 	tick_hz:         int,
-	view_names:      []string, // the View enum's members, lowercased, by kind
+	view_names:      []string, // the View union's kinds (its variants' names without View_, lowercased), by kind
 	multi_names:     []string, // the MultiView enum's members, lowercased, by kind
-	view_enum:       ^runtime.Type_Info, // the View enum (the class EnumView)
+	view_union:      ^runtime.Type_Info, // the View union (the class EnumView names its kinds)
 	multi_enum:      ^runtime.Type_Info, // the MultiView enum (the class EnumMultiView)
 	level_enum:      ^runtime.Type_Info, // the State's level enum (the class EnumLevel; nil: no level field)
 	is_2d:           bool, // a sim.Position is a Vector2 (Glue.is_2d)
 	view_scale:      f32, // view units per sim unit (Glue.view_scale; 1 when unset)
-	view_policy:     []Kind_Policy, // each Glue.views entry's policy by kind, filled in
+	view_policy:     []Kind_Policy, // each view kind's policy (Glue.view_policy, the default elsewhere), filled in
 	multi_policy:    []Kind_Policy, // Glue.multi_policy by kind, filled in
 	appear_verified: bool, // some kind appears on verified: the driver fills verified ticks too (verified_state)
 	remote_verified: bool, // some kind poses remote players on the verified timeline (Remote.Verified)
@@ -41,7 +41,7 @@ Api :: struct {
 	constants:       Data_Layout, // the constants' type (type nil: none)
 	constants_bytes: []u8, // the constants' value (install's)
 	input_values:    Data_Layout, // Glue.input_values (type nil: none)
-	view_data:       []typeid, // each Glue.views entry's data, by view kind (nil: not declared)
+	view_types:      []^runtime.Type_Info, // each view kind's struct (the class ViewX; size 0: no data), by kind
 	setup:           Data_Layout, // the game's Setup (sim.Game's; the class UnifiedSetup, no fields for sim.No_Setup)
 	setup_default:   []u8, // Game.setup's bytes: a new UnifiedSetup's
 	profile:         Data_Layout, // the game's Profile (the class UnifiedProfile, Unified.profile)
@@ -78,7 +78,7 @@ Api :: struct {
 	next_confirmed:  proc() -> (note: Command_Note, ok: bool),
 	// The session's recording so far, appended to `snapshot` and `log` (dev UI builds; false: none yet).
 	recording:       proc(snapshot, log: ^[dynamic]u8) -> (info: Recording_Info, ok: bool),
-	event_key:       proc(event: ^sim.Raw_Event, subject: Subject) -> (kind: u8, key: u64, route: Event_Route), // Glue.event_key (nil: by subject)
+	event_key:       proc(event: ^sim.Raw_Event, subject: Subject) -> (kind: int, key: u64, route: Event_Route), // Glue.event_key (nil: by subject; kind -1: not a View variant)
 	result:          proc() -> string, // the finished session's result JSON (after a Result message)
 	send:            proc(command: sim.Raw_Command, local: int) -> bool, // queue local player `local`'s command (false: full)
 	// Ask the session to add local player `local` (1 ..< LOCAL_MAX) with this name and Profile's bytes, or to remove it.
@@ -359,7 +359,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		}
 		return
 	}
-	view_names, _ := enum_names(View)
+	view_names := view_kind_names(View)
 	multi_names, _ := enum_names(MultiView)
 	kept_glue := new(This_Glue)
 	kept_glue^ = glue
@@ -370,7 +370,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		game_name     = game.name,
 		tick_hz       = game.tick_hz,
 		view_names    = view_names,
-		view_enum     = type_info_of(View),
+		view_union    = type_info_of(View),
 		multi_enum    = type_info_of(MultiView),
 		multi_names   = multi_names,
 		is_2d         = glue.is_2d,
@@ -390,11 +390,14 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	for file, i in game.levels do api.level_scenes[i] = strings.clone(level.scene_of(file.bytes))
 	api.view_policy = make([]Kind_Policy, len(view_names))
 	api.multi_policy = make([]Kind_Policy, len(multi_names))
-	for view, kind in glue.views do api.view_policy[int(kind)] = kind_policy(view.policy, false)
+	for &policy in api.view_policy do policy = kind_policy({}, false)
+	for entry in glue.view_policy {
+		api.view_policy[view_kind_index(View, entry.kind)] = kind_policy(entry.policy, false)
+		api.appear_verified ||= entry.policy.appear == .Verified
+		api.remote_verified ||= entry.policy.remote == .Verified
+	}
 	for policy, kind in glue.multi_policy do api.multi_policy[int(kind)] = kind_policy(policy, true)
-	for view in glue.views do api.appear_verified ||= view.policy.appear == .Verified
 	for policy in glue.multi_policy do api.appear_verified ||= policy.appear == .Verified
-	for view in glue.views do api.remote_verified ||= view.policy.remote == .Verified
 	for variant in sim.union_variants(glue.data) do append_elem(&kept_data, data_layout(variant))
 	api.data = kept_data[:]
 	if constants.id != nil {
@@ -402,8 +405,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		api.constants_bytes = slice.clone(([^]u8)(constants.data)[:type_info_of(constants.id).size])
 	}
 	if glue.input_values != nil do api.input_values = data_layout(type_info_of(glue.input_values))
-	api.view_data = make([]typeid, len(view_names))
-	for view, kind in glue.views do api.view_data[int(kind)] = view.data
+	api.view_types = slice.clone(sim.union_variants(View))
 	api.setup = data_layout(type_info_of(Setup))
 	api.setup_default = slice.clone(sim.bytes_of(&game.setup))
 	api.profile = data_layout(type_info_of(Profile))
@@ -434,16 +436,17 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	for layout in api.data do append(&enum_sources, layout.type)
 	if api.constants.type != nil do append(&enum_sources, api.constants.type)
 	if api.input_values.type != nil do append(&enum_sources, api.input_values.type)
-	for type in api.view_data do if type != nil do append(&enum_sources, type_info_of(type))
+	for type in api.view_types do append(&enum_sources, type)
 	append(&enum_sources, api.setup.type, api.profile.type)
 	enums: [dynamic]^runtime.Type_Info
 	enum_types_of(enum_sources[:], &enums)
 	api.enum_types = enums[:]
 	if glue.event_key != nil {
-		api.event_key = proc(event: ^sim.Raw_Event, subject: Subject) -> (u8, u64, Event_Route) {
+		api.event_key = proc(event: ^sim.Raw_Event, subject: Subject) -> (int, u64, Event_Route) {
 			event_value := sim.event_value(event, sim.part(G, sim.GAME_EVENT))
 			target := (^This_Glue)(g_glue).event_key(event_value, subject)
-			return u8(target.kind), target.key, target.route
+			if target.route != .View do return 0, 0, target.route
+			return view_kind_index(View, target.kind), target.key, target.route
 		}
 	}
 	api.sample_input = proc() {
@@ -786,12 +789,12 @@ kind_policy :: proc(policy: View_Policy, multi: bool) -> Kind_Policy {
 	}
 }
 
-// What install refuses in a kind's policy (`kind`: its enum member's name).
+// What install refuses in a kind's policy (`kind`: its MultiView member's name, or its View type).
 @(private)
 policy_problems :: proc(policy: View_Policy, kind: string, multi: bool, problems: ^[dynamic]string) {
 	finite :: proc(value: f32) -> bool {return value == value && value > -1e30 && value < 1e30}
 	smoothing := policy.smoothing
-	field := multi ? fmt.tprintf("Glue.multi_policy[.%s]", kind) : fmt.tprintf("Glue.views[.%s].policy", kind)
+	field := multi ? fmt.tprintf("Glue.multi_policy[.%s]", kind) : fmt.tprintf("Glue.view_policy's %s", kind)
 	if multi && policy.pose == .Script {
 		append(problems, fmt.aprintf("%s: pose = .Script is for scene views (an instance has no script)", field))
 	}
@@ -809,10 +812,10 @@ policy_problems :: proc(policy: View_Policy, kind: string, multi: bool, problems
 }
 
 // The problems `install` would report for this game, Glue and constants (empty: it installs), installing nothing: no
-// fill_frame, no sample_input for a game with an Input (or one for a game without), a bad view_scale, a View or
-// MultiView enum that doesn't count up from 0, sim.game_violation, netcode.game_violation, a Glue.data, constants or
-// input values type that isn't a struct, isn't plain (pointers, implicit padding) or holds one of Godot's own types, a
-// view policy it refuses. A game's own test calls it (the template's `the_extension_installs`), so `uni test` reports
+// fill_frame, no sample_input for a game with an Input (or one for a game without), a bad view_scale, a MultiView enum
+// that doesn't count up from 0, sim.game_violation, netcode.game_violation, a Glue.data, constants, input values or
+// View kind type that isn't a struct, isn't plain (pointers, implicit padding) or holds one of Godot's own types, a
+// view policy it refuses (or one naming a type that is no View kind, or a kind twice). A game's own test calls it (the template's `the_extension_installs`), so `uni test` reports
 // these in a second, without Godot. The list and its strings live as long as the process.
 install_problems :: proc {
 	install_problems_with_constants,
@@ -854,8 +857,13 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 			fmt.aprintf("Glue.view_scale is %v: view units per sim unit, positive (zero: 1)", glue.view_scale),
 		)
 	}
-	if _, view_ok := enum_names(View); !view_ok {
-		append(&problems, fmt.aprintf("the View enum %v must count up from 0", typeid_of(View)))
+	if !intrinsics.type_is_union(View) {
+		append(
+			&problems,
+			fmt.aprintf("View %v must be a union of the view kinds' structs (View_Card...)", typeid_of(View)),
+		)
+	} else if len(sim.union_variants(View)) > VIEW_KINDS_MAX {
+		append(&problems, fmt.aprintf("the View union %v has more than %d kinds", typeid_of(View), VIEW_KINDS_MAX))
 	}
 	if _, multi_ok := enum_names(MultiView); !multi_ok {
 		append(&problems, fmt.aprintf("the MultiView enum %v must count up from 0", typeid_of(MultiView)))
@@ -867,23 +875,17 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 		append(&problems, strings.clone(reason))
 	}
 	data_problems(glue.data, constants, glue.input_values, &problems)
-	for view, kind in glue.views {
-		if view.data != nil {
-			struct_problems(fmt.tprintf("Glue.views[.%v].data", kind), type_info_of(view.data), true, &problems)
-		}
-	}
+	for variant in sim.union_variants(View) do struct_problems("the view kind", variant, true, &problems)
 	// every type GDScript reads by field names and classes
 	named := make([dynamic]^runtime.Type_Info, context.temp_allocator)
 	for variant in sim.union_variants(sim.part(G, sim.GAME_EVENT)) do append(&named, variant)
 	for variant in sim.union_variants(sim.part(G, sim.GAME_COMMAND)) do append(&named, variant)
 	for variant in sim.union_variants(glue.data) do append(&named, variant)
+	for variant in sim.union_variants(View) do append(&named, variant)
 	if constants != nil do append(&named, type_info_of(constants))
 	if glue.input_values != nil do append(&named, type_info_of(glue.input_values))
 	append(&named, type_info_of(sim.part(G, sim.GAME_SETUP)), type_info_of(sim.part(G, sim.GAME_PROFILE)))
-	name_problems(named[:], false, &problems)
-	views := make([dynamic]^runtime.Type_Info, context.temp_allocator)
-	for view in glue.views do if view.data != nil do append(&views, type_info_of(view.data))
-	name_problems(views[:], true, &problems)
+	name_problems(named[:], &problems)
 	State :: sim.part(G, sim.GAME_STATE)
 	level_enum: typeid
 	when intrinsics.type_has_field(State, "level") {
@@ -891,22 +893,30 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 			level_enum = intrinsics.type_field_type(intrinsics.type_field_type(State, "level"), "id")
 		}
 	}
-	view_data := make([dynamic]typeid, context.temp_allocator)
-	for view in glue.views do append(&view_data, view.data)
 	class_problems({
 			events       = sim.part(G, sim.GAME_EVENT),
 			commands     = sim.part(G, sim.GAME_COMMAND),
 			data         = glue.data,
-			view_data    = view_data[:],
+			views        = View,
 			constants    = constants,
 			input_values = glue.input_values,
 			setup        = sim.part(G, sim.GAME_SETUP),
 			profile      = sim.part(G, sim.GAME_PROFILE),
-			view_enum    = View,
 			multi_enum   = MultiView,
 			level_enum   = level_enum,
 		}, &problems)
-	for view, kind in glue.views do policy_problems(view.policy, fmt.tprint(kind), false, &problems)
+	for entry, i in glue.view_policy {
+		if view_kind_index(View, entry.kind) < 0 {
+			append(
+				&problems,
+				fmt.aprintf("Glue.view_policy names %v, which is not a variant of %v", entry.kind, typeid_of(View)),
+			)
+		}
+		for earlier in glue.view_policy[:i] {
+			if earlier.kind == entry.kind do append(&problems, fmt.aprintf("Glue.view_policy names %v twice", entry.kind))
+		}
+		policy_problems(entry.policy, fmt.tprint(entry.kind), false, &problems)
+	}
 	for policy, kind in glue.multi_policy do policy_problems(policy, fmt.tprint(kind), true, &problems)
 	return problems[:]
 }
@@ -915,8 +925,8 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 @(private)
 kept_data: [dynamic]Data_Layout
 
-// An enum's member names, lowercased, by value (allocated for the process's lifetime): View and MultiView kinds.
-// ok false when the members don't count up from 0.
+// An enum's member names, lowercased, by value (allocated for the process's lifetime): the MultiView kinds. ok false
+// when the members don't count up from 0.
 @(private)
 enum_names :: proc($E: typeid) -> (names: []string, ok: bool) {
 	context.allocator = runtime.heap_allocator()
@@ -928,6 +938,21 @@ enum_names :: proc($E: typeid) -> (names: []string, ok: bool) {
 		names[i] = strings.to_lower(name)
 	}
 	return
+}
+
+// The most scene view kinds a game has (a kind is a u8).
+@(private)
+VIEW_KINDS_MAX :: 256
+
+// The View union's kind names, by kind: each variant's type name without VIEW_PREFIX, lowercased (allocated for the
+// process's lifetime).
+@(private)
+view_kind_names :: proc($View: typeid) -> []string {
+	context.allocator = runtime.heap_allocator()
+	variants := sim.union_variants(View)
+	names := make([]string, len(variants))
+	for variant, i in variants do names[i] = strings.clone(sim.variant_name(variant, VIEW_PREFIX))
+	return names
 }
 
 @(private)

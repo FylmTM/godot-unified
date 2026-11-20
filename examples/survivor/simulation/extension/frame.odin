@@ -14,18 +14,21 @@ fill_frame :: proc(f: ^Frame) {
 	players := sim.iterate_present(&f.state.players)
 	for character, player in sim.next(&players) {
 		godot.push_view(f, player, {
-			kind = .Player,
 			pos  = sim.Position(character.pos),
 			warp = character.warp,
-		}, Player_View{hp = max(character.hp, 0), dashing = sim.timer_running(f.time, character.dash)})
+		}, View_Player{hp = max(character.hp, 0), dashing = sim.timer_running(f.time, character.dash)})
 	}
 	for &item, i in f.state.items[:f.world.items.count] {
 		if !item.alive do continue
-		godot.push_view(f, sim.entity(i), {
-			kind = sim.slice(&f.world.items)[i].kind == .Barrel ? .Barrel : .Crate,
-			pos  = sim.Position(physics.body_position(f.world.phys, item.body)),
-			rot  = physics.body_rotation(f.world.phys, item.body),
-		})
+		pose := godot.View_Item {
+			pos = sim.Position(physics.body_position(f.world.phys, item.body)),
+			rot = physics.body_rotation(f.world.phys, item.body),
+		}
+		if sim.slice(&f.world.items)[i].kind == .Barrel {
+			godot.push_view(f, sim.entity(i), pose, View_Barrel{})
+		} else {
+			godot.push_view(f, sim.entity(i), pose, View_Crate{})
+		}
 	}
 	enemies := sim.iterate(&f.state.enemies)
 	for enemy, handle in sim.next(&enemies) {

@@ -10,15 +10,16 @@ import g "../deckbuilder"
 
 Frame :: godot.Frame(g.Game, View, MultiView)
 
-View :: enum u8 {
-	Card, // a card in a hand (game/views/card.tscn, in its holder's hand box)
-	Enemy, // game/views/enemy.tscn, in the enemies' row
+// The scene views, each kind its data.
+View :: union {
+	View_Card, // a card in a hand (game/views/card.tscn, in its holder's hand box)
+	View_Enemy, // game/views/enemy.tscn, in the enemies' row
 }
 
 MultiView :: enum u8 {}
 
 // A card in a hand.
-Card_View :: struct {
+View_Card :: struct {
 	id:       g.Card_Id,
 	upgraded: bool,
 	hero:     u8, // whose hand holds it
@@ -30,7 +31,7 @@ Card_View :: struct {
 }
 
 // An enemy in the fight.
-Enemy_View :: struct {
+View_Enemy :: struct {
 	kind:          g.Enemy_Kind,
 	weak:          u8,
 	vulnerable:    u8,
@@ -134,7 +135,7 @@ fill_cards :: proc(f: ^Frame, local: int) {
 			card := sim.get(&f.state.cards, handle)
 			if card == nil do continue
 			def := g.CARDS[card.id]
-			godot.push_view(f, handle, {kind = .Card}, Card_View {
+			godot.push_view(f, handle, {}, View_Card {
 				id       = card.id,
 				upgraded = card.upgraded,
 				hero     = u8(index),
@@ -156,7 +157,7 @@ fill_enemies :: proc(f: ^Frame) {
 		for &hero, index in f.state.heroes {
 			if hero.in_run && aim_of(f, &hero).enemy == u8(handle.index) + 1 do aimed |= 1 << uint(index)
 		}
-		godot.push_view(f, handle, {kind = .Enemy}, Enemy_View {
+		godot.push_view(f, handle, {}, View_Enemy {
 			kind          = enemy.kind,
 			weak          = enemy.weak,
 			vulnerable    = enemy.vulnerable,

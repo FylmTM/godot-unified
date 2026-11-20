@@ -1,6 +1,6 @@
 # unified:godot view tests: run headless by `uni test --suite godot-bindings`. A single player session of the toy
 # game whose Glue (ext/ext.odin) shows fixed items; checks that scene views with a UnifiedView marker spawn from
-# the view index (2D and 3D, identified by kind and key), get their pose, their pose before their own _process and typed data as properties,
+# the view index (2D and 3D, identified by kind and key), get their pose, their pose before their own _process and their data (one object of their kind's class),
 # and their lifecycle callbacks; that MultiMesh views get their buffers; that session data reaches Unified.data.toy and
 # the constants Unified.constants; that enums are ints with Enum* classes; that events reach the views and the
 # sim_event signal as objects of their classes in each state; that commands made from their classes reach the sim
@@ -233,15 +233,22 @@ func _initialize() -> void:
 	check_card(card, card_seen, hand)
 	check("by subject type: a view of another table's handle with the thing's key gets none of its events",
 		decoys_seen and decoy_events.is_empty(), decoy_events)
-	check("a declared view data type's enum has its class (Glue.views)", EnumMode.OPEN == 1, EnumMode.OPEN)
-	check("a declared view data type's nested struct: an object of its class", typed.get("area") is DataMarkArea \
-		and (typed.get("area") as DataMarkArea).layer == 3, typed.get("area"))
-	check("scene data as properties (an enum as its int)", typed.get("shown") and typed.get("mode") == 1 and typed.get("hp") == -3 \
-		and near(typed.get("charge"), 0.5) and typed.get("dir").is_equal_approx(Vector2(0.6, -0.8)) \
-		and typed.get("tint").is_equal_approx(Color(1, 0.5, 0.25, 1)),
-		[typed.get("shown"), typed.get("mode"), typed.get("hp"), typed.get("charge"), typed.get("dir"), typed.get("tint")])
-	check("scene data set only when it changes", typed.get("hp_sets") == 1 and typed.get("ticks_sets") > 2,
-		[typed.get("hp_sets"), typed.get("ticks_sets")])
+	check("an enum only a view kind uses has its class", EnumMode.OPEN == 1, EnumMode.OPEN)
+	var data: ViewTyped2d = typed.get("data")
+	check("a view's data: an object of its kind's class", data != null and data is ViewTyped2d, data)
+	if data == null:
+		return
+	check("a view kind's nested struct: an object of its class", data.area is DataMarkArea and data.area.layer == 3,
+		data.area)
+	check("a view's data fields (an enum as its int)", data.shown and data.mode == EnumMode.OPEN and data.hp == -3 \
+		and near(data.charge, 0.5) and data.dir.is_equal_approx(Vector2(0.6, -0.8)) \
+		and data.tint.is_equal_approx(Color(1, 0.5, 0.25, 1)),
+		[data.shown, data.mode, data.hp, data.charge, data.dir, data.tint])
+	check("a view's data is set before its _ready", typed.get("data_at_ready") is ViewTyped2d \
+		and (typed.get("data_at_ready") as ViewTyped2d).hp == -3, typed.get("data_at_ready"))
+	check("a view's data is set anew only when its bytes change, a new object each time",
+		typed.get("hp_sets") == 1 and typed.get("ticks_sets") > 2 and typed.get("data_sets") == typed.get("ticks_sets") \
+		and typed.get("data_at_ready") != data, [typed.get("hp_sets"), typed.get("ticks_sets"), typed.get("data_sets")])
 	check("one latched press spawned one thing", toy.spawned == 1, toy.spawned)
 	check_players(session, me, roster_changes[0])
 	check_view_lookup(session, typed, plain, me)
@@ -730,7 +737,7 @@ func check_hand(session: UnifiedSession, hand: Container, me: int) -> void:
 		press(&"ui_accept", false)
 		await create_timer(0.02).timeout
 		for child in hand.get_children():
-			if child.get_node_or_null(^"UnifiedView") != null and child.get("life") > 30:
+			if child.get_node_or_null(^"UnifiedView") != null and (child.get("data") as ViewCard).life > 30:
 				long_lived = child as Control
 		if long_lived != null:
 			break

@@ -442,7 +442,7 @@ quat_yaw_angle :: proc(yaw: f32) -> [4]f32 {
 	return {0, math.sin(yaw * 0.5), 0, math.cos(yaw * 0.5)}
 }
 
-// ---- warp epochs and per-kind smoothing (View_Kind.policy)
+// ---- warp epochs and per-kind smoothing (Glue.view_policy)
 
 // A 3-unit respawn that reaches the view as a rollback correction (shorter than teleport_dist): without a warp it
 // glides from the old place; with the epoch bumped it is on the new pose in the first frame.

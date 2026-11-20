@@ -142,10 +142,10 @@ exercised. Its Profile alternates the classes by slot (`scripted_profile`).
 ## View contract (`simulation/extension`)
 
 - Scene views, Controls with data only (the host sets their fields and never poses them):
-  - `card` (`Card_View`), one per card in a hand, keyed by the card's handle: it spawns under the board's Hands node
+  - `card` (`View_Card`), one per card in a hand, keyed by the card's handle: it spawns under the board's Hands node
     (its marker's `parent_path`) and moves itself into its holder's hand box, the local hero's big hand or an ally's
     small one, in slot order. `playable` says the local player could play it now; `held` that its holder aims it.
-  - `enemy` (`Enemy_View`), keyed by its handle, in the enemies' row: HP, block, statuses, its intent and whom at, and
+  - `enemy` (`View_Enemy`), keyed by its handle, in the enemies' row: HP, block, statuses, its intent and whom at, and
     which heroes aim at it.
   A played or discarded card and a dead enemy fade while their view lingers; a rollback that brings them back
   revives them.

@@ -95,14 +95,14 @@ session and an offline run agree.
 ## View contract (`simulation/extension`)
 
 - Scene views (each a Node2D with a UnifiedView marker):
-  - `ship` (`Ship_View`), keyed by its player (`sim.player_key`), so the view survives a leave and comes back with
+  - `ship` (`View_Ship`), keyed by its player (`sim.player_key`), so the view survives a leave and comes back with
     the player in any slot; its colour follows the slot they hold (`Unified.session.get_player_slot`), and its tag
     over another player's ship shows the player's name, else "P<n>".
     When the player leaves, the ship shrinks away while the view lingers (`_sim_despawned`; `_sim_revived` undoes
     it). A gate and the reset teleport the ship's body, which moves its warp epoch on (`physics.body_warp`): the view
     snaps across, never glides.
-  - `station` (`Station_View`), key 0.
-  - `gate` (`Gate_View`), keyed by the gate's index.
+  - `station` (`View_Station`), key 0.
+  - `gate` (`View_Gate`), keyed by the gate's index.
 - MultiMesh views (MultiMeshInstance2D, `TRANSFORM_2D`, keyed by handle):
   - `rock_0..3`: a polygon mesh per shape variant at radius 1, scaled per axis by the rock's radius (squashed for a
     moment when hit), custom data `{size, hit flash}`.

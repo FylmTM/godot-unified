@@ -39,9 +39,12 @@ seen: struct {
 }
 
 @(private = "file")
-View :: enum u8 {
-	Dot,
+View :: union {
+	View_Dot,
 }
+
+@(private = "file")
+View_Dot :: struct {}
 
 @(private = "file")
 MultiView :: enum u8 {
@@ -54,7 +57,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 	fill_frame = proc(frame: ^godot.Frame(toy.Game, View, MultiView)) {
 		players := sim.iterate_present(&frame.state.players)
 		for data, player in sim.next(&players) {
-			godot.push_view(frame, player, {kind = .Dot, pos = {data.pos.x, 0, data.pos.y}})
+			godot.push_view(frame, player, {pos = {data.pos.x, 0, data.pos.y}}, View_Dot{})
 			godot.push_multi_view(frame, {
 				key  = sim.player_key(player),
 				kind = .Spark,
@@ -81,7 +84,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 	},
 	view_scale = 10, // event positions stay in sim units across the hand-off: the main thread maps them
 	// the driver also fills verified ticks (fill_verified) and samples them (verified_players.odin)
-	views = {.Dot = {policy = {appear = .Verified, remote = .Verified}}},
+	view_policy = {{View_Dot, {appear = .Verified, remote = .Verified}}},
 }
 
 @(private = "file")
@@ -508,7 +511,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		bad := godot.Glue(toy.Game, Bad_View, MultiView){}
 		godot.install(&toy.GAME, bad)
 		testing.expect(t, !godot.api.installed)
-		// no fill_frame, no sample_input, a View enum that doesn't count from 0
+		// no fill_frame, no sample_input, a View that is no union
 		testing.expectf(t, len(godot.api.problems) == 3, "all three problems: %v", godot.api.problems)
 		// a game with an Input whose Glue has no sample_input
 		missing := GLUE
@@ -522,12 +525,16 @@ driver_sessions :: proc(t: ^testing.T) {
 		policies.multi_policy = {
 			.Spark = {pose = .Script, remote = .Verified},
 		}
-		policies.views[.Dot].policy = {
-			smoothing = {ramp_dist = 2},
-		}
+		policies.view_policy = {{View_Dot, {smoothing = {ramp_dist = 2}}}}
 		godot.install(&toy.GAME, policies)
 		testing.expect(t, !godot.api.installed)
 		testing.expectf(t, len(godot.api.problems) == 3, "the three policy problems: %v", godot.api.problems)
+		// a policy for a type that is no View kind, and one kind twice
+		kinds := GLUE
+		kinds.view_policy = {{Stats, {}}, {View_Dot, {}}, {View_Dot, {}}}
+		godot.install(&toy.GAME, kinds)
+		testing.expect(t, !godot.api.installed)
+		testing.expectf(t, len(godot.api.problems) == 2, "not a kind, a kind twice: %v", godot.api.problems)
 	}
 
 	// A game without an Input (sim.No_Input): its Glue has no sample_input, the main thread's sample does nothing,
@@ -718,8 +725,8 @@ player_views_remember_their_own_poses :: proc(t: ^testing.T) {
 		data.n_views = 0
 		data.n_data = 0
 		frame.tick = tick
-		godot.push_view(&frame, first, {kind = .Dot, pos = {f32(tick), 0, 0}})
-		godot.push_view(&frame, second, {kind = .Dot, pos = {100 + f32(tick), 0, 0}})
+		godot.push_view(&frame, first, {pos = {f32(tick), 0, 0}}, View_Dot{})
+		godot.push_view(&frame, second, {pos = {100 + f32(tick), 0, 0}}, View_Dot{})
 	}
 	for player, i in ([2]sim.Player{first, second}) {
 		view := data.views[i]
@@ -828,12 +835,12 @@ to_view_keys_as_push_view_does :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(
 		t,
-		godot.to_view(View.Dot, player),
-		godot.Event_Target(View){.Dot, sim.player_key(player), .View},
+		godot.to_view(View_Dot, player),
+		godot.Event_Target{View_Dot, sim.player_key(player), .View},
 	)
-	testing.expect_value(t, godot.to_view(View.Dot, sim.entity(5)), godot.Event_Target(View){.Dot, 5, .View})
-	testing.expect_value(t, godot.to_view(View.Dot), godot.Event_Target(View){.Dot, 0, .View})
-	testing.expect_value(t, godot.to_view(View.Dot, sim.Entity(0)).route, godot.Event_Route.Subject) // none: by subject
+	testing.expect_value(t, godot.to_view(View_Dot, sim.entity(5)), godot.Event_Target{View_Dot, 5, .View})
+	testing.expect_value(t, godot.to_view(View_Dot), godot.Event_Target{View_Dot, 0, .View})
+	testing.expect_value(t, godot.to_view(View_Dot, sim.Entity(0)).route, godot.Event_Route.Subject) // none: by subject
 }
 
 @(private = "file")
@@ -864,23 +871,30 @@ Keyword_Data :: union {
 }
 
 @(private = "file")
-Dot_Keyword :: struct {
-	class: u8, // a view data field is the root script's `var class`, which does not parse
-	Node:  u8, // a capital would shadow a class
+View_Keyword :: struct {
+	class: u8, // fine: a view kind is a class like any other (`data.class`)
+	Node:  u8, // fine: a field, not a script var
+	true:  u8, // `data.true` is the literal
 }
 
-// What GDScript can't read is an install problem naming the field: in a class (session data here) only `true`,
-// `false` and `null`; in declared view data, whose fields are the root script's own vars, any keyword, built-in
-// type name, `_` or capitalised name.
+@(private = "file")
+Keyword_View :: union {
+	View_Keyword,
+}
+
+// What GDScript can't read is an install problem naming the field: in a class (session data, a view kind) only
+// `true`, `false` and `null`.
 @(test)
 a_name_gdscript_cant_take_is_an_install_problem :: proc(t: ^testing.T) {
-	glue := GLUE
-	glue.data = Keyword_Data
-	glue.views[.Dot].data = Dot_Keyword
+	glue := godot.Glue(toy.Game, Keyword_View, MultiView) {
+		sample_input = GLUE.sample_input,
+		fill_frame = proc(_: ^godot.Frame(toy.Game, Keyword_View, MultiView)) {},
+		data = Keyword_Data,
+	}
 	problems := godot.install_problems(&toy.GAME, glue)
 	names := strings.join(problems, "\n", context.temp_allocator)
-	testing.expectf(t, len(problems) == 3, "%v", problems)
-	for field in ([]string{"Data_Keyword.null", "Dot_Keyword.class", "Dot_Keyword.Node"}) {
+	testing.expectf(t, len(problems) == 2, "%v", problems)
+	for field in ([]string{"Data_Keyword.null", "View_Keyword.true"}) {
 		testing.expectf(t, strings.contains(names, field), "%s: %v", field, problems)
 	}
 	testing.expectf(t, !strings.contains(names, "Data_Keyword.class"), "a class's `class` field reads: %v", problems)

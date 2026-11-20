@@ -40,7 +40,7 @@ each time; the views show the newest guess and are told when it changes.
 - Whatever teleports pushes a warp epoch with its view (`View_Item.warp`; Filling a frame): a body's is
   `physics.body_warp` (every physics teleport moves it on); a thing that is no one body keeps a `u8` in its state.
 - A kind whose spawns must never show mispredicted is `Appear.Verified`; its smoothing and who poses it are its
-  policy, in its `Glue.views` / `multi_policy` entry (Filling a frame).
+  policy, in its `Glue.view_policy` / `multi_policy` entry (Filling a frame).
 - What a view shows of the rules' next move (the item a grab would take, the next upgrade) calls the proc `tick`
   calls, from `fill_frame`, so the two cannot disagree. A preview that follows the player's own input (a piece under
   the cursor, an aim line) reads `Frame.local_inputs`, the newest sample, not the state's, which trails it by the

@@ -39,7 +39,8 @@ func _holding_crate() -> void:
 	await shot("r03_holding")
 	var held: Node3D = null
 	for v: Node in views(EnumView.MARKER):
-		if v.get(&"held_by") as int == session.local_player:
+		var marker_data: ViewMarker = v.get(&"data")
+		if marker_data.held_by == session.local_player:
 			held = v as Node3D
 	expect(held != null, "the held item's view knows its holder")
 	if held != null:

@@ -13,9 +13,10 @@ import g "../playground"
 
 Frame :: godot.Frame(g.Game, View, MultiView)
 
-View :: enum u8 {
-	Camera, // a player's flying camera (keyed by its player)
-	Sensor, // a sensor volume of the Sensors scene (keyed by its index)
+// The scene views, a struct per kind: its views' data.
+View :: union {
+	View_Camera, // a player's flying camera (keyed by its player)
+	View_Sensor, // a sensor volume of the Sensors scene (keyed by its index)
 }
 
 MultiView :: enum u8 {
@@ -25,8 +26,8 @@ MultiView :: enum u8 {
 	Cylinder, // a unit cylinder (diameter and height 1), scaled
 }
 
-// A camera's data: its player's colour, and what they are doing.
-Camera_View :: struct {
+// A camera: its player's colour, and what they are doing.
+View_Camera :: struct {
 	color:   godot.Color,
 	holding: bool,
 	driving: bool,
@@ -35,8 +36,8 @@ Camera_View :: struct {
 	grab_at: sim.Position, // where the grab pulls to (holding)
 }
 
-// A sensor's data: its half extents and how many bodies are in it.
-Sensor_View :: struct {
+// A sensor: its half extents and how many bodies are in it.
+View_Sensor :: struct {
 	half:   [3]f32,
 	inside: u32,
 	visits: u32,
@@ -91,8 +92,8 @@ fill_frame_cameras :: proc(f: ^Frame) {
 		godot.push_view(
 			f,
 			player,
-			{kind = .Camera, pos = sim.Position(data.pos), rot = dmath.aim_quat(data.aim), warp = data.warp},
-			Camera_View {
+			{pos = sim.Position(data.pos), rot = dmath.aim_quat(data.aim), warp = data.warp},
+			View_Camera {
 				color   = PLAYER_COLORS[slot],
 				holding = data.grab != {},
 				driving = data.car >= 0,
@@ -204,7 +205,7 @@ fill_frame_sensors :: proc(f: ^Frame) {
 	if f.state.level.id != .Sensors do return
 	for &sensor, i in f.state.sensors {
 		if sensor.body == {} do continue
-		godot.push_view(f, sim.entity(i), {kind = .Sensor, pos = sim.Position(g.SENSOR_AT[i])}, Sensor_View {
+		godot.push_view(f, sim.entity(i), {pos = sim.Position(g.SENSOR_AT[i])}, View_Sensor {
 			half   = g.SENSOR_HALF,
 			inside = sensor.inside,
 			visits = sensor.visits,
