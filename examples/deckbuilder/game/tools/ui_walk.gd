@@ -1,7 +1,7 @@
 extends UnifiedTool
 ## A scripted walk through deckbuilder's table with real clicks, the godot suite's `walk` step:
 ##   godot --headless --path examples/deckbuilder -s res://game/tools/ui_walk.gd -- [--shots=<dir>]
-## the camp (pick the Arcanist: the session starts again with the new class) -> start a run -> vote on the map ->
+## the camp (it offers hosting and joining; pick the Arcanist: the session starts again with the new class) -> start a run -> vote on the map ->
 ## the first fight: hold a card up (the aim), put it down (right click), play it on an enemy -> end the turn (the
 ## enemies act, the next round deals) -> win the fight (the dev command) -> take a reward card -> vote again (the save
 ## point) -> the table again from the start: the camp offers the saved run -> continue it (the floor and the deck as
@@ -20,6 +20,8 @@ func _run() -> void:
 	session.sim_event.connect(_on_sim_event)
 	await _camp()
 	expect(Table.button(current_scene, "Continue") == null, "no saved run: the camp offers no Continue")
+	for offer: String in ["Host online", "Host on the LAN", "Join by code", "Join on the LAN"]:
+		expect(Table.button(current_scene, offer) != null, "the camp offers %s" % offer)
 	await shot("01_camp")
 	step("the camp")
 	if failed():
