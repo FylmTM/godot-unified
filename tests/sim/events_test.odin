@@ -64,8 +64,8 @@ events_follow_the_inputs :: proc(t: ^testing.T) {
 	simulation := sim.create(&toy.GAME, 1)
 	defer sim.destroy(simulation)
 	inputs: toy.Inputs
-	sim.join(&inputs, 0, 1)
-	sim.join(&inputs, 2, 7)
+	join_record(&inputs, 0, 1)
+	join_record(&inputs, 2, 7)
 	inputs.input[0].buttons = {.Spawn}
 	sim.step(simulation, &inputs)
 	events := sim.events_at(simulation, 1)

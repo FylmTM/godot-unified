@@ -6,6 +6,7 @@
 package sim
 
 import "base:intrinsics"
+import "core:fmt"
 
 NO_SLOT :: u8(0xFF) // Member.slot of an absent member
 
@@ -409,30 +410,31 @@ commands :: proc(tick: ^Tick($G), player: Player) -> []part(G, GAME_CMD) {
 	return commands_of_slot(tick.commands, slot) if slot >= 0 else nil
 }
 
-// A join record for a test or a script: `member` (the relay's id, >= 1) becomes present in `slot` this tick, bringing
-// `profile` (the zero Profile when left out; sim.join(&inputs, 0, 1, Profile{character = .Tank})).
-join :: proc {
-	join_plain,
-	join_with_profile,
-}
-
-// join with the zero Profile.
-join_plain :: proc(inputs: ^Inputs($G), slot: int, member: int) {
-	join_with_profile(inputs, slot, member, part(G, GAME_PROFILE){})
-}
-
-// join bringing `profile`.
-join_with_profile :: proc(inputs: ^Inputs($G), slot: int, member: int, profile: $P) where P == part(G, GAME_PROFILE) {
+// A join record: `member` (the relay's id, >= 1) present in `slot` this tick, bringing `profile`. Only the relay's
+// records and seat's: one alone seats a member for one tick (Inputs are one tick's), which is why it is private.
+@(private)
+join_record :: proc(inputs: ^Inputs($G), slot: int, member: int, profile: $P) where P == part(G, GAME_PROFILE) {
 	assert(slot >= 0 && slot < part(G, GAME_PLAYERS) && member >= 1 && member <= 0xFFFF)
 	inputs.present += {slot}
 	inputs.joins[slot] = u16(member)
 	inputs.profiles[slot] = profile
 }
 
-// `member` holds `slot` in the tick `inputs` is for (tests, tools and bots that keep members seated tick after tick):
-// the slot is present, with a join record (bringing `profile`) only when someone else holds it in the state the tick
-// steps from (a simulation's current one, or a State's Players). Present without a join record, a slot nobody holds
-// stays empty: seat is the way that can't happen.
+// `member` holds `slot` in the tick `inputs` is for (tests, tools and bots that seat members by hand): the slot is
+// present, with a join record (bringing `profile`, the zero Profile when left out) only when someone else holds it in
+// the state the tick steps from (a simulation's current one, or a State's Players). Present without a join record, a
+// slot nobody holds stays empty: seat is the way that can't happen.
+//
+// Inputs are one tick's, so a member stays only while every tick's inputs seat them. Given a simulation, seat
+// remembers the member (outside the state), and every tick's Inputs start from seated_inputs, which seats them
+// again; `step` panics, naming the slot, on a tick whose inputs leave a remembered member out: a member leaves by
+// unseat. What seat remembers is the Sim's, not the state's: it stays across a restore, and a simulation made from a
+// snapshot starts with none.
+//
+//   inputs := sim.seated_inputs(simulation)       // whoever was seated before, still present
+//   if tick == 1 do sim.seat(&inputs, simulation, 0, 1)
+//   inputs.input[0] = input
+//   sim.step(simulation, &inputs)
 seat :: proc {
 	seat_of_players,
 	seat_of_players_with_profile,
@@ -457,18 +459,68 @@ seat_of_players_with_profile :: proc(
 	profile: Profile,
 ) {
 	if int(player_in_slot_of_players(players, slot).id) != member {
-		join_with_profile(inputs, slot, member, profile)
+		join_record(inputs, slot, member, profile)
 	} else {
 		inputs.present += {slot}
 	}
 }
 
 seat_of_sim :: proc(inputs: ^Inputs($G), simulation: ^Sim(G), slot: int, member: int) {
-	seat_of_players(inputs, &simulation.state.players, slot, member)
+	seat_of_sim_with_profile(inputs, simulation, slot, member, part(G, GAME_PROFILE){})
 }
 
 seat_of_sim_with_profile :: proc(inputs: ^Inputs($G), simulation: ^Sim(G), slot: int, member: int, profile: $P) {
 	seat_of_players_with_profile(inputs, &simulation.state.players, slot, member, profile)
+	if int(simulation.seats[slot].member) != member {
+		simulation.seats[slot] = {u16(member), simulation.tick + 1}
+	}
+}
+
+// Forgets the member seat seated in `slot` (nobody there: nothing): the first tick whose inputs leave them out is
+// their leave, and `step` no longer asks for them.
+unseat :: proc(simulation: ^Sim($G), slot: int) {
+	assert(slot >= 0 && slot < part(G, GAME_PLAYERS))
+	simulation.seats[slot] = {}
+}
+
+// The next tick's Inputs with every member seat remembers seated again (present; a join record where someone else
+// holds the slot), and nothing else: where a hand-driven tick's inputs start.
+seated_inputs :: proc(simulation: ^Sim($G)) -> (inputs: Inputs(G)) {
+	for seated, slot in simulation.seats {
+		if seated.member != 0 do seat_of_players(&inputs, &simulation.state.players, slot, int(seated.member))
+	}
+	return
+}
+
+// A member seat seated, remembered so `step` can name a tick that leaves them out (Sim.seats; member 0: none).
+@(private)
+Hand_Seat :: struct {
+	member: u16,
+	since:  u32, // the first tick seat had them in
+}
+
+// Panics when the tick `number`'s inputs leave out a member seat remembers (seated from an earlier tick): Inputs are
+// one tick's, and a test or tool that seated a member once would otherwise see them leave silently.
+@(private)
+seats_check :: proc(simulation: ^Sim($G), inputs: ^Inputs(G), number: u32) {
+	for seated, slot in simulation.seats {
+		if seated.member == 0 || number <= seated.since || slot in inputs.present do continue
+		seat_left_out(number, slot, seated)
+	}
+}
+
+// seats_check's panic, naming the cause (a non-generic home for its import: -vet).
+@(private)
+seat_left_out :: proc(number: u32, slot: int, seated: Hand_Seat) -> ! {
+	panic(
+		fmt.tprintf(
+			"sim.step: tick %d's inputs leave out slot %d, where sim.seat seated member %d from tick %d. Inputs are one tick's: start each tick's from sim.seated_inputs (or seat the member every tick), and sim.unseat a member to have them leave",
+			number,
+			slot,
+			seated.member,
+			seated.since,
+		),
+	)
 }
 
 // The changes of a tick's presence, for Tick.player_changes.

@@ -376,6 +376,7 @@ Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	// Game.save's answer for each stepped tick, by ring slot (nil without a Game.save): save_changed reads a verified
 	// tick's, whether or not the ring kept its state.
 	saves:        []Saved_Tick(part(G, GAME_SETUP)),
+	seats:        [part(G, GAME_PLAYERS)]Hand_Seat, // the members sim.seat seated by hand (step asks for them)
 }
 
 // Game.save's answer for a stepped tick: whether it gave a save, and the Setup.
@@ -764,10 +765,12 @@ ring_slot :: #force_inline proc(simulation: ^Sim($G), tick: u32) -> int {
 // timing the save apart); events_at answers for such a tick, state_at, restore and snapshot_encode don't. The slot is
 // the new tick's from the start: it never answers for the tick it held before. The State's Players is updated first
 // (players.odin) and its join and leave events emitted before the game's. Each Input is read as every peer reads
-// bytes from another machine (inputs_as_read); `inputs` itself is left as it is.
+// bytes from another machine (inputs_as_read); `inputs` itself is left as it is. Panics on inputs that leave out a
+// member `seat` seated by hand and no `unseat` let go (seats_check).
 step :: proc(simulation: ^Sim($G), inputs: ^Inputs(G), save := true) {
 	read := inputs_as_read(simulation, inputs) // as every peer reads them: `inputs` stays as sent
 	number := simulation.tick + 1
+	seats_check(simulation, read, number)
 	slot := &simulation.ring[ring_slot(simulation, number)]
 	slot.tick = number
 	slot.valid = true

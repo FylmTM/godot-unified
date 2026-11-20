@@ -94,7 +94,7 @@ Pick_Join :: struct {
 pick_step :: proc(simulation: ^sim.Sim(Pick), slots: sim.Slots, joins: ..Pick_Join) {
 	inputs: sim.Inputs(Pick)
 	inputs.present = slots
-	for join in joins do sim.join(&inputs, join.slot, join.member, join.profile)
+	for join in joins do join_record(&inputs, join.slot, join.member, join.profile)
 	sim.step(simulation, &inputs)
 }
 
@@ -151,7 +151,7 @@ a_malformed_profile_reads_as_the_zero_profile :: proc(t: ^testing.T) {
 	defer sim.destroy(b)
 	inputs: sim.Inputs(Pick)
 	inputs.present = {0}
-	sim.join(&inputs, 0, 1, Pick_Profile{kind = .Tank, hue = 7})
+	join_record(&inputs, 0, 1, Pick_Profile{kind = .Tank, hue = 7})
 	(cast(^u8)&inputs.profiles[0].kind)^ = 77 // no Pick_Kind
 	sent := inputs
 	sim.step(a, &inputs)
@@ -248,8 +248,8 @@ the_log_carries_the_setup_and_each_joins_profile :: proc(t: ^testing.T) {
 	for k in 0 ..< 30 {
 		inputs: sim.Inputs(Pick)
 		inputs.present = {0, 1} if k < 10 else {0, 1, 2}
-		if k == 0 do for join in joins[:2] do sim.join(&inputs, join.slot, join.member, join.profile)
-		if k == 10 do sim.join(&inputs, joins[2].slot, joins[2].member, joins[2].profile)
+		if k == 0 do for join in joins[:2] do join_record(&inputs, join.slot, join.member, join.profile)
+		if k == 10 do join_record(&inputs, joins[2].slot, joins[2].member, joins[2].profile)
 		sim.log_append(&input_log, &inputs)
 		sim.step(simulation, &inputs)
 	}

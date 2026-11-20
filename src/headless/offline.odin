@@ -151,6 +151,7 @@ scripted :: proc(
 	for slot in 0 ..< PLAYERS {
 		member := commands.holder[slot]
 		if member == 0 {
+			sim.unseat(simulation, slot) // whoever held it leaves now
 			continue
 		}
 		sim.seat(&inputs, simulation, slot, member, scripted_profile(game, simulation.seed, slot, commands))
@@ -543,7 +544,10 @@ run_inputs :: proc(run: ^Run($G)) -> (inputs: sim.Inputs(G)) {
 	simulation := run.simulation
 	for slot in 0 ..< sim.part(G, sim.GAME_PLAYERS) {
 		member := run.commands.holder[slot]
-		if member == 0 do continue
+		if member == 0 {
+			sim.unseat(simulation, slot) // whoever held it leaves now
+			continue
+		}
 		sim.seat(
 			&inputs,
 			simulation,

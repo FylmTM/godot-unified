@@ -19,7 +19,7 @@ Everything generic over a game takes that one type (`Sim(G)`, `Tick(G)`, `Inputs
 headless runs, `godot.Glue`) and names a part of it with `part`.
 
 What the compiler can check does not compile: a State without `players` (or one for another Profile, Input or
-PLAYERS), a Setup or Profile of another type where the game's is taken (`create`, `join`), an
+PLAYERS), a Setup or Profile of another type where the game's is taken (`create`, `seat`), an
 Event union without the library's join and leave events, an `emit` or `send_command` of a type outside the union. The
 rest (the tick rate, the plain-data rules below) `game_violation` checks once at run time: `create` panics with its
 reason, the Godot host reports it.
@@ -229,7 +229,9 @@ tick :: proc(t: ^Tick) {
 - Every query takes the tick, a `^Players` (views) or a `^Sim` (tests and drivers outside `tick`); `input`,
   `input_before`, `buttons` and `commands` take the tick only.
 - Join records come from the relay; tests, tools and bots write them with `seat`, which can't leave a slot present
-  without one by mistake.
+  without one by mistake. Inputs are one tick's, so a member seated by hand stays only while every tick's inputs
+  seat them: the Sim remembers whom `seat` seated, `seated_inputs` starts a tick's inputs with them, and `step`
+  panics on a tick that leaves one out without `unseat`, rather than letting them leave unseen.
 
 ## Commands
 
