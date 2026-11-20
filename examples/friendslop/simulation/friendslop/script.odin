@@ -41,10 +41,10 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input 
 // The scripted commands: slot 0 takes the team to the route every SCRIPT_TRAVEL_EVERY ticks (at SCRIPT_TRAVEL_AT) and
 // back to the hub SCRIPT_TRAVEL_STAY ticks later, so every scripted session, replay and reference run crosses level
 // changes (a function of slot and tick only).
-scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
+scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Command)) {
 	if slot != 0 do return
-	if tick % SCRIPT_TRAVEL_EVERY == SCRIPT_TRAVEL_AT do sim.send_command(out, Cmd_Travel{.Route})
-	if tick % SCRIPT_TRAVEL_EVERY == SCRIPT_TRAVEL_AT + SCRIPT_TRAVEL_STAY do sim.send_command(out, Cmd_Travel{.Hub})
+	if tick % SCRIPT_TRAVEL_EVERY == SCRIPT_TRAVEL_AT do sim.send_command(out, Command_Travel{.Route})
+	if tick % SCRIPT_TRAVEL_EVERY == SCRIPT_TRAVEL_AT + SCRIPT_TRAVEL_STAY do sim.send_command(out, Command_Travel{.Hub})
 }
 
 SCRIPT_TRAVEL_EVERY :: 640

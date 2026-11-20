@@ -235,9 +235,9 @@ send_every_tick :: proc(client: ^Client) {
 		local, slot: int,
 		tick: u32,
 		state: ^toy.State,
-		out: ^sim.Command_Out(toy.Cmd),
+		out: ^sim.Command_Out(toy.Command),
 	) {
-		sim.send_command(out, toy.Cmd_Bump{i32(tick)})
+		sim.send_command(out, toy.Command_Bump{i32(tick)})
 	}
 }
 

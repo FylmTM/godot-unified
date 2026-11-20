@@ -103,7 +103,7 @@ Seat :: struct {
 // each slot's script sends for it: at most sim.COMMANDS_PER_SLOT commands (a session's relay would hold the rest for
 // the next ticks; an offline run asserts a script never sends more).
 Scripted_Commands :: struct($G: typeid) {
-	out:      sim.Command_Out(sim.part(G, sim.GAME_CMD)),
+	out:      sim.Command_Out(sim.part(G, sim.GAME_COMMAND)),
 	seats:    []Seat, // borrowed
 	holder:   [sim.MAX_PLAYERS]int, // the member in each slot (0: nobody)
 	seated:   bool, // holder is set
@@ -335,7 +335,7 @@ Synctest_Result :: struct {
 //   headless.run_seat(&run, 2, 7, Profile{character = .Runner}) // ... joining with that Profile
 //   inputs := headless.run_inputs(&run)  // the seated members present, join records where needed (sim.seat)
 //   inputs.input[0] = input
-//   sim.add_command(&inputs, 0, command) // a Cmd_X value, or the game's Cmd union
+//   sim.add_command(&inputs, 0, command) // a Command_X value, or the game's Command union
 //   headless.run_step(&run, &inputs)
 //   ship := sim.slot_data(run.simulation, 0)
 //   headless.run_pin(&run)               // the test changed the state: never restore before this tick
@@ -436,11 +436,11 @@ run_step_seated :: proc(run: ^Run($G)) {
 	run_step_inputs(run, &inputs)
 }
 
-// One forward tick and its sync-test (run_step) in which `slot` sends `command` (a Cmd_X value, or the game's Cmd
+// One forward tick and its sync-test (run_step) in which `slot` sends `command` (a Command_X value, or the game's Command
 // union; it must fit: asserted), the seated members present, with no input or playing `input` by slot:
 //
-//   headless.run_command(&run, 1, g.Cmd_Pick{choice = 2})
-//   headless.run_command(&run, inputs_by_slot, 0, g.Cmd_Fire{})
+//   headless.run_command(&run, 1, g.Command_Pick{choice = 2})
+//   headless.run_command(&run, inputs_by_slot, 0, g.Command_Fire{})
 run_command :: proc {
 	run_command_seated,
 	run_command_by_slot,
@@ -452,8 +452,8 @@ run_command_seated :: proc(
 	slot: int,
 	command: $C,
 	loc := #caller_location,
-) where C == sim.part(G, sim.GAME_CMD) ||
-	intrinsics.type_is_variant_of(sim.part(G, sim.GAME_CMD), C) {
+) where C == sim.part(G, sim.GAME_COMMAND) ||
+	intrinsics.type_is_variant_of(sim.part(G, sim.GAME_COMMAND), C) {
 	inputs := run_inputs(run)
 	sent := sim.add_command(&inputs, slot, command)
 	assert(sent, "run_command: a command that doesn't fit the tick", loc)
@@ -469,7 +469,7 @@ run_command_by_slot :: proc(
 	loc := #caller_location,
 ) where N == sim.part(G, sim.GAME_PLAYERS) &&
 	I == sim.part(G, sim.GAME_INPUT) &&
-	(C == sim.part(G, sim.GAME_CMD) || intrinsics.type_is_variant_of(sim.part(G, sim.GAME_CMD), C)) {
+	(C == sim.part(G, sim.GAME_COMMAND) || intrinsics.type_is_variant_of(sim.part(G, sim.GAME_COMMAND), C)) {
 	inputs := run_inputs(run)
 	inputs.input = input
 	sent := sim.add_command(&inputs, slot, command)

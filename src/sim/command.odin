@@ -1,5 +1,5 @@
 // Commands (src/sim/README.md, Commands): one-shot actions a player sends, delivered exactly once, in order.
-// The game declares one plain struct per command and a union of them (sim.Game's Cmd; kind = variant
+// The game declares one plain struct per command and a union of them (sim.Game's Command; kind = variant
 // index). A command is input, not state: part of the tick's input record (Inputs.commands; logged,
 // replayed, sent to late joiners with the log), never in the block. `tick` reads them with `commands`.
 package sim
@@ -13,7 +13,7 @@ COMMAND_MAX :: 64 // bytes of one command's struct
 COMMANDS_PER_SLOT :: 4 // per slot per tick: more wait for the next tick, in order
 TICK_COMMANDS :: 16 // per tick, every player together (a tick's commands also fit one datagram)
 
-// One command in a tick's input record: its kind (the variant's index in the Cmd union), the slot it
+// One command in a tick's input record: its kind (the variant's index in the Command union), the slot it
 // was sent from and its struct's bytes.
 Raw_Command :: struct {
 	kind: u8,
@@ -45,18 +45,18 @@ command_value :: proc(raw: ^Raw_Command, $Command: typeid) -> Command {
 
 // A tick's commands, decoded once before `tick` (Tick.commands), each with its slot, in the record's order.
 @(private)
-Commands :: struct($Cmd: typeid) {
-	list:  [TICK_COMMANDS]Cmd,
+Commands :: struct($Command: typeid) {
+	list:  [TICK_COMMANDS]Command,
 	slots: [TICK_COMMANDS]u8,
 	count: int,
 }
 
-// The prefix of a dev command's type name: a variant `Cmd_Dev_<Name>` of the game's Cmd union is a dev command, an
+// The prefix of a dev command's type name: a variant `Command_Dev_<Name>` of the game's Command union is a dev command, an
 // ordinary command everywhere (sent, relayed, logged, replayed) that a build without the dev UI never applies
 // (commands_decode) and the dev UI offers as a form.
-DEV_COMMAND_PREFIX :: "Cmd_Dev_"
+DEV_COMMAND_PREFIX :: "Command_Dev_"
 
-// Whether a command is a dev command (its type is named Cmd_Dev_*): by its type (`sim.command_is_dev(Cmd_Dev_Spawn)`),
+// Whether a command is a dev command (its type is named Command_Dev_*): by its type (`sim.command_is_dev(Command_Dev_Spawn)`),
 // or by its variant index in a command union known at run time.
 command_is_dev :: proc {
 	command_is_dev_type,
@@ -86,12 +86,12 @@ has_dev_commands :: proc(commands: typeid) -> bool {
 // Decodes the record's commands, leaving out any whose bytes don't decode (an unknown kind, a wrong size), and the dev
 // commands unless `dev` (a build without the dev UI never applies one, whoever sends it).
 @(private)
-commands_decode :: proc(commands: ^Commands($Cmd), inputs: ^Inputs($G), dev := DEV) {
+commands_decode :: proc(commands: ^Commands($Command), inputs: ^Inputs($G), dev := DEV) {
 	commands.count = 0
-	when intrinsics.type_union_variant_count(Cmd) > 0 { 	// sim.No_Commands: nothing to decode
+	when intrinsics.type_union_variant_count(Command) > 0 { 	// sim.No_Commands: nothing to decode
 		for &raw in inputs.commands[:inputs.command_count] {
-			if !dev && command_is_dev(Cmd, int(raw.kind)) do continue
-			value := command_value(&raw, Cmd)
+			if !dev && command_is_dev(Command, int(raw.kind)) do continue
+			value := command_value(&raw, Command)
 			if value == nil do continue
 			commands.list[commands.count] = value
 			commands.slots[commands.count] = raw.slot
@@ -102,7 +102,7 @@ commands_decode :: proc(commands: ^Commands($Cmd), inputs: ^Inputs($G), dev := D
 
 // The decoded commands of `slot`.
 @(private)
-commands_of_slot :: proc(commands: ^Commands($Cmd), slot: int) -> []Cmd {
+commands_of_slot :: proc(commands: ^Commands($Command), slot: int) -> []Command {
 	low := 0
 	for low < commands.count && int(commands.slots[low]) < slot {
 		low += 1
@@ -127,15 +127,15 @@ command_from_bytes :: proc(commands: typeid, kind: int, bytes: []u8) -> (raw: Ra
 }
 
 // A raw command from a value of one of the game's command structs (tests and tools):
-// `sim.command_make(Cmd, Cmd_Set_Map{map_index = 2})`. A value that is not a variant of Cmd does not compile.
-command_make :: proc($Cmd: typeid, value: $T) -> Raw_Command where intrinsics.type_is_variant_of(Cmd, T) {
+// `sim.command_make(Command, Command_Set_Map{map_index = 2})`. A value that is not a variant of Command does not compile.
+command_make :: proc($Command: typeid, value: $T) -> Raw_Command where intrinsics.type_is_variant_of(Command, T) {
 	value := value
-	raw, _ := command_from_bytes(Cmd, variant_kind(Cmd, T), ([^]u8)(&value)[:size_of(T)])
+	raw, _ := command_from_bytes(Command, variant_kind(Command, T), ([^]u8)(&value)[:size_of(T)])
 	return raw
 }
 
 // Adds a command to a tick's record (tests, tools, bots): a value of one of the game's command structs sent from `slot`
-// (`sim.add_command(&inputs, 2, Cmd_Pick{upgrade})`: another value does not compile), a value of the game's Cmd union
+// (`sim.add_command(&inputs, 2, Command_Pick{upgrade})`: another value does not compile), a value of the game's Command union
 // (whichever command it holds; nil: none, false), or a raw command from its own slot. It goes after the commands that
 // slot already has there. False at the limits (COMMANDS_PER_SLOT for the slot, TICK_COMMANDS in all).
 add_command :: proc {
@@ -148,19 +148,24 @@ add_command_value :: proc(
 	inputs: ^Inputs($G),
 	slot: int,
 	value: $T,
-) -> bool where intrinsics.type_is_variant_of(part(G, GAME_CMD), T) {
+) -> bool where intrinsics.type_is_variant_of(part(G, GAME_COMMAND), T) {
 	if slot < 0 || slot >= part(G, GAME_PLAYERS) do return false
-	raw := command_make(part(G, GAME_CMD), value)
+	raw := command_make(part(G, GAME_COMMAND), value)
 	raw.slot = u8(slot)
 	return add_raw_command(inputs, raw)
 }
 
 // The union itself only: a struct value goes to add_command_value.
-add_command_union :: proc(inputs: ^Inputs($G), slot: int, command: $Cmd) -> bool where Cmd == part(G, GAME_CMD) {
+add_command_union :: proc(
+	inputs: ^Inputs($G),
+	slot: int,
+	command: $Command,
+) -> bool where Command ==
+	part(G, GAME_COMMAND) {
 	command := command
 	kind := union_kind(&command)
 	if kind < 0 || slot < 0 || slot >= part(G, GAME_PLAYERS) do return false
-	raw, _ := command_from_bytes(Cmd, kind, ([^]u8)(&command)[:union_variants(Cmd)[kind].size])
+	raw, _ := command_from_bytes(Command, kind, ([^]u8)(&command)[:union_variants(Command)[kind].size])
 	raw.slot = u8(slot)
 	return add_raw_command(inputs, raw)
 }
@@ -183,20 +188,20 @@ add_raw_command :: proc(inputs: ^Inputs($G), raw: Raw_Command) -> bool {
 	return true
 }
 
-// Where a command source (a UI, a script, a bot) puts the commands it sends for one tick; Cmd is the game's union.
-Command_Out :: struct($Cmd: typeid) {
+// Where a command source (a UI, a script, a bot) puts the commands it sends for one tick; Command is the game's union.
+Command_Out :: struct($Command: typeid) {
 	slot: int, // the sender's slot
 	list: [dynamic]Raw_Command,
 	cap:  int, // the most `list` may hold
 }
 
-// Sends a command (false: the out is full). A value that is not a variant of Cmd does not compile.
-send_command :: proc(out: ^Command_Out($Cmd), value: $T) -> bool where intrinsics.type_is_variant_of(Cmd, T) {
-	return push_command(out, command_make(Cmd, value))
+// Sends a command (false: the out is full). A value that is not a variant of Command does not compile.
+send_command :: proc(out: ^Command_Out($Command), value: $T) -> bool where intrinsics.type_is_variant_of(Command, T) {
+	return push_command(out, command_make(Command, value))
 }
 
 // Sends a command made with command_make or command_from_bytes (false when the out is full).
-push_command :: proc(out: ^Command_Out($Cmd), raw: Raw_Command) -> bool {
+push_command :: proc(out: ^Command_Out($Command), raw: Raw_Command) -> bool {
 	if len(out.list) >= out.cap {
 		return false
 	}

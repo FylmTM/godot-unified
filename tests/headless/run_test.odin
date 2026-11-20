@@ -62,9 +62,9 @@ run_helpers_step_with_a_setup_inputs_and_commands :: proc(t: ^testing.T) {
 	moves[1].dx = 5
 	headless.run_step(&run, moves)
 	testing.expect_value(t, run.recorded[run.simulation.tick].input[1].dx, 5)
-	headless.run_command(&run, 1, toy.Cmd_Bump{amount = 7})
+	headless.run_command(&run, 1, toy.Command_Bump{amount = 7})
 	testing.expect_value(t, sim.slot_data(run.simulation, 1).bump_sum, 7)
-	headless.run_command(&run, moves, 0, toy.Cmd(toy.Cmd_Bump{amount = 2}))
+	headless.run_command(&run, moves, 0, toy.Command(toy.Command_Bump{amount = 2}))
 	testing.expect_value(t, sim.slot_data(run.simulation, 0).bump_sum, 2)
 	testing.expect_value(t, run.recorded[run.simulation.tick].input[1].dx, 5)
 	for _ in 0 ..< 200 do headless.run_step(&run)
@@ -75,5 +75,5 @@ run_helpers_step_with_a_setup_inputs_and_commands :: proc(t: ^testing.T) {
 	headless.run_step(&run)
 	left, left_found := headless.run_last_event(&run, sim.Event_Player_Left)
 	testing.expect(t, left_found && left.player.id == 2, "the last tick's leave")
-	testing.expect(t, !sim.command_is_dev(toy.Cmd_Bump))
+	testing.expect(t, !sim.command_is_dev(toy.Command_Bump))
 }

@@ -17,7 +17,7 @@ import "unified:sim"
 Run :: headless.Run(g.Game)
 
 // One sync-tested tick of the seated members (headless.run_seat) with these inputs, and slot 0's command when given.
-step :: proc(run: ^Run, input: [g.PLAYERS]g.Input, command: g.Cmd = nil) {
+step :: proc(run: ^Run, input: [g.PLAYERS]g.Input, command: g.Command = nil) {
 	if command != nil {
 		headless.run_command(run, input, 0, command)
 	} else {
@@ -35,7 +35,7 @@ scripted :: proc(run: ^Run) -> (input: [g.PLAYERS]g.Input) {
 a_match_brings_waves_that_split :: proc(t: ^testing.T) {
 	run := headless.run_begin(&g.GAME, 1, seated = 4)
 	defer headless.run_end(&run)
-	step(&run, scripted(&run), g.Cmd_Start{})
+	step(&run, scripted(&run), g.Command_Start{})
 	testing.expect_value(t, run.simulation.state.phase, g.Phase.Match)
 	for _ in 0 ..< 2600 do step(&run, scripted(&run)) // two waves and a half
 	scenarios.expect_synced(t, &run)
@@ -50,7 +50,7 @@ the_station_falls_and_the_match_resets :: proc(t: ^testing.T) {
 	run := headless.run_begin(&g.GAME, 1, seated = 2)
 	defer headless.run_end(&run)
 	state := &run.simulation.state
-	step(&run, {}, g.Cmd_Start{})
+	step(&run, {}, g.Command_Start{})
 	for _ in 0 ..< 200 do step(&run, {})
 	testing.expect(t, state.rocks.count > 0, "the first wave's rocks")
 	// a setup: one hit left
@@ -62,7 +62,7 @@ the_station_falls_and_the_match_resets :: proc(t: ^testing.T) {
 	}
 	testing.expect_value(t, state.phase, g.Phase.Over)
 	testing.expect_value(t, headless.run_events(&run, g.Event_Match_Over), 1)
-	step(&run, {}, g.Cmd_Restart{})
+	step(&run, {}, g.Command_Restart{})
 	testing.expect_value(t, state.phase, g.Phase.Lobby)
 	testing.expect_value(t, state.rocks.count, 0)
 	testing.expect_value(t, state.station_hp, g.STATION_HP)

@@ -1,4 +1,4 @@
-// Level-up picks are a command (g.Cmd_Pick): each pick takes the oldest pending level-up when it is one of that
+// Level-up picks are a command (g.Command_Pick): each pick takes the oldest pending level-up when it is one of that
 // level's two offers (g.upgrade_offers), in order; a pick with nothing pending, or not offered, is ignored. That a
 // command reaches the sim exactly once, and never with a value that is no Upgrade, is the library's (tests/sim,
 // tests/netcode).
@@ -17,7 +17,7 @@ SEED :: 5
 pick :: proc(run: ^headless.Run(g.Game), upgrades: ..g.Upgrade) {
 	inputs := headless.run_inputs(run)
 	for upgrade in upgrades {
-		sent := sim.add_command(&inputs, 0, g.Cmd_Pick{upgrade})
+		sent := sim.add_command(&inputs, 0, g.Command_Pick{upgrade})
 		assert(sent)
 	}
 	headless.run_step(run, &inputs)

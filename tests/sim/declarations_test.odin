@@ -105,7 +105,7 @@ inputs_compare_as_bytes :: proc(t: ^testing.T) {
 		players: sim.Players(u8, sim.No_Profile, Float_Input, 2),
 	}
 	a, b: sim.Inputs(
-		sim.Game(Float_State, Float_Input, toy.World, toy.Event, toy.Cmd, sim.No_Setup, sim.No_Profile, 2),
+		sim.Game(Float_State, Float_Input, toy.World, toy.Event, toy.Command, sim.No_Setup, sim.No_Profile, 2),
 	)
 	a.present = {0}
 	b.present = {0}
@@ -134,24 +134,24 @@ extra_rate_check :: proc(t: ^testing.T) {
 }
 
 // sim.game_violation of a toy with these unions and this tick rate.
-declared :: proc($Cmd, $Event: typeid, tick_hz := 64) -> string {
-	game := sim.Game(toy.State, toy.Input, toy.World, Event, Cmd, sim.No_Setup, toy.Profile, toy.PLAYERS) {
+declared :: proc($Command, $Event: typeid, tick_hz := 64) -> string {
+	game := sim.Game(toy.State, toy.Input, toy.World, Event, Command, sim.No_Setup, toy.Profile, toy.PLAYERS) {
 		name    = "toy",
 		tick_hz = tick_hz,
 	}
 	return sim.game_violation(&game)
 }
 
-Cmd_Padded :: struct {
+Command_Padded :: struct {
 	small: u8,
 	large: u32,
 }
 
-Cmd_Max :: struct {
+Command_Max :: struct {
 	bytes: [sim.COMMAND_MAX]u8,
 }
 
-Cmd_Too_Big :: struct {
+Command_Too_Big :: struct {
 	bytes: [sim.COMMAND_MAX + 1]u8,
 }
 
@@ -159,7 +159,7 @@ Bump :: struct {
 	amount: i32,
 }
 
-Cmd_Bump :: struct {
+Command_Bump :: struct {
 	amount: i32,
 }
 
@@ -188,22 +188,22 @@ declarations_are_checked :: proc(t: ^testing.T) {
 	Joined :: sim.Event_Player_Joined
 	Left :: sim.Event_Player_Left
 	cases := []Case {
-		{declared(toy.Cmd, toy.Event), ""},
+		{declared(toy.Command, toy.Event), ""},
 		{
 			declared(union {
-					Cmd_Max,
+					Command_Max,
 				}, toy.Event),
 			"",
 		},
 		{
 			declared(union {
-					Cmd_Padded,
+					Command_Padded,
 				}, toy.Event),
 			"padding",
 		},
 		{
 			declared(union {
-					Cmd_Too_Big,
+					Command_Too_Big,
 				}, toy.Event),
 			"bytes",
 		},
@@ -214,7 +214,7 @@ declarations_are_checked :: proc(t: ^testing.T) {
 			"",
 		}, // an empty command: zero bytes
 		{
-			declared(toy.Cmd, union {
+			declared(toy.Command, union {
 					Joined,
 					Left,
 					struct{},
@@ -222,7 +222,7 @@ declarations_are_checked :: proc(t: ^testing.T) {
 			"",
 		}, // an empty event: the kind alone says what happened
 		{
-			declared(toy.Cmd, union {
+			declared(toy.Command, union {
 					Joined,
 					struct {
 						data: [sim.EVENT_MAX + 1]u8,
@@ -239,13 +239,13 @@ declarations_are_checked :: proc(t: ^testing.T) {
 		{
 			declared(union {
 					Bump,
-					Cmd_Bump,
+					Command_Bump,
 				}, toy.Event),
 			"named",
 		}, // "bump" twice: the prefix goes
-		{declared(Cmd_Bump, toy.Event), "not a union"},
+		{declared(Command_Bump, toy.Event), "not a union"},
 		{
-			declared(toy.Cmd, union {
+			declared(toy.Command, union {
 					Joined,
 					Left,
 					Event_Padded,
@@ -253,7 +253,7 @@ declarations_are_checked :: proc(t: ^testing.T) {
 			"",
 		},
 		{
-			declared(toy.Cmd, union {
+			declared(toy.Command, union {
 					Joined,
 					Left,
 					Event_Pointer,
@@ -261,23 +261,23 @@ declarations_are_checked :: proc(t: ^testing.T) {
 			"events",
 		},
 		{
-			declared(toy.Cmd, union #no_nil {
+			declared(toy.Command, union #no_nil {
 					Joined,
 					Left,
 				}),
 			"#no_nil",
 		},
 		{
-			declared(toy.Cmd, union {
+			declared(toy.Command, union {
 					Joined,
 					Left,
 					Event_Ticked,
 				}),
 			"`tick`",
 		},
-		{declared(toy.Cmd, toy.Event, 60), "tick_hz"},
-		{declared(toy.Cmd, toy.Event, 256), "tick_hz"},
-		{declared(toy.Cmd, toy.Event, 16), "tick_hz"},
+		{declared(toy.Command, toy.Event, 60), "tick_hz"},
+		{declared(toy.Command, toy.Event, 256), "tick_hz"},
+		{declared(toy.Command, toy.Event, 16), "tick_hz"},
 	}
 	for test_case, i in cases {
 		if test_case.refusal == "" {
@@ -305,7 +305,7 @@ declarations_are_checked :: proc(t: ^testing.T) {
 		Float_Input,
 		toy.World,
 		toy.Event,
-		toy.Cmd,
+		toy.Command,
 		sim.No_Setup,
 		sim.No_Profile,
 		toy.PLAYERS,
@@ -317,9 +317,9 @@ declarations_are_checked :: proc(t: ^testing.T) {
 }
 
 // compat_of of a toy with these unions, Input and State (the toy's name, version and tick rate).
-compat_with :: proc($State, $Input, $Event, $Cmd: typeid) -> u64 {
+compat_with :: proc($State, $Input, $Event, $Command: typeid) -> u64 {
 	Profile :: sim.part(intrinsics.type_field_type(State, "players"), 1)
-	game := sim.Game(State, Input, toy.World, Event, Cmd, toy.Setup, Profile, toy.PLAYERS) {
+	game := sim.Game(State, Input, toy.World, Event, Command, toy.Setup, Profile, toy.PLAYERS) {
 		name    = toy.GAME.name,
 		version = toy.GAME.version,
 		tick_hz = toy.GAME.tick_hz,
@@ -384,32 +384,32 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 			compat_with(toy.State, toy.Input, union {
 					sim.Event_Player_Joined,
 					sim.Event_Player_Left,
-				}, toy.Cmd),
+				}, toy.Command),
 		},
 		{
 			"commands as other kinds",
 			compat_with(toy.State, toy.Input, toy.Event, union {
-					toy.Cmd_Mark,
-					toy.Cmd_Bump,
-					toy.Cmd_Clear_Bumps,
+					toy.Command_Mark,
+					toy.Command_Bump,
+					toy.Command_Clear_Bumps,
 				}),
 		},
 		{
 			"fewer commands",
 			compat_with(toy.State, toy.Input, toy.Event, union {
-					toy.Cmd_Bump,
-					toy.Cmd_Mark,
+					toy.Command_Bump,
+					toy.Command_Mark,
 				}),
 		},
 		{
 			"a command renamed",
 			compat_with(toy.State, toy.Input, toy.Event, union {
-					toy.Cmd_Bump,
+					toy.Command_Bump,
 					Renamed,
-					toy.Cmd_Clear_Bumps,
+					toy.Command_Clear_Bumps,
 				}),
 		},
-		{"another Input of the same size", compat_with(Other_State, Other_Input, toy.Event, toy.Cmd)},
+		{"another Input of the same size", compat_with(Other_State, Other_Input, toy.Event, toy.Command)},
 		{"a level's other bytes", sim.compat_of(&other_levels)},
 		{"no levels", sim.compat_of(&no_levels)},
 		{"another library version", sim.compat_of(&toy.GAME, {version = sim.LIBRARY_VERSION + 1})},
@@ -428,12 +428,12 @@ compat_tells_builds_apart :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expect_value(t, compat_with(toy.State, toy.Input, toy.Event, union {
-				toy.Cmd_Bump,
-				toy.Cmd_Mark,
-				toy.Cmd_Clear_Bumps,
-				toy.Cmd_Travel,
-				toy.Cmd_Pause,
-				toy.Cmd_Trail,
+				toy.Command_Bump,
+				toy.Command_Mark,
+				toy.Command_Clear_Bumps,
+				toy.Command_Travel,
+				toy.Command_Pause,
+				toy.Command_Trail,
 			}), compat)
 	testing.expect_value(t, sim.compat_of(&toy.GAME), compat) // stable
 	testing.expect_value(t, sim.content_hash(nil), 0)
@@ -518,22 +518,22 @@ a_game_type_named_like_active_level_is_not_a_level :: proc(t: ^testing.T) {
 // dev commands is the same build either way.
 @(test)
 the_dev_bit_splits_builds_of_a_game_with_dev_commands :: proc(t: ^testing.T) {
-	testing.expect(t, sim.has_dev_commands(Dev_Cmd))
+	testing.expect(t, sim.has_dev_commands(Dev_Command))
 	testing.expect(t, sim.compat_of(&DEV_GAME) != sim.compat_of(&DEV_GAME, {public = true}))
 	testing.expect_value(t, sim.compat_of(&toy.GAME, {public = true}), sim.compat_of(&toy.GAME))
 }
 
-Cmd_Add :: struct {
+Command_Add :: struct {
 	amount: u32,
 }
 
-Cmd_Dev_Add :: struct {
+Command_Dev_Add :: struct {
 	amount: u32,
 }
 
-Dev_Cmd :: union {
-	Cmd_Add,
-	Cmd_Dev_Add,
+Dev_Command :: union {
+	Command_Add,
+	Command_Dev_Add,
 }
 
 Dev_State :: struct {
@@ -545,7 +545,7 @@ Dev_State :: struct {
 	_pad:    u32,
 }
 
-Dev_Game :: sim.Game(Dev_State, toy.Input, sim.No_World, toy.Event, Dev_Cmd, sim.No_Setup, sim.No_Profile, 2)
+Dev_Game :: sim.Game(Dev_State, toy.Input, sim.No_World, toy.Event, Dev_Command, sim.No_Setup, sim.No_Profile, 2)
 
 DEV_GAME := Dev_Game {
 	name = "dev_commands",
@@ -556,10 +556,10 @@ DEV_GAME := Dev_Game {
 		for _, player in sim.next(&players) {
 			for sent in sim.commands(t, player) {
 				switch command in sent {
-				case Cmd_Add:
+				case Command_Add:
 					t.state.plain += command.amount
 					t.state.order[t.state.read % 8] = command.amount
-				case Cmd_Dev_Add:
+				case Command_Dev_Add:
 					t.state.dev += command.amount
 					t.state.order[t.state.read % 8] = 1000 + command.amount
 				}
@@ -581,11 +581,11 @@ a_public_build_applies_no_dev_command :: proc(t: ^testing.T) {
 		inputs: sim.Inputs(Dev_Game)
 		sim.seat(&inputs, simulation, 0, 1)
 		sim.seat(&inputs, simulation, 1, 2)
-		testing.expect(t, sim.add_command(&inputs, 0, Cmd_Add{1}))
-		testing.expect(t, sim.add_command(&inputs, 0, Cmd_Dev_Add{2}))
-		testing.expect(t, sim.add_command(&inputs, 0, Cmd_Add{3}))
-		testing.expect(t, sim.add_command(&inputs, 0, Cmd_Dev_Add{4}))
-		testing.expect(t, sim.add_command(&inputs, 1, Cmd_Dev_Add{5}))
+		testing.expect(t, sim.add_command(&inputs, 0, Command_Add{1}))
+		testing.expect(t, sim.add_command(&inputs, 0, Command_Dev_Add{2}))
+		testing.expect(t, sim.add_command(&inputs, 0, Command_Add{3}))
+		testing.expect(t, sim.add_command(&inputs, 0, Command_Dev_Add{4}))
+		testing.expect(t, sim.add_command(&inputs, 1, Command_Dev_Add{5}))
 		sim.step(simulation, &inputs)
 		state := &simulation.state
 		testing.expect_value(t, state.plain, 4)

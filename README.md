@@ -36,10 +36,10 @@ State :: struct {
 }
 
 Input :: struct { dx, dy: i8 } // the controls' state for one tick, quantized: an Input holds no floats
-Cmd :: union { Cmd_Throw_Ball, Cmd_Set_Paused } // one-shot actions a player sends
+Command :: union { Command_Throw_Ball, Command_Set_Paused } // one-shot actions a player sends
 Event :: union { sim.Event_Player_Joined, sim.Event_Player_Left, Event_Ball_Thrown, Event_Paused } // for the view
 
-Game :: sim.Game(State, Input, sim.No_World, Event, Cmd, sim.No_Setup, sim.No_Profile, PLAYERS)
+Game :: sim.Game(State, Input, sim.No_World, Event, Command, sim.No_Setup, sim.No_Profile, PLAYERS)
 Tick :: sim.Tick(Game)
 
 // One tick: plain procs over the state, in order. A physics game also calls physics.step(t.world.phys).
@@ -64,7 +64,7 @@ throw_balls :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for _, player in sim.next(&players) {
 		for sent in sim.commands(t, player) {
-			throw := sent.(Cmd_Throw_Ball) or_continue
+			throw := sent.(Command_Throw_Ball) or_continue
 			throw_ball(t, player, throw.speed) // spawns a Ball, sim.emit(t, Event_Ball_Thrown{...})
 		}
 	}

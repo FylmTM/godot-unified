@@ -35,7 +35,7 @@ Swarm_Game :: sim.Game(
 	toy.Input,
 	Swarm_World,
 	toy.Event,
-	toy.Cmd,
+	toy.Command,
 	sim.No_Setup,
 	sim.No_Profile,
 	toy.PLAYERS,

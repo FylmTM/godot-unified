@@ -87,12 +87,12 @@ enter_scene :: proc(t: ^Tick, scene: Scene, player: sim.Player) {
 	sim.emit(t, Event_Scene_Entered{player = player, scene = scene})
 }
 
-// The first Cmd_Scene of the tick (players in slot order) changes the scene.
+// The first Command_Scene of the tick (players in slot order) changes the scene.
 change_scene :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for _, player in sim.next(&players) {
 		for sent in sim.commands(t, player) {
-			command := sent.(Cmd_Scene) or_continue
+			command := sent.(Command_Scene) or_continue
 			enter_scene(t, command.scene, player)
 			return
 		}

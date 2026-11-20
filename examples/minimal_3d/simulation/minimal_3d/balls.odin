@@ -9,12 +9,12 @@ BALL_RADIUS :: f32(0.2) // metres: a ball is gone when its centre is this low
 
 THROW_COOLDOWN_S :: f32(0.25) // seconds of game time between a player's throws
 
-// Each present player's `Cmd_Throw_Ball` throws a ball.
+// Each present player's `Command_Throw_Ball` throws a ball.
 throw_balls :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for _, player in sim.next(&players) {
 		for sent in sim.commands(t, player) {
-			throw := sent.(Cmd_Throw_Ball) or_continue
+			throw := sent.(Command_Throw_Ball) or_continue
 			throw_ball(t, player, throw.speed)
 		}
 	}

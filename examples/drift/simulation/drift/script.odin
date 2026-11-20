@@ -1,6 +1,6 @@
 // Scripted inputs for the headless modes and test sessions: per slot, a value re-drawn every SCRIPT_PERIOD ticks from
 // a hash of (seed, slot, block), so any tick can be asked for in any order. The ships wander, turn toward one
-// of 8 directions, fire most of the time and boost now and then. Slot 0 sends `Cmd_Start` and `Cmd_Restart` on a
+// of 8 directions, fire most of the time and boost now and then. Slot 0 sends `Command_Start` and `Command_Restart` on a
 // fixed beat (the sim ignores each outside its phase), so scripted runs play whole matches; commands depend only
 // on (seed, slot, tick), so a Godot session's scripted commands match the offline binary's.
 package drift
@@ -33,14 +33,14 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input 
 	return input
 }
 
-// Sends the slot-0 player's scripted `Cmd_Start` and `Cmd_Restart` on a fixed beat, so scripted runs go through whole
+// Sends the slot-0 player's scripted `Command_Start` and `Command_Restart` on a fixed beat, so scripted runs go through whole
 // matches and back to the lobby.
-scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Cmd)) {
+scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Command)) {
 	if slot != 0 do return
 	switch tick % SCRIPT_COMMAND_EVERY {
 	case SCRIPT_START_AT:
-		sim.send_command(out, Cmd_Start{})
+		sim.send_command(out, Command_Start{})
 	case SCRIPT_RESTART_AT:
-		sim.send_command(out, Cmd_Restart{})
+		sim.send_command(out, Command_Restart{})
 	}
 }

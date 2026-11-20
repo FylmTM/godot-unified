@@ -34,7 +34,7 @@ release deckbuilder` makes (`docs/EOS.md`).
 ## Heroes
 
 A run's heroes are kept in the State, apart from the players: the session forgets its longest-absent member, and a
-run outlives that. `Cmd_Start_Run` gives each present player a hero, in slot order, of their Profile's class (Vanguard
+run outlives that. `Command_Start_Run` gives each present player a hero, in slot order, of their Profile's class (Vanguard
 `VANGUARD_HP`, Arcanist `ARCANIST_HP`) with its starter deck (`STARTER_VANGUARD`, `STARTER_ARCANIST`). A hero whose
 player is away **sleeps**: it is skipped, never targeted, and counts as ready and as having voted and picked, so the
 others play on. A player who arrives takes their own hero back, else the lowest sleeping hero (`Event_Hero_Claimed`),
@@ -42,16 +42,16 @@ else watches. Hands are open: every player sees every hand and every ally's aim.
 
 ## A run
 
-- **Camp** (tick 0): no run. `Cmd_Start_Run` starts one (`Event_Run_Started`): a seed of its own from the session's
+- **Camp** (tick 0): no run. `Command_Start_Run` starts one (`Event_Run_Started`): a seed of its own from the session's
   seed and the runs started, and the act's map from it (`generate_map`: `FLOORS` floors of `LANES` lanes, fights
   first, elites and a treasure or a rest in the middle, a rest before the boss alone on the last floor).
-- **Map**: every awake hero votes for a lane of the next floor (`Cmd_Vote`, `Event_Voted`; the same lane or a
+- **Map**: every awake hero votes for a lane of the next floor (`Command_Vote`, `Event_Voted`; the same lane or a
   neighbour). Once all have, the most-voted lane wins, a tie drawn from the floor's vote stream, and the party enters
   that node (`Event_Node_Entered`). Entering a node is the **save point**.
 - **Fight, Elite, Boss**: a fight (below). Won: the **Reward**, `OFFERS` cards per hero (`LUCKY_COIN_OFFERS` with the
   Lucky Coin) from their own stream, and a relic each after an elite; each hero takes one or skips
-  (`Cmd_Pick_Reward`, `Event_Reward_Picked`), a deck past `DECK_MAX` losing it. Won against the boss: the run is won.
-- **Rest**: each hero heals `REST_HEAL_PCT` of their max HP or upgrades a card of their deck (`Cmd_Rest`,
+  (`Command_Pick_Reward`, `Event_Reward_Picked`), a deck past `DECK_MAX` losing it. Won against the boss: the run is won.
+- **Rest**: each hero heals `REST_HEAL_PCT` of their max HP or upgrades a card of their deck (`Command_Rest`,
   `Event_Rested`).
 - **Treasure**: a relic each (`Event_Relic_Gained`), then the map.
 - **Over** (the boss fell, or every awake hero is down: `Event_Run_Over`): `OVER_HOLD_S`, then the camp. The save is
@@ -63,12 +63,12 @@ else watches. Hands are open: every player sees every hand and every ally's aim.
    into their draw pile from their own stream, block and statuses cleared.
 2. **The heroes' turn**: `ENERGY` each, block gone, `HAND_SIZE` cards drawn (`Event_Card_Drawn`; an empty draw pile
    takes the discard pile, shuffled; a hand holds `HAND_MAX`, the rest goes to the discard pile). Every hero plays at
-   once: a play (`Cmd_Play_Card`) is checked on the tick it lands, against the state as the plays before it in that
+   once: a play (`Command_Play_Card`) is checked on the tick it lands, against the state as the plays before it in that
    tick left it (slot order), so an ally's kill can take a target away. A refused play changes nothing
    (`Event_Play_Refused`, its `Refusal`); one that holds pays its cost and resolves its ops in order
    (`Event_Card_Played`, `Event_Enemy_Hit`, `Event_Enemy_Died`, `Event_Hero_Blocked`, `Event_Hero_Healed`). A card
    that exhausts leaves the fight; the others go to the discard pile.
-3. The turn ends once every awake hero still standing is ready (`Cmd_End_Turn`, which can also take it back).
+3. The turn ends once every awake hero still standing is ready (`Command_End_Turn`, which can also take it back).
 4. **The enemies' turn**: their block goes, then each living enemy acts on its intent, one every `ENEMY_BEAT_S` of sim
    time (`Event_Enemy_Acted`, `Event_Hero_Hit`, `Event_Hero_Down`). A hero at 0 HP is down for the fight; every awake
    hero down loses the run.
@@ -103,8 +103,8 @@ targets an ally), the Mender's Pouch (`MENDERS_POUCH_HEAL` after each fight won)
 ## Systems (`tick`, in this order)
 
 1. `claim_heroes`: who arrived takes a hero (Heroes).
-2. `apply_commands`: each slot's commands in slot order (`Cmd_Start_Run`, `Cmd_Play_Card`, `Cmd_End_Turn`,
-   `Cmd_Vote`, `Cmd_Pick_Reward`, `Cmd_Rest`; `Cmd_Dev_Win_Fight` in a dev UI build). A command outside its phase is
+2. `apply_commands`: each slot's commands in slot order (`Command_Start_Run`, `Command_Play_Card`, `Command_End_Turn`,
+   `Command_Vote`, `Command_Pick_Reward`, `Command_Rest`; `Command_Dev_Win_Fight` in a dev UI build). A command outside its phase is
    ignored.
 3. The phase: `count_votes` on the map, `heroes_turn` and `enemies_turn` in a fight, `check_picked` at a reward or a
    rest, `over_hold` at the end.

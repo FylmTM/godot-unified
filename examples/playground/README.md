@@ -62,20 +62,20 @@ builds it, scaled so the step plus a re-sim at the prediction cap fits the frame
   `EXPLODE_IMPULSE`).
 - Each of shoot, spawn and explode starts the player's cooldown (`SHOT_COOLDOWN_TICKS`, `SPAWN_COOLDOWN_TICKS`,
   `EXPLODE_COOLDOWN_TICKS`); a command sent during it is dropped.
-- **Cars**: Cmd_Drive takes the nearest free car within `DRIVE_RANGE`, or gets out. A driver's stick steers the front
+- **Cars**: Command_Drive takes the nearest free car within `DRIVE_RANGE`, or gets out. A driver's stick steers the front
   wheels (`CAR_STEER`) and drives the rear ones (`CAR_SPIN_SPEED`, `CAR_SPIN_TORQUE`); a car without a driver brakes.
   The camera rides behind it.
 - **The table.** The block owns every body it made in a `sim.Table` of `MAX_PROPS` props (and the ragdolls, cars and
   sensors in arrays). With it full, a shot removes the oldest bullet, a spawn the player's oldest spawn. Anything below
   `KILL_Y` goes (a car goes back to its start).
-- **Scene change** (`Cmd_Scene`, the first of a tick): every grab lets go and every driver gets out, everything the old
+- **Scene change** (`Command_Scene`, the first of a tick): every grab lets go and every driver gets out, everything the old
   scene built goes, the level is swapped (`physics.level_change`), the new scene is built and every camera goes to its
   start. Picking the current scene resets it. The Setup's `scene` is where a session starts.
 
 ## Systems (`tick`, in this order)
 
 1. `update_presence`: leaves (let go, out of the car) and arrivals (a camera at the start).
-2. `change_scene`: the first `Cmd_Scene` (`Event_Scene_Entered`).
+2. `change_scene`: the first `Command_Scene` (`Event_Scene_Entered`).
 3. `fly_cameras`: the sticks and looks; a driver's camera behind their car.
 4. `use_tools`: per player, the grab, then their commands (`Event_Grabbed`, `Event_Released`, `Event_Shot`,
    `Event_Spawned`, `Event_Exploded`).

@@ -50,17 +50,17 @@ draws_and_zones_change_nothing :: proc(t: ^testing.T) {
 // The dev commands: found by their names, applied by the tick (a spawn, XP, the next wave in a match), and only those.
 @(test)
 dev_commands_apply :: proc(t: ^testing.T) {
-	testing.expect(t, sim.has_dev_commands(g.Cmd))
-	testing.expect(t, !sim.command_is_dev(g.Cmd_Pick), "Cmd_Pick is no dev command")
-	testing.expect(t, sim.command_is_dev(g.Cmd_Dev_Spawn) && sim.command_is_dev(g.Cmd_Dev_Give_Xp))
-	testing.expect(t, sim.command_is_dev(g.Cmd_Dev_Skip_Wave))
+	testing.expect(t, sim.has_dev_commands(g.Command))
+	testing.expect(t, !sim.command_is_dev(g.Command_Pick), "Command_Pick is no dev command")
+	testing.expect(t, sim.command_is_dev(g.Command_Dev_Spawn) && sim.command_is_dev(g.Command_Dev_Give_Xp))
+	testing.expect(t, sim.command_is_dev(g.Command_Dev_Skip_Wave))
 	run := headless.run_begin(&g.GAME, 3, seated = 2)
 	defer headless.run_end(&run)
 	simulation := run.simulation
 
 	// In the lobby there is no wave to skip.
 	inputs := headless.run_inputs(&run)
-	testing.expect(t, sim.add_command(&inputs, 1, g.Cmd_Dev_Skip_Wave{}))
+	testing.expect(t, sim.add_command(&inputs, 1, g.Command_Dev_Skip_Wave{}))
 	headless.run_step(&run, &inputs)
 	testing.expect_value(t, simulation.state.wave, 0)
 
@@ -70,9 +70,9 @@ dev_commands_apply :: proc(t: ^testing.T) {
 	player := sim.player_in_slot(simulation, 0)
 	xp := sim.player_data(simulation, player).xp
 	inputs = headless.run_inputs(&run)
-	testing.expect(t, sim.add_command(&inputs, 0, g.Cmd_Dev_Spawn{count = 5, kind = .Brute}))
-	testing.expect(t, sim.add_command(&inputs, 0, g.Cmd_Dev_Give_Xp{player = player, xp = 7}))
-	testing.expect(t, sim.add_command(&inputs, 1, g.Cmd_Dev_Skip_Wave{}))
+	testing.expect(t, sim.add_command(&inputs, 0, g.Command_Dev_Spawn{count = 5, kind = .Brute}))
+	testing.expect(t, sim.add_command(&inputs, 0, g.Command_Dev_Give_Xp{player = player, xp = 7}))
+	testing.expect(t, sim.add_command(&inputs, 1, g.Command_Dev_Skip_Wave{}))
 	headless.run_step(&run, &inputs)
 	testing.expect(t, simulation.state.enemies.count >= before + 5, "five more enemies")
 	testing.expect_value(t, simulation.state.wave, wave + 1)

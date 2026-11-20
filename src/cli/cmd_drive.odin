@@ -59,7 +59,7 @@ drive_details :: proc() -> string {
 		"  press <action> [n]       hold an Input Map action (--strength); with n: for n ticks, then release (paused: steps them);\n" +
 		"                           polling (Input.is_action_pressed) and input handlers (_unhandled_input) both see it\n" +
 		"  release <action>         let go of it\n" +
-		"  command <name> [k=v ..]  send one of the game's commands (any, Cmd_Dev_* too) as local player 0 (sim units; a player by its key)\n" +
+		"  command <name> [k=v ..]  send one of the game's commands (any, Command_Dev_* too) as local player 0 (sim units; a player by its key)\n" +
 		"  state [path]             the newest predicted State as JSON (tables: live items by index), or the part a path names: players.slots[0]\n" +
 		"  data [name[.path]]       the session data; constants [path]; input [path]: the local input sampled for the newest tick\n" +
 		"  changes                  what the newest tick changed against the one before (the op log)\n" +

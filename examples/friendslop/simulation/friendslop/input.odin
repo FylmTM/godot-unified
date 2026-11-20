@@ -25,13 +25,13 @@ Input :: struct {
 
 // Takes the team to a level (the pause menu's "Back to hub"): the hub ends a run, the route starts one. Nothing when
 // the team is there already.
-Cmd_Travel :: struct {
+Command_Travel :: struct {
 	to: Level_Id,
 }
 
-// The game's commands (sim.Game's Cmd).
-Cmd :: union {
-	Cmd_Travel,
+// The game's commands (sim.Game's Command).
+Command :: union {
+	Command_Travel,
 }
 
 // A tick's inputs and commands, by slot.

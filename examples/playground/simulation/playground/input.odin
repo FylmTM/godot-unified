@@ -32,31 +32,31 @@ Shape :: enum u8 {
 }
 
 // `scene`: everyone goes to `scene` (picking the current one resets it).
-Cmd_Scene :: struct {
+Command_Scene :: struct {
 	scene: Scene,
 }
 
 // `shoot`: a bullet from the sender's camera along their aim.
-Cmd_Shoot :: struct {}
+Command_Shoot :: struct {}
 
 // `spawn`: a body of `shape` in front of the sender's camera.
-Cmd_Spawn :: struct {
+Command_Spawn :: struct {
 	shape: Shape,
 }
 
 // `explode`: an explosion where the sender's aim meets something (or at GRAB_RANGE).
-Cmd_Explode :: struct {}
+Command_Explode :: struct {}
 
 // `drive`: in the Driving scene, the sender takes the nearest free car, or leaves the one they drive.
-Cmd_Drive :: struct {}
+Command_Drive :: struct {}
 
 // Every command a player can send: the tools' one-shot actions and the scene picker.
-Cmd :: union {
-	Cmd_Scene,
-	Cmd_Shoot,
-	Cmd_Spawn,
-	Cmd_Explode,
-	Cmd_Drive,
+Command :: union {
+	Command_Scene,
+	Command_Shoot,
+	Command_Spawn,
+	Command_Explode,
+	Command_Drive,
 }
 
 // A tick's inputs and commands, by slot.

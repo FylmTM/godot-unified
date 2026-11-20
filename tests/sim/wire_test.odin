@@ -11,36 +11,36 @@ import "unified:sim"
 // alike, as one of the wrong size; a bit_set holds only its own elements.
 @(test)
 commands_from_the_wire_are_checked :: proc(t: ^testing.T) {
-	MARK :: toy.Cmd_Mark {
+	MARK :: toy.Command_Mark {
 		at     = {1, 2},
 		count  = 3,
 		shape  = .Ring,
 		shapes = {.Dot},
 	}
-	decode :: proc(mark: toy.Cmd_Mark, poke: proc(bytes: []u8)) -> (toy.Cmd_Mark, bool) {
+	decode :: proc(mark: toy.Command_Mark, poke: proc(bytes: []u8)) -> (toy.Command_Mark, bool) {
 		mark := mark
-		bytes := transmute([size_of(toy.Cmd_Mark)]u8)mark
+		bytes := transmute([size_of(toy.Command_Mark)]u8)mark
 		poke(bytes[:])
-		raw, ok := sim.command_from_bytes(toy.Cmd, 1, bytes[:])
+		raw, ok := sim.command_from_bytes(toy.Command, 1, bytes[:])
 		assert(ok)
-		value, is_mark := sim.command_value(&raw, toy.Cmd).(toy.Cmd_Mark)
+		value, is_mark := sim.command_value(&raw, toy.Command).(toy.Command_Mark)
 		return value, is_mark
 	}
 	clean, clean_ok := decode(MARK, proc(bytes: []u8) {})
 	testing.expect(t, clean_ok && clean == MARK)
-	_, enum_ok := decode(MARK, proc(bytes: []u8) {bytes[offset_of(toy.Cmd_Mark, shape)] = 200})
-	testing.expect(t, !enum_ok, "Cmd_Mark.shape = 200 (Shape has 3 members) reached the game")
-	_, last_ok := decode(MARK, proc(bytes: []u8) {bytes[offset_of(toy.Cmd_Mark, shape)] = u8(max(toy.Shape))})
+	_, enum_ok := decode(MARK, proc(bytes: []u8) {bytes[offset_of(toy.Command_Mark, shape)] = 200})
+	testing.expect(t, !enum_ok, "Command_Mark.shape = 200 (Shape has 3 members) reached the game")
+	_, last_ok := decode(MARK, proc(bytes: []u8) {bytes[offset_of(toy.Command_Mark, shape)] = u8(max(toy.Shape))})
 	testing.expect(t, last_ok, "the last declared value was refused")
 	_, nan_ok := decode(MARK, proc(bytes: []u8) {
-		(^u32)(&bytes[offset_of(toy.Cmd_Mark, weight)])^ = 0xFFC0_0000
+		(^u32)(&bytes[offset_of(toy.Command_Mark, weight)])^ = 0xFFC0_0000
 	})
 	testing.expect(t, !nan_ok, "a NaN weight reached the game")
 	_, inf_ok := decode(MARK, proc(bytes: []u8) {
-		(^u32)(&bytes[offset_of(toy.Cmd_Mark, area) + offset_of(toy.Mark_Area, corner)])^ = 0x7F80_0000
+		(^u32)(&bytes[offset_of(toy.Command_Mark, area) + offset_of(toy.Mark_Area, corner)])^ = 0x7F80_0000
 	})
 	testing.expect(t, !inf_ok, "an infinite corner (a nested struct's array) reached the game")
-	masked, masked_ok := decode(MARK, proc(bytes: []u8) {bytes[offset_of(toy.Cmd_Mark, shapes)] = 0b1000_0101})
+	masked, masked_ok := decode(MARK, proc(bytes: []u8) {bytes[offset_of(toy.Command_Mark, shapes)] = 0b1000_0101})
 	testing.expect(t, masked_ok)
 	testing.expectf(
 		t,

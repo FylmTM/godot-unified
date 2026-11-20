@@ -10,9 +10,9 @@ apply_commands :: proc(t: ^Tick) {
 	for _, player in sim.next(&players) {
 		for sent in sim.commands(t, player) {
 			switch _ in sent {
-			case Cmd_Start:
+			case Command_Start:
 				if t.state.phase == .Lobby do start_match(t, player)
-			case Cmd_Restart:
+			case Command_Restart:
 				if t.state.phase == .Over do reset_world(t)
 			}
 		}

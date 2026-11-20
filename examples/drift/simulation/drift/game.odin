@@ -22,7 +22,7 @@ Level_Id :: enum u8 {
 	Arena,
 }
 
-Game :: sim.Game(State, Input, World, Event, Cmd, sim.No_Setup, sim.No_Profile, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Command, sim.No_Setup, sim.No_Profile, PLAYERS)
 Tick :: sim.Tick(Game)
 
 @(rodata)

@@ -81,10 +81,10 @@ shuffle_is_uniform :: proc(t: ^testing.T) {
 }
 
 // A deck in the block, shuffled by a command from a stream the State keeps.
-Cmd_Deal :: struct {}
+Command_Deal :: struct {}
 
-Deal_Cmd :: union {
-	Cmd_Deal,
+Deal_Command :: union {
+	Command_Deal,
 }
 
 Deal_State :: struct {
@@ -94,7 +94,7 @@ Deal_State :: struct {
 	_pad:    [2]u8,
 }
 
-Deal_Game :: sim.Game(Deal_State, sim.No_Input, sim.No_World, toy.Event, Deal_Cmd, sim.No_Setup, sim.No_Profile, 2)
+Deal_Game :: sim.Game(Deal_State, sim.No_Input, sim.No_World, toy.Event, Deal_Command, sim.No_Setup, sim.No_Profile, 2)
 
 DEAL_GAME := Deal_Game {
 	name = "deal",
@@ -118,7 +118,7 @@ deal_until :: proc(simulation: ^sim.Sim(Deal_Game), to: u32, deals: []u32) {
 		inputs: sim.Inputs(Deal_Game)
 		sim.seat(&inputs, simulation, 0, 1)
 		for tick in deals {
-			if tick == simulation.tick + 1 do sim.add_command(&inputs, sim.command_make(Deal_Cmd, Cmd_Deal{}))
+			if tick == simulation.tick + 1 do sim.add_command(&inputs, sim.command_make(Deal_Command, Command_Deal{}))
 		}
 		sim.step(simulation, &inputs)
 	}

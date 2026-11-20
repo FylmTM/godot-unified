@@ -85,7 +85,7 @@ level_enter_sets_the_block :: proc(t: ^testing.T) {
 	sim.step(simulation, &inputs)
 	inputs.joins[0] = 0
 	sim.step(simulation, &inputs)
-	testing.expect(t, sim.add_command(&inputs, 0, toy.Cmd_Travel{.Cave}))
+	testing.expect(t, sim.add_command(&inputs, 0, toy.Command_Travel{.Cave}))
 	sim.step(simulation, &inputs)
 	testing.expect_value(t, simulation.state.level, sim.Active_Level(toy.Area){since = 3, id = .Cave})
 }

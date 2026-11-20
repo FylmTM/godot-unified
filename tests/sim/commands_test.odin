@@ -7,7 +7,7 @@ import "../toy"
 import "unified:sim"
 import "unified:wire"
 
-Cmd_Toggle :: struct {
+Command_Toggle :: struct {
 	on:    bool,
 	_pad:  [3]u8,
 	also:  [2]b16,
@@ -15,23 +15,23 @@ Cmd_Toggle :: struct {
 }
 
 Toggles :: union {
-	Cmd_Toggle,
+	Command_Toggle,
 }
 
 // A bool's byte from another machine may hold anything: command_value reads every bool back as 0 or 1.
 @(test)
 command_bools_read_back_as_0_or_1 :: proc(t: ^testing.T) {
-	bytes := [size_of(Cmd_Toggle)]u8{2, 0xAA, 0xAA, 0xAA, 0, 0, 0, 0x80, 7, 0, 0, 0}
+	bytes := [size_of(Command_Toggle)]u8{2, 0xAA, 0xAA, 0xAA, 0, 0, 0, 0x80, 7, 0, 0, 0}
 	raw, ok := sim.command_from_bytes(Toggles, 0, bytes[:])
 	testing.expect(t, ok)
-	toggle := sim.command_value(&raw, Toggles).(Cmd_Toggle)
-	got := transmute([size_of(Cmd_Toggle)]u8)toggle
-	testing.expect_value(t, got, [size_of(Cmd_Toggle)]u8{1, 0xAA, 0xAA, 0xAA, 0, 0, 1, 0, 7, 0, 0, 0})
+	toggle := sim.command_value(&raw, Toggles).(Command_Toggle)
+	got := transmute([size_of(Command_Toggle)]u8)toggle
+	testing.expect_value(t, got, [size_of(Command_Toggle)]u8{1, 0xAA, 0xAA, 0xAA, 0, 0, 1, 0, 7, 0, 0, 0})
 	testing.expect(t, toggle.on && !toggle.also[0] && toggle.also[1] && toggle.count == 7)
 }
 
 bump :: proc(slot: int, amount: i32) -> sim.Raw_Command {
-	raw := sim.command_make(toy.Cmd, toy.Cmd_Bump{amount})
+	raw := sim.command_make(toy.Command, toy.Command_Bump{amount})
 	raw.slot = u8(slot)
 	return raw
 }
@@ -52,7 +52,7 @@ a_tick_takes_four_commands_per_player :: proc(t: ^testing.T) {
 	want := [?][2]i32{{0, 10}, {0, 11}, {2, 0}, {2, 1}, {2, 2}, {2, 3}, {3, 30}}
 	for expected, i in want {
 		raw := &inputs.commands[i]
-		value, is_bump := sim.command_value(raw, toy.Cmd).(toy.Cmd_Bump)
+		value, is_bump := sim.command_value(raw, toy.Command).(toy.Command_Bump)
 		testing.expect(t, is_bump && i32(raw.slot) == expected[0] && value.amount == expected[1])
 	}
 	testing.expect_value(t, len(sim.slot_commands(&inputs, 0)), 2)
@@ -63,7 +63,7 @@ a_tick_takes_four_commands_per_player :: proc(t: ^testing.T) {
 	Big_State :: struct {
 		players: sim.Players(u8, sim.No_Profile, toy.Input, 8),
 	}
-	big: sim.Inputs(sim.Game(Big_State, toy.Input, toy.World, toy.Event, toy.Cmd, sim.No_Setup, sim.No_Profile, 8))
+	big: sim.Inputs(sim.Game(Big_State, toy.Input, toy.World, toy.Event, toy.Command, sim.No_Setup, sim.No_Profile, 8))
 	for k in 0 ..< 32 {
 		sim.add_command(&big, bump(k % 8, i32(k)))
 	}
@@ -79,7 +79,7 @@ tick_reads_commands_by_type :: proc(t: ^testing.T) {
 	join_record(&inputs, 1, 2)
 	sim.add_command(&inputs, bump(1, 5))
 	sim.add_command(&inputs, bump(1, -2))
-	mark := sim.command_make(toy.Cmd, toy.Cmd_Mark{at = {1, 2}, count = 3, shapes = {.Ring}})
+	mark := sim.command_make(toy.Command, toy.Command_Mark{at = {1, 2}, count = 3, shapes = {.Ring}})
 	sim.add_command(&inputs, mark) // slot 0
 	stray := bump(3, 100) // slot 3 is not present: nobody's
 	sim.add_command(&inputs, stray)
@@ -103,28 +103,32 @@ tick_reads_commands_by_type :: proc(t: ^testing.T) {
 	sim.add_command(&inputs, short)
 	sim.step(simulation, &inputs)
 	testing.expect_value(t, toy.in_slot(state, 0).bumps, 0)
-	testing.expect(t, sim.command_value(&inputs.commands[0], toy.Cmd) == nil)
-	testing.expect(t, sim.command_value(&inputs.commands[1], toy.Cmd) == nil)
+	testing.expect(t, sim.command_value(&inputs.commands[0], toy.Command) == nil)
+	testing.expect(t, sim.command_value(&inputs.commands[1], toy.Command) == nil)
 	// command_from_bytes refuses what isn't one of the game's (command_make and send_command: a compile error)
-	_, made := sim.command_from_bytes(toy.Cmd, 0, {1, 2, 3})
+	_, made := sim.command_from_bytes(toy.Command, 0, {1, 2, 3})
 	testing.expect(t, !made)
-	_, made = sim.command_from_bytes(toy.Cmd, 2, {1, 2, 3, 4})
+	_, made = sim.command_from_bytes(toy.Command, 2, {1, 2, 3, 4})
 	testing.expect(t, !made)
 }
 
-// A value of the game's Cmd union is added as the command it holds, the same bytes as its struct's (a test that
-// switches over its own Cmd needs no case per kind); nil adds nothing.
+// A value of the game's Command union is added as the command it holds, the same bytes as its struct's (a test that
+// switches over its own Command needs no case per kind); nil adds nothing.
 @(test)
 a_command_union_value_is_the_command_it_holds :: proc(t: ^testing.T) {
 	inputs, by_struct: toy.Inputs
-	commands := [?]toy.Cmd{toy.Cmd_Bump{4}, toy.Cmd_Mark{at = {1, 2}, count = 3}, toy.Cmd_Clear_Bumps{}}
+	commands := [?]toy.Command {
+		toy.Command_Bump{4},
+		toy.Command_Mark{at = {1, 2}, count = 3},
+		toy.Command_Clear_Bumps{},
+	}
 	for command in commands do testing.expect(t, sim.add_command(&inputs, 1, command))
-	sim.add_command(&by_struct, 1, toy.Cmd_Bump{4})
-	sim.add_command(&by_struct, 1, toy.Cmd_Mark{at = {1, 2}, count = 3})
-	sim.add_command(&by_struct, 1, toy.Cmd_Clear_Bumps{})
+	sim.add_command(&by_struct, 1, toy.Command_Bump{4})
+	sim.add_command(&by_struct, 1, toy.Command_Mark{at = {1, 2}, count = 3})
+	sim.add_command(&by_struct, 1, toy.Command_Clear_Bumps{})
 	testing.expect(t, sim.inputs_same(&inputs, &by_struct), "the union's commands are the structs'")
-	testing.expect(t, !sim.add_command(&inputs, 1, toy.Cmd(nil)), "nil is no command")
-	testing.expect(t, !sim.add_command(&inputs, toy.PLAYERS, toy.Cmd(toy.Cmd_Bump{1})), "no such slot")
+	testing.expect(t, !sim.add_command(&inputs, 1, toy.Command(nil)), "nil is no command")
+	testing.expect(t, !sim.add_command(&inputs, toy.PLAYERS, toy.Command(toy.Command_Bump{1})), "no such slot")
 	testing.expect_value(t, inputs.command_count, 3)
 }
 
@@ -132,13 +136,13 @@ a_command_union_value_is_the_command_it_holds :: proc(t: ^testing.T) {
 // order like any other.
 @(test)
 an_empty_command_is_zero_bytes :: proc(t: ^testing.T) {
-	clear_bumps := sim.command_make(toy.Cmd, toy.Cmd_Clear_Bumps{})
+	clear_bumps := sim.command_make(toy.Command, toy.Command_Clear_Bumps{})
 	testing.expect(t, clear_bumps.size == 0 && clear_bumps.kind == 2)
-	_, made := sim.command_from_bytes(toy.Cmd, 2, {})
+	_, made := sim.command_from_bytes(toy.Command, 2, {})
 	testing.expect(t, made)
-	_, made = sim.command_from_bytes(toy.Cmd, 2, {0})
+	_, made = sim.command_from_bytes(toy.Command, 2, {0})
 	testing.expect(t, !made, "an empty command of one byte")
-	_, is_clear := sim.command_value(&clear_bumps, toy.Cmd).(toy.Cmd_Clear_Bumps)
+	_, is_clear := sim.command_value(&clear_bumps, toy.Command).(toy.Command_Clear_Bumps)
 	testing.expect(t, is_clear)
 
 	simulation := sim.create(&toy.GAME, 3)
@@ -146,7 +150,7 @@ an_empty_command_is_zero_bytes :: proc(t: ^testing.T) {
 	inputs: toy.Inputs
 	join_record(&inputs, 0, 1)
 	sim.add_command(&inputs, bump(0, 5))
-	sim.add_command(&inputs, 0, toy.Cmd_Clear_Bumps{}) // slot 0's second: the bump before it is cleared
+	sim.add_command(&inputs, 0, toy.Command_Clear_Bumps{}) // slot 0's second: the bump before it is cleared
 	sim.add_command(&inputs, bump(0, 7))
 	writer := wire.writer_make()
 	defer delete(writer.buf)

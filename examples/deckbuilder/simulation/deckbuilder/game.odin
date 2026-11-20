@@ -16,7 +16,7 @@ TICK_HZ :: 32 // nothing moves: the rate only sets how soon a play lands, and th
 VERSION :: "1"
 
 // The game's types for unified:sim: no World (nothing outside the block).
-Game :: sim.Game(State, Input, sim.No_World, Event, Cmd, Setup, Profile, PLAYERS)
+Game :: sim.Game(State, Input, sim.No_World, Event, Command, Setup, Profile, PLAYERS)
 // What every system gets: the state, the inputs and commands, the tick's player changes.
 Tick :: sim.Tick(Game)
 
@@ -84,26 +84,26 @@ apply_commands :: proc(t: ^Tick) {
 		for sent in sim.commands(t, player) {
 			hero := hero_of(t.state, player) // a run started by an earlier command gave them one
 			switch command in sent {
-			case Cmd_Start_Run:
+			case Command_Start_Run:
 				start_run(t)
-			case Cmd_Dev_Win_Fight:
+			case Command_Dev_Win_Fight:
 				win_fight(t)
-			case Cmd_Play_Card:
+			case Command_Play_Card:
 				if hero >= 0 do play_card(t, hero, command)
-			case Cmd_End_Turn:
+			case Command_End_Turn:
 				if hero >= 0 do end_turn(t, hero, command.ready)
-			case Cmd_Vote:
+			case Command_Vote:
 				if hero >= 0 do vote(t, hero, int(command.lane))
-			case Cmd_Pick_Reward:
+			case Command_Pick_Reward:
 				if hero >= 0 do pick_reward(t, hero, int(command.offer))
-			case Cmd_Rest:
+			case Command_Rest:
 				if hero >= 0 do rest(t, hero, command.choice, command.card)
 			}
 		}
 	}
 }
 
-// Every enemy falls (Cmd_Dev_Win_Fight).
+// Every enemy falls (Command_Dev_Win_Fight).
 win_fight :: proc(t: ^Tick) {
 	if t.state.phase != .Heroes && t.state.phase != .Enemies do return
 	enemies := sim.iterate(&t.state.enemies)

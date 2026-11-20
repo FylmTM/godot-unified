@@ -12,7 +12,7 @@ plugs Box3D in as rollback state (the Extra, `src/physics/README.md`); `netcode`
 
 ## The game type
 
-A game names its eight types once, `Game :: sim.Game(State, Input, World, Event, Cmd, Setup, Profile, PLAYERS)`, and
+A game names its eight types once, `Game :: sim.Game(State, Input, World, Event, Command, Setup, Profile, PLAYERS)`, and
 fills one value of it, the descriptor: name, version, tick rate, `tick` and the optional hooks, each documented on its
 field (`uni doc sim Game`).
 Everything generic over a game takes that one type (`Sim(G)`, `Tick(G)`, `Inputs(G)`, the netcode's client, the
@@ -238,13 +238,13 @@ tick :: proc(t: ^Tick) {
 A one-shot action (pick an upgrade, start the match) is delivered exactly once, in order, per player.
 
 ```odin
-Cmd_Drop_Coin :: struct {value: u8}                 // any plain struct
-Cmd_Start :: struct {}                              // a command with nothing to say is empty
-Cmd :: union {Cmd_Drop_Coin, Cmd_Start}             // kind = variant index
+Command_Drop_Coin :: struct {value: u8}                 // any plain struct
+Command_Start :: struct {}                              // a command with nothing to say is empty
+Command :: union {Command_Drop_Coin, Command_Start}             // kind = variant index
 
 for sent in sim.commands(t, player) {               // this player's, in order, exactly once each
 	switch command in sent {
-	case Cmd_Drop_Coin: ...
+	case Command_Drop_Coin: ...
 	}
 }
 ```
@@ -253,12 +253,12 @@ for sent in sim.commands(t, player) {               // this player's, in order, 
   never in the block. On the wire and in the log it is its kind and its struct's bytes.
 - The union is checked like the block (`game_violation`): plain data without padding, 0 to `COMMAND_MAX` bytes per
   variant, at most 255 variants with unique names, not `#no_nil` or `#shared_nil`.
-- Names: command types are `Cmd_<Name>`, event types `Event_<Name>`; the names and the Godot classes leave the prefix
+- Names: command types are `Command_<Name>`, event types `Event_<Name>`; the names and the Godot classes leave the prefix
   out (`drop_coin`, `CommandDropCoin`).
 - A tick's record holds them inline in `Inputs`, up to `COMMANDS_PER_SLOT` of one slot and `TICK_COMMANDS` in all,
   so a record has a fixed size and fits a datagram; a sender's surplus waits for the next tick, in order. Delivery:
   `src/netcode/README.md`, Commands.
-- **Dev commands** are a game's `Cmd_Dev_<Name>` variants (a cheat: give XP, spawn enemies): ordinary commands
+- **Dev commands** are a game's `Command_Dev_<Name>` variants (a cheat: give XP, spawn enemies): ordinary commands
   everywhere (sent, relayed, logged, replayed, the same tick on every peer), which a build without the dev UI
   (`DEV` false) leaves out when it decodes a tick, whoever sent them. Because that build then computes differently,
   its identity says so (`compat_of`), and a dev build and a public build of a game with dev commands refuse each

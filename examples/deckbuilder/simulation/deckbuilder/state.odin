@@ -5,12 +5,12 @@ import "unified:sim"
 // What the party is doing: a run goes Map (vote) -> a node (Heroes and Enemies alternating in a fight; Reward after
 // one; Rest) -> Map ... -> the boss -> Over -> Camp.
 Phase :: enum u8 {
-	Camp, // no run: anyone starts one (Cmd_Start_Run)
-	Map, // the party votes on the next node (Cmd_Vote)
-	Heroes, // a fight, the heroes' turn: everyone plays at once, then ends their turn (Cmd_End_Turn)
+	Camp, // no run: anyone starts one (Command_Start_Run)
+	Map, // the party votes on the next node (Command_Vote)
+	Heroes, // a fight, the heroes' turn: everyone plays at once, then ends their turn (Command_End_Turn)
 	Enemies, // a fight, the enemies' turn: one action per ENEMY_BEAT_S
-	Reward, // after a fight: each hero picks a card or skips (Cmd_Pick_Reward)
-	Rest, // a rest node: each hero heals or upgrades a card (Cmd_Rest)
+	Reward, // after a fight: each hero picks a card or skips (Command_Pick_Reward)
+	Rest, // a rest node: each hero heals or upgrades a card (Command_Rest)
 	Over, // the run ended (State.won): OVER_HOLD_S, then the camp
 }
 

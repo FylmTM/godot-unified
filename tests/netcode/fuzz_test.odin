@@ -92,12 +92,12 @@ relay_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 		wire.w_u8(writer, 2)
 		wire.w_u32(writer, 11)
 		wire.w_u8(writer, 0)
-		wire.w_u8(writer, size_of(toy.Cmd_Bump))
+		wire.w_u8(writer, size_of(toy.Command_Bump))
 		wire.w_bytes(writer, {9, 0, 0, 0})
 		wire.w_u32(writer, 12)
 		wire.w_u8(writer, 1)
-		wire.w_u8(writer, size_of(toy.Cmd_Mark))
-		for i in 0 ..< size_of(toy.Cmd_Mark) {
+		wire.w_u8(writer, size_of(toy.Command_Mark))
+		for i in 0 ..< size_of(toy.Command_Mark) {
 			wire.w_u8(writer, u8(i))
 		}
 	case .Checksum:
@@ -132,9 +132,9 @@ client_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 		netcode.window_write_tick(writer, &first, nil)
 		inputs := finalized_of(6, 2)
 		inputs.present = {0, 1}
-		bump := sim.command_make(toy.Cmd, toy.Cmd_Bump{3})
+		bump := sim.command_make(toy.Command, toy.Command_Bump{3})
 		sim.add_command(&inputs, bump)
-		mark := sim.command_make(toy.Cmd, toy.Cmd_Mark{count = 2})
+		mark := sim.command_make(toy.Command, toy.Command_Mark{count = 2})
 		mark.slot = 1
 		sim.add_command(&inputs, mark)
 		netcode.window_write_tick(writer, &inputs, &first)

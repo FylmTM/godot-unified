@@ -25,10 +25,10 @@ input_log_round_trip :: proc(t: ^testing.T) {
 		inputs.input[0] = toy.scripted_input(99, 0, u32(k + 1))
 		inputs.input[1] = toy.scripted_input(99, 1, u32(k + 1))
 		if k % 5 == 0 {
-			bump := sim.command_make(toy.Cmd, toy.Cmd_Bump{i32(k)})
+			bump := sim.command_make(toy.Command, toy.Command_Bump{i32(k)})
 			bump.slot = 1
 			sim.add_command(&inputs, bump)
-			mark := sim.command_make(toy.Cmd, toy.Cmd_Mark{count = i16(k), shapes = {.Dot, .Star}})
+			mark := sim.command_make(toy.Command, toy.Command_Mark{count = i16(k), shapes = {.Dot, .Star}})
 			sim.add_command(&inputs, mark) // slot 0: goes before slot 1's
 		}
 		sim.log_append(&input_log, &inputs)
@@ -37,7 +37,7 @@ input_log_round_trip :: proc(t: ^testing.T) {
 	defer delete(data)
 	// an empty tick costs one byte for its record kind, one for its command count and one for its join count; a command, 3 bytes plus its
 	// struct; a join record 3
-	command_bytes := 10 * (2 * sim.COMMAND_HEAD + size_of(toy.Cmd_Bump) + size_of(toy.Cmd_Mark))
+	command_bytes := 10 * (2 * sim.COMMAND_HEAD + size_of(toy.Command_Bump) + size_of(toy.Command_Mark))
 	tick_bytes := 10 + size_of([toy.PLAYERS]toy.Input)
 	testing.expect_value(
 		t,
@@ -483,7 +483,16 @@ Bag_State :: struct {
 	bag:     sim.List(toy.Thing, 4),
 }
 
-Bag_Game :: sim.Game(Bag_State, toy.Input, sim.No_World, toy.Event, toy.Cmd, sim.No_Setup, sim.No_Profile, toy.PLAYERS)
+Bag_Game :: sim.Game(
+	Bag_State,
+	toy.Input,
+	sim.No_World,
+	toy.Event,
+	toy.Command,
+	sim.No_Setup,
+	sim.No_Profile,
+	toy.PLAYERS,
+)
 
 BAG_GAME := Bag_Game {
 	name = "bag",

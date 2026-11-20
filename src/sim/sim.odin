@@ -1,4 +1,4 @@
-// The deterministic simulation harness, generic over the game type, sim.Game(State, Input, World, Event, Cmd,
+// The deterministic simulation harness, generic over the game type, sim.Game(State, Input, World, Event, Command,
 // Setup, Profile, PLAYERS) (src/sim/README.md):
 //
 //   State    the state block: plain data (no pointers, no padding), so a snapshot is a copy and its bytes
@@ -6,7 +6,7 @@
 //   Input    one player's input for one tick (plain data, no bools or floats; sim.No_Input: none).
 //   World    everything outside the block (physics world, per-tick scratch); its rollback state is the
 //            game's Extra (physics.extra for Box3D).
-//   Event    the event union, Cmd the command union.
+//   Event    the event union, Command the command union.
 //   Setup    what differs between two sessions of one build (a mode, a difficulty, saved progress): fixed when the
 //            session starts, beside the seed (sim.No_Setup: none).
 //   Profile  what a player chose before joining (a character, a colour): on their join record, kept in the
@@ -84,11 +84,11 @@ Inputs :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game)
 	commands:      [TICK_COMMANDS]Raw_Command, // ordered by slot, each slot's in the order sent (sim.commands)
 }
 
-// The game type. A game names its eight types once, `Game :: sim.Game(State, Input, World, Event, Cmd, Setup, Profile,
+// The game type. A game names its eight types once, `Game :: sim.Game(State, Input, World, Event, Command, Setup, Profile,
 // PLAYERS)`, and everything generic over a game (Sim, Tick, the netcode's Client, the headless runs, godot.Glue, ...)
 // takes that one type, `$G`, and names a part of it with `part(G, GAME_<PART>)`:
 //
-//   part(G, GAME_STATE)    the State           part(G, GAME_CMD)      the Cmd union
+//   part(G, GAME_STATE)    the State           part(G, GAME_COMMAND)      the Command union
 //   part(G, GAME_INPUT)    the Input           part(G, GAME_SETUP)    the Setup
 //   part(G, GAME_WORLD)    the World           part(G, GAME_PROFILE)  the Profile
 //   part(G, GAME_EVENT)    the Event union     part(G, GAME_PLAYERS)  PLAYERS, the slot count
@@ -102,7 +102,7 @@ GAME_STATE :: 0
 GAME_INPUT :: 1
 GAME_WORLD :: 2
 GAME_EVENT :: 3
-GAME_CMD :: 4
+GAME_COMMAND :: 4
 GAME_SETUP :: 5
 GAME_PROFILE :: 6
 GAME_PLAYERS :: 7
@@ -115,7 +115,7 @@ PROFILE_MAX :: COMMAND_MAX
 
 // What `tick` gets: the harness builds one for each step, after it updated the State's Players (players.odin), and
 // one for `init` (number 0, no inputs, no changes). Per-tick helpers that need more than the block take it (emit,
-// roll_below, input, commands). Event and Cmd are the game's unions: emit and commands check against them at compile
+// roll_below, input, commands). Event and Command are the game's unions: emit and commands check against them at compile
 // time.
 Tick :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	state:          ^part(G, GAME_STATE),
@@ -127,7 +127,7 @@ Tick :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	inputs:         ^Inputs(G),
 	events:         ^Events, // what this tick emits (event.odin)
 	player_changes: Player_Changes, // who arrived or left this tick (the State's Players already shows it)
-	commands:       ^Commands(part(G, GAME_CMD)), // the tick's commands, decoded (command.odin)
+	commands:       ^Commands(part(G, GAME_COMMAND)), // the tick's commands, decoded (command.odin)
 	dev:            ^Dev, // the Sim's development attachment (dev.odin; nil: none): the harness's, never tick code's
 	time:           Game_Time, // the State's Clock after this tick's advance, or `number` without one: what stamps hold
 	paused:         bool, // the Clock stood still this tick (the co-op pause: the game runs no system); false without one
@@ -193,7 +193,7 @@ seconds :: proc(count: $T, tick_hz: int) -> f32 where intrinsics.type_is_integer
 
 // A game, as the harness, netcode and tools see it.
 Game :: struct(
-	$State, $Input, $World, $Event, $Cmd, $Setup, $Profile: typeid,
+	$State, $Input, $World, $Event, $Command, $Setup, $Profile: typeid,
 	$PLAYERS: int,
 ) where PLAYERS >= 1 &&
 	PLAYERS <= MAX_PLAYERS,
@@ -232,9 +232,9 @@ Game :: struct(
 	extra:                 proc(world: ^World) -> Extra,
 	// Optional: fills the tick-0 state (the block is zeroed before): t.number is 0, no player is present. May emit,
 	// roll and create physics bodies.
-	init:                  proc(t: ^Tick(Game(State, Input, World, Event, Cmd, Setup, Profile, PLAYERS))),
+	init:                  proc(t: ^Tick(Game(State, Input, World, Event, Command, Setup, Profile, PLAYERS))),
 	// Advances the state from tick.number - 1 to tick.number.
-	tick:                  proc(tick: ^Tick(Game(State, Input, World, Event, Cmd, Setup, Profile, PLAYERS))),
+	tick:                  proc(tick: ^Tick(Game(State, Input, World, Event, Command, Setup, Profile, PLAYERS))),
 	// Optional: a scripted player, for tests, benchmarks, headless checks and Godot's `--scripted` sessions (never
 	// called by the sim; without one they play zero Inputs): the input of the player in `slot` for `tick`, and right
 	// after it that player's commands (sim.send_command(out, command)).
@@ -246,7 +246,7 @@ Game :: struct(
 	// its script steers by the state (scenarios.Suite.script_reads_state). Nothing else checks it: a test's bot that
 	// steers by the state plugs in here, for its own runs and sessions.
 	scripted_input:        proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
-	scripted_commands:     proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^Command_Out(Cmd)),
+	scripted_commands:     proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^Command_Out(Command)),
 	// Optional, never called by the sim: the Profile a scripted player in `slot` joins with (without one: the zero
 	// Profile; the headless `--player-profile` assigns fields over it). A script that answers from (seed, slot) alone
 	// gives every client and offline run the same players.
@@ -309,7 +309,7 @@ No_Input :: struct {}
 // The World of a game that keeps nothing outside the block: sim.Game(State, Input, sim.No_World, ...).
 No_World :: struct {}
 
-// The Setup of a game whose sessions differ only by seed: sim.Game(..., Cmd, sim.No_Setup, Profile, ...).
+// The Setup of a game whose sessions differ only by seed: sim.Game(..., Command, sim.No_Setup, Profile, ...).
 // Zero bytes everywhere.
 No_Setup :: struct {}
 
@@ -369,7 +369,7 @@ Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	extra:        Extra, // the game's (Game.extra; zero: none)
 	ring:         []Ring_Slot(part(G, GAME_STATE)), // ring_size(game.tick_hz) slots, allocated at create
 	changes:      Changes_Buffer(part(G, GAME_PLAYERS)), // the step's joins and leaves (Tick.player_changes)
-	commands:     Commands(part(G, GAME_CMD)), // the step's commands, decoded (Tick.commands)
+	commands:     Commands(part(G, GAME_COMMAND)), // the step's commands, decoded (Tick.commands)
 	input_check:  Wire_Check, // the Input's wire rules, compiled: step checks each slot's with it (inputs_as_read)
 	read_inputs:  Inputs(G), // a step's inputs as read when one slot's Input needed it (inputs_as_read)
 	// Checksum input: tick, block bytes, then each Extra's bytes. Hashed one-shot, because
@@ -419,7 +419,7 @@ compat_with :: proc(
 ) -> u64 where intrinsics.type_is_specialization_of(G, Game) {
 	Input :: part(G, GAME_INPUT)
 	Event :: part(G, GAME_EVENT)
-	Cmd :: part(G, GAME_CMD)
+	Command :: part(G, GAME_COMMAND)
 	PLAYERS :: part(G, GAME_PLAYERS)
 	Ids :: struct {
 		state, input, inputs, name, version, content, commands, events, box3d, setup: u64,
@@ -434,14 +434,14 @@ compat_with :: proc(
 		name     = hash_bytes(transmute([]u8)game.name),
 		version  = hash_bytes(transmute([]u8)game.version),
 		content  = content_hash(game.levels),
-		commands = union_hash(Cmd, COMMAND_PREFIX),
+		commands = union_hash(Command, COMMAND_PREFIX),
 		events   = union_hash(Event, EVENT_PREFIX),
 		box3d    = hash_bytes(transmute([]u8)(library.box3d != "" ? library.box3d : box3d_pin())),
 		setup    = layout_hash(part(G, GAME_SETUP)), // its layout: the value travels (Welcome, the log, snapshots)
 		players  = u32(PLAYERS),
 		tick_hz  = u32(game.tick_hz),
 		library  = library.version != 0 ? library.version : LIBRARY_VERSION,
-		dev      = DEV && !library.public && has_dev_commands(Cmd) ? 1 : 0,
+		dev      = DEV && !library.public && has_dev_commands(Command) ? 1 : 0,
 	}
 	return dmath.max(hash_bytes(([^]u8)(&ids)[:size_of(Ids)]), 1) // never 0 ("any")
 }
@@ -500,11 +500,11 @@ content_hash :: proc(levels: []Level_File) -> u64 {
 game_violation :: proc(game: ^$G) -> string where intrinsics.type_is_specialization_of(G, Game) {
 	State :: part(G, GAME_STATE)
 	Input :: part(G, GAME_INPUT)
-	Cmd :: part(G, GAME_CMD)
+	Command :: part(G, GAME_COMMAND)
 	Event :: part(G, GAME_EVENT)
 	Setup :: part(G, GAME_SETUP)
 	Profile :: part(G, GAME_PROFILE)
-	reason := declaration_violation(game.name, game.tick_hz, type_info_of(State), type_info_of(Input), Cmd, Event)
+	reason := declaration_violation(game.name, game.tick_hz, type_info_of(State), type_info_of(Input), Command, Event)
 	if reason != "" do return reason
 	if reason = levels_violation(game.name, type_info_of(State), game.levels); reason != "" do return reason
 	setup := game.setup

@@ -23,12 +23,12 @@ places_of :: proc(run: ^Run) -> ^g.Places {
 	return &run.simulation.world.places[run.simulation.state.level.id]
 }
 
-// A run whose team is in the route from tick 1 (slot 0 sent Cmd_Travel), the tick re-saved: what the route's beats
+// A run whose team is in the route from tick 1 (slot 0 sent Command_Travel), the tick re-saved: what the route's beats
 // start from.
 route_begin :: proc(seated: int) -> Run {
 	run := headless.run_begin(&g.GAME, 1, seated = seated)
 	inputs := headless.run_inputs(&run)
-	sim.add_command(&inputs, 0, g.Cmd_Travel{.Route})
+	sim.add_command(&inputs, 0, g.Command_Travel{.Route})
 	headless.run_step(&run, &inputs)
 	headless.run_pin(&run)
 	return run

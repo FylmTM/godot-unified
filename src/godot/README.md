@@ -188,7 +188,7 @@ everywhere:
 
 **Events and commands** are classes too: one per kind of the event union (`extends UnifiedEvent`) and of the command
 union (`extends UnifiedCommand`), named `Event` / `Command` + the type in PascalCase without its prefix
-(`Event_Rock_Hit` -> `EventRockHit`, `Cmd_Drop` -> `CommandDrop`), with a typed property per field. The library's
+(`Event_Rock_Hit` -> `EventRockHit`, `Command_Drop` -> `CommandDrop`), with a typed property per field. The library's
 `sim.Event_Player_Joined` / `Event_Player_Left` are `EventPlayerJoined` and `EventPlayerLeft`. Handlers dispatch by
 class, never by `kind`. A script makes a command with its class and sends it with `UnifiedSession.send_command`; the
 sim gets it exactly once.

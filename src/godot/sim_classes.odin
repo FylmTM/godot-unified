@@ -62,7 +62,7 @@ sim_class_of :: proc(obj: gd.Object) -> (^Sim_Class, ^Sim_Object) {
 }
 
 // The class of an event or command kind: `Event` or `Command`, then the Odin type name in PascalCase (an event's
-// `Event_` and a command's `Cmd_` dropped): Rock_Hit and Event_Rock_Hit -> EventRockHit, Cmd_Drop -> CommandDrop.
+// `Event_` and a command's `Command_` dropped): Rock_Hit and Event_Rock_Hit -> EventRockHit, Command_Drop -> CommandDrop.
 // Godot has no namespaces for classes (an extension class can't nest, nor can GDScript alias one as a constant), so
 // the prefix groups them.
 class_name_of :: proc(variant: ^runtime.Type_Info, is_event: bool) -> string {
@@ -107,7 +107,7 @@ register_sim_classes :: proc() {
 		parent    = "RefCounted",
 		size      = size_of(Sim_Object),
 		doc_brief = "One of the game's commands: the base of its command classes.",
-		doc       = "Each kind of the game's command union is a class extending this one, named Command + its type name without Cmd_ (Cmd_Drop: [code]CommandDrop[/code]), with a property per field. Make one, set its fields, and send it with [method UnifiedSession.send_command].",
+		doc       = "Each kind of the game's command union is a class extending this one, named Command + its type name without Command_ (Command_Drop: [code]CommandDrop[/code]), with a property per field. Make one, set its fields, and send it with [method UnifiedSession.send_command].",
 	}
 	gd.register_class(&command_base_class)
 	for layout, kind in api.events do register_sim_class(layout.type, kind, true)

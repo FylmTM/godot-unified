@@ -39,7 +39,7 @@ Setup :: struct {
 	_pad:  [3]u8,
 }
 
-Game :: sim.Game(State, Input, World, Event, Cmd, Setup, sim.No_Profile, PLAYERS)
+Game :: sim.Game(State, Input, World, Event, Command, Setup, sim.No_Profile, PLAYERS)
 Tick :: sim.Tick(Game)
 
 @(rodata)
