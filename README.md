@@ -132,6 +132,8 @@ Example co-op games, each a Godot project with its Odin sim in `simulation/`; a 
 - [`examples/survivor/`](examples/survivor/): top-down survivor, waves of enemies and physics props (3D).
 - [`examples/friendslop/`](examples/friendslop/): third-person physics sandbox: carry, stack, throw (3D).
 - [`examples/drift/`](examples/drift/): ship arena defending a station (2D views, physics locked to a plane).
+- [`examples/deckbuilder/`](examples/deckbuilder/): co-op card battler, a run up one act (turns, no physics, a UI of
+  Controls, a saved run to continue).
 
 ## Documentation
 
