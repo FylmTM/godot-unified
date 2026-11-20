@@ -2,10 +2,10 @@ extends Node3D
 ## The first-person camera: the mouse (captured while playing; Esc frees it, a click takes it back) or the right
 ## stick turn it, and every frame, just before the session samples the input (input_wanted), it tells the session
 ## where it looks (Unified.input.yaw and .pitch, in turns: the sim's dmath.Aim). The look is the rig's own, at render
-## rate, so a rollback never moves it; the position is the local player's view (predicted and smoothed) at eye
-## height. Before the local player has a body, it looks over the yard from above. The `camera` action (Tab) cycles
-## through a few fixed views of the yard and back. The viewmodel kicks and flashes on
-## a shot the sim will fire (Unified.data.hud.fire_ready): view-only, at once.
+## rate, so a rollback never moves it; a look `uni drive values` holds turns it too. The position is the local
+## player's view (predicted and smoothed) at eye height. Before the local player has a body, it looks over the yard
+## from above. The `camera` action (Tab) cycles through a few fixed views of the yard and back. The viewmodel kicks
+## and flashes on a shot the sim will fire (Unified.data.hud.fire_ready): view-only, at once.
 
 const MOUSE_TURNS := 0.00012  # turns per mouse count
 const STICK_TURNS := 0.45  # turns per second at full tilt
@@ -26,6 +26,7 @@ var pitch := 0.0
 ## Which of WATCH the camera looks from (-1: the player's eye); the `camera` action steps through them.
 var watch := -1
 var _kick := 0.0
+var _written := Vector2.ZERO  # the yaw and pitch it last handed the session
 var _fire_cooldown := 0.0
 
 @onready var camera: Camera3D = $Camera3D
@@ -46,12 +47,14 @@ func _on_input_wanted() -> void:
 	yaw -= stick.x * STICK_TURNS * delta
 	pitch -= stick.y * STICK_TURNS * 0.6 * delta
 	_clamp_look()
-	Unified.input.yaw = fposmod(yaw, 1.0)
-	Unified.input.pitch = pitch
+	_written = Vector2(fposmod(yaw, 1.0), pitch)
+	Unified.input.yaw = _written.x
+	Unified.input.pitch = _written.y
 
 
 func _process(delta: float) -> void:
 	_capture_mouse()
+	_follow_held_look()
 	if Input.is_action_just_pressed(&"camera"):
 		watch = (watch + 2) % (WATCH.size() + 1) - 1
 	if watch >= 0:
@@ -107,6 +110,16 @@ func _shoot_feedback(delta: float) -> void:
 	_viewmodel.position = Vector3(0.2, -0.17, -0.52 + _kick * 0.05)
 	_viewmodel.rotation.x = _kick * 0.08
 	_flash.visible = _kick > 0.6
+
+
+## A look someone else holds over the rig's (`uni drive values yaw=.. pitch=..`, after input_wanted): the camera turns
+## to it, so a driven check sees what it aims at.
+func _follow_held_look() -> void:
+	var held := Vector2(Unified.input.yaw, Unified.input.pitch)
+	if not held.is_equal_approx(_written):
+		yaw = held.x
+		pitch = held.y
+		_written = held
 
 
 func _clamp_look() -> void:

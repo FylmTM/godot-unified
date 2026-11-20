@@ -26,9 +26,9 @@ play :: proc(players: int, ticks: u32) -> (played: Played) {
 	simulation := sim.create(&g.GAME, 7)
 	defer sim.destroy(simulation)
 	for tick in 1 ..= ticks {
-		inputs: g.Inputs
+		inputs := sim.seated_inputs(simulation) // the players seated so far stay present
 		for slot in 0 ..< players {
-			sim.join(&inputs, slot, slot + 1) // seated every tick: a slot left out leaves
+			if tick == 1 do sim.seat(&inputs, simulation, slot, slot + 1)
 			inputs.input[slot] = sim.scripted_player_input(&g.GAME, 7, slot, tick, &simulation.state)
 		}
 		sim.step(simulation, &inputs)
