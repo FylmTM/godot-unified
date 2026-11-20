@@ -159,6 +159,18 @@ quat_yaw :: proc "contextless" (facing: [2]f32) -> [4]f32 {
 	return {0, sin_half, 0, cos_half}
 }
 
+// The Hamilton product a·b of quaternions (x, y, z, w): the rotation `b` followed by `a` (a body's rotation `a` of a
+// part's local rotation `b` gives the part's world rotation), each term written out in a fixed order. Unit in, unit
+// out to rounding: renormalize a product chained many times.
+quat_mul :: proc "contextless" (a, b: [4]f32) -> [4]f32 {
+	return {
+		a.w * b.x + a.x * b.w + a.y * b.z - a.z * b.y,
+		a.w * b.y - a.x * b.z + a.y * b.w + a.z * b.x,
+		a.w * b.z + a.x * b.y - a.y * b.x + a.z * b.w,
+		a.w * b.w - a.x * b.x - a.y * b.y - a.z * b.z,
+	}
+}
+
 // Rotates vec by the unit quaternion quat (x, y, z, w), u = (x, y, z): vec + 2w(u×vec) + 2u×(u×vec), each term
 // written out.
 quat_rotate :: proc "contextless" (quat: [4]f32, vec: [3]f32) -> [3]f32 {
