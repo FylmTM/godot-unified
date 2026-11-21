@@ -551,13 +551,17 @@ drive_check :: proc(game: Game) -> bool {
 	check(&failed, from == paused + 16, "step 16 from the pause went from %d to %d", paused, from)
 	stepped := tick(call(&instance, &failed, true, "step", "3"))
 	check(&failed, stepped == from + 3, "step 3 went from %d to %d", from, stepped)
-	// a node whose _unhandled_input records the press, as a game that sends its commands from a handler
+	// a node whose _unhandled_input records the press, as a game that sends its commands from a handler. The press is
+	// of an action of the probe's own, bound to no event: a built-in one (ui_right) is focus navigation, which a
+	// focused Control consumes before _unhandled_input, so the check would measure the game's UI, not the delivery.
+	PROBE_ACTION :: "unified_drive_probe"
 	for expression in ([]string {
+			`Engine.get_singleton("InputMap").add_action("` + PROBE_ACTION + `")`,
 			`root.set_meta("drive_probe", Engine.get_singleton("ClassDB").instantiate("GDScript"))`,
 			`root.get_meta("drive_probe").set_source_code("extends Node
 var seen: bool = false
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed(\"ui_right\"):
+	if event.is_action_pressed(\"` + PROBE_ACTION + `\"):
 		seen = true
 ")`,
 			`root.get_meta("drive_probe").reload()`,
@@ -567,9 +571,9 @@ func _unhandled_input(event: InputEvent) -> void:
 		}) {
 		call(&instance, &failed, true, "eval", expression)
 	}
-	pressed := tick(call(&instance, &failed, true, "press", "ui_right", "4"))
+	pressed := tick(call(&instance, &failed, true, "press", PROBE_ACTION, "4"))
 	check(&failed, pressed == stepped + 4, "a press for 4 ticks went from %d to %d", stepped, pressed)
-	held := call(&instance, &failed, true, "eval", `Input.is_action_pressed("ui_right")`)
+	held := call(&instance, &failed, true, "eval", `Input.is_action_pressed("` + PROBE_ACTION + `")`)
 	still, _ := held["value"].(json.Boolean)
 	check(&failed, !still, "the press was not released: %v", held["value"])
 	probe := call(&instance, &failed, true, "eval", `root.get_meta("drive_probe_node").seen`)
