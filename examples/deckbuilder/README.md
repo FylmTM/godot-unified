@@ -5,7 +5,7 @@ of `FLOORS` floors together, each with their own deck, hand, energy and relics, 
 their cards, all playing at once. It shows what rollback netcode does for a game where nothing moves: the sim is pure
 rules on a state block (card tables, piles as `sim.List`s, keyed random streams), plays are commands, the shared
 "what I'm about to play" is each player's Input, a run saves and continues through the session's Setup, and the
-whole Godot side is Controls fed with view data. A Godot project (this folder is `res://`): the sim, its tests, the
+whole Godot side is Controls fed with view data, drawn in code on a felt table (no image assets). A Godot project (this folder is `res://`): the sim, its tests, the
 headless binary and the GDExtension in `simulation/` (Odin), everything Godot in `game/`. `uni run deckbuilder`
 plays it; `uni coop deckbuilder` opens two windows in one session. How to write gameplay that survives rollback:
 `examples/minimal_3d/GUIDE.md`.
@@ -15,21 +15,30 @@ their tables, `CARDS` and `ENEMIES`); this README names them. There is no physic
 
 ## Controls
 
-The mouse. Click a card to play it: a card at one enemy or at a hero is held up first, then played by clicking its
-target (an enemy, or a hero's panel); right click or Esc puts it down. Hand Off takes the card to hand over, then the
-ally. End turn (or Play on, to take it back while the turn lasts) at the top right. The camp, map, reward and rest
-panels are buttons. The camp offers the class (Vanguard or Arcanist: the session starts again with it while nobody
-else is here), Start a run, Continue the saved run (playing alone), and the ways to play together; F1 is the dev UI.
+The mouse. Click a card to play it: a card at one enemy or at a hero is held up first (its targets light up), then
+played by clicking its target (an enemy, or a hero's panel); right click, Esc or a second click puts it down. Hand Off
+takes the card to hand over, then the ally. End turn (or Play on, to take it back while the turn lasts) beside the
+hand. The camp, map, reward and rest panels are buttons, the map's nodes and the reward's cards too. Esc with no card
+held opens the pause menu; F1 is the dev UI.
 
-## Playing together
+## The app
 
-The camp is where players get together. Alone, it opens the camp's session to friends (`UnifiedSession.open_online`:
-an EOS lobby, its code shown with Copy; or `open_direct` on the LAN, `LAN_PORT`, its address shown) or joins a
-friend's, by lobby code or by host:port. Hosting, Play alone ends the session for everyone; joined, Leave goes back to
-playing alone. A session that ends without the player leaving (the host left, a join failed) leaves the camp saying
-why, with Play alone and the join fields. The camp follows the session's status, so the session flags and `uni coop`
-work as before. Online play needs a build with the EOS IDs compiled in: `uni run` with `.env` set, or the zip `uni
-release deckbuilder` makes (`docs/EOS.md`).
+The Godot side is the examples' shared app layer (`game/app/`, `game/ui/`: the `.claude/skills/godot-examples` skill
+says what each copy shares and where they differ): the main menu (Single player, Host online, Join with code, Join by
+address or Host on LAN, Settings) on the felt with a fanned hand, the connect overlay, the pause menu (Resume, Invite
+friends, Settings, Leave to menu; alone it pauses), the settings (the class among them) and the session panel top-right
+(who is here, the code to share). The `Game` autoload owns the session and takes every one, however it started (the
+menus, the session flags, `uni coop`), to the table (`game/table.tscn`).
+
+At the table the session starts at the camp: pick the class (Vanguard or Arcanist, kept in the settings: alone, the
+session starts again with it), Start a run, Continue the saved run (playing alone), or Invite friends (the running
+session opens online, or on the LAN when this build can't). Online play needs a build with the EOS IDs compiled in:
+`uni run` with `.env` set, or the zip `uni release deckbuilder` makes (`docs/EOS.md`).
+
+What the table draws is the sim's, through its views and data: a card's face from its id and the constants (frame by
+whom it is played at, cost gem, glyph, rules text), an enemy's medallion, intent badge, block and statuses, each hero's
+plate and open hand, the map from the run's nodes and votes. Sounds, banners, flashes and damage numbers follow the
+events, at once on an emitted event (a prediction shows them), banners and the log once confirmed.
 
 ## Heroes
 
@@ -119,7 +128,7 @@ when the heroes' turn starts, never when a play lands.
 ## The save
 
 `Game.save` gives the run as it entered its last node (`State.save`, a `Setup`: the floor and lane, the run's seed and
-each hero's class, HP, relics and deck), and nothing at the camp or after the run's end. The table writes it to
+each hero's class, HP, relics and deck), and nothing at the camp or after the run's end. The `Game` autoload writes it to
 `user://deckbuilder_save.json` whenever it changes (`UnifiedSession.save_changed`, `UnifiedSetup.to_json`), on every
 player's machine, so any of them can host the continuation. Continue starts a single session with it
 (`UnifiedSetup.from_json`); its tick 0 restores the heroes, asleep until their players come, and enters the node
@@ -151,7 +160,8 @@ exercised. Its Profile alternates the classes by slot (`scripted_profile`).
   revives them.
 - Session data: `Unified.data.run` (`Data_Run`: the phase, floor, map, votes, the local hero's offers and deck) and
   `Unified.data.heroes` (`Data_Heroes`: each hero's row, with their aim and pile sizes).
-- Constants: each card's text (and its upgraded text), each relic's, `FLOORS` and `LANES`.
+- Constants: each card's text (and its upgraded text), cost, target and whether it exhausts (a reward's or a rest's
+  card, which no view holds, is drawn from them), each relic's text, `FLOORS` and `LANES`.
 - Input: the aim (`Input`: the held card's place in the hand, the enemy or hero it hovers), set by the table
   (`Unified.input`); every ally's panel and every enemy show it.
 - Commands: everything else (plays, end turn, votes, rewards, rests, starting a run). Events update the log, flash a

@@ -22,6 +22,9 @@ const LAN_PORT := 7777
 const MENU_SCENE := "res://game/ui/main_menu.tscn"
 const PLAY_SCENE := "res://game/arena/arena.tscn"
 const CONNECT_OVERLAY := preload("res://game/ui/connect_overlay.tscn")
+## Keys labelled by the character they type rather than their name ("BracketLeft").
+const SYMBOL_KEYS: Dictionary[Key, String] = {KEY_BRACKETLEFT: "[", KEY_BRACKETRIGHT: "]", KEY_MINUS: "-",
+	KEY_EQUAL: "=", KEY_COMMA: ",", KEY_PERIOD: ".", KEY_SLASH: "/", KEY_SEMICOLON: ";", KEY_APOSTROPHE: "'"}
 ## A pad's buttons by `JoyButton` index, as an Xbox pad labels them.
 const PAD_BUTTONS: Array[String] = ["A", "B", "X", "Y", "Back", "Guide", "Start", "L3", "R3", "LB", "RB", "D-pad up",
 	"D-pad down", "D-pad left", "D-pad right"]
@@ -312,7 +315,10 @@ static func _event_label(event: InputEvent, grouped: bool) -> String:
 		var code := key.physical_keycode if key.physical_keycode != KEY_NONE else key.keycode
 		if grouped and code in [KEY_LEFT, KEY_RIGHT, KEY_UP, KEY_DOWN]:
 			return "Arrows"
-		return "Esc" if code == KEY_ESCAPE else OS.get_keycode_string(code)
+		if code == KEY_ESCAPE:
+			return "Esc"
+		var label: String = SYMBOL_KEYS.get(code, OS.get_keycode_string(code))
+		return label
 	if event is InputEventMouseButton:
 		var index := (event as InputEventMouseButton).button_index
 		return {MOUSE_BUTTON_LEFT: "LMB", MOUSE_BUTTON_RIGHT: "RMB", MOUSE_BUTTON_MIDDLE: "MMB"}.get(index, "Mouse %d" % index)

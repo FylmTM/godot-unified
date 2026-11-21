@@ -6,27 +6,43 @@ unified's example of physics at its widest: every joint type, ragdolls, continuo
 hit and joint events, height fields and large piles, each saved, restored and re-simulated with the rest of the state.
 A Godot project (this folder is `res://`): the sim, its tests, the headless binary and the GDExtension in
 `simulation/` (Odin), everything Godot in `game/`; each scene's static ground is a level (`game/levels/<scene>.tscn`).
-`uni run playground` plays it (alone, or with friends online or on the LAN: Playing together), `uni coop playground`
-as a host and a joiner.
+`uni run playground` plays it (alone, or with friends online or on the LAN: The app), `uni coop playground` as a
+host and a joiner.
 
 Metres, seconds and kilograms at `TICK_HZ`, Y up. Every rule number is a named constant in
 `simulation/playground/tuning.odin`.
 
 ## Controls
 
-WASD fly (forward along the look), Space / Ctrl up and down, the mouse looks (a click captures it, Esc lets it go).
-Hold the left button to grab what the crosshair is on (Q / E pull it closer or push it away), right button to shoot,
-F to spawn a body (G picks its shape), X to set off an explosion where the crosshair points, C to get in or out of a car
-(Driving), `[` `]` or PageUp / PageDown to change the scene for everyone, R to reset it.
+WASD fly (forward along the look), Space / Ctrl up and down, the mouse or the right stick looks. Hold the left button
+to grab what the crosshair is on (Q / E pull it closer or push it away), right button to shoot, F to spawn a body (G
+picks its shape), X to set off an explosion where the crosshair points, C to get in or out of a car (Driving), `[` `]`
+or PageUp / PageDown to change the scene for everyone, R to reset it, Esc / Start for the menu, F1 for the dev UI. The
+HUD's controls list says the same, from the InputMap, for what the player is doing.
 
-## Playing together
+## The app
 
-The start panel (`game/start_panel.tscn`) comes up before a session and again when one ends, saying why: Play alone,
-Host online (an EOS lobby, its code in the top right corner to share; Copy puts it on the clipboard), Join by code,
-Host on the LAN (`LAN_PORT`, the address in the corner) and Join on the LAN (host:port). Leave, in the corner, ends the
-session (a host's ends it for everyone); Esc frees the mouse to reach it. The panel follows the session's status, so the session flags and `uni coop`
-start without it. Online play needs a build with the EOS IDs compiled in: `uni run` with `.env` set, or the zip `uni
-release playground` makes (`docs/EOS.md`).
+The app layer survivor, friendslop and drift share, copied into `game/app/` and `game/ui/`: the `Game` autoload owns
+the session for the app's lifetime and switches scenes on its status (the main menu, connecting, the play scene, back
+to the menu saying why), whoever started it (the menus, the session flags, `uni coop`); `Settings` (name, volumes,
+mouse sensitivity and invert look, window, 3D resolution, FPS) and `Sfx` (sounds synthesized at boot) beside it. The
+main menu (`game/ui/main_menu.tscn`) is the Pyramid scene as it starts, built by `game/ui/backdrop.gd` without a sim,
+under a slow orbit: Single player, Host online (an EOS lobby; its code on the HUD's session panel, Copy beside it),
+Join with code, Join by address or Host on LAN instead, Settings. The play scene (`game/main.tscn`) hands the session
+its level and view roots; Esc opens the pause menu (Resume, Settings, Leave to menu), which pauses a single-player
+session and frees the mouse, captured the rest of the time (a session panel's Copy is clicked beside it). Changing or
+resetting the scene stays on its keys, not in the menu: it is everyone's, like any other command. Online play needs a
+build with the EOS IDs compiled in: `uni run` with `.env` set, or the zip `uni release playground` makes
+(`docs/EOS.md`).
+
+Where it differs from the shared copy on purpose: the session panel's colours are the cameras'
+(`UiTheme.PLAYER_COLORS`), a key that types a symbol is labelled by it (`[`, not BracketLeft), and the pause menu lets
+clicks beside its panel through to the HUD.
+
+The play scene routes sim events to effects as they are first shown (a predicted one included; a cancelled shot's
+sound stops): shots, spawns, grabs, explosions (which shake the camera within reach), breaking joints and sensor
+visits make sounds by distance; a scene everyone entered, once confirmed, plays its chime and the HUD's banner names
+it.
 
 ## Scenes
 
@@ -111,5 +127,6 @@ Everything that moves is built in code, so a level holds no markers.
   have entered).
 - `Data_Hud` (`Unified.data.hud`): the scene, the players, the bodies and how many are awake, what the local player is
   doing. The scenes' enum is the level enum: `EnumLevel` in GDScript.
-- Input: the InputMap's move, grab, closer and farther actions; the camera rig's yaw and pitch (`Unified.input`) are the
-  aim. The tools' one-shots are commands `main.gd` sends.
+- Input: the InputMap's move, grab, closer and farther actions; the camera rig's yaw and pitch (`Unified.input`, set on
+  `input_wanted`) are the aim. The tools' one-shots are commands `main.gd` sends while the game has the input (not
+  under the pause menu).

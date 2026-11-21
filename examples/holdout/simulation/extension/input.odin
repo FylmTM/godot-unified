@@ -6,8 +6,8 @@ import "unified:godot"
 
 import g "../holdout"
 
-// What the camera rig (game/rig.gd) sets every frame on the session's input_wanted: where it looks, in turns (Godot
-// rotation's yaw and pitch divided by TAU), kept by the rig as doubles so a long turn never drifts.
+// What the camera rig (game/arena/rig.gd) sets every frame on the session's input_wanted: where it looks, in turns
+// (Godot rotation's yaw and pitch divided by TAU), kept by the rig as doubles so a long turn never drifts.
 Input_Values :: struct {
 	yaw:   f32,
 	pitch: f32,
