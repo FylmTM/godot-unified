@@ -86,6 +86,17 @@ public_commands :: proc() -> []Command {
 			run     = cmd_drive,
 		},
 		{
+			name    = "feedback",
+			summary = "the notes a dev build saved (F3, a freeze) in the game's user data: list the open ones (--done: the handled), show one with its screenshot and the commands that replay it, mark notes done (moved to feedback/done/)",
+			options = option_forms(
+				{"", Feedback_List_Opts},
+				{"show", Feedback_Show_Opts},
+				{"done", Feedback_Done_Opts},
+			),
+			details = feedback_details,
+			run     = cmd_feedback,
+		},
+		{
 			name    = "coop",
 			summary = "host and joiner processes in a real lobby (EOS, or --lan); EOS: one test at a time (docs/EOS.md)",
 			options = option_types(Coop_Opts),

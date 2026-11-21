@@ -27,6 +27,7 @@ one's options. A game repo holds one game, so no command needs its name.
 - The game under headless Godot: `./uni test --suite godot`
 - Play it: `./uni run`; a host and a joiner: `./uni coop`
 - Drive a running game (input, exact steps, state, screenshots, menus): `./uni drive`
+- The developer's playtest notes (F3, freezes): `./uni feedback`
 - Tool scripts (validate, the game's own): `./uni tool <script>`
 - Levels and the view index: `./uni bake`
 - Speed: `./uni bench`
@@ -35,8 +36,8 @@ one's options. A game repo holds one game, so no command needs its name.
 
 The multi-step procedures are skills in `.claude/skills/unified-*/SKILL.md` (plain Markdown, for any agent):
 `unified-godot` (checking and play-checking in Godot), `unified-godot-authoring` (scenes, levels, input maps and UI
-without the editor), `unified-sim-change` (a change that moves the sim's results) and `unified-desync` (finding a
-determinism bug).
+without the editor), `unified-sim-change` (a change that moves the sim's results), `unified-desync` (finding a
+determinism bug) and `unified-feedback` (the developer's playtest notes).
 
 ## How the integration works
 

@@ -664,27 +664,28 @@ tool_own_result :: proc(result: json.Value) -> string {
 @(private)
 clear_shader_cache :: proc(game: Game) {
 	remove_tree(join(game.dir, ".godot", "shader_cache"))
-	config, _ := config_load(join(game.dir, "project.godot"))
-	name, ok := config_get(config, "application", "config/name")
-	if ok {
-		remove_tree(join(godot_user_dir(), "app_userdata", name, "shader_cache"))
-		// a check's or a driven run's own (user_env)
-		remove_tree(join(godot_user_dir(user_base(game.dir)), "app_userdata", name, "shader_cache"))
-		log("uni: cleared the shader caches of %s", game.name)
-	}
+	remove_tree(join(game_user_dir(game.dir), "shader_cache"))
+	// a check's or a driven run's own (user_env)
+	remove_tree(join(game_user_dir(game.dir, user_base(game.dir)), "shader_cache"))
+	log("uni: cleared the shader caches of %s", game.name)
 }
 
-// Godot's user data directory on this OS: the developer's, or under `base` (a run with user_env's: `user_base`).
+// Godot's user data directory on this OS (where its export templates and every project's app_userdata are): the
+// developer's, or under `base` (a run with user_env's: `user_base`).
 godot_user_dir :: proc(base := "") -> string {
+	return join(os_data_dir(base), ODIN_OS == .Windows || ODIN_OS == .Darwin ? "Godot" : "godot")
+}
+
+// The OS's per-user data directory as Godot reads it (OS::get_data_path), or `base` (godot_user_dir's).
+os_data_dir :: proc(base := "") -> string {
+	if base != "" do return base
 	when ODIN_OS == .Darwin {
-		if base != "" do return join(base, "Godot")
-		return join(os.get_env("HOME", context.allocator), "Library", "Application Support", "Godot")
+		return join(os.get_env("HOME", context.allocator), "Library", "Application Support")
 	} else when ODIN_OS == .Windows {
-		return join(base if base != "" else os.get_env("APPDATA", context.allocator), "Godot")
+		return os.get_env("APPDATA", context.allocator)
 	} else {
-		if base != "" do return join(base, "godot")
 		xdg := os.get_env("XDG_DATA_HOME", context.allocator)
-		return xdg != "" ? join(xdg, "godot") : join(os.get_env("HOME", context.allocator), ".local", "share", "godot")
+		return xdg != "" ? xdg : join(os.get_env("HOME", context.allocator), ".local", "share")
 	}
 }
 
