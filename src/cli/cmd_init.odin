@@ -27,12 +27,8 @@ Init_Opts :: struct {
 cmd_init :: proc(args: []string) -> Result {
 	opts: Init_Opts
 	parse(&opts, args)
-	dir := opts.dir
-	if !os.is_absolute_path(dir) {
-		cwd, _ := os.get_working_directory(context.allocator)
-		dir = join(cwd, dir)
-	}
-	dir = strings.trim_right(dir, "/\\")
+	cwd, _ := os.get_working_directory(context.allocator)
+	dir := absolute_path(cwd, opts.dir)
 	name := os.base(dir)
 	if !valid_game_name(name) {
 		usage("%q is not a game name: lowercase letters, digits and _, starting with a letter", name)
