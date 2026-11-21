@@ -456,6 +456,19 @@ send :: proc(d: ^Draw($G), command: $T, local := 0) -> bool {
 	return api.send(sim.command_make(sim.part(G, sim.GAME_COMMAND), command), local)
 }
 
+// The command line's user arguments (after `--`), temp-allocated: a game's own flags (os.args is empty in an
+// extension: a shared library never runs Odin's start-up).
+user_args :: proc() -> []string {
+	list := gd.OS_get_cmdline_user_args(gd.OS_singleton())
+	defer gd.PackedStringArray_destroy(&list)
+	count := int(gd.PackedStringArray_size(&list))
+	args := make([]string, count, context.temp_allocator)
+	for i in 0 ..< count {
+		args[i] = gd.string_to_odin(cast(^gd.String)gdi.packed_string_array_operator_index(&list, i64(i)))
+	}
+	return args
+}
+
 // The inverse of an affine 2D transform.
 @(private)
 transform_inverse :: proc(xform: gd.Transform2D) -> gd.Transform2D {

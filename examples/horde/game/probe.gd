@@ -106,11 +106,23 @@ func _sample(now: int) -> void:
 		"nodes": Performance.get_monitor(Performance.OBJECT_NODE_COUNT),
 		"static_mem": mem,
 		"static_rise": maxi(mem - _last_static, 0),
-		"enemies": Unified.data.hud.enemies if Unified.data != null and Unified.data.get(&"hud") != null else -1,
+		"enemies": _enemies(),
 	})
 	_last_us = now
 	_last_validator = validator
 	_last_static = mem
+
+
+# The HUD's enemy count when the example has session data (-1: none: the all-Odin example has no Data_Hud).
+func _enemies() -> int:
+	var data: Object = Unified.get(&"data")
+	if data == null:
+		return -1
+	var hud: Object = data.get(&"hud")
+	if hud == null:
+		return -1
+	var count: int = hud.get(&"enemies")
+	return count
 
 
 func _finish() -> void:
