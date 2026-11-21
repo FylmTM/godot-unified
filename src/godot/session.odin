@@ -1078,11 +1078,13 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 		session.frame = nil
 	}
 	now := time.tick_now()
+	shown_alpha: f32
 	if session.frame != nil {
 		frame := session.frame
 		session.last_tick = frame.tick
 		tick_us := frame.tick_us != 0 ? frame.tick_us : i64(1_000_000 / max(frame.tick_hz, 1))
 		alpha := alpha(now._nsec / 1000, frame.due_us, tick_us)
+		shown_alpha = alpha
 		root := effective_root(session)
 		root_id := root.ptr != nil ? gdi.object_get_instance_id(root.ptr) : 0
 		if root_id != session.synced_root {
@@ -1097,6 +1099,7 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 	delivering := time.tick_now()
 	drain_events(session)
 	V.stats.delivery += time.tick_since(delivering)
+	if api.draw != nil && session.frame != nil && !session.ended do api.draw(shown_alpha, f32(dt), fresh) // immediate mode: after the events
 	drain_messages(session)
 	// The relay's roster and who the shown tick has present come apart: a joiner's roster entry arrives ticks before
 	// the tick that seats them is on screen, so either one changing is a roster change.
@@ -1212,6 +1215,16 @@ route_event :: proc(session: ^Session_Node, message: Event_Message) {
 	raw := message.event
 	if int(raw.kind) >= len(api.events) do return // another build's event: never from this game's sim
 	layout := &api.events[raw.kind]
+	if api.event != nil {
+		message := message
+		api.event(&message) // immediate mode: the game's Odin first
+	}
+	if !api.script_events {
+		V.stats.events += 1
+		dev_event(message.tick, message.id, message.action, layout, raw.data[:raw.size])
+		control_event(message.tick, message.id, message.action, int(raw.kind), layout, raw.data[:raw.size])
+		return
+	}
 	event := new_event_object(int(raw.kind), message.tick, message.id, raw.data[:raw.size])
 	if event.ptr == nil do return // its class failed to register (an error said why)
 	// the Variant holds a reference and ours goes: the event is freed with the Variant unless a script kept it

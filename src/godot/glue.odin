@@ -179,29 +179,29 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	// Main thread, every frame, for each local player (`local`: its index): its Input from Godot's input (the action
 	// helpers read its device, input.odin; its input values: input_values). nil for a game without one (sim.No_Input):
 	// its players act through commands alone.
-	sample_input: proc(local: int, input: ^sim.part(G, sim.GAME_INPUT)),
+	sample_input:     proc(local: int, input: ^sim.part(G, sim.GAME_INPUT)),
 	// Session thread, every published tick: the views of the tick's state (push_view, push_multi_view) and the
 	// session data (push_data).
-	fill_frame:   proc(frame: ^Frame(G, View, MultiView)),
+	fill_frame:       proc(frame: ^Frame(G, View, MultiView)),
 	// Optional: the game's session data types, a union of `Data_` structs (Unified.<name>, push_data).
-	data:         typeid,
+	data:             typeid,
 	// Optional: how the host shows each scene view kind whose policy isn't the default, by its type:
 	// `{{View_Crate, {smoothing = {tau_s = 0.2}}}, {View_Enemy, {appear = .Verified}}}`. Each kind at most once.
-	view_policy:  []View_Kind_Policy,
+	view_policy:      []View_Kind_Policy,
 	// Optional: what only scripts know for sample_input (a camera's look direction), a plain struct: scripts set its
 	// fields on Unified.input, sample_input reads them with input_values(T).
-	input_values: typeid,
+	input_values:     typeid,
 	// Optional, the view space (src/godot/README.md, View space): the sim's XY plane is shown in Godot 2D, x right,
 	// y down (a sim.Position reaches GDScript as a Vector2, else a Vector3).
-	is_2d:        bool,
+	is_2d:            bool,
 	// Optional, the view space: view units per sim unit (zero: 1), e.g. 32 for 2D art drawn at 32 px per metre.
-	view_scale:   f32,
+	view_scale:       f32,
 	// Optional: how the host shows each MultiMesh kind (a MultiMesh kind has no data: its instances' fields are
 	// Multi_View_Item's). A kind whose smoothing is left zero interpolates its keyed instances and lets corrections pop
 	// (no state per instance: the cheap default for thousands); one that sets it gives each keyed instance a track
 	// whose corrections glide like a scene view's (`godot.SMOOTHING_DEFAULT` for the defaults). `pose = .Script` and
 	// `remote = .Verified` are a scene view's only.
-	multi_policy: [MultiView]View_Policy,
+	multi_policy:     [MultiView]View_Policy,
 
 	// Main thread, optional: where an event (the game's union) goes, named the way push_view names a view, by kind
 	// and subject: `godot.to_view(View_Player, subject.player)`, `to_view(View_Gate, subject.entity)`,
@@ -209,7 +209,18 @@ Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specializ
 	// `return`): the routing by its subject (its first handle or sim.Entity field: the views pushed with that subject;
 	// else, or when none is, its first sim.Player field: that player's views). So a game handles only its special
 	// events.
-	event_key:    proc(event: sim.part(G, sim.GAME_EVENT), subject: Subject) -> Event_Target,
+	event_key:        proc(event: sim.part(G, sim.GAME_EVENT), subject: Subject) -> Event_Target,
+
+	// Experimental, immediate mode (immediate.odin): main thread, every rendered frame, after the frame's events: the
+	// game draws the shown tick from the State itself (and the tick before, for interpolation) through the canvas
+	// procs, with no views. With it, fill_frame is optional.
+	draw:             proc(d: ^Draw(G)),
+	// Experimental, immediate mode: main thread, each event in each of its states, as the game's union, before any
+	// script sees it (positions in sim units).
+	event:            proc(event: sim.part(G, sim.GAME_EVENT), info: Event_Info),
+	// Experimental, immediate mode: no GDScript object per event state, so no view or script gets events (only
+	// Glue.event): a game whose views and effects are all Odin skips that cost.
+	no_script_events: bool,
 }
 
 // The prefix of a scene view kind's type: `View_Card` is the kind `card` (UnifiedView.kind, EnumView.CARD) and the

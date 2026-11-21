@@ -79,6 +79,11 @@ Api :: struct {
 	// The session's recording so far, appended to `snapshot` and `log` (dev UI builds; false: none yet).
 	recording:       proc(snapshot, log: ^[dynamic]u8) -> (info: Recording_Info, ok: bool),
 	event_key:       proc(event: ^sim.Raw_Event, subject: Subject) -> (kind: int, key: u64, route: Event_Route), // Glue.event_key (nil: by subject; kind -1: not a View variant)
+	// Immediate mode (immediate.odin): the game's Glue.draw on the newest published state pair (nil: none), and its
+	// Glue.event for one event state (nil: none); script_events false: no GDScript object per event state.
+	draw:            proc(alpha, dt: f32, fresh: bool),
+	event:           proc(message: ^Event_Message),
+	script_events:   bool,
 	result:          proc() -> string, // the finished session's result JSON (after a Result message)
 	send:            proc(command: sim.Raw_Command, local: int) -> bool, // queue local player `local`'s command (false: full)
 	// Ask the session to add local player `local` (1 ..< LOCAL_MAX) with this name and Profile's bytes, or to remove it.
@@ -250,10 +255,12 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 // The Inspector's state and the tick before it (the op log), copied while the dev UI shows them.
 @(private)
 State_Pair :: struct($State: typeid) {
-	tick:   u32,
-	before: u32,
-	state:  State,
-	prev:   State,
+	tick:          u32,
+	before:        u32,
+	seed:          u64, // the session's (immediate mode: keyed rolls a view computes early)
+	local_players: [LOCAL_MAX]sim.Player, // this client's at `tick`, by local index
+	state:         State,
+	prev:          State,
 }
 
 // What the dev UI's Input panel shows: the local player's newest input and the newest verified tick's.
@@ -447,6 +454,22 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 			target := (^This_Glue)(g_glue).event_key(event_value, subject)
 			if target.route != .View do return 0, 0, target.route
 			return view_kind_index(View, target.kind), target.key, target.route
+		}
+	}
+	api.script_events = !glue.no_script_events
+	if glue.draw != nil {
+		api.draw = proc(alpha, dt: f32, fresh: bool) {
+			if g_driver == nil do return
+			driver := (^This_Driver)(g_driver)
+			pair, _ := triple_front(&driver.states)
+			if pair.tick == 0 do return
+			immediate_draw((^This_Glue)(g_glue).draw, pair, alpha, dt, fresh)
+		}
+	}
+	if glue.event != nil {
+		api.event = proc(message: ^Event_Message) {
+			value := sim.event_value(&message.event, Event)
+			(^This_Glue)(g_glue).event(value, {tick = message.tick, id = message.id, state = message.action})
 		}
 	}
 	api.sample_input = proc() {
@@ -842,8 +865,8 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 	Input :: sim.part(G, sim.GAME_INPUT)
 	#assert(size_of(Input) <= MAX_INPUT_BYTES, "unified:godot: the game's Input is larger than MAX_INPUT_BYTES")
 	problems: [dynamic]string
-	if glue.fill_frame == nil {
-		append(&problems, "the Glue needs fill_frame")
+	if glue.fill_frame == nil && glue.draw == nil {
+		append(&problems, "the Glue needs fill_frame (or draw: immediate mode)")
 	}
 	if glue.sample_input == nil && size_of(Input) > 0 {
 		append(&problems, "the Glue needs sample_input: the game has an Input")
@@ -1365,9 +1388,11 @@ publish_frame :: proc(
 	if client != nil && driver.sampler != nil do verified_sampler_fill(driver.sampler, out, info)
 	triple_publish(&driver.frames)
 	fill_stats_add(&driver.fill, time.tick_since(started))
-	if sync.atomic_load(&want_state) {
+	if driver.glue.draw != nil || sync.atomic_load(&want_state) {
 		pair := triple_back(&driver.states)
 		pair.tick = info.tick
+		pair.seed = simulation.seed
+		pair.local_players = local_players
 		// A State is assigned on its own, never in a multiple assignment (`a, b = x, state^`): that copies it as one
 		// aggregate value, which -o:speed splits into a load and a store per field (most of a minute to compile).
 		pair.state = current^
@@ -1434,6 +1459,7 @@ make_frame :: proc(
 // Runs the game's fill_frame on a Frame, marked for the watchdog (a fill that never returns is a freeze).
 @(private)
 run_fill :: proc(driver: ^Driver($G, $View, $MultiView), frame: ^Frame(G, View, MultiView)) {
+	if driver.glue.fill_frame == nil do return // immediate mode (Glue.draw) without views
 	sync.atomic_store(&driver.in_fill, true)
 	driver.glue.fill_frame(frame)
 	sync.atomic_store(&driver.in_fill, false)

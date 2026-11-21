@@ -603,6 +603,7 @@ marker_update :: proc(scene_view: ^Scene_View) {
 // when the session node leaves the tree or the extension unloads; the next sync starts from nothing.
 views_clear :: proc() {
 	debug_draw_clear()
+	immediate_clear()
 	verified_players_clear()
 	for _, entry in V.set.entries do free_view(entry.view)
 	set_destroy(&V.set)
