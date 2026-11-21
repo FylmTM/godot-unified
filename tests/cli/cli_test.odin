@@ -198,6 +198,23 @@ init_public_url :: proc(t: ^testing.T) {
 	testing.expect_value(t, cli.public_url("C:/work/unified"), "C:/work/unified")
 }
 
+// `init`'s target: a typed path resolved against the working directory, so `../game` from a checkout names the sibling
+// (outside the checkout), not `<root>/../game` (which starts with `<root>/`).
+@(test)
+init_path_resolves_dots :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	ROOT :: "C:/work/unified" when ODIN_OS == .Windows else "/work/unified"
+	PARENT :: "C:/work" when ODIN_OS == .Windows else "/work"
+	testing.expect_value(t, cli.absolute_path(ROOT, "../mygame"), PARENT + "/mygame")
+	testing.expect_value(t, cli.absolute_path(ROOT, "./examples/../../mygame"), PARENT + "/mygame")
+	testing.expect_value(t, cli.absolute_path(ROOT, ".out/scratch/"), ROOT + "/.out/scratch")
+	testing.expect_value(t, cli.absolute_path(ROOT, "examples//game"), ROOT + "/examples/game")
+	testing.expect_value(t, cli.absolute_path(ROOT, PARENT + "/x/../mygame"), PARENT + "/mygame")
+	when ODIN_OS == .Windows {
+		testing.expect_value(t, cli.absolute_path(ROOT, `..\mygame`), PARENT + "/mygame")
+	}
+}
+
 // A .gdextension's [dependencies], written by `uni build` from what the extension links: added when missing, replaced
 // when stale (with the comment above it), removed when it links nothing, the rest of the file as it was.
 @(test)

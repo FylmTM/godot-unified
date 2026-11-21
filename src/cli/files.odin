@@ -13,6 +13,17 @@ path_key :: proc(path: string) -> string {
 	return ODIN_OS == .Windows ? strings.to_lower(key) : key
 }
 
+// The directory a typed path names: absolute against `cwd` when relative, `.` and `..` resolved, / separators, so a
+// check like "is it inside this checkout" sees `<root>/../game` as the sibling it is.
+absolute_path :: proc(cwd, path: string) -> string {
+	joined := os.is_absolute_path(path) ? path : join(cwd, path)
+	cleaned, _ := os.clean_path(joined, context.allocator)
+	if ODIN_OS == .Windows {
+		cleaned, _ = strings.replace_all(cleaned, "\\", "/")
+	}
+	return cleaned
+}
+
 // Writes a file whole through a temp file and a rename, so a reader never sees half of it. Creates the directory.
 write_file :: proc(path: string, data: []byte) -> bool {
 	if os.make_directory_all(os.dir(path)) != nil && !os.is_directory(os.dir(path)) {
