@@ -2,5 +2,10 @@
 
 [resource]
 metadata/views = {
-"player": "res://game/views/player.tscn"
+"blast": "res://game/views/blast.tscn",
+"bolt": "res://game/views/bolt.tscn",
+"bomb": "res://game/views/bomb.tscn",
+"enemy": "res://game/views/enemy.tscn",
+"gem": "res://game/views/gem.tscn",
+"hero": "res://game/views/hero.tscn"
 }

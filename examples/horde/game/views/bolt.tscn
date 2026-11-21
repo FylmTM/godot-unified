@@ -1,0 +1,14 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://game/views/bolt.gd" id="1"]
+
+[node name="bolt" type="Node2D"]
+z_index = 3
+script = ExtResource("1")
+
+[node name="UnifiedView" type="UnifiedView" parent="."]
+kind = "bolt"
+
+[node name="Trail" type="Line2D" parent="."]
+top_level = true
+width = 4.0
