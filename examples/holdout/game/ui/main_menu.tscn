@@ -1,0 +1,20 @@
+[gd_scene format=3]
+
+[ext_resource type="PackedScene" path="res://game/levels/yard.tscn" id="1_level"]
+[ext_resource type="Script" path="res://game/ui/orbit_camera.gd" id="2_orbit"]
+[ext_resource type="PackedScene" path="res://game/ui/menu.tscn" id="3_menu"]
+
+[node name="MainMenu" type="Node"]
+
+[node name="Level" parent="." instance=ExtResource("1_level")]
+
+[node name="Camera" type="Camera3D" parent="."]
+fov = 55.0
+script = ExtResource("2_orbit")
+radius = 27.0
+height = 19.0
+speed = 0.04
+
+[node name="Menu" parent="." instance=ExtResource("3_menu")]
+title = "HOLDOUT"
+tagline = "Defend the core together, wave after wave, from three gates."

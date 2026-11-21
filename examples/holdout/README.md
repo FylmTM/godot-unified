@@ -24,18 +24,18 @@ What it shows of unified:
 ## Controls
 
 Mouse / right stick to look, WASD / arrows / left stick to move, Space / pad A to jump, left mouse / right trigger to
-fire, G / right mouse / pad RB to throw a grenade, E / pad X (held) to revive, R / Enter / Start to start the run in the
-lobby, Tab / pad LB to cycle a few views of the yard and back, Esc to free the mouse (a click takes it again), F1 for
-the dev UI.
+fire, G / right mouse / pad RB to throw a grenade, E / pad X (held) to revive, R / Enter / pad Y to start the run in the
+lobby, Tab / pad LB to cycle a few views of the yard and back, Esc / Start for the menu, F1 for the dev UI. Mouse
+sensitivity and invert look are settings. The HUD's controls list shows them for the device in use.
 
 ## Playing together
 
-The start panel (`game/start_panel.tscn`) comes up before a session and again when one ends, saying why: Play alone,
-Host online (an EOS lobby, its code in the top right corner to share; Copy puts it on the clipboard), Join by code,
-Host on the LAN (`LAN_PORT`, the address in the corner) and Join on the LAN (host:port). Leave, in the corner, ends the
-session (a host's ends it for everyone); Esc frees the mouse to reach it. The panel follows the session's status, so the session flags and `uni coop`
-start without it. Online play needs a build with the EOS IDs compiled in: `uni run` with `.env` set, or the zip `uni
-release holdout` makes (`docs/EOS.md`).
+The main menu (the yard as a backdrop) starts a session: Single player, Host online (an EOS lobby; its code goes to the
+clipboard and shows on the session panel, top right, with Copy), Join with code, Join by address (LAN) and Host on LAN
+from there. The session panel lists who is in, and in the lobby how to start. Esc opens the menu: Resume, Settings,
+Leave to menu (a host's leaving ends the session for everyone); alone it pauses the game. The flow follows the
+session's status whoever started it, so the session flags and `uni coop` skip the menu. Online play needs a build
+with the EOS IDs compiled in: `uni run` with `.env` set, or the zip `uni release holdout` makes (`docs/EOS.md`).
 
 ## World
 
@@ -141,12 +141,19 @@ for in any order. Four of them play every rule within a few minutes, a run lost 
 - **Constants** (`Unified.constants`): the player's and enemies' sizes, the pitch limit, the fire interval, the blast
   radius, the core's health and the wave count.
 
-The Godot side (`game/`): `main.tscn` holds the session, the level and view roots, the rig, the effects, the HUD and the start panel.
-`rig.gd` is the first-person camera: it keeps yaw and pitch in turns and hands them over on `input_wanted`, sits at
-the local player's view at eye height, and kicks the viewmodel on a shot the sim will fire. `player.gd` draws a
-shot's tracer: your own at once (EMITTED), a teammate's when their late body fires it (CONFIRMED). `effects.gd` plays
-the blasts, hits and deaths from the signal, and `hud.gd` reads `Unified.data.hud`, with the run's result from
-CONFIRMED events only.
+The Godot side (`game/`) is the app layer friendslop, survivor and drift each have a copy of: `app/` (the `Game`
+autoload owns the session and switches between the menu and the play scene; `Settings`, `Sfx`, synthesized sounds) and
+the menus and HUD panels in `ui/`. The play scene is `arena/arena.tscn`: the level and view roots it hands the session,
+the rig, the effects, the HUD and the pause menu; it plays the yard's sounds from the events. `arena/rig.gd` is the
+first-person camera: it keeps yaw and pitch in turns and hands them over on `input_wanted`, sits at the local player's
+view at eye height, captures the mouse while playing, and kicks the viewmodel on a shot the sim will fire.
+`views/player.gd` draws a shot's tracer: your own at once (EMITTED), a teammate's when their late body fires it
+(CONFIRMED). `arena/effects.gd` plays the blasts, hits and deaths from the signal. `ui/hud.gd` reads
+`Unified.data.hud`, with the run's result and its banners from CONFIRMED events only.
+
+The hit marker is view-only, from EMITTED events so it answers the click: a shot of yours that hit (`Event_Shot`'s
+`hit`) flashes an X, red and bigger when an `Event_Enemy_Hit` on a head landed where that shot ended (the shot's end is
+the hit's point, so no sim field links them), and a kill (`Event_Enemy_Died`'s `killer`) rings it.
 
 ## Tests and the benchmark
 

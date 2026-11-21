@@ -5,7 +5,8 @@ extends CanvasLayer
 ## session (UnifiedSession.paused; inviting friends ends the pause); with other players it is an overlay only (online
 ## a pause would be the game's own state). Game input is off while it is open (UnifiedSession.game_input: its clicks
 ## and keys don't reach the sim). A play scene instances pause_menu.tscn as
-## `PauseMenu`.
+## `PauseMenu`. Clicks beside its panel reach the HUD under it: the mouse is free only while it is
+## open, so that is where the session panel's Copy is clicked.
 
 ## Loaded at first use, not preloaded: this scene is part of the play scene, which loads on a thread.
 const SETTINGS_PANEL := "res://game/ui/settings_panel.tscn"

@@ -1,6 +1,6 @@
 class_name Table
-## What deckbuilder's tool scripts (ui_walk.gd, coop.gd) read off the table (game/main.tscn): its panel and buttons,
-## the local hand and the local hero.
+## What deckbuilder's tool scripts (ui_walk.gd, coop.gd) read off the table (game/table.tscn): its panel and buttons,
+## the map's open nodes, the reward's cards, the local hand and the local hero.
 
 
 ## The phase panel's title ("" while the panel is hidden or the table isn't loaded).
@@ -17,12 +17,21 @@ static func button(scene: Node, prefix: String) -> Button:
 	return null
 
 
-## The map's first lane the party may vote for (null: none).
+## The map's first node the party may vote for (null: none).
 static func open_lane(scene: Node) -> Button:
-	for found: Button in _buttons(scene):
-		if found.get_parent() is GridContainer and not found.disabled:
-			return found
-	return null
+	var map := _node(scene, ^"%Body/Map") as MapView
+	if map == null or map.is_queued_for_deletion():
+		return null
+	var open := map.open_nodes()
+	return open[0] if not open.is_empty() else null
+
+
+## The reward's first card (null: none on show).
+static func first_offer(scene: Node) -> Button:
+	var offers := _node(scene, ^"%Body/Offers")
+	if offers == null or offers.is_queued_for_deletion() or offers.get_child_count() == 0:
+		return null
+	return offers.get_child(0) as Button
 
 
 ## The local hand's cards (a played or discarded card fading out included).

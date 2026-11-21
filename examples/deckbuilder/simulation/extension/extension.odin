@@ -25,10 +25,14 @@ deckbuilder_init :: proc "c" (
 	return godot.init(&g.GAME, GLUE, get_proc_address, library, initialization, eos.lobby({}), constants = constants)
 }
 
-// What a card says, made from its rules (g.CARDS), so the text never disagrees with them.
+// What a card says and costs, made from its rules (g.CARDS), so the table never disagrees with them: a reward's or a
+// rest's card, which no card view holds, is drawn from it.
 Card_Text :: struct {
 	text:     string,
 	upgraded: string, // its upgraded version's
+	cost:     u8,
+	target:   g.Target_Kind,
+	exhaust:  bool,
 }
 
 // The constants (Unified.constants): each card's text and each relic's, by their enums, and the map's size.
@@ -44,6 +48,9 @@ constants :: proc() -> Data_Constants {
 	for id in g.Card_Id do result.cards[id] = {
 		text     = card_text(id, false),
 		upgraded = card_text(id, true),
+		cost     = g.CARDS[id].cost,
+		target   = g.CARDS[id].target,
+		exhaust  = g.CARDS[id].exhaust,
 	}
 	result.floors, result.lanes = g.FLOORS, g.LANES
 	result.relics = {

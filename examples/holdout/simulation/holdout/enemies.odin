@@ -38,7 +38,7 @@ spawn_enemy :: proc(state: ^State, world: ^World, kind: Enemy_Kind, near: [3]f32
 	}
 	def := physics.body_def(.Kinematic, at, dmath.quat_yaw(facing))
 	enemy.body = physics.create_body(world.phys, def, sim.handle_key(handle))
-	top := spec.radius + 2 * spec.half_height
+	top := enemy_height(spec)
 	capsule := physics.Capsule{{0, spec.radius, 0}, {0, top - spec.radius, 0}, spec.radius}
 	physics.create_capsule_shape(world.phys, enemy.body, physics.shape_def(CAT_ENEMY), capsule)
 	head := physics.Sphere{{0, top + spec.head_radius * 0.7, 0}, spec.head_radius}
@@ -62,7 +62,13 @@ bench_prepare :: proc(state: ^State, world: ^World, count: int) {
 // The point an enemy's eyes and spit leave from: the middle of its head.
 enemy_head :: proc(enemy: ^Enemy) -> [3]f32 {
 	spec := &ENEMY_SPECS[enemy.kind]
-	return enemy.pos + {0, 2 * spec.radius + 2 * spec.half_height + spec.head_radius * 0.7, 0}
+	return enemy.pos + {0, enemy_height(spec) + spec.head_radius * 0.7, 0}
+}
+
+// How tall a kind's capsule stands from its feet (its segment and both caps): its head sphere sits on top, the view
+// draws both from the same spec (Unified.constants.enemy_sizes), so a shot at the head it shows strikes the head shape.
+enemy_height :: proc(spec: ^Enemy_Spec) -> f32 {
+	return 2 * (spec.radius + spec.half_height)
 }
 
 // Each runner and spitter looks for a player every SIGHT_EVERY_TICKS (time-sliced by its index, sim.due): the nearest

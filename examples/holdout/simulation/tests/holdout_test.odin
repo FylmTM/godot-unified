@@ -109,6 +109,41 @@ the_yard_mesh_leads_every_gate_to_the_core :: proc(t: ^testing.T) {
 	testing.expect_value(t, world.core_goal.y, 0)
 }
 
+// Every kind's shapes stand where its view draws them (enemy.gd, from the same spec): a shot level with the head it
+// shows strikes the head shape, one level with the middle of its body the capsule, and one just over the head nothing.
+@(test)
+a_shot_at_the_drawn_head_is_a_headshot :: proc(t: ^testing.T) {
+	simulation := sim.create(&g.GAME, 7)
+	defer sim.destroy(simulation)
+	world := simulation.world
+	gate := world.gates[0]
+	for kind in g.Enemy_Kind {
+		testing.expect(t, g.spawn_enemy(&simulation.state, world, kind, gate))
+		enemies := sim.iterate(&simulation.state.enemies)
+		for enemy, handle in sim.next(&enemies) {
+			if enemy.kind != kind do continue
+			spec := &g.ENEMY_SPECS[kind]
+			toward := dmath.normalize(world.core - enemy.pos) * 3
+			head := g.enemy_head(enemy)
+			middle := enemy.pos + {0, g.enemy_height(spec) / 2, 0}
+			over := head + {0, spec.head_radius + 0.02, 0}
+			head_hit, on_head := physics.world_cast_ray_closest(world.phys, head + toward, -toward, g.SHOT_FILTER)
+			testing.expectf(
+				t,
+				on_head && head_hit.category == g.CAT_HEAD,
+				"%v: on the head shape (%v)",
+				kind,
+				head_hit,
+			)
+			body_hit, on_body := physics.world_cast_ray_closest(world.phys, middle + toward, -toward, g.SHOT_FILTER)
+			testing.expectf(t, on_body && body_hit.category == g.CAT_ENEMY, "%v: on the capsule (%v)", kind, body_hit)
+			_, above := physics.world_cast_ray_closest(world.phys, over + toward, -toward, g.SHOT_FILTER)
+			testing.expectf(t, !above, "%v: nothing over the drawn head", kind)
+			physics.despawn(world.phys, &simulation.state.enemies, handle)
+		}
+	}
+}
+
 // One player: the first steps of each test's run.
 @(private = "file")
 solo :: proc() -> headless.Run(g.Game) {

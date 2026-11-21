@@ -1,0 +1,225 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://game/table.gd" id="1"]
+[ext_resource type="PackedScene" path="res://game/hero_panel.tscn" id="2"]
+[ext_resource type="Script" path="res://game/ui/felt.gd" id="3"]
+[ext_resource type="Script" path="res://game/ui/hand.gd" id="4"]
+[ext_resource type="Script" path="res://game/ui/energy_orb.gd" id="5"]
+[ext_resource type="Script" path="res://game/ui/banner.gd" id="6"]
+[ext_resource type="PackedScene" path="res://game/ui/pause_menu.tscn" id="7"]
+
+[node name="Table" type="Control"]
+layout_mode = 3
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("1")
+
+[node name="Felt" type="Control" parent="."]
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+script = ExtResource("3")
+
+[node name="Status" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 34.0
+offset_top = 24.0
+offset_right = 620.0
+offset_bottom = 54.0
+theme_type_variation = &"Heading"
+theme_override_font_sizes/font_size = 22
+
+[node name="Log" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 0
+offset_left = 34.0
+offset_top = 56.0
+offset_right = 420.0
+offset_bottom = 120.0
+theme_type_variation = &"Dim"
+theme_override_font_sizes/font_size = 13
+autowrap_mode = 3
+
+[node name="Hint" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 380.0
+offset_top = 290.0
+offset_right = -380.0
+offset_bottom = 316.0
+grow_horizontal = 2
+theme_override_colors/font_color = Color(1, 0.85, 0.5, 1)
+theme_override_font_sizes/font_size = 15
+horizontal_alignment = 1
+
+[node name="Board" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Enemies" type="HBoxContainer" parent="Board"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 200.0
+offset_top = 46.0
+offset_right = -200.0
+offset_bottom = 286.0
+grow_horizontal = 2
+mouse_filter = 2
+theme_override_constants/separation = 20
+alignment = 1
+
+[node name="Heroes" type="HBoxContainer" parent="Board"]
+layout_mode = 1
+anchors_preset = 10
+anchor_right = 1.0
+offset_left = 20.0
+offset_top = 322.0
+offset_right = -20.0
+offset_bottom = 478.0
+grow_horizontal = 2
+mouse_filter = 2
+theme_override_constants/separation = 16
+alignment = 1
+
+[node name="Hero0" parent="Board/Heroes" instance=ExtResource("2")]
+layout_mode = 2
+
+[node name="Hero1" parent="Board/Heroes" instance=ExtResource("2")]
+layout_mode = 2
+index = 1
+
+[node name="Hero2" parent="Board/Heroes" instance=ExtResource("2")]
+layout_mode = 2
+index = 2
+
+[node name="Hero3" parent="Board/Heroes" instance=ExtResource("2")]
+layout_mode = 2
+index = 3
+
+[node name="Hands" type="Control" parent="Board"]
+layout_mode = 0
+offset_left = -400.0
+offset_top = -400.0
+offset_right = -200.0
+offset_bottom = -300.0
+mouse_filter = 2
+
+[node name="LocalHand" type="Container" parent="Board"]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 12
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = 190.0
+offset_top = -210.0
+offset_right = -230.0
+offset_bottom = -22.0
+grow_horizontal = 2
+grow_vertical = 0
+mouse_filter = 2
+script = ExtResource("4")
+
+[node name="Energy" type="Control" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 2
+anchor_top = 1.0
+anchor_bottom = 1.0
+offset_left = 34.0
+offset_top = -176.0
+offset_right = 164.0
+offset_bottom = -26.0
+grow_vertical = 0
+mouse_filter = 2
+script = ExtResource("5")
+
+[node name="EndTurn" type="Button" parent="."]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(170, 58)
+layout_mode = 1
+anchors_preset = 3
+anchor_left = 1.0
+anchor_top = 1.0
+anchor_right = 1.0
+anchor_bottom = 1.0
+offset_left = -206.0
+offset_top = -120.0
+offset_right = -36.0
+offset_bottom = -62.0
+grow_horizontal = 0
+grow_vertical = 0
+focus_mode = 0
+theme_type_variation = &"PrimaryButton"
+text = "End turn"
+
+[node name="Overlay" type="CenterContainer" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 15
+anchor_right = 1.0
+anchor_bottom = 1.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+
+[node name="Panel" type="PanelContainer" parent="Overlay"]
+unique_name_in_owner = true
+custom_minimum_size = Vector2(460, 0)
+layout_mode = 2
+
+[node name="Box" type="VBoxContainer" parent="Overlay/Panel"]
+layout_mode = 2
+theme_override_constants/separation = 14
+
+[node name="Title" type="Label" parent="Overlay/Panel/Box"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_type_variation = &"Heading"
+theme_override_font_sizes/font_size = 32
+horizontal_alignment = 1
+
+[node name="Body" type="VBoxContainer" parent="Overlay/Panel/Box"]
+unique_name_in_owner = true
+layout_mode = 2
+theme_override_constants/separation = 10
+
+[node name="Banner" type="Label" parent="."]
+unique_name_in_owner = true
+layout_mode = 1
+anchors_preset = 14
+anchor_top = 0.5
+anchor_right = 1.0
+anchor_bottom = 0.5
+offset_top = -98.0
+offset_bottom = -38.0
+grow_horizontal = 2
+grow_vertical = 2
+mouse_filter = 2
+theme_type_variation = &"Big"
+theme_override_colors/font_outline_color = Color(0.05, 0.03, 0.02, 0.9)
+theme_override_constants/outline_size = 12
+theme_override_font_sizes/font_size = 46
+horizontal_alignment = 1
+vertical_alignment = 1
+script = ExtResource("6")
+
+[node name="PauseMenu" parent="." instance=ExtResource("7")]
