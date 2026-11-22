@@ -25,13 +25,16 @@ bench_details :: proc() -> string {
 		"steps its setup and, every tick, rolls back to the prediction cap and re-simulates (the worst case the\n" +
 		"netcode makes: a bound, not a typical frame); the first window + 64 ticks run untimed. The target: a step, a\n" +
 		"restore, that re-sim and a deep checksum within %.0f ms at their p99. A re-sim whose checksum differs fails\n" +
-		"the run. Then the game's `session` on the virtual clock, 4 clients (as\n" +
-		"many as the game has players, when fewer): on the game's own script for the bytes a session moves, under\n" +
-		"`bad` (the stress case) and under `wan` (the common case) with the last client connecting halfway and joining as a player does (the join: Hello to playing, the\n" +
-		"bytes it took, the snapshot's transfer and the joiner's catch-up step); then a shorter one under `bad` whose\n" +
-		"inputs change every tick (--script churn: rollbacks on most ticks, a bound from above) for the rollbacks, the\n" +
-		"stalls and every client step that stepped the sim (p99, worst): the measure the target models. Then the\n" +
-		"project's own rows. Reported in .out/bench.json, not gated by time.",
+		"the run. Each row also times a checksum tick's portable snapshot: its encode, and its compression as the\n" +
+		"netcode sends it (unified:lz: compress, decompress, the compressed size; a round trip that differs fails the\n" +
+		"run). Then the game's `session` on the virtual clock, 4 clients (as many as the game has players, when\n" +
+		"fewer): on the game's own script for the bytes a session moves, under `bad` (the stress case) and under\n" +
+		"`wan` (the common case) with the last client connecting halfway and joining as a player does (the join:\n" +
+		"Hello to playing, the bytes it took, the snapshot's size and compressed size, its transfer and the joiner's\n" +
+		"catch-up step); then a shorter one under `bad` whose inputs change every tick (--script churn: rollbacks on\n" +
+		"most ticks, a bound from above) for the rollbacks, the stalls and every client step that stepped the sim\n" +
+		"(p99, worst): the measure the target models. Then the project's own rows. Reported in .out/bench.json, not\n" +
+		"gated by time.",
 		BENCH_TARGET_US / 1000,
 	)
 }
