@@ -2,7 +2,7 @@
 // Box3D) with a Glue that shows fixed 2D and 3D scene views and MultiMesh items, the toy's command counters as
 // session data (Unified.data.toy) and a few constants (Unified.constants). tests/godot_views/test.gd starts a single
 // player session under headless Godot (`uni test --suite godot-bindings`) and checks where the views end up, the
-// data, constants, enum, event and command classes, the view lifecycle and the input sample.
+// data, constants, enum, event and command classes, the view lifecycle (pooled kinds' too) and the input sample.
 package views_test_ext
 
 import "core:math"
@@ -23,7 +23,28 @@ View :: union {
 	View_Remote3D, // another player's on the verified timeline (GLUE.view_policy: remote = .Verified)
 	View_Rider3D, // a thing's that shows a player (a car's driver), the same policy
 	View_Predicted3D, // a kind left on the prediction, showing the remote player
+	View_Pool2D, // a pooled kind (its marker's `pool`): views reused for new keys (pool_views)
+	View_Pool_Late2D, // a pooled kind that appears on verified (GLUE.view_policy: appear = .Verified)
+	View_Churn3D, // the view benchmark's churn (bench_frame): instanced for every new key, freed when it goes
+	View_Churn_Pool3D, // the same churn, pooled
 }
+
+// The pooled kinds' data: the view's key, so a reused view's script can tell its data is its new key's.
+View_Pool2D :: struct {
+	serial: u32,
+}
+View_Pool_Late2D :: struct {
+	serial: u32,
+}
+View_Churn3D :: struct {
+	serial: u32,
+}
+View_Churn_Pool3D :: struct {
+	serial: u32,
+}
+
+// The churn views' subject: another table's handle, so no toy event reaches them.
+Churn :: struct {}
 
 View_Plain2D :: struct {}
 
@@ -207,6 +228,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 		{View_Rider3D, {remote = .Verified}},
 		{View_Predicted3D, {remote = .Predicted}},
 		{View_Plain3D, {smoothing = {tau_s = 0.05}}},
+		{View_Pool_Late2D, {appear = .Verified}},
 	},
 	multi_policy = #partial{.Smooth3D = {smoothing = godot.SMOOTHING_DEFAULT}},
 }
@@ -219,6 +241,7 @@ GAME: toy.Game
 // its first tick, read by fill_frame on the same thread.
 BENCH_SCENE_VIEWS :: 64
 BENCH_STATIC_VIEWS :: 64 // and as many at rest (a level's markers, a crate on the floor)
+BENCH_CHURN :: 2 // per live thing, views of each churn kind: they come and go with the toy's things
 bench_instances: int
 
 // Holds no sim state: the count only drives the views (bench_frame).
@@ -242,6 +265,22 @@ bench_frame :: proc(f: ^Frame) {
 	}
 	for i in 0 ..< BENCH_STATIC_VIEWS {
 		godot.push_view(f, sim.entity(200 + i), {pos = {f32(i % 8), 2, f32(i / 8)}}, View_Plain3D{lap = i32(i)})
+	}
+	// the churn: views of a fresh and of a pooled kind for each live thing, keyed by its handle (a new key for each
+	// thing in a slot), so the spawns of both cost the same work but a reuse
+	things := sim.iterate(&f.state.things)
+	for _, thing in sim.next(&things) {
+		for j in 0 ..< BENCH_CHURN {
+			churn := sim.Handle(Churn) {
+				index      = thing.index * BENCH_CHURN + u32(j),
+				generation = thing.generation,
+			}
+			at := godot.View_Item {
+				pos = {f32(churn.index % 8), 4, f32(churn.index / 8)},
+			}
+			godot.push_view(f, churn, at, View_Churn3D{serial = churn.index})
+			godot.push_view(f, churn, at, View_Churn_Pool3D{serial = churn.index})
+		}
 	}
 	side := max(int(math.sqrt(f32(bench_instances))), 1)
 	for i in 0 ..< bench_instances {
@@ -301,6 +340,7 @@ fill_frame :: proc(f: ^Frame) {
 	godot.push_view(f, sim.entity(2), {pos = POS_3D / VIEW_SCALE, rot = q3}, View_Plain3D{})
 	godot.push_view(f, sim.entity(3), {pos = POS_3D / VIEW_SCALE, rot = q3}, View_Scripted3D{})
 	remote_walk(f)
+	pool_views(f)
 	if f.tick >= BLINK_FROM && f.tick < BLINK_TO {
 		godot.push_view(f, sim.entity(5), {pos = {-5, -5, 0}}, View_Plain2D{})
 	}
@@ -405,6 +445,7 @@ event_key :: proc(event: toy.Event, subject: godot.Subject) -> godot.Event_Targe
 		return {route = .No_View}
 	case toy.Event_Spawned:
 		if value.player == REMOTE_PLAYER do return godot.to_view(View_Remote3D, REMOTE_PLAYER)
+		if value.player == POOL_EVENT_PLAYER do return godot.to_view(View_Pool2D, sim.entity(int(value.position.x)))
 	}
 	return {}
 }
@@ -429,6 +470,54 @@ drawn_tick :: proc(t: ^toy.Tick) {
 	sim.debug_text(t, sim.Position{1, 1, 0}, "tick %d", t.number)
 	if bench_instances == 0 && t.number % REMOTE_EVENT_EVERY == REMOTE_EVENT_AT {
 		sim.emit(t, toy.Event_Spawned{position = sim.Position{remote_x(t.number), 0, 0}, player = REMOTE_PLAYER})
+	}
+	if bench_instances == 0 && t.number % POOL_PERIOD == POOL_EVENT_AT {
+		// one to the pooled view's key, one to the key before it (gone and pooled, maybe reused for this one)
+		key := POOL_KEY + int(t.number / POOL_PERIOD)
+		sim.emit(t, toy.Event_Spawned{position = {f32(key), 0, 0}, player = POOL_EVENT_PLAYER})
+		sim.emit(t, toy.Event_Spawned{position = {f32(key - 1), 0, 0}, player = POOL_EVENT_PLAYER})
+	}
+}
+
+// The pooled kinds' schedule (pool_views), in ticks: one key a period, alive for its first POOL_LIVE ticks but
+// POOL_GAP_FROM ..< POOL_GAP_TO (gone shorter than its linger: revived), so it is pooled long before the next key
+// spawns; a key that lives one tick only at POOL_BLIP_AT (a cancelled spawn while that tick is not yet verified); at
+// POOL_EVENT_AT an event to the key and one to the key before (drawn_tick: Event_Spawned of POOL_EVENT_PLAYER, its
+// position.x the key it goes to). An odd period's key shows the local player, an even one's none.
+POOL_PERIOD :: 32
+POOL_LIVE :: 12
+POOL_GAP_FROM :: 5
+POOL_GAP_TO :: 7
+POOL_EVENT_AT :: 3
+POOL_BLIP_AT :: 18
+POOL_KEY :: 1000 // the key of period n: POOL_KEY + n
+POOL_BLIP_KEY :: 2000 // the one-tick key of period n: POOL_BLIP_KEY + n
+POOL_EVENT_PLAYER :: sim.Player {
+	index = 1,
+	id    = 79,
+}
+
+// The pooled views: pool2d on the schedule above, at x = its key (sim units), and pool_late2d, on the same
+// schedule without the gap, appearing on verified.
+pool_views :: proc(f: ^Frame) {
+	period := int(f.tick / POOL_PERIOD)
+	phase := int(f.tick % POOL_PERIOD)
+	key := POOL_KEY + period
+	player := f.local_players[0] if period % 2 == 1 else {}
+	if phase < POOL_LIVE {
+		if phase < POOL_GAP_FROM || phase >= POOL_GAP_TO {
+			item := godot.View_Item {
+				pos    = {f32(key), 1, 0},
+				player = player,
+			}
+			godot.push_view(f, sim.entity(key), item, View_Pool2D{serial = u32(key)})
+		}
+		godot.push_view(f, sim.entity(key), {pos = {f32(key), 2, 0}}, View_Pool_Late2D{serial = u32(key)})
+	}
+	if phase == POOL_BLIP_AT {
+		blip := POOL_BLIP_KEY + period
+		godot.push_view(f, sim.entity(blip), {pos = {f32(blip), 1, 0}}, View_Pool2D{serial = u32(blip)})
+		godot.push_view(f, sim.entity(blip), {pos = {f32(blip), 2, 0}}, View_Pool_Late2D{serial = u32(blip)})
 	}
 }
 

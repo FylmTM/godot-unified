@@ -42,6 +42,7 @@ Scene_View :: struct {
 	key:          u64, // its subject's key (push_view)
 	subject:      typeid, // its subject's type (push_view; nil: none): only events with a subject of this type reach it
 	linger_s:     f64, // its marker's
+	pool:         bool, // its marker's: kept in its kind's pool instead of freed (release_view)
 	spawn_tick:   u32, // the tick it first appeared at
 	verified:     bool, // its spawn tick has been verified: from then on it can't be a cancelled spawn
 	gone:         bool, // _sim_despawned was called (and no _sim_revived since)
@@ -71,12 +72,14 @@ View_Callback :: enum u8 {
 	Despawned, // its key is gone: it lingers (linger_s; the host no longer sets its pose), then is freed
 	Revived, // a rollback brought it back while it lingered
 	Cancelled, // a rollback removed it before its spawn tick was verified: freed at once, never despawned
+	Reused, // a pooled view taken again for a new item (instead of _ready)
 }
 
 VIEW_CALLBACK_NAMES := [View_Callback]string {
 	.Despawned = "_sim_despawned",
 	.Revived   = "_sim_revived",
 	.Cancelled = "_sim_cancelled",
+	.Reused    = "_sim_reused",
 }
 
 // The names the host passes every frame or event, interned once at registration (gd.sn looks a name up by its text).
@@ -142,6 +145,9 @@ V: struct {
 	// view spawned, went or changed player (spawn_view, free_view, scene_sync), so routing an event scans no views.
 	by_player:    [dynamic]^Scene_View,
 	by_player_ok: bool,
+	// Per scene view kind whose marker sets `pool`: its views that would have been freed, out of the tree, for its next
+	// spawns (pool_put, pool_take). Never more than the most of the kind alive at once.
+	pools:        map[u8][dynamic]^Scene_View,
 }
 
 // The main thread's view-sync cost, summed over frames until a script takes it (UnifiedSession.take_sync_stats:
@@ -152,6 +158,10 @@ Sync_Stats :: struct {
 	events:        int, // event deliveries (one per event state)
 	event_objects: int, // event objects made (none for an event nobody listens to, none while a spare is reused)
 	scene:         time.Duration, // scene views: spawns, data, poses
+	spawns:        int, // scene views instanced (the kind's scene instantiated, its data set, added: its _ready)
+	spawn:         time.Duration, // their spawn_view
+	reuses:        int, // scene views taken from their kind's pool (data and pose set, added: _sim_reused)
+	reuse:         time.Duration, // their spawn_view
 	multi_build:   time.Duration, // MultiMesh views: every instance interpolated and written into its buffer
 	multi_upload:  time.Duration, // MultiMesh views: set_buffer, set_visible_instance_count
 	delivery:      time.Duration, // events: their objects, _sim_event, the sim_event signal
@@ -167,6 +177,7 @@ Unified_View_Node :: struct {
 	key:         i64,
 	player:      i64,
 	linger_s:    f64,
+	pool:        bool, // the kind's views are kept for reuse instead of freed (pool_put)
 	parent_path: string, // where the kind's views spawn, from view_root ("": view_root itself)
 }
 
@@ -197,7 +208,7 @@ register_classes :: proc() {
 		parent = "Node",
 		size = size_of(Unified_View_Node),
 		doc_brief = "Marks a scene as the view of one kind of the game's scene views.",
-		doc = "A direct child of the scene's root. [code]uni bake[/code] indexes the scenes by it; the host sets [member key] and keeps [member player] current. The root may be a Node3D (position and quaternion), a Node2D (position and rotation) or anything else (data only), posed before any other node's [code]_process[/code]; a kind the game's view policy script-poses is not posed: the host calls its script's [code]_sim_pose(position: Vector3, rotation: Quaternion)[/code] (2D: [code](position: Vector2, rotation: float)[/code]) with that pose whenever it changes. Its script declares [code]var data: ViewCard[/code] when its kind carries data (the kind's class: the host sets a new object before [code]_ready[/code] and whenever the data changes, so a setter sees the old value and the new one), and may define [code]_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState)[/code] and the lifecycle callbacks [code]_sim_despawned()[/code] (its key is gone: it lingers [member linger_s], no longer posed, then is freed), [code]_sim_revived()[/code] (a rollback brought it back while it lingered) and [code]_sim_cancelled()[/code] (a rollback removed it before its spawn tick was verified: freed at once).",
+		doc = "A direct child of the scene's root. [code]uni bake[/code] indexes the scenes by it; the host sets [member key] and keeps [member player] current. The root may be a Node3D (position and quaternion), a Node2D (position and rotation) or anything else (data only), posed before any other node's [code]_process[/code]; a kind the game's view policy script-poses is not posed: the host calls its script's [code]_sim_pose(position: Vector3, rotation: Quaternion)[/code] (2D: [code](position: Vector2, rotation: float)[/code]) with that pose whenever it changes. Its script declares [code]var data: ViewCard[/code] when its kind carries data (the kind's class: the host sets a new object before [code]_ready[/code] and whenever the data changes, so a setter sees the old value and the new one), and may define [code]_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState)[/code] and the lifecycle callbacks [code]_sim_despawned()[/code] (its key is gone: it lingers [member linger_s], no longer posed, then is freed), [code]_sim_revived()[/code] (a rollback brought it back while it lingered), [code]_sim_cancelled()[/code] (a rollback removed it before its spawn tick was verified: freed at once) and, for a kind whose marker sets [member pool], [code]_sim_reused()[/code] (taken from the pool for a new item, instead of [code]_ready[/code]).",
 		init = proc(instance: rawptr) {(^Unified_View_Node)(instance).linger_s = LINGER_S},
 		fini = proc(instance: rawptr) {
 			delete((^Unified_View_Node)(instance).kind)
@@ -238,6 +249,13 @@ register_classes :: proc() {
 		proc(node: ^Unified_View_Node) -> f64 {return node.linger_s},
 		proc(node: ^Unified_View_Node, linger_s: f64) {node.linger_s = max(linger_s, 0)},
 		doc = "How long the view stays once its key is gone (an exit animation), in seconds.",
+	)
+	gd.bind_property(
+		class,
+		"pool",
+		proc(node: ^Unified_View_Node) -> bool {return node.pool},
+		proc(node: ^Unified_View_Node, pool: bool) {node.pool = pool},
+		doc = "Keep this kind's views for reuse instead of freeing them (projectiles, pickups: a kind spawned and gone often). A view that would be freed (its linger ended, or [code]_sim_cancelled[/code]) is hidden and taken out of the tree instead; the kind's next spawn takes it back: the host sets its [member key], [member player], data (set to null when it went in, so the setter sees null and then the new item's, as a new view's does) and pose (no glide from the old one), shows it, adds it under its parent and calls its script's [code]_sim_reused()[/code]; [code]_ready[/code] does not run again. There it resets what it changed itself (an exit animation's transform or modulate, a hidden child, a tween): every other callback and its events are the new item's. A kind's pool holds at most the most of its views alive at once, and is freed with the scene views (a level change, the session node leaving the tree).",
 	)
 	gd.bind_property(
 		class,
@@ -378,7 +396,25 @@ find_marker :: proc(root: gd.Node) -> gd.Node {
 	return {}
 }
 
+// A new scene view for `item`: one of its kind's pool when it has one (reuse_view), else its kind's scene instanced.
 spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene_View {
+	started := time.tick_now()
+	if scene_view := pool_take(item.kind); scene_view != nil {
+		reuse_view(root, scene_view, item, frame)
+		V.stats.reuses += 1
+		V.stats.reuse += time.tick_since(started)
+		return scene_view
+	}
+	scene_view := instance_view(root, item, frame)
+	if scene_view != nil {
+		V.stats.spawns += 1
+		V.stats.spawn += time.tick_since(started)
+	}
+	return scene_view
+}
+
+// A new scene view for `item`, its kind's scene instanced: posed and its data set, then added (its _ready).
+instance_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene_View {
 	packed_scene, ok := scene_for(item.kind)
 	if !ok do return nil
 	V.by_player_ok = false
@@ -424,7 +460,7 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 			)
 		}
 		marker.key, marker.player = i64(item.key), i64(item.player) // the player's key (0: none)
-		scene_view.linger_s = marker.linger_s
+		scene_view.linger_s, scene_view.pool = marker.linger_s, marker.pool
 	}
 	hooks, known := V.hooks[item.kind]
 	if !known {
@@ -459,6 +495,109 @@ spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene
 	if hooks.has_data do set_data(scene_view, frame.data[item.data_offset:][:item.data_size], true)
 	gd.Node_add_child(view_parent(root, scene_view, kind), node, false, .INTERNAL_MODE_DISABLED)
 	return scene_view
+}
+
+// A pooled view (pool_take) set up for `item` as instance_view sets up a new one: everything of its old item
+// forgotten, its key, player, pose (no glide from the old one) and data (null since pool_put, now the item's) set, then
+// shown, added under its kind's parent and told (_sim_reused, in place of _ready).
+reuse_view :: proc(root: gd.Node, scene_view: ^Scene_View, item: ^View_Out, frame: ^Frame_Data) {
+	V.by_player_ok = false
+	reset := Scene_View {
+		node         = scene_view.node,
+		mode         = scene_view.mode,
+		id           = scene_view.id,
+		marker       = scene_view.marker,
+		marker_id    = scene_view.marker_id,
+		kind         = scene_view.kind,
+		linger_s     = scene_view.linger_s,
+		pool         = scene_view.pool,
+		hooks        = scene_view.hooks,
+		data         = scene_view.data, // the bytes' buffer (the kind's size)
+		data_objects = scene_view.data_objects, // the objects a script doesn't hold are refilled (set_data)
+		data_shown   = scene_view.data_shown,
+		player       = item.player,
+		key          = item.key,
+		subject      = item.subject,
+		spawn_tick   = frame.tick,
+		warp         = item.warp,
+	}
+	scene_view^ = reset
+	if alive(scene_view.marker_id) {
+		marker := (^Unified_View_Node)(gd.instance_of(scene_view.marker, &unified_view_class))
+		marker.key, marker.player = i64(item.key), i64(item.player)
+		scene_view.linger_s, scene_view.pool = marker.linger_s, marker.pool
+	}
+	pose_view(scene_view, {to_view_units(item.pos), item.rot})
+	if scene_view.has_data do set_data(scene_view, frame.data[item.data_offset:][:item.data_size], true)
+	set_visible(scene_view.node, true)
+	kind := api.view_names[item.kind]
+	gd.Node_add_child(view_parent(root, scene_view, kind), scene_view.node, false, .INTERNAL_MODE_DISABLED)
+	view_callback(scene_view, .Reused)
+}
+
+// A pooled view of `kind` whose node is still there (a script may have freed one it held), else nil.
+pool_take :: proc(kind: u8) -> ^Scene_View {
+	pool, found := &V.pools[kind]
+	if !found do return nil
+	for len(pool) > 0 {
+		scene_view := pop(pool)
+		if alive(scene_view.id) && !gd.Node_is_inside_tree(scene_view.node) do return scene_view
+		free_view(scene_view)
+	}
+	return nil
+}
+
+// A view that leaves for good (its linger ended, or a cancelled spawn): into its kind's pool when its marker sets
+// `pool` (pool_put), else freed.
+release_view :: proc(scene_view: ^Scene_View) {
+	if scene_view == nil do return
+	if !pool_put(scene_view) do free_view(scene_view)
+}
+
+// Keeps a view of a pooled kind instead of freeing it: its data set to null (its script's setter sees it; the host's
+// objects are free to refill), hidden, taken out of the tree. False (free it): not pooled, or its node is gone or
+// going (a script freed it).
+pool_put :: proc(scene_view: ^Scene_View) -> bool {
+	if !scene_view.pool || !alive(scene_view.id) || gd.Object_is_queued_for_deletion(scene_view.node) do return false
+	V.by_player_ok = false
+	if scene_view.has_data do set_prop(scene_view.node, NAMES.data, gd.variant_nil())
+	set_visible(scene_view.node, false)
+	if parent := gd.Node_get_parent(scene_view.node); parent.ptr != nil {
+		gd.Node_remove_child(parent, scene_view.node)
+	}
+	if alive(scene_view.marker_id) {
+		marker := (^Unified_View_Node)(gd.instance_of(scene_view.marker, &unified_view_class))
+		marker.key, marker.player = 0, 0
+	}
+	pool, found := &V.pools[scene_view.kind]
+	if !found {
+		V.pools[scene_view.kind] = {}
+		pool = &V.pools[scene_view.kind]
+	}
+	append(pool, scene_view)
+	return true
+}
+
+// Frees every pooled view: out of the tree, so at once (no tree needed to queue them).
+pools_free :: proc() {
+	for _, &pool in V.pools {
+		for scene_view in pool {
+			if alive(scene_view.id) && !gd.Node_is_inside_tree(scene_view.node) do gdi.object_destroy(scene_view.node.ptr)
+			free_view(scene_view)
+		}
+		delete(pool)
+	}
+	delete(V.pools)
+	V.pools = nil
+}
+
+// Shows or hides a root that can be (a Node3D, a CanvasItem: a Node2D or a Control).
+set_visible :: proc(node: gd.Node, visible: bool) {
+	if node3d := gd.object_cast(gd.Node3D, node); node3d.ptr != nil {
+		gd.Node3D_set_visible(node3d, visible)
+	} else if item := gd.object_cast(gd.CanvasItem, node); item.ptr != nil {
+		gd.CanvasItem_set_visible(item, visible)
+	}
 }
 
 // A scene view kind's policy (the default for a kind out of range).
@@ -617,6 +756,7 @@ views_clear :: proc() {
 	for _, entry in V.set.entries do free_view(entry.view)
 	set_destroy(&V.set)
 	V.set = {}
+	pools_free()
 	for &multi in V.multis do multi_drop(&multi)
 	delete(V.multis)
 	V.multis = nil
@@ -657,10 +797,12 @@ view_space_check :: proc(root: gd.Node) {
 	}
 }
 
-// The game set or cleared view_root: drop every scene view (they lived under the old root).
+// The game set or cleared view_root, or the level changed: drop every scene view (they lived under the old root, or
+// showed the old level) and every pooled one.
 views_root_changed :: proc() {
 	for _, entry in V.set.entries do free_view(entry.view)
 	clear(&V.set.entries)
+	pools_free()
 }
 
 // Brings the scene views under `root` and the MultiMesh instances up to date with the newest frame (main thread,
@@ -757,7 +899,7 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 		for id in cancelled {
 			scene_view, _ := set_remove(&V.set, id)
 			view_callback(scene_view, .Cancelled)
-			free_view(scene_view)
+			release_view(scene_view)
 		}
 		set_end(&V.set, now_s)
 		for id in V.set.despawned {
@@ -768,7 +910,7 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 		}
 		for scene_view in V.set.removed {
 			if scene_view != nil && !scene_view.gone do view_callback(scene_view, .Despawned) // linger_s 0
-			free_view(scene_view)
+			release_view(scene_view)
 		}
 	}
 	decays: [256]f32 = -1 // per kind: computed once a frame, when its first view needs it

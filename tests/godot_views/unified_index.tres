@@ -11,5 +11,9 @@ metadata/views = {
 "remote3d": "res://views/remote3d.tscn",
 "rider3d": "res://views/rider3d.tscn",
 "scripted3d": "res://views/scripted3d.tscn",
-"typed2d": "res://views/typed2d.tscn"
+"typed2d": "res://views/typed2d.tscn",
+"pool2d": "res://views/pool2d.tscn",
+"pool_late2d": "res://views/pool_late2d.tscn",
+"churn3d": "res://views/churn3d.tscn",
+"churn_pool3d": "res://views/churn_pool3d.tscn"
 }

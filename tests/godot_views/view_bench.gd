@@ -4,9 +4,11 @@
 # MultiMeshInstance3D (3D transforms and custom data, like the survivor's enemies), 64 moving and 64 resting plain3d scene views
 # with a _process script (the moving ones' data changes every tick, the resting ones' never), and the local player's bench2d view; ui_accept is down on even ticks and up on odd ones, so the
 # toy spawns a thing every other tick and expires as many (events to the player's view, which hears them and keeps
-# none: views/bench2d.gd).
+# none: views/bench2d.gd), and each thing has churn views of two kinds alike but for the pool (churn3d, churn_pool3d):
+# one instanced for every new thing and freed when it goes, the other taken from its pool and put back.
 # After a second of warm-up it reads UnifiedSession.take_sync_stats over S seconds (default 2) and prints one line,
-# "VIEW BENCH {json}": the per-frame means in microseconds and the per-event cost. Headless, set_buffer reaches
+# "VIEW BENCH {json}": the per-frame means in microseconds, the per-event cost, and a scene view spawn's: instanced
+# (spawn_us) and taken from a pool (reuse_us). Headless, set_buffer reaches
 # Godot's dummy renderer; in a window it reaches the real one (and frames are paced by the display).
 extends SceneTree
 
@@ -81,6 +83,10 @@ func _initialize() -> void:
 		"fps": snappedf(stats.frames * 1000.0 / maxf(Time.get_ticks_msec() - started_ms, 1), 0.1),
 		"ticks": session.tick - tick0,
 		"scene_us": snappedf(stats.scene_us / frames, 0.1),
+		"spawns": stats.spawns,
+		"spawn_us": snappedf(stats.spawn_us / maxf(stats.spawns, 1), 0.1),
+		"reuses": stats.reuses,
+		"reuse_us": snappedf(stats.reuse_us / maxf(stats.reuses, 1), 0.1),
 		"multi_build_us": snappedf(stats.multi_build_us / frames, 0.1),
 		"multi_upload_us": snappedf(stats.multi_upload_us / frames, 0.1),
 		"delivery_us": snappedf(stats.delivery_us / frames, 0.1),
