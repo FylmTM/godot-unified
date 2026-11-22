@@ -65,6 +65,8 @@ Quad_Batch :: struct {
 	data:      [dynamic]f32, // this frame's instances
 	cap:       int, // instances allocated on the MultiMesh
 	buffer:    gd.PackedFloat32Array,
+	y_sort:    bool, // instances drawn from the smallest y up (batch_y_sort)
+	order:     [dynamic]i32, // y_sort_into's scratch: a count, then a start, per row
 }
 
 @(private)
@@ -74,6 +76,7 @@ Canvas :: struct {
 	viewport:   gd.Viewport,
 	layers:     [dynamic]Canvas_Layer,
 	batches:    [dynamic]Quad_Batch,
+	textures:   [dynamic]gd.Ref(gd.Resource), // texture_load's, held until immediate_clear
 	font:       gd.Ref(gd.SystemFont),
 	points:     gd.PackedVector2Array,
 	colors:     gd.PackedColorArray,
@@ -302,12 +305,19 @@ text_width :: proc(text: string, size: int) -> f32 {
 // A batch of quads in `layer`: each a quad `half` view units each way (UV 0..1) drawn by `shader_code` (a Godot
 // canvas_item shader: INSTANCE_CUSTOM and COLOR are each quad's; VERTEX already holds the instance transform in
 // vertex()). Made once: keep the Batch.
-batch_create :: proc(layer: Layer, shader_code: string, half: [2]f32) -> Batch {
+batch_create :: proc(layer: Layer, shader_code: string, half: [2]f32, texture: Texture = {}) -> Batch {
 	context.allocator = runtime.heap_allocator()
 	rendering_server := gd.RenderingServer_singleton()
 	batch: Quad_Batch
 	batch.item = gd.RenderingServer_canvas_item_create(rendering_server)
 	gd.RenderingServer_canvas_item_set_parent(rendering_server, batch.item, canvas.layers[layer].item)
+	if texture.pixel_art {
+		gd.RenderingServer_canvas_item_set_default_texture_filter(
+			rendering_server,
+			batch.item,
+			.CANVAS_ITEM_TEXTURE_FILTER_NEAREST,
+		)
+	}
 	batch.shader = gd.RenderingServer_shader_create(rendering_server)
 	gd.RenderingServer_shader_set_code(rendering_server, batch.shader, shader_code)
 	batch.material = gd.RenderingServer_material_create(rendering_server)
@@ -317,9 +327,114 @@ batch_create :: proc(layer: Layer, shader_code: string, half: [2]f32) -> Batch {
 	batch.multimesh = gd.RenderingServer_multimesh_create(rendering_server)
 	gd.RenderingServer_multimesh_set_mesh(rendering_server, batch.multimesh, batch.mesh)
 	batch.buffer = gd.PackedFloat32Array_new0()
-	gd.RenderingServer_canvas_item_add_multimesh(rendering_server, batch.item, batch.multimesh, {})
+	gd.RenderingServer_canvas_item_add_multimesh(rendering_server, batch.item, batch.multimesh, texture.rid)
 	append(&canvas.batches, batch)
 	return Batch(len(canvas.batches) - 1)
+}
+
+// A texture for batches (texture_load): its RID, its size in pixels, and whether it is pixel art (drawn with
+// nearest filtering). The zero value is none.
+Texture :: struct {
+	rid:       gd.RID,
+	size:      [2]f32,
+	pixel_art: bool,
+}
+
+// Loads a texture by its res:// path (an imported PNG); false when there is none. Held until the session's views
+// are cleared.
+texture_load :: proc(path: string, pixel_art := false) -> (texture: Texture, ok: bool) {
+	context.allocator = runtime.heap_allocator()
+	resource := gd.ResourceLoader_load(gd.ResourceLoader_singleton(), path, "Texture2D", .CACHE_MODE_REUSE)
+	if resource.ptr == nil {
+		gd.print_error(fmt.tprintf("unified: texture_load: cannot load %s", path))
+		return
+	}
+	append(&canvas.textures, resource)
+	texture2d := gd.cast_to(gd.Texture2D, gd.Object{resource.ptr})
+	return {
+			rid       = gd.Resource_get_rid(resource),
+			size      = {f32(gd.Texture2D_get_width(texture2d)), f32(gd.Texture2D_get_height(texture2d))},
+			pixel_art = pixel_art,
+		}, true
+}
+
+// A texture cut into equal frames, `columns` × `rows`, numbered row by row from the top left: a sprite sheet.
+Atlas :: struct {
+	texture: Texture,
+	columns: int,
+	rows:    int,
+}
+
+// One frame's size in pixels.
+atlas_frame_size :: proc(atlas: Atlas) -> [2]f32 {
+	return atlas.texture.size / {f32(atlas.columns), f32(atlas.rows)}
+}
+
+// An animation in an atlas: `count` frames from `first`, at `fps`, looping or holding its last frame.
+Clip :: struct {
+	first: i32,
+	count: i32,
+	fps:   f32,
+	loop:  bool,
+}
+
+// The frame a clip shows `seconds` after it started (a clock from the State, such as a tick an action began: then a
+// rollback replays the same frame).
+clip_frame :: proc(clip: Clip, seconds: f32) -> i32 {
+	step := i32(max(seconds, 0) * clip.fps)
+	if clip.loop do return clip.first + step % max(clip.count, 1)
+	return clip.first + min(step, clip.count - 1)
+}
+
+// The sprite batches' shader: the frame INSTANCE_CUSTOM.x of the atlas's grid, tinted by the instance colour,
+// washed to white by INSTANCE_CUSTOM.y (a hit flash). INSTANCE_CUSTOM.zw are free for a game's own shader.
+SPRITE_SHADER :: `shader_type canvas_item;
+uniform vec2 grid; // columns, rows
+varying float v_flash;
+void vertex() {
+	float frame = INSTANCE_CUSTOM.x;
+	vec2 cell = vec2(mod(frame, grid.x), floor(frame / grid.x));
+	UV = (cell + UV) / grid;
+	v_flash = INSTANCE_CUSTOM.y;
+}
+void fragment() {
+	COLOR = vec4(mix(COLOR.rgb, vec3(1.0), v_flash), COLOR.a);
+}
+`
+
+// A batch of sprites from an atlas in `layer`: each quad one frame, at the frame's size in pixels times its scale.
+// `shader_code` replaces SPRITE_SHADER (it gets the same `grid` uniform).
+sprite_batch_create :: proc(layer: Layer, atlas: Atlas, shader_code := SPRITE_SHADER) -> Batch {
+	batch := batch_create(layer, shader_code, atlas_frame_size(atlas) / 2, atlas.texture)
+	variant := gd.to_variant(gd.Vector2{f32(atlas.columns), f32(atlas.rows)})
+	defer gd.variant_destroy(&variant)
+	gd.RenderingServer_material_set_param(
+		gd.RenderingServer_singleton(),
+		canvas.batches[batch].material,
+		gd.sn("grid"),
+		variant,
+	)
+	return batch
+}
+
+// One sprite this frame: `frame` of the batch's atlas at `pos`, scaled per axis (a negative x mirrors it), tinted
+// by `color`, washed to white by `flash` (0..1); `extra` reaches a custom shader as INSTANCE_CUSTOM.zw.
+sprite :: proc(
+	batch: Batch,
+	pos: [2]f32,
+	frame: i32,
+	scale: [2]f32 = {1, 1},
+	color: Color = {1, 1, 1, 1},
+	flash: f32 = 0,
+	extra: [2]f32 = {},
+) {
+	quad_dir(batch, pos, {1, 0}, scale, color, {f32(frame), flash, extra.x, extra.y})
+}
+
+// Draws a batch's instances from the smallest y up (a top-down game's depth order), instead of in the order they
+// were added. Costs a sort per frame.
+batch_y_sort :: proc(batch: Batch, on := true) {
+	canvas.batches[batch].y_sort = on
 }
 
 // Sets a batch's shader uniform `name` to a list of colours (a `uniform vec4 name[n]`).
@@ -412,10 +527,44 @@ batch_upload :: proc(batch: ^Quad_Batch) {
 	}
 	if count > 0 {
 		flat := ([^]f32)(gdi.packed_float32_array_operator_index(&batch.buffer, 0))
-		copy(flat[:len(batch.data)], batch.data[:])
+		if batch.y_sort {
+			y_sort_into(batch, flat[:count * BATCH_STRIDE], count)
+		} else {
+			copy(flat[:len(batch.data)], batch.data[:])
+		}
 		gd.RenderingServer_multimesh_set_buffer(rendering_server, batch.multimesh, batch.buffer)
 	}
 	gd.RenderingServer_multimesh_set_visible_instances(rendering_server, batch.multimesh, count)
+}
+
+// The most rows y_sort_into buckets by: past it, rows are merged so the buckets stay this many.
+@(private)
+Y_SORT_BUCKETS_MAX :: 8192
+
+// Writes a batch's instances into `out` from the smallest y up, by origin.y (a Transform2D's 8th float) at whole-
+// view-unit precision, the order added among equals: a counting sort over the rows the instances span, linear in
+// their number (a comparison sort per frame cost over a millisecond at 4000).
+@(private)
+y_sort_into :: proc(batch: ^Quad_Batch, out: []f32, count: int) {
+	low, high := max(f32), min(f32)
+	for i in 0 ..< count {
+		y := batch.data[i * BATCH_STRIDE + 7]
+		low, high = min(low, y), max(high, y)
+	}
+	rows := clamp(int(high - low) + 1, 1, Y_SORT_BUCKETS_MAX)
+	per_row := f32(rows - 1) / max(high - low, 1)
+	resize(&batch.order, rows + 1)
+	starts := batch.order[:]
+	for &start in starts do start = 0
+	bucket :: #force_inline proc(y, low, per_row: f32) -> int {return int((y - low) * per_row)}
+	for i in 0 ..< count do starts[bucket(batch.data[i * BATCH_STRIDE + 7], low, per_row) + 1] += 1
+	for r in 1 ..= rows do starts[r] += starts[r - 1]
+	for i in 0 ..< count {
+		row := bucket(batch.data[i * BATCH_STRIDE + 7], low, per_row)
+		at := int(starts[row])
+		starts[row] += 1
+		copy(out[at * BATCH_STRIDE:][:BATCH_STRIDE], batch.data[i * BATCH_STRIDE:][:BATCH_STRIDE])
+	}
 }
 
 // A quad from -half to +half, UV 0..1, as a mesh RID.
@@ -542,7 +691,10 @@ immediate_clear :: proc() {
 		}
 		gd.PackedFloat32Array_destroy(&batch.buffer)
 		delete(batch.data)
+		delete(batch.order)
 	}
+	for texture in canvas.textures do gd.unref(texture)
+	delete(canvas.textures)
 	for layer in canvas.layers do gd.RenderingServer_free_rid(rendering_server, layer.item)
 	delete(canvas.batches)
 	delete(canvas.layers)

@@ -37,6 +37,10 @@ Canvas :: struct {
 	bolts:   godot.Batch,
 	sparks:  godot.Batch,
 	digits:  godot.Batch,
+	// `-- --sprites`: the enemies as animated sprites from game/art/enemies.png (sprites.odin); `--y-sort`: drawn
+	// from the top of the screen down
+	sprites: bool,
+	sheet:   godot.Batch,
 }
 
 canvas: Canvas
@@ -68,6 +72,10 @@ canvas_make :: proc() {
 	godot.batch_colors(canvas.bolts, "palette", SLOT_COLORS[:])
 	canvas.sparks = godot.batch_create(canvas.air, #load("shaders/spark.gdshader", string), {1, 1})
 	canvas.digits = godot.batch_create(canvas.text, #load("shaders/digit.gdshader", string), {5, 8})
+	for arg in godot.user_args() {
+		if arg == "--sprites" do canvas.sprites = sprites_make(canvas.bodies)
+		if arg == "--y-sort" && canvas.sprites do godot.batch_y_sort(canvas.sheet)
+	}
 	canvas.made = true
 }
 
@@ -135,13 +143,17 @@ draw_enemies :: proc(d: ^Draw) {
 		radius := g.ENEMY_STATS[enemy.kind].radius * d.view_scale
 		flash: f32 = enemy.hit_tick != 0 && sim.game_time(d.state, d.tick) - enemy.hit_tick < FLASH_TICKS ? 1 : 0
 		hp_k := f32(enemy.hp) / f32(max(enemy.hp_max, 1))
-		godot.quad_dir(
-			canvas.enemies,
-			pos,
-			heading(enemy.vel),
-			{radius * 1.6, radius * 1.6},
-			custom = {f32(enemy.kind), flash, hp_k, radius},
-		)
+		if canvas.sprites {
+			draw_enemy_sprite(d, enemy, handle.index, pos, flash)
+		} else {
+			godot.quad_dir(
+				canvas.enemies,
+				pos,
+				heading(enemy.vel),
+				{radius * 1.6, radius * 1.6},
+				custom = {f32(enemy.kind), flash, hp_k, radius},
+			)
+		}
 		if hp_k < 1 do godot.quad(canvas.bars, pos - {0, radius + 8}, custom = {hp_k, 0, 0, 0})
 	}
 }
