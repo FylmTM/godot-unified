@@ -5,7 +5,8 @@
 // known one-tick motion (none known yet: the point a tick short of the new pose on the line from the last one). The
 // main thread feeds it into the view's error term (track_push_prev), so a correction glides
 // instead of popping. Two open-addressed tables, the last fill's and this one's, told apart by a stamp, so nothing is
-// cleared per tick; both grow (rehashed) when a fill would make its own more than half full.
+// cleared per tick; both grow (rehashed) when a fill would make its own more than half full. Runs of keys keep to runs
+// of slots (pose_slot).
 package godot
 
 import "base:runtime"
@@ -135,11 +136,19 @@ shift :: proc(pose_prev, old, pose: Remembered_Pose) -> Remembered_Pose {
 	}
 }
 
+// Where a key's entry starts. Keys come mostly in runs (a table's handles, an entity range, pushed in index order), and
+// a fill comes 1/tick_hz after the last, by which time the tables are out of the cache: a hash that scattered every
+// key cost a memory miss per item in each table. So POSE_BLOCK consecutive keys of a kind share a block of consecutive
+// slots, and only where the block goes is hashed (the kind with it, so kinds never share a block): the prefetcher
+// reads a run's entries ahead.
 @(private)
 pose_slot :: proc(key: u64, kind: u8, mask: int) -> int {
-	hash := (key ~ u64(kind) << 56) * 0x9E3779B97F4A7C15
-	return int(hash >> 32) & mask
+	block := ((key >> POSE_BLOCK) ~ u64(kind) << 56) * 0x9E3779B97F4A7C15
+	return int((block >> 32) << POSE_BLOCK | (key & (1 << POSE_BLOCK - 1))) & mask
 }
+
+@(private)
+POSE_BLOCK :: 4 // log2 of the keys a block holds
 
 // Records the item's pose at `tick` and returns the pose it had at tick - 1, if the host knows it. Across a change of
 // `warp` (the item's warp epoch) it knows none: no interpolation or correction estimate crosses a teleport. `since`:
