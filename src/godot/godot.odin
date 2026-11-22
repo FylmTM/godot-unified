@@ -145,6 +145,7 @@ on_deinitialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 	gd.shutdown() // unregisters every class, in reverse
 	data_classes_forget()
 	clear(&sim_classes) // the classes themselves live as long as the process (a hot reload registers anew)
+	clear(&event_classes)
 }
 
 // Whether the extension runs inside the Godot editor, where the session node and views stay inert: the editor

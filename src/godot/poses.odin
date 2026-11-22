@@ -145,6 +145,8 @@ pose_slot :: proc(key: u64, kind: u8, mask: int) -> int {
 // `warp` (the item's warp epoch) it knows none: no interpolation or correction estimate crosses a teleport. `since`:
 // the earliest tick the key is known to be in the current timeline: the verified tick of a verified fill that had it,
 // else the first fill that showed it, unless a rollback re-simulated that tick since (then this fill's).
+// `appears_verified` false (a kind that shows on the prediction, whose `since` nothing reads): the verified fill's keys
+// are not looked up.
 pose_remember :: proc(
 	memory: ^Pose_Memory,
 	domain: Pose_Domain,
@@ -154,6 +156,7 @@ pose_remember :: proc(
 	pos: [3]f32,
 	rot: [4]f32,
 	warp: u8 = 0,
+	appears_verified := true,
 ) -> (
 	previous: Remembered_Pose,
 	found: bool,
@@ -194,7 +197,7 @@ pose_remember :: proc(
 		}
 		break
 	}
-	if memory.verified != nil && pose_seen(memory.verified, domain, kind, key) {
+	if appears_verified && memory.verified != nil && pose_seen(memory.verified, domain, kind, key) {
 		since = matched ? min(since, memory.verified_tick) : memory.verified_tick
 	}
 	if 2 * (table.count + 1) > table.mask + 1 {

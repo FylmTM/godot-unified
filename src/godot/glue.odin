@@ -170,6 +170,9 @@ Frame_Data :: struct {
 	epoch:          u32, // bumped when the shown timeline jumps (a replay's seek): every view snaps
 	replay:         Replay_View, // a replay session's state (active false: not one)
 	alloc:          runtime.Allocator, // the views', multis' and data's (they grow on the session thread)
+	// Appear-on-verified's own Frame (fill_verified): only kinds that appear on verified are pushed into it, since
+	// only their keys are read from it; every other push returns at once.
+	verified_fill:  bool,
 }
 
 // What a game provides, typed by its game (a sim.Game), its scene view kinds (`View`: a union of `View_` structs, one
@@ -565,9 +568,11 @@ push_view_out :: proc(
 	loc := #caller_location,
 ) {
 	out := frame.out
+	kind := u8(view_kind_index(View, kind_type))
+	appears_verified := kind_appears_verified(api.view_policy, kind)
+	if out.verified_fill && !appears_verified do return
 	room(&out.views, out.n_views + 1, FRAME_VIEWS_LIMIT, out.alloc, loc)
 	room(&out.data, out.n_data + len(data), FRAME_DATA_LIMIT, out.alloc, loc)
-	kind := u8(view_kind_index(View, kind_type))
 	view_kind_subject(kind, subject, loc)
 	data_type := len(data) > 0 ? kind_type : nil // an empty struct: a kind with no data
 	view_out := &out.views[out.n_views]
@@ -595,6 +600,7 @@ push_view_out :: proc(
 		view_out.pos,
 		view_out.rot,
 		item.warp,
+		appears_verified,
 	)
 	view_out.since = since
 	if found do view_out.has_prev, view_out.prev_pos, view_out.prev_rot = true, previous.pos, previous.rot
@@ -607,6 +613,8 @@ push_multi_view :: proc(
 	loc := #caller_location,
 ) {
 	out := frame.out
+	appears_verified := kind_appears_verified(api.multi_policy, u8(item.kind))
+	if out.verified_fill && !appears_verified do return
 	room(&out.multis, out.n_multis + 1, FRAME_MULTIS_LIMIT, out.alloc, loc)
 	multi_out := &out.multis[out.n_multis]
 	out.n_multis += 1
@@ -630,10 +638,18 @@ push_multi_view :: proc(
 			multi_out.pos,
 			multi_out.rot,
 			item.warp,
+			appears_verified,
 		)
 		multi_out.since = since
 		if found do multi_out.has_prev, multi_out.prev_pos, multi_out.prev_rot = true, previous.pos, previous.rot
 	}
+}
+
+// Whether a kind's policy (Glue.view_policy's or multi_policy's, as installed) makes it appear on verified: only
+// then is it pushed into appear-on-verified's Frame, and its pose memory looks its keys up in that fill's.
+@(private)
+kind_appears_verified :: proc(policies: []Kind_Policy, kind: u8) -> bool {
+	return int(kind) < len(policies) && policies[kind].appear == .Verified
 }
 
 // Grows a Frame's buffer to hold `needed` items (doubling), on the session thread that owns the slot it fills.
@@ -654,6 +670,7 @@ room :: proc(buffer: ^[]$T, needed, limit: int, alloc: runtime.Allocator, loc :=
 push_data :: proc(frame: ^Frame($G, $View, $MultiView), data: $T, loc := #caller_location) {
 	kind := data_kind(T, loc)
 	out := frame.out
+	if out.verified_fill do return // session data never waits for verification
 	if out.data_pushed & (1 << uint(kind)) != 0 do panic("push_data: a data type pushed twice in one frame", loc)
 	room(&out.data, out.n_data + size_of(T), FRAME_DATA_LIMIT, out.alloc, loc)
 	data := data

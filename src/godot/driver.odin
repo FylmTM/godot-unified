@@ -98,7 +98,8 @@ Api :: struct {
 api: Api
 
 // The session thread's frame hook (tracking the ticks' events, fill_frame, publishing the Frame), summed until the main
-// thread takes it (UnifiedSession.take_sync_stats).
+// thread takes it (UnifiedSession.take_sync_stats). Appear-on-verified's fills publish no Frame: their time is in
+// `total_ns`, not counted in `frames`.
 @(private)
 Fill_Stats :: struct {
 	frames:   u64,
@@ -214,7 +215,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	commands:        [LOCAL_MAX]Queue(sim.Raw_Command, netcode.COMMAND_QUEUE), // main thread -> hooks.commands, per local
 	tracker:         Event_Tracker(Tick_Event),
 	published:       u64,
-	scratch:         [dynamic]Tick_Event,
+	repeats:         Tick_Table(Event_Id, u32), // track_tick: a tick's events so far by kind and subject
 	result:          string,
 	bench:           G, // the game with Game.bench_prepare after init (req.bench > 0)
 	alloc:           runtime.Allocator, // the starter's allocator: the session thread allocates what wait frees
@@ -495,6 +496,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		if api.appear_verified {
 			pose_memory_init(&driver.verified_poses, FRAME_VIEWS, FRAME_MULTIS)
 			driver.verified_out.alloc = context.allocator
+			driver.verified_out.verified_fill = true
 		}
 		// the dev UI can force it on for every kind; a replay has none: every tick it shows is final
 		if (api.remote_verified || DEVUI) && request.mode != .Replay {
@@ -547,7 +549,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		delete(driver.verified_out.multis, driver.verified_out.alloc)
 		delete(driver.verified_out.data, driver.verified_out.alloc)
 		verified_sampler_free(driver.sampler)
-		delete(driver.scratch)
+		tick_table_destroy(&driver.repeats)
 		delete(driver.req.arg)
 		delete(driver.req.name)
 		delete(driver.req.dumps)
@@ -1001,7 +1003,7 @@ flush_events :: proc(driver: ^Driver($G, $View, $MultiView)) {
 @(private)
 track_tick :: proc(driver: ^Driver($G, $View, $MultiView), tick: u32, events: []sim.Raw_Event) {
 	tracker_begin_tick(&driver.tracker, tick)
-	clear(&driver.scratch)
+	tick_table_reset(&driver.repeats)
 	for &raw in events {
 		event := Tick_Event {
 			tick = tick,
@@ -1010,11 +1012,19 @@ track_tick :: proc(driver: ^Driver($G, $View, $MultiView), tick: u32, events: []
 		if int(raw.kind) < len(api.events) {
 			event.player, event.entity = event_subject(&api.events[raw.kind], raw.data[:raw.size])
 		}
-		for earlier in driver.scratch {
-			same := earlier.raw.kind == raw.kind && earlier.entity == event.entity && earlier.player == event.player
-			if same do event.nth += 1
+		// the tick's earlier events of this kind and subject, counted in a table (a tick may have thousands)
+		subject := Event_Id {
+			kind   = u32(raw.kind),
+			entity = event.entity,
+			player = event.player,
 		}
-		append(&driver.scratch, event)
+		hash := event_id_hash(subject)
+		if seen := tick_table_get(&driver.repeats, subject, hash); seen != nil {
+			event.nth = seen^
+			seen^ += 1
+		} else {
+			tick_table_put(&driver.repeats, subject, hash, u32(1))
+		}
 		tracker_event(&driver.tracker, event)
 	}
 	tracker_end_tick(&driver.tracker, tick)
@@ -1443,6 +1453,8 @@ run_fill :: proc(driver: ^Driver($G, $View, $MultiView), frame: ^Frame(G, View, 
 // verified tick; fill it into a scratch Frame for its keys, which the next frame's pose memory reads (`since`).
 @(private)
 fill_verified :: proc(driver: ^Driver($G, $View, $MultiView), simulation: ^sim.Sim(G)) {
+	started := time.tick_now()
+	defer sync.atomic_add(&driver.fill.total_ns, u64(max(time.tick_since(started), 0)))
 	out := &driver.verified_out
 	out.n_views, out.n_multis, out.n_data, out.n_datas, out.data_pushed = 0, 0, 0, 0, 0
 	pose_memory_begin(&driver.verified_poses)

@@ -51,6 +51,7 @@ Sim_Object :: struct {
 
 event_base_class, command_base_class: gd.Class
 sim_classes: [dynamic]^Sim_Class
+event_classes: [dynamic]^Sim_Class // by event kind (nil: its class failed to register): one is made per delivery
 
 // The class of an object made from one of the game's event or command classes (nil otherwise).
 sim_class_of :: proc(obj: gd.Object) -> (^Sim_Class, ^Sim_Object) {
@@ -157,6 +158,10 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 		)
 	}
 	append(&sim_classes, sim_class)
+	if is_event {
+		if kind >= len(event_classes) do resize(&event_classes, kind + 1)
+		event_classes[kind] = sim_class
+	}
 }
 
 field_get :: proc(user: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
@@ -182,14 +187,12 @@ field_set :: proc(user: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Var
 
 // An event in a new object of its class (main thread; the first Variant made of it holds its reference).
 new_event_object :: proc(kind: int, tick: u32, id: u64, data: []u8) -> gd.Object {
-	for sim_class in sim_classes {
-		if !sim_class.is_event || sim_class.kind != kind do continue
-		object := gd.Object{gd.construct_object_named(sim_class.class_name)}
-		instance := (^Sim_Object)(gd.instance_of(object, &sim_class.class))
-		instance.tick = i64(tick)
-		instance.id = i64(id)
-		copy(instance.data[:], data)
-		return object
-	}
-	return {}
+	if kind < 0 || kind >= len(event_classes) || event_classes[kind] == nil do return {}
+	sim_class := event_classes[kind]
+	object := gd.Object{gd.construct_object_named(sim_class.class_name)}
+	instance := (^Sim_Object)(gd.instance_of(object, &sim_class.class))
+	instance.tick = i64(tick)
+	instance.id = i64(id)
+	copy(instance.data[:], data)
+	return object
 }
