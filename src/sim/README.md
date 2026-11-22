@@ -444,7 +444,9 @@ what the bytes hold. The byte layouts are in the headers of `log.odin` and `snap
 - **The portable snapshot** (`snapshot_encode`, `from_snapshot`): the session's Setup, the block and the Extra's image
   with the build's identity, so it restores on another OS or CPU (late join, `resume`) or says why not
   (`Snap_Error`). A late joiner needs nothing else: its World is built from the Setup everyone built theirs from, and
-  every remembered member's Profile is in the block.
+  every remembered member's Profile is in the block. On the wire its bytes travel compressed (`unified:lz`: the
+  netcode compresses and decompresses them, `src/netcode/README.md`, Late join and rejoin); the format itself is
+  not, so encoding one is a copy, a diff reads two in place, and a snapshot file is the plain format.
 - **Text**: `struct_from_text` reads a Setup or a Profile from `key=value` (one given on the headless or Godot
   command line).
 - **Desync reports**: `snapshot_diff` (two snapshots of one build, down to the leaf field), `events_diff` (two lists

@@ -7,6 +7,7 @@ import "core:slice"
 @(require) import "core:time" // only in generic procs
 
 @(require) import uheadless "unified:headless" // only in generic procs
+@(require) import "unified:lz" // only in generic procs
 @(require) import "unified:sim" // only in generic procs
 
 @(private)
@@ -51,6 +52,11 @@ Bench_Result :: struct {
 	snapshot_encode:            Stat,
 	snapshot_keep:              Stat,
 	snapshot_bytes:             int,
+	// That snapshot compressed as the netcode sends it (lz.encode into a reused buffer: the provider's cost on top of
+	// the encode) and decompressed (lz.decode: the joiner's), and its compressed size
+	snapshot_compress:          Stat,
+	snapshot_decompress:        Stat,
+	snapshot_compressed_bytes:  int,
 	save_bytes:                 int, // what each tick's save copies: the block and the extras' saves (sim.save_size)
 	warmup:                     int, // the first ticks, left out of the timings
 	mismatches:                 int,
@@ -144,7 +150,9 @@ run_bench :: proc(game: ^$G, entities: int, window, ticks: u32, seed: u64, playe
 	checksum_deep_us := make([]f64, tick_count)
 	snapshot_encode_us := make([]f64, tick_count)
 	snapshot_keep_us := make([]f64, tick_count)
-	image: [dynamic]u8
+	snapshot_compress_us := make([]f64, tick_count)
+	snapshot_decompress_us := make([]f64, tick_count)
+	image, packed, unpacked: [dynamic]u8
 	recorded := make([]sim.Inputs(G), ticks + 1)
 	forward := make([]u64, ticks + 1)
 	commands: uheadless.Scripted_Commands(G)
@@ -159,7 +167,11 @@ run_bench :: proc(game: ^$G, entities: int, window, ticks: u32, seed: u64, playe
 		delete(checksum_deep_us)
 		delete(snapshot_encode_us)
 		delete(snapshot_keep_us)
+		delete(snapshot_compress_us)
+		delete(snapshot_decompress_us)
 		delete(image)
+		delete(packed)
+		delete(unpacked)
 		delete(recorded)
 		delete(forward)
 	}
@@ -189,6 +201,18 @@ run_bench :: proc(game: ^$G, entities: int, window, ticks: u32, seed: u64, playe
 				snapshot_encode_us[deep_checksums] = micros(encode_start, encode_end)
 				_ = sim.snapshot_keep(simulation, tick - 1, deep_checksums % sim.KEEP_SLOTS)
 				snapshot_keep_us[deep_checksums] = micros(encode_end, time.tick_now())
+				compress_start := time.tick_now()
+				compressed := lz.encode(image[:], &packed)
+				compress_end := time.tick_now()
+				resize(&unpacked, len(image))
+				decompress_start := time.tick_now()
+				decoded := lz.decode(compressed, unpacked[:])
+				snapshot_decompress_us[deep_checksums] = micros(decompress_start, time.tick_now())
+				snapshot_compress_us[deep_checksums] = micros(compress_start, compress_end)
+				if !decoded || string(unpacked[:]) != string(image[:]) {
+					result.mismatches += 1 // a round trip that differs fails the run, as a re-sim does
+				}
+				result.snapshot_compressed_bytes = len(compressed)
 				deep_checksums += 1
 			} else {
 				checksum_us[checksums] = micros(save_end, checksum_end)
@@ -242,6 +266,8 @@ run_bench :: proc(game: ^$G, entities: int, window, ticks: u32, seed: u64, playe
 	result.checksum_deep = stat_of(checksum_deep_us[:deep_checksums])
 	result.snapshot_encode = stat_of(snapshot_encode_us[:deep_checksums])
 	result.snapshot_keep = stat_of(snapshot_keep_us[:deep_checksums])
+	result.snapshot_compress = stat_of(snapshot_compress_us[:deep_checksums])
+	result.snapshot_decompress = stat_of(snapshot_decompress_us[:deep_checksums])
 	result.save_bytes = sim.save_size(simulation)
 	result.snapshot_bytes = sim.snapshot_size(simulation)
 	bench_zones(game, entities, seed, recorded, warmup, &result)

@@ -494,7 +494,7 @@ bench_row :: proc(game: ^$G, args: ^Args, bench: sim.Bench, options: Bench_Optio
 		result.warmup,
 	)
 	row = fmt.tprintf(
-		`{{"name":"%s","setup":"%s","what":"%s","entities":%d,"window":%d,"ticks":%d,"warmup":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"resim_final_us":%s,"checksum_us":%s,"checksum_deep_us":%s,"snapshot_encode_us":%s,"snapshot_keep_us":%s,"snapshot_bytes":%d,"save_bytes":%d,"mismatches":%d,"zones":%s}}`,
+		`{{"name":"%s","setup":"%s","what":"%s","entities":%d,"window":%d,"ticks":%d,"warmup":%d,"step_us":%s,"save_us":%s,"restore_us":%s,"resim_us":%s,"resim_final_us":%s,"checksum_us":%s,"checksum_deep_us":%s,"snapshot_encode_us":%s,"snapshot_keep_us":%s,"snapshot_bytes":%d,"snapshot_compress_us":%s,"snapshot_decompress_us":%s,"snapshot_compressed_bytes":%d,"save_bytes":%d,"mismatches":%d,"zones":%s}}`,
 		bench.name,
 		bench.setup,
 		what,
@@ -512,6 +512,9 @@ bench_row :: proc(game: ^$G, args: ^Args, bench: sim.Bench, options: Bench_Optio
 		stat_json(result.snapshot_encode),
 		stat_json(result.snapshot_keep),
 		result.snapshot_bytes,
+		stat_json(result.snapshot_compress),
+		stat_json(result.snapshot_decompress),
+		result.snapshot_compressed_bytes,
 		result.save_bytes,
 		result.mismatches,
 		zones_json(result.zones),

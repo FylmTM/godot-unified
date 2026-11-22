@@ -138,7 +138,7 @@ an_older_snapshot_after_a_newer_begin_is_refused :: proc(t: ^testing.T) {
 	if !testing.expect(t, sim.state_at(honest.sim, older) != nil, "the honest client's ring lost the tick") {
 		return
 	}
-	snapshot := sim.snapshot_encode(honest.sim, older)
+	snapshot := packed_snapshot(honest.sim, older)
 	defer delete(snapshot)
 	for session.relay.finalized < newer {
 		evil_run(&evil, &session, 0.01)
@@ -292,7 +292,7 @@ slow_join :: proc(
 		inputs := netcode.relay_tick(session.relay, number)^
 		sim.step(simulation, &inputs)
 	}
-	snapshot := sim.snapshot_encode(simulation, tick)
+	snapshot := packed_snapshot(simulation, tick)
 	defer delete(snapshot)
 	writer := evil_begin(evil, .Snap_Begin)
 	wire.w_u8(writer, 2)
@@ -397,7 +397,7 @@ a_snapshot_in_slow_pieces_catches_up_past_1024_ticks :: proc(t: ^testing.T) {
 		inputs := netcode.relay_tick(session.relay, number)^
 		sim.step(simulation, &inputs)
 	}
-	snapshot := sim.snapshot_encode(simulation, tick)
+	snapshot := packed_snapshot(simulation, tick)
 	defer delete(snapshot)
 	writer := evil_begin(&evil, .Snap_Begin)
 	wire.w_u8(writer, 1)
@@ -452,7 +452,7 @@ a_snapshot_nobody_else_reports_is_let_in_unchecked :: proc(t: ^testing.T) {
 		inputs := netcode.relay_tick(session.relay, number)^
 		sim.step(simulation, &inputs)
 	}
-	snapshot := sim.snapshot_encode(simulation, tick)
+	snapshot := packed_snapshot(simulation, tick)
 	defer delete(snapshot)
 	evil_snapshot(&evil, &session, 1, tick, snapshot)
 	evil_run(&evil, &session, 1)
@@ -528,7 +528,7 @@ a_rejoin_while_a_large_snapshot_is_on_its_way_gets_in :: proc(t: ^testing.T) {
 		inputs := netcode.relay_tick(session.relay, number)^
 		sim.step(simulation, &inputs)
 	}
-	snapshot := sim.snapshot_encode(simulation, tick)
+	snapshot := packed_snapshot(simulation, tick)
 	defer delete(snapshot)
 	evil_snapshot(&evil, &session, 1, tick, snapshot) // the answer to the new request, behind the old chunks
 	evil_run(&evil, &session, 14)

@@ -8,7 +8,7 @@ are in `examples/`. Toolchain: [`../docs/getting-started.md`](../docs/getting-st
 
 - Deterministic (the tick runs them): `sim` (the harness: state tables, the snapshot ring, checksum, events,
   commands, the input log), `physics` (Box3D as rollback state, a plug-in: `sim` knows nothing about it), `dmath`, `level`,
-  `nav` (walking a level's navigation mesh), and the leaf `wire`.
+  `nav` (walking a level's navigation mesh), and the leaves `wire` and `lz` (the compression snapshots travel in).
 - Real-time: `netcode` (input relay, prediction, rollback; it drives the sim but stays off `core:math`), `eos`
   (Epic Online Services as a `netcode.Lobby`), `headless` (a game's headless binary, the sync-test, replay and
   the other offline runs, and the end-to-end suites).

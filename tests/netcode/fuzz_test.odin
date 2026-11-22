@@ -333,7 +333,7 @@ fuzz_joiner_snapshots :: proc(t: ^testing.T) {
 	for tick in u32(1) ..= 48 {
 		inputs := finalized_of(tick, 1)
 		sim.step(simulation, &inputs)
-		if tick % 16 == 0 && tick >= 32 do snapshots[tick / 16 - 2] = sim.snapshot_encode(simulation, tick)
+		if tick % 16 == 0 && tick >= 32 do snapshots[tick / 16 - 2] = packed_snapshot(simulation, tick)
 	}
 	defer for snapshot in snapshots do delete(snapshot)
 	hub := netcode.hub_create(2)

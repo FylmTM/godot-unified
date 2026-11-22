@@ -46,7 +46,8 @@ Session_Result :: struct($G: typeid) {
 	relay_net:  netcode.Channel_Stats,
 	// The late joiner's join (late_tick != 0): from its Hello to Connected (its snapshot restored and checked),
 	// virtual µs, and the bytes it received by then (its snapshot, the finalized ticks since it). Its client result
-	// has the snapshot's transfer (snapshot_bytes, snapshot_us) and its catch-up (client_steps.max_us).
+	// has the snapshot's transfer (snapshot_bytes, snapshot_sent compressed, snapshot_us) and its catch-up
+	// (client_steps.max_us).
 	join_us:    i64,
 	join_bytes: int,
 }
