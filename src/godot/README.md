@@ -130,7 +130,7 @@ thread knows since which tick each key is in the current timeline: the first fil
 rollback re-simulates that tick, and confirmed by a fill of the newest verified tick (netcode's `verified_state`)
 that has it. Without that verified fill a key would never appear under steady mispredictions, since every predicted
 fill gets re-simulated before it is verified; it costs one more `fill_frame` per step that re-stepped verified ticks,
-only while some kind asks for it. The main thread creates the view once the newest verified tick reaches that tick;
+only while some kind asks for it, in which every push of another kind (and every `push_data`) returns at once. The main thread creates the view once the newest verified tick reaches that tick;
 such a view is never cancelled.
 
 **Remote players on the verified timeline** (`Remote.Verified`, `verified_players.odin`): a kind whose views of other

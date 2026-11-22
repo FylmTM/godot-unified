@@ -1,5 +1,7 @@
 package godot
 
+import "base:runtime"
+
 // A sim event's lifecycle on the view side. Events (an explosion, a death) are produced by every simulation of a
 // tick: predicted, re-simulated after a rollback, verified. The tracker turns that into exactly two steps per
 // event: **Emitted** once, the first time any simulation of its tick produces it; then once either **Confirmed**
@@ -66,6 +68,7 @@ Event_Tracker :: struct($E: typeid) {
 	out:          [dynamic]Tracked(E),
 	last_serial:  u64, // the newest serial given out
 	scratch:      [dynamic]Pending(E), // reordering a tick's list after a re-simulation
+	index:        Tick_Table(Event_Id, i32), // the current tick's pending events by id (their index in its list)
 }
 
 // Sets how the tracker tells that two events from different simulations of a tick are the same one (the
@@ -82,6 +85,7 @@ tracker_destroy :: proc(tracker: ^Event_Tracker($E)) {
 	delete(tracker.ticks)
 	delete(tracker.out)
 	delete(tracker.scratch)
+	tick_table_destroy(&tracker.index)
 	tracker^ = {}
 }
 
@@ -125,7 +129,11 @@ tracker_begin_tick :: proc(tracker: ^Event_Tracker($E), tick: u32) {
 	tracker.current = nil
 	if tracker.has_verified && tick <= tracker.verified do return
 	tracker.current = tracker_list(tracker, tick)
-	for &pending in tracker.current do pending.seen = false
+	tick_table_reset(&tracker.index)
+	for &pending, i in tracker.current {
+		pending.seen = false
+		tick_table_put(&tracker.index, pending.id, event_id_hash(pending.id), i32(i))
+	}
 }
 
 // Records one event of the tick being simulated, in emission order. Outputs Emitted only the first time its id is
@@ -135,12 +143,14 @@ tracker_event :: proc(tracker: ^Event_Tracker($E), event: E) {
 	id := tracker.id_of(event)
 	order := tracker.emitted
 	tracker.emitted += 1
-	for &pending in tracker.current {
-		if pending.id != id do continue
+	hash := event_id_hash(id)
+	if index := tick_table_get(&tracker.index, id, hash); index != nil {
+		pending := &tracker.current[index^]
 		pending.seen, pending.event, pending.order = true, event, order
 		return
 	}
 	tracker.last_serial += 1
+	tick_table_put(&tracker.index, id, hash, i32(len(tracker.current)))
 	append(tracker.current, Pending(E){id, event, order, true, tracker.last_serial})
 	append(&tracker.out, Tracked(E){.Emitted, event, tracker.last_serial})
 }
@@ -191,4 +201,84 @@ tracker_verified :: proc(tracker: ^Event_Tracker($E), verified: u32) {
 		tracker.count -= 1
 		tracker.first_tick += 1
 	}
+}
+
+// An Event_Id's hash for a Tick_Table.
+@(private)
+event_id_hash :: proc(id: Event_Id) -> u64 {
+	hash := u64(id.tick) << 32 | u64(id.kind)
+	hash = (hash ~ id.entity) * 0x9E3779B97F4A7C15
+	hash = (hash ~ id.player) * 0xC2B2AE3D27D4EB4F
+	return (hash ~ u64(id.nth)) * 0x9E3779B97F4A7C15
+}
+
+// A small open-addressed table for what one tick looks up (session thread): reset by a stamp, so a reset clears
+// nothing, and it only allocates when a tick needs more room than any before.
+@(private)
+Tick_Table :: struct($K, $V: typeid) {
+	slots: []Tick_Slot(K, V),
+	stamp: u32, // the entries of the current reset (0: never reset)
+	count: int,
+	alloc: runtime.Allocator, // the slots' (context.allocator at the first put)
+}
+
+@(private)
+Tick_Slot :: struct($K, $V: typeid) {
+	stamp: u32,
+	hash:  u64, // the key's (rehashing on growth)
+	key:   K,
+	value: V,
+}
+
+// Empties the table.
+@(private)
+tick_table_reset :: proc(table: ^Tick_Table($K, $V)) {
+	table.stamp += 1
+	if table.stamp == 0 { 	// wrapped: a stamp of 0 marks a slot never written
+		for &slot in table.slots do slot.stamp = 0
+		table.stamp = 1
+	}
+	table.count = 0
+}
+
+// The value stored under `key` (`hash`: the key's hash), nil when there is none.
+@(private)
+tick_table_get :: proc(table: ^Tick_Table($K, $V), key: K, hash: u64) -> ^V {
+	if len(table.slots) == 0 do return nil
+	mask := len(table.slots) - 1
+	for i := int(hash >> 32) & mask; table.slots[i].stamp == table.stamp; i = (i + 1) & mask {
+		if table.slots[i].key == key do return &table.slots[i].value
+	}
+	return nil
+}
+
+// Stores `value` under `key`, which is not in the table yet; grows (doubling) to stay at most half full.
+@(private)
+tick_table_put :: proc(table: ^Tick_Table($K, $V), key: K, hash: u64, value: V) {
+	if table.stamp == 0 do tick_table_reset(table)
+	if 2 * (table.count + 1) > len(table.slots) {
+		if table.alloc.procedure == nil do table.alloc = context.allocator
+		old := table.slots
+		table.slots = make([]Tick_Slot(K, V), max(16, 2 * len(old)), table.alloc)
+		table.count = 0
+		for slot in old do if slot.stamp == table.stamp do tick_table_insert(table, slot.hash, slot.key, slot.value)
+		delete(old, table.alloc)
+	}
+	tick_table_insert(table, hash, key, value)
+}
+
+@(private)
+tick_table_insert :: proc(table: ^Tick_Table($K, $V), hash: u64, key: K, value: V) {
+	mask := len(table.slots) - 1
+	i := int(hash >> 32) & mask
+	for table.slots[i].stamp == table.stamp do i = (i + 1) & mask
+	table.slots[i] = {table.stamp, hash, key, value}
+	table.count += 1
+}
+
+// Frees the table's slots.
+@(private)
+tick_table_destroy :: proc(table: ^Tick_Table($K, $V)) {
+	if table.alloc.procedure != nil do delete(table.slots, table.alloc)
+	table^ = {}
 }

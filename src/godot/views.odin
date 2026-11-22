@@ -108,6 +108,8 @@ Multi_View :: struct {
 	bounds:     bool, // the host sets custom_aabb (the game set none): Godot needn't recompute it from the buffer
 	low, high:  [3]f32, // this frame's instance origins (bounds)
 	reach:      f32, // this frame's largest scale factor (bounds)
+	box:        gd.AABB, // the custom_aabb the host last set (bounds; has_box), padded so most frames keep it
+	has_box:    bool,
 	live:       bool, // its node is alive this frame (checked once, by multi_sync)
 	mesh:       rawptr, // the mesh `mesh_reach` was measured on
 	mesh_reach: f32, // the mesh's farthest point from its origin
@@ -122,19 +124,23 @@ Multi_Track :: struct {
 }
 
 V: struct {
-	set:         View_Set(View_Id, ^Scene_View),
-	scenes:      map[u8]gd.Ref(gd.PackedScene),
-	missing:     map[u8]bool, // kinds whose scene failed to load (reported once)
-	index:       map[string]string, // the view index: kind name -> scene path
-	index_read:  bool,
-	multis:      [dynamic]Multi_View,
-	frame:       int,
-	fresh_count: int,
-	clock:       time.Tick,
-	hooks:       map[u8]View_Hooks, // per scene view kind, at its first spawn
-	reported:    map[string]bool, // warnings and errors given once per process
-	stats:       Sync_Stats,
-	epoch:       u32, // the shown timeline's (Frame_Data.epoch): a new one snaps every view
+	set:          View_Set(View_Id, ^Scene_View),
+	scenes:       map[u8]gd.Ref(gd.PackedScene),
+	missing:      map[u8]bool, // kinds whose scene failed to load (reported once)
+	index:        map[string]string, // the view index: kind name -> scene path
+	index_read:   bool,
+	multis:       [dynamic]Multi_View,
+	frame:        int,
+	fresh_count:  int,
+	clock:        time.Tick,
+	hooks:        map[u8]View_Hooks, // per scene view kind, at its first spawn
+	reported:     map[string]bool, // warnings and errors given once per process
+	stats:        Sync_Stats,
+	epoch:        u32, // the shown timeline's (Frame_Data.epoch): a new one snaps every view
+	// The scene views that show a player, sorted by player (player_views): built when an event first needs it after a
+	// view spawned, went or changed player (spawn_view, free_view, scene_sync), so routing an event scans no views.
+	by_player:    [dynamic]^Scene_View,
+	by_player_ok: bool,
 }
 
 // The main thread's view-sync cost, summed over frames until a script takes it (UnifiedSession.take_sync_stats:
@@ -373,6 +379,7 @@ find_marker :: proc(root: gd.Node) -> gd.Node {
 spawn_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Scene_View {
 	packed_scene, ok := scene_for(item.kind)
 	if !ok do return nil
+	V.by_player_ok = false
 	node := gd.PackedScene_instantiate(packed_scene, .GEN_EDIT_STATE_DISABLED)
 	if node.ptr == nil do return nil
 	scene_view := new(Scene_View)
@@ -579,6 +586,7 @@ declares_property :: proc(node: gd.Node, name: string) -> bool {
 
 free_view :: proc(scene_view: ^Scene_View) {
 	if scene_view == nil do return
+	V.by_player_ok = false
 	if alive(scene_view.id) do gd.Node_queue_free(scene_view.node)
 	for &data_object in scene_view.data_objects do data_object_drop(&data_object)
 	delete(scene_view.data)
@@ -622,6 +630,8 @@ views_clear :: proc() {
 	}
 	delete(V.index)
 	V.index, V.index_read = nil, false
+	delete(V.by_player)
+	V.by_player, V.by_player_ok = nil, false
 }
 
 // View space is view_root's local space; event and command positions are in it too, so a script that places an
@@ -707,6 +717,7 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 			}
 			if scene_view.player != item.player {
 				scene_view.player = item.player
+				V.by_player_ok = false
 				marker_update(scene_view)
 			}
 			// a view on the verified timeline takes its data from its samples (when its kind's data fits one)
@@ -886,10 +897,30 @@ views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, even
 		if keyed do return
 	}
 	if player == 0 do return
-	for _, &entry in V.set.entries {
-		scene_view := entry.view
-		if scene_view != nil && scene_view.player == player do call_sim_event(scene_view, event, state, tick)
+	first, last := player_views(player)
+	for i in first ..< last {
+		if !V.by_player_ok do break // a handler changed the views (they are freed): the rest have no view to reach
+		call_sim_event(V.by_player[i], event, state, tick)
 	}
+}
+
+// The range of V.by_player holding `player`'s scene views, the index built first when views changed since.
+player_views :: proc(player: u64) -> (first, last: int) {
+	if !V.by_player_ok {
+		clear(&V.by_player)
+		for _, entry in V.set.entries {
+			if entry.view != nil && entry.view.player != 0 do append(&V.by_player, entry.view)
+		}
+		slice.sort_by(V.by_player[:], proc(a, b: ^Scene_View) -> bool {return a.player < b.player})
+		V.by_player_ok = true
+	}
+	first, _ = slice.binary_search_by(V.by_player[:], player, proc(view: ^Scene_View, player: u64) -> slice.Ordering {
+		return slice.cmp(view.player, player)
+	})
+	for first > 0 && V.by_player[first - 1].player == player do first -= 1
+	last = first
+	for last < len(V.by_player) && V.by_player[last].player == player do last += 1
+	return
 }
 
 // An event of `tick` for a view: held for the verified timeline's playback when the view plays on it
@@ -1102,7 +1133,17 @@ multi_upload :: proc(fresh: bool) {
 		if !multi.live || multi.cap == 0 do continue
 		if multi.count > 0 {
 			// the bounds first: without a custom_aabb, set_buffer transforms the mesh's AABB by every instance
-			if multi.bounds do gd.MultiMesh_set_custom_aabb(multi.mm, multi_bounds(&multi))
+			// only when the instances leave the box last set (or it grew far too big): setting it costs Godot an
+			// allocation and a `changed` signal
+			if multi.bounds {
+				needed := multi_bounds(&multi)
+				if !multi.has_box ||
+				   !box_holds(multi.box, needed) ||
+				   box_extent(multi.box) > 2 * box_extent(needed) + 1e-6 {
+					multi.box, multi.has_box = box_padded(needed), true
+					gd.MultiMesh_set_custom_aabb(multi.mm, multi.box)
+				}
+			}
 			gd.MultiMesh_set_buffer(multi.mm, multi.buf)
 		}
 		gd.MultiMesh_set_visible_instance_count(multi.mm, multi.count)
@@ -1135,6 +1176,33 @@ multi_bounds :: proc(multi: ^Multi_View) -> gd.AABB {
 	grow := multi.mesh_reach * multi.reach
 	low, high := multi.low - grow, multi.high + grow
 	return {position = {low.x, low.y, low.z}, size = {high.x - low.x, high.y - low.y, high.z - low.z}}
+}
+
+// Whether `outer` holds all of `inner`.
+box_holds :: proc(outer, inner: gd.AABB) -> bool {
+	outer_low := [3]f32{outer.position.x, outer.position.y, outer.position.z}
+	outer_high := outer_low + {outer.size.x, outer.size.y, outer.size.z}
+	inner_low := [3]f32{inner.position.x, inner.position.y, inner.position.z}
+	inner_high := inner_low + {inner.size.x, inner.size.y, inner.size.z}
+	for axis in 0 ..< 3 {
+		if inner_low[axis] < outer_low[axis] || inner_high[axis] > outer_high[axis] do return false
+	}
+	return true
+}
+
+// A box's largest side.
+box_extent :: proc(box: gd.AABB) -> f32 {
+	return max(box.size.x, box.size.y, box.size.z)
+}
+
+// `box` grown on every side by an eighth of its largest side, so instances moving a little stay inside it for many
+// frames.
+box_padded :: proc(box: gd.AABB) -> gd.AABB {
+	margin := box_extent(box) / 8
+	return {
+		position = {box.position.x - margin, box.position.y - margin, box.position.z - margin},
+		size     = {box.size.x + 2 * margin, box.size.y + 2 * margin, box.size.z + 2 * margin},
+	}
 }
 
 // A unit quaternion's rotation matrix, by rows.

@@ -40,6 +40,7 @@ shutdown :: proc() {
 	}
 	delete(interned)
 	interned = nil
+	virtual_names = {}
 }
 
 // Traps unless called on the thread that ran init (Godot's main thread). Generated wrappers call it in debug builds:

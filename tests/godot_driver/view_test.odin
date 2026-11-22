@@ -345,6 +345,36 @@ events_emitted_then_confirmed_or_cancelled :: proc(t: ^testing.T) {
 	testing.expect_value(t, tracker.out[3], godot.Tracked(Ev){.Confirmed, Ev{8, 4, 1}, 6})
 }
 
+// A tick of many events (past the id index's growth): its re-simulations in another order emit nothing new, one that
+// drops some cancels exactly those, and its verification confirms the rest in the last simulation's order.
+@(test)
+events_of_a_crowded_tick :: proc(t: ^testing.T) {
+	tracker: godot.Event_Tracker(Ev)
+	godot.tracker_init(&tracker, event_id)
+	defer godot.tracker_destroy(&tracker)
+	COUNT :: 300
+	events := make([]Ev, COUNT, context.temp_allocator)
+	for &event, i in events do event = {9, u32(i % 3), u64(i)}
+	sim_tick(&tracker, 9, ..events)
+	testing.expect_value(t, len(tracker.out), COUNT)
+	for tracked, i in tracker.out do testing.expect_value(t, tracked, godot.Tracked(Ev){.Emitted, events[i], u64(i + 1)})
+	clear(&tracker.out)
+	reversed := make([]Ev, COUNT, context.temp_allocator)
+	for event, i in events do reversed[COUNT - 1 - i] = event
+	sim_tick(&tracker, 9, ..reversed)
+	testing.expect_value(t, len(tracker.out), 0)
+	// every other event of the reversed order produced again: the rest cancelled, in the order they were emitted
+	kept := make([dynamic]Ev, context.temp_allocator)
+	for event, i in reversed do if i % 2 == 0 do append(&kept, event)
+	sim_tick(&tracker, 9, ..kept[:])
+	testing.expect_value(t, len(tracker.out), COUNT / 2)
+	for tracked in tracker.out do testing.expect(t, tracked.action == .Cancelled && tracked.event.entity % 2 == 0)
+	clear(&tracker.out)
+	godot.tracker_verified(&tracker, 9)
+	testing.expect_value(t, len(tracker.out), COUNT / 2)
+	for tracked, i in tracker.out do testing.expect_value(t, tracked.event, kept[i])
+}
+
 // An event keeps its serial from Emitted to Confirmed even when a re-simulation changes its data (Confirmed
 // carries the final data); a cancelled event produced again is a new one; a new tracker continues the serials.
 Hit :: struct {

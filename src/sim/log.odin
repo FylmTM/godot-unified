@@ -425,8 +425,11 @@ log_sink_memory :: proc(buf: ^[dynamic]u8) -> Log_Sink {
 		user = buf,
 		write = proc(user: rawptr, offset: int, bytes: []u8) -> bool {
 			buf := (^[dynamic]u8)(user)
-			if offset + len(bytes) > len(buf) {
-				resize(buf, offset + len(bytes))
+			if needed := offset + len(bytes); needed > len(buf) {
+				// geometric growth: a log written tick by tick (a dev build's recording) reallocates O(log n) times,
+				// not every tick (resize alone grows to the exact length)
+				if needed > cap(buf) do reserve(buf, needed > 2 * cap(buf) ? needed : 2 * cap(buf))
+				resize(buf, needed)
 			}
 			copy(buf[offset:], bytes)
 			return true

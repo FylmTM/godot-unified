@@ -40,6 +40,10 @@ VIRTUAL_NAMES := [Virtual]string {
 	.Input   = "_input",
 }
 
+// VIRTUAL_NAMES as interned StringNames (register_class makes them, on the main thread).
+@(private)
+virtual_names: [Virtual]^StringName
+
 @(private)
 Virtual_Call :: struct {
 	class: ^Class,
@@ -135,9 +139,11 @@ cls_virtual_data :: proc "c" (userdata: rawptr, name: gdi.ConstStringNamePtr, ha
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
 	cls := (^Class)(userdata)
-	virtual_name := string_name_to_odin(cast(^StringName)name)
-	for candidate, which in VIRTUAL_NAMES {
-		if candidate != virtual_name do continue
+	// Godot asks once per new object and virtual: compare the names as StringNames (one interned pointer each), so a
+	// lookup converts and allocates nothing.
+	asked := (^StringName)(name)
+	for candidate, which in virtual_names {
+		if candidate == nil || transmute(u64)candidate^ != transmute(u64)asked^ do continue
 		set := false
 		switch which {
 		case .Ready:
@@ -183,6 +189,7 @@ register_class :: proc(cls: ^Class) {
 	cls.parent_sn = string_name_from(cls.parent)
 	if cls.native != "" do cls.native_sn = string_name_from(cls.native)
 	for &virtual_call, which in cls.vcalls do virtual_call = {cls, which}
+	for &name, which in virtual_names do if name == nil do name = sn(VIRTUAL_NAMES[which])
 	info := gdi.ClassCreationInfo6 {
 		is_exposed                  = 1,
 		is_runtime                  = cls.runtime_only ? 1 : 0,
