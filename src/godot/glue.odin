@@ -106,20 +106,25 @@ View_Out :: struct {
 	data_size:   u32,
 }
 
-// A MultiMesh instance as published.
+// A MultiMesh instance as published: what every instance has. What only some have sits beside Frame_Data.multis at
+// the same index, written only where it is: the previous pose (`has_prev`), the scale (`has_scale`; else 1), and the
+// color and custom data where the kind's MultiMesh uses them (Frame_Data.multi_fields). The main thread reads every
+// instance every frame; a thinner record is fewer bytes for the session thread to write and for it to read.
 Multi_Out :: struct {
-	kind:     u8,
-	has_prev: bool,
-	warp:     u8,
-	since:    u32, // like View_Out's (keyed instances; 0: none)
-	key:      u64,
-	pos:      [3]f32,
-	prev_pos: [3]f32,
-	rot:      [4]f32,
-	prev_rot: [4]f32,
-	scale:    [3]f32,
-	color:    [4]f32,
-	custom:   [4]f32,
+	key:       u64,
+	pos:       [3]f32,
+	since:     u32, // like View_Out's (keyed instances; 0: none)
+	rot:       [4]f32,
+	kind:      u8,
+	has_prev:  bool, // Frame_Data.multi_prev holds its tick - 1 pose
+	has_scale: bool, // Frame_Data.multi_scale holds its scale (else {1, 1, 1})
+	warp:      u8,
+}
+
+// What a MultiMesh kind's instances carry in a Frame beyond Multi_Out (Frame_Data.multi_fields).
+Multi_Field :: enum u8 {
+	Color, // Frame_Data.multi_color
+	Custom, // Frame_Data.multi_custom
 }
 
 // A session data value as published (push_data): its kind (the index in Glue.data) and its bytes' place.
@@ -151,6 +156,12 @@ Frame_Data :: struct {
 	n_members:      int,
 	views:          []View_Out,
 	multis:         []Multi_Out,
+	// Beside multis, by the same index (Multi_Out says which hold an instance's value; each grows only once written).
+	multi_prev:     []Remembered_Pose,
+	multi_scale:    [][3]f32,
+	multi_color:    [][4]f32,
+	multi_custom:   [][4]f32,
+	multi_fields:   [256]bit_set[Multi_Field;u8], // by MultiMesh kind: what this frame wrote for its instances
 	data:           []u8, // the views' and the session data's bytes, packed
 	datas:          [MAX_DATA_TYPES]Data_Out, // the session data pushed this frame: datas[:n_datas]
 	data_pushed:    u64, // the data kinds pushed this frame (one value per type per frame)
@@ -613,26 +624,40 @@ push_multi_view :: proc(
 	loc := #caller_location,
 ) {
 	out := frame.out
-	appears_verified := kind_appears_verified(api.multi_policy, u8(item.kind))
+	kind := u8(item.kind)
+	appears_verified := kind_appears_verified(api.multi_policy, kind)
 	if out.verified_fill && !appears_verified do return
-	room(&out.multis, out.n_multis + 1, FRAME_MULTIS_LIMIT, out.alloc, loc)
-	multi_out := &out.multis[out.n_multis]
+	index := out.n_multis
+	room(&out.multis, index + 1, FRAME_MULTIS_LIMIT, out.alloc, loc)
 	out.n_multis += 1
+	fields := multi_fields_of(kind)
+	out.multi_fields[kind] = fields
+	multi_out := &out.multis[index]
 	multi_out^ = {
-		kind   = u8(item.kind),
-		key    = item.key,
-		pos    = ([3]f32)(item.pos),
-		rot    = item.rot == {} ? IDENTITY : item.rot,
-		scale  = item.scale,
-		color  = ([4]f32)(item.color),
-		custom = item.custom,
-		warp   = item.warp,
+		key       = item.key,
+		pos       = ([3]f32)(item.pos),
+		rot       = item.rot == {} ? IDENTITY : item.rot,
+		kind      = kind,
+		has_scale = item.scale != {},
+		warp      = item.warp,
+	}
+	if multi_out.has_scale {
+		room(&out.multi_scale, index + 1, FRAME_MULTIS_LIMIT, out.alloc, loc)
+		out.multi_scale[index] = item.scale
+	}
+	if .Color in fields {
+		room(&out.multi_color, index + 1, FRAME_MULTIS_LIMIT, out.alloc, loc)
+		out.multi_color[index] = ([4]f32)(item.color)
+	}
+	if .Custom in fields {
+		room(&out.multi_custom, index + 1, FRAME_MULTIS_LIMIT, out.alloc, loc)
+		out.multi_custom[index] = item.custom
 	}
 	if item.key != 0 {
 		previous, found, since := pose_remember(
 			frame.poses,
 			.Multi,
-			u8(item.kind),
+			kind,
 			item.key,
 			frame.tick,
 			multi_out.pos,
@@ -641,7 +666,11 @@ push_multi_view :: proc(
 			appears_verified,
 		)
 		multi_out.since = since
-		if found do multi_out.has_prev, multi_out.prev_pos, multi_out.prev_rot = true, previous.pos, previous.rot
+		if found {
+			multi_out.has_prev = true
+			room(&out.multi_prev, index + 1, FRAME_MULTIS_LIMIT, out.alloc, loc)
+			out.multi_prev[index] = previous
+		}
 	}
 }
 
@@ -650,6 +679,28 @@ push_multi_view :: proc(
 @(private)
 kind_appears_verified :: proc(policies: []Kind_Policy, kind: u8) -> bool {
 	return int(kind) < len(policies) && policies[kind].appear == .Verified
+}
+
+// What a MultiMesh kind's MultiMeshes use, as the main thread found them (multi_mesh: an atomic byte per kind, a
+// union over its views): until it has seen one, everything.
+@(private)
+multi_kind_uses: [256]u8 // bit 0: seen; bit 1 + Multi_Field: used
+
+@(private)
+multi_fields_of :: proc(kind: u8) -> bit_set[Multi_Field;u8] {
+	uses := sync.atomic_load_explicit(&multi_kind_uses[kind], .Relaxed)
+	if uses & 1 == 0 do return {.Color, .Custom}
+	return transmute(bit_set[Multi_Field;u8])(uses >> 1)
+}
+
+// Frees a Frame's MultiMesh buffers.
+@(private)
+frame_multis_free :: proc(frame: ^Frame_Data) {
+	delete(frame.multis, frame.alloc)
+	delete(frame.multi_prev, frame.alloc)
+	delete(frame.multi_scale, frame.alloc)
+	delete(frame.multi_color, frame.alloc)
+	delete(frame.multi_custom, frame.alloc)
 }
 
 // Grows a Frame's buffer to hold `needed` items (doubling), on the session thread that owns the slot it fills.

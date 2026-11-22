@@ -533,7 +533,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		tracker_destroy(&driver.tracker)
 		for &frame in driver.frames.slots {
 			delete(frame.views, frame.alloc)
-			delete(frame.multis, frame.alloc)
+			frame_multis_free(&frame)
 			delete(frame.data, frame.alloc)
 			delete(frame.members)
 			delete(frame.draws, frame.alloc)
@@ -546,7 +546,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		pose_memory_destroy(&driver.poses)
 		if driver.verified_poses.alloc.procedure != nil do pose_memory_destroy(&driver.verified_poses)
 		delete(driver.verified_out.views, driver.verified_out.alloc)
-		delete(driver.verified_out.multis, driver.verified_out.alloc)
+		frame_multis_free(&driver.verified_out)
 		delete(driver.verified_out.data, driver.verified_out.alloc)
 		verified_sampler_free(driver.sampler)
 		tick_table_destroy(&driver.repeats)

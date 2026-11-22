@@ -311,7 +311,7 @@ driver_sessions :: proc(t: ^testing.T) {
 			testing.expectf(t, dot.has_prev && dot.pos.x > dot.prev_pos.x, "a view's previous pose: %v", dot)
 			testing.expectf(
 				t,
-				spark.has_prev && spark.pos.x > spark.prev_pos.x,
+				spark.has_prev && spark.pos.x > frame.multi_prev[0].pos.x,
 				"an instance's previous pose: %v",
 				spark,
 			)

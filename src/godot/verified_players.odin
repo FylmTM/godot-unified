@@ -210,7 +210,7 @@ verified_sampler_new :: proc(kinds: []u8) -> ^Verified_Sampler {
 verified_sampler_free :: proc(sampler: ^Verified_Sampler) {
 	if sampler == nil do return
 	delete(sampler.out.views, sampler.out.alloc)
-	delete(sampler.out.multis, sampler.out.alloc)
+	frame_multis_free(&sampler.out)
 	delete(sampler.out.data, sampler.out.alloc)
 	free(sampler)
 }
