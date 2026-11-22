@@ -4,12 +4,13 @@ package netcode
 
 import "core:fmt"
 
+import "unified:lz"
 import "unified:sim"
 import "unified:wire"
 
 // Bump on any wire change: a datagram, a message, the snapshots a late joiner gets (the library-sim-change skill). Every
 // datagram starts with it (channel.odin), so peers on two versions never parse each other's messages.
-PROTOCOL_VERSION :: 1
+PROTOCOL_VERSION :: 2
 #assert(PROTOCOL_VERSION < 0x80) // the datagram's first byte: 0x80 | PROTOCOL_VERSION
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 PLATFORM_MAX :: 15 // bytes of an account's platform name ("eos")
@@ -34,6 +35,12 @@ RESUME_MAX :: RELAY_RING - CATCHUP_TICKS
 RESYNCS_MAX :: 3 // times one connection is resynced (a desync, a re-anchor); needing another, it is dropped
 #assert(RESUME_MAX + CHECKSUM_EVERY <= CHECK_RING * CHECKSUM_EVERY) // the others' reports of its checksum tick are kept
 SNAP_CHUNK :: MAX_MESSAGE - 6 // a Snap_Chunk's bytes: what fits next to its type, target and offset
+// The largest snapshot a peer takes, compressed or decompressed: a Snap_Begin or Resync naming more is refused, and
+// one that decompresses to more doesn't restore.
+SNAPSHOT_MAX :: 256 << 20
+// The most a Snap_Begin's or Resync's total reserves before its bytes come (snapshot_reserve).
+@(private)
+SNAPSHOT_RESERVE :: 16 << 20
 RELAY_TARGET :: u8(0xFE) // a Snap_Request's or Snap_Begin's target: the relay itself (a desync report's snapshot)
 @(private)
 DESYNC_IMAGES :: 8 // checksum-tick snapshots a client keeps for desync reports (Welcome's Keep_Images)
@@ -175,8 +182,10 @@ Msg :: enum u8 {
 	// r->c R: target u8 (a joiner, or RELAY_TARGET), min tick u32: for a joiner, the snapshot of the first checksum
 	// tick >= min the client verifies; for the relay, the kept snapshot of that checksum tick
 	Snap_Request,
-	Snap_Begin, // c->r(->c) R: target u8, tick u32, total bytes u32 (to the relay, 0: not kept)
-	Snap_Chunk, // c->r(->c) R: target u8, offset u32, bytes
+	// c->r(->c) R: target u8, tick u32, total bytes u32 (to the relay, 0: not kept). The bytes are the portable
+	// snapshot compressed (snapshot_pack), so total is its compressed size.
+	Snap_Begin,
+	Snap_Chunk, // c->r(->c) R: target u8, offset u32, bytes (of the compressed snapshot)
 	Done, // c->r R: the client verified the last tick of a fixed-length session
 	End, // r->c R: the session is over (or the host left)
 	Leave, // c->r R: local u8: that local player leaves (ALL_LOCALS, or its last one: the client leaves)
@@ -189,8 +198,8 @@ Msg :: enum u8 {
 	// name len u8 + bytes, profile size u8 + bytes (a Hello's seat)
 	Join,
 	Seated, // r->c R: the answer to a Join: local u8, slot u8, member u16, first tick u32 (a Welcome's seat)
-	// r->c R: tick u32, total bytes u32, seat count u8, per seat: local u8, placed seq u32 (its newest command the tick
-	// holds). The relay replaces this playing client's state with a majority player's kept snapshot of that checksum
+	// r->c R: tick u32, total bytes u32 (compressed, as Snap_Begin's), seat count u8, per seat: local u8, placed seq
+	// u32 (its newest command the tick holds). The relay replaces this playing client's state with a majority player's kept snapshot of that checksum
 	// tick (it diverged, or fell behind the ring): its Snap_Chunks follow, then the finalized ticks after it. The
 	// client keeps its seats, clock and inputs.
 	Resync,
@@ -422,6 +431,37 @@ r_roster_entry :: proc(reader: ^wire.Reader) -> (entry: Roster_Entry) {
 	entry.platform = r_text(reader, PLATFORM_MAX)
 	entry.account = r_text(reader, ACCOUNT_MAX)
 	return
+}
+
+// A portable snapshot as it goes over the wire: compressed (unified:lz) into `out`, a buffer reused from one snapshot
+// to the next. Returns out's bytes.
+@(private)
+snapshot_pack :: proc(snapshot: []u8, out: ^[dynamic]u8) -> []u8 {
+	return lz.encode(snapshot, out)
+}
+
+// Empties `buffer` for a compressed snapshot of `total` bytes on its way and sizes it for them at once, instead of
+// growing it chunk by chunk; up to SNAPSHOT_RESERVE, past which it grows as the bytes come, so a header alone can't
+// make a peer allocate much.
+@(private)
+snapshot_reserve :: proc(buffer: ^[dynamic]u8, total: int) {
+	clear(buffer)
+	non_zero_reserve(buffer, min(total, SNAPSHOT_RESERVE))
+}
+
+// A snapshot that came over the wire (snapshot_pack), decompressed into `out` (resized to its size, from its header).
+// False when it doesn't decompress or claims more than SNAPSHOT_MAX.
+@(private)
+snapshot_unpack :: proc(packed: []u8, out: ^[dynamic]u8) -> ([]u8, bool) {
+	size, ok := lz.decoded_size(packed)
+	if !ok || size > SNAPSHOT_MAX {
+		return nil, false
+	}
+	non_zero_resize(out, size)
+	if !lz.decode(packed, out[:]) {
+		return nil, false
+	}
+	return out[:], true
 }
 
 @(private)

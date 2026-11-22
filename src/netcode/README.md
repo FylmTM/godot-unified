@@ -4,7 +4,7 @@ Nobody sends game state: every client runs the whole deterministic sim, and the 
 relay's input log is the session: seed, levels and log replay to the same checksums anywhere.
 
 Generic over the game: `Relay(G)`, `Client(G)`, `Host(G)`, `G` a `sim.Game`. It steps, saves, snapshots and
-checksums through `unified:sim` and writes its bytes with `unified:wire`. A game touches it through a `Lobby` (online
+checksums through `unified:sim`, writes its bytes with `unified:wire` and compresses snapshots with `unified:lz`. A game touches it through a `Lobby` (online
 play: `eos.lobby`), `Hooks` (through `unified:godot`'s driver, or directly in its tests) and `headless.session_run`;
 it implements no transport. `unified:eos` implements a `Link` and a `Lobby`. The library logs through
 `context.logger` (`core:log`): silent unless the host sets a logger.
@@ -289,8 +289,8 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
 
 - The joiner's join tick J is the first tick at or after max(asked, clock + `JOIN_LEAD_MS`, finalized + 2) on which no
   other seat joins. The connection holding the lowest slot that can (and didn't send it a bad one) is asked for a
-  snapshot of the first checksum tick S ≥ J − 1 it verifies. It goes through the relay in reliable chunks, only from
-  the player asked; the finalized ticks from S on are streamed to the joiner. A provider that leaves, sends nothing for `SNAP_STALL_US`, or sends a snapshot the relay can't use is
+  snapshot of the first checksum tick S ≥ J − 1 it verifies. It goes through the relay compressed (below), in
+  reliable chunks, only from the player asked; the finalized ticks from S on are streamed to the joiner. A provider that leaves, sends nothing for `SNAP_STALL_US`, or sends a snapshot the relay can't use is
   replaced by another, asked for a snapshot no older than the one begun (the joiner keeps the finalized ticks it
   holds from it on, and acks of them may reach the relay after the new Snap_Begin). A provider asked again for a seat
   may still be sending its answer to the seat's previous occupant: what it sends before its new answer's Snap_Begin is
@@ -298,6 +298,13 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
   request names the joiner by its lowest slot then, and the relay remembers that slot for the joiner: a joiner whose
   lowest seat leaves meanwhile still gets the answer, and a new occupant of that seat asking the same provider shares
   it. How long a snapshot may take to arrive: `FIN_RING`.
+- **Compressed.** Every snapshot on the wire (a joiner's, a resync's, a typed report's) is the portable snapshot
+  compressed with `unified:lz` (`src/lz/README.md`): mostly zeros and repeated structure, it shrinks to a fraction,
+  and the transfer with it. The provider encodes and compresses into buffers it keeps for the next one, so a checksum
+  tick with a joiner waiting allocates nothing once the first has; Snap_Begin (or Resync) names the compressed size,
+  so the receiver sizes its buffer once, and the decompressed size comes from the stream's own header, bounded by
+  `SNAPSHOT_MAX` and by what the bytes can stand for. The relay forwards the bytes as they come and decompresses only
+  a typed report's two, to diff them. A stream that doesn't decompress is a snapshot that doesn't restore.
 - **The check**: the joiner restores and sends its checksum of S; the relay compares it with the majority of the
   other players' checksums of S and answers `Snap_Ok` (the joiner plays) or asks another player. The checksum covers
   the state, not the seed or the Setup: a snapshot whose header carries others than the Welcome's fails the check on

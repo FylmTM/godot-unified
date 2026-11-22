@@ -160,7 +160,7 @@ mode_session :: proc(game: ^$G, args: ^Args) -> bool {
 	joiner: netcode.Client_Result // the late joiner's (zero: none)
 	if cfg.late_tick != 0 do joiner = result.clients[cfg.late_slot]
 	fmt.printfln(
-		`{{"mode":"session","ok":%v,"desyncs":%d,"join_ms":%.1f,"clients":%d,"profile":"%s","script":"%s","latency_ms":%d,"jitter_ms":%d,"ticks":%d,"tick_hz":%d,"wall_ms":%.1f,"delay":[%s],"rollbacks":%d,"rollback_depth_avg":%.2f,"resim_ticks":%d,"stall_ticks":%d,"replaced_inputs":%d,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"relay_bytes_per_s":%.0f,"client_bytes_per_s":%.0f,"relay_datagrams_per_s":%.1f,"resends":%d,"client_step_us":{{"p99":%d,"max":%d}},"late_join":%d,"join_bytes":%d,"join_snapshot_bytes":%d,"join_transfer_ms":%.1f,"join_step_max_us":%d,"relay_net":%s,"results":[%s]}}`,
+		`{{"mode":"session","ok":%v,"desyncs":%d,"join_ms":%.1f,"clients":%d,"profile":"%s","script":"%s","latency_ms":%d,"jitter_ms":%d,"ticks":%d,"tick_hz":%d,"wall_ms":%.1f,"delay":[%s],"rollbacks":%d,"rollback_depth_avg":%.2f,"resim_ticks":%d,"stall_ticks":%d,"replaced_inputs":%d,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"relay_bytes_per_s":%.0f,"client_bytes_per_s":%.0f,"relay_datagrams_per_s":%.1f,"resends":%d,"client_step_us":{{"p99":%d,"max":%d}},"late_join":%d,"join_bytes":%d,"join_snapshot_bytes":%d,"join_snapshot_sent":%d,"join_transfer_ms":%.1f,"join_step_max_us":%d,"relay_net":%s,"results":[%s]}}`,
 		ok,
 		result.desyncs,
 		f64(result.join_us) / 1000,
@@ -193,6 +193,7 @@ mode_session :: proc(game: ^$G, args: ^Args) -> bool {
 		joiner.join_tick,
 		result.join_bytes,
 		joiner.snapshot_bytes,
+		joiner.snapshot_sent,
 		f64(joiner.snapshot_us) / 1000,
 		joiner.client_steps.max_us,
 		netcode.channel_stats_json(result.relay_net),

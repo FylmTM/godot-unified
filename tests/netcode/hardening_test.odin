@@ -9,6 +9,7 @@ import "core:testing"
 import "core:time"
 
 import "../toy"
+import "unified:lz"
 import "unified:netcode"
 import "unified:sim"
 import "unified:wire"
@@ -541,7 +542,16 @@ evil_run :: proc(
 	return
 }
 
-// Sends `snapshot` of `tick` for the joiner in `target` as a provider does: Snap_Begin, then the chunks.
+// The portable snapshot of `tick` as a provider sends it: compressed (unified:lz). The caller deletes it.
+packed_snapshot :: proc(simulation: ^sim.Sim($G), tick: u32) -> []u8 {
+	raw := sim.snapshot_encode(simulation, tick)
+	defer delete(raw)
+	packed: [dynamic]u8
+	return lz.encode(raw, &packed)
+}
+
+// Sends `snapshot` (as it goes over the wire: packed_snapshot) of `tick` for the joiner in `target` as a provider
+// does: Snap_Begin, then the chunks.
 evil_snapshot :: proc(evil: ^Evil, session: ^Net, target: u8, tick: u32, snapshot: []u8) {
 	writer := evil_begin(evil, .Snap_Begin)
 	wire.w_u8(writer, target)
@@ -907,7 +917,7 @@ a_replaced_input_does_not_hold_the_input_ack_back :: proc(t: ^testing.T) {
 	seat := &session.relay.seats[client.slot]
 	testing.expectf(
 		t,
-		session.relay.finalized - seat.recv_upto < 64,
+		i64(session.relay.finalized) - i64(seat.recv_upto) < 64, // an input for a tick not final yet may be in
 		"recv_upto %d, finalized %d (%d inputs replaced)",
 		seat.recv_upto,
 		session.relay.finalized,

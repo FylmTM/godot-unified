@@ -216,6 +216,7 @@ Client_Stats :: struct {
 	// frame budget is about.
 	client_steps:   Durations,
 	snapshot_bytes: int, // a joiner: the snapshot it restored
+	snapshot_sent:  int, // ... as it came over the wire (compressed)
 	snapshot_us:    i64, // ... from its Snap_Begin to its last chunk
 	last_msg_us:    i64, // when the relay's last message arrived (now_us; 0: none yet)
 	slow_changes:   int, // times `slow` changed
@@ -292,7 +293,8 @@ Client :: struct($G: typeid) {
 	last_send_us:   i64,
 	// late join
 	snap_reqs:      [dynamic]Snap_Req, // joiners waiting for our snapshot
-	snap_buf:       [dynamic]u8,
+	snap_buf:       [dynamic]u8, // the snapshot coming in, compressed: sized once, from its Snap_Begin or Resync
+	snap_raw:       [dynamic]u8, // ... and decompressed, to restore
 	snap_total:     int,
 	snap_tick:      u32,
 	snap_begin_us:  i64, // when the snapshot's Snap_Begin came
@@ -300,9 +302,12 @@ Client :: struct($G: typeid) {
 	snap_foreign:   bool, // ... and is of another session (load_snapshot): a Snap_Ok for it ends the join
 	received_work:  bool, // this step's messages restored a snapshot or encoded a kept tick (client_steps times it)
 	// The checksum ticks kept for a desync report (Welcome's Keep_Images), by the sim's keep slot (0: none): a copy
-	// of the tick (usim.snapshot_keep), encoded only when the relay asks for it, into image_buf.
+	// of the tick (usim.snapshot_keep), encoded only when the relay asks for it.
 	kept_ticks:     [DESYNC_IMAGES]u32,
-	image_buf:      [dynamic]u8,
+	// A snapshot we send (a joiner's, a kept tick's): encoded, then compressed, into buffers reused from one to the
+	// next.
+	out_raw:        [dynamic]u8,
+	out_packed:     [dynamic]u8,
 	// end
 	done_sent:      bool,
 	end_us:         i64, // when End arrived or stop was called (0: not ending)
@@ -427,11 +432,13 @@ client_destroy :: proc(client: ^Client($G)) {
 	}
 	delete(client.w.buf)
 	delete(client.snap_buf)
+	delete(client.snap_raw)
 	delete(client.snap_reqs)
 	delete(client.checksums)
 	for &seat in client.locals do delete(seat.own_cmds)
 	delete(client.cmd_out.list)
-	delete(client.image_buf)
+	delete(client.out_raw)
+	delete(client.out_packed)
 	delete(client.first_desync.detail)
 	delete(client.roster)
 	free(client)
@@ -767,7 +774,12 @@ on_snap_begin :: proc(client: ^Client($G), reader: ^wire.Reader, now: i64) {
 	_ = wire.r_u8(reader)
 	tick := wire.r_u32(reader)
 	total := int(wire.r_u32(reader))
-	if !reader.ok || !client.welcomed || total == 0 || tick == 0 || tick < client.first_tick - 1 {
+	if !reader.ok ||
+	   !client.welcomed ||
+	   total == 0 ||
+	   total > SNAPSHOT_MAX ||
+	   tick == 0 ||
+	   tick < client.first_tick - 1 {
 		return
 	}
 	if client.sim != nil {
@@ -792,7 +804,7 @@ on_snap_begin :: proc(client: ^Client($G), reader: ^wire.Reader, now: i64) {
 	client.snap_tick = tick
 	client.snap_total = total
 	client.snap_begin_us = now
-	clear(&client.snap_buf)
+	snapshot_reserve(&client.snap_buf, total)
 	client.fin_upto = client.snap_tick - 1
 	for fin_have(client, client.fin_upto + 1) {
 		client.fin_upto += 1
@@ -940,7 +952,13 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 			seq := wire.r_u32(&reader)
 			if local < LOCAL_MAX do placed[local] = seq
 		}
-		if !reader.ok || client.sim == nil || client.checking || !client.welcomed || total == 0 || tick == 0 {
+		if !reader.ok ||
+		   client.sim == nil ||
+		   client.checking ||
+		   !client.welcomed ||
+		   total == 0 ||
+		   total > SNAPSHOT_MAX ||
+		   tick == 0 {
 			return
 		}
 		// Frozen until the snapshot is in and checked: nothing verified or predicted, the inputs still sent.
@@ -949,7 +967,7 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 		client.resync_placed = placed
 		client.snap_total = total
 		client.snap_begin_us = now
-		clear(&client.snap_buf)
+		snapshot_reserve(&client.snap_buf, total)
 		if !client.leaving {
 			set_status(client, .Recovering, "resyncing")
 		}
@@ -993,7 +1011,7 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 @(private)
 load_snapshot :: proc(client: ^Client($G), now: i64) {
 	client.received_work = true
-	sim, err := usim.from_snapshot(client.game, client.snap_buf[:])
+	sim, err := restore_received(client)
 	client.snap_total = 0
 	if err != .None || sim.tick != client.snap_tick {
 		if sim != nil {
@@ -1004,7 +1022,8 @@ load_snapshot :: proc(client: ^Client($G), now: i64) {
 	}
 	client.sim = sim
 	if client.cfg.dev do usim.dev_attach(client.sim, zone_clock)
-	client.stats.snapshot_bytes = len(client.snap_buf)
+	client.stats.snapshot_bytes = len(client.snap_raw)
+	client.stats.snapshot_sent = len(client.snap_buf)
 	client.stats.snapshot_us = now - client.snap_begin_us
 	client.verified = client.sim.tick
 	client.predicted = client.verified
@@ -1028,12 +1047,36 @@ load_snapshot :: proc(client: ^Client($G), now: i64) {
 	wire.w_u32(writer, tick)
 	wire.w_u64(writer, value)
 	csend(client, writer, .Reliable, now)
-	log.infof("restored snapshot of tick %d (%d bytes)", tick, len(client.snap_buf))
+	log.infof(
+		"restored snapshot of tick %d (%d bytes, %d compressed)",
+		tick,
+		len(client.snap_raw),
+		len(client.snap_buf),
+	)
 	if client.hooks.restored != nil {
 		client.hooks.restored(client.hooks.user, client.sim, tick)
 	}
-	delete(client.snap_buf) // a snapshot's size, needed again only if this one fails the check
+	drop_received(client) // a snapshot's size, needed again only if this one fails the check
+}
+
+// The received snapshot (snap_buf, compressed), decompressed into snap_raw and restored into a new Sim; one that does
+// not decompress is no snapshot (Bad_Header).
+@(private)
+restore_received :: proc(client: ^Client($G)) -> (^usim.Sim(G), usim.Snap_Error) {
+	raw, ok := snapshot_unpack(client.snap_buf[:], &client.snap_raw)
+	if !ok {
+		return nil, .Bad_Header
+	}
+	return usim.from_snapshot(client.game, raw)
+}
+
+// Frees the received snapshot's buffers.
+@(private)
+drop_received :: proc(client: ^Client($G)) {
+	delete(client.snap_buf)
+	delete(client.snap_raw)
 	client.snap_buf = nil
+	client.snap_raw = nil
 }
 
 // The snapshot the relay resyncs us from is complete (Resync): our state is replaced by it, and what it restores to is
@@ -1045,7 +1088,7 @@ load_resync :: proc(client: ^Client($G), now: i64) {
 	base := client.resync_tick
 	client.resync_tick = 0
 	client.snap_total = 0
-	sim, err := usim.from_snapshot(client.game, client.snap_buf[:])
+	sim, err := restore_received(client)
 	if err != .None || sim.tick != base {
 		if sim != nil {
 			usim.destroy(sim)
@@ -1083,9 +1126,13 @@ load_resync :: proc(client: ^Client($G), now: i64) {
 	wire.w_u64(writer, value)
 	csend(client, writer, .Reliable, now)
 	client.stats.resyncs += 1
-	log.infof("resynced from the snapshot of tick %d (%d bytes)", base, len(client.snap_buf))
-	delete(client.snap_buf)
-	client.snap_buf = nil
+	log.infof(
+		"resynced from the snapshot of tick %d (%d bytes, %d compressed)",
+		base,
+		len(client.snap_raw),
+		len(client.snap_buf),
+	)
+	drop_received(client)
 	if client.hooks.restored != nil {
 		client.hooks.restored(client.hooks.user, client.sim, base)
 	}
@@ -1240,8 +1287,7 @@ on_checksum_tick :: proc(client: ^Client($G), tick: u32, now: i64) {
 	if !due {
 		return
 	}
-	data := usim.snapshot_encode(client.sim, tick)
-	defer delete(data)
+	data := snapshot_pack(usim.snapshot_encode_into(client.sim, tick, &client.out_raw), &client.out_packed)
 	for i := 0; i < len(client.snap_reqs); {
 		request := client.snap_reqs[i]
 		if request.min_tick > tick {
@@ -1249,11 +1295,18 @@ on_checksum_tick :: proc(client: ^Client($G), tick: u32, now: i64) {
 			continue
 		}
 		send_snapshot(client, u8(request.joiner), tick, data, now)
-		log.infof("sent snapshot of tick %d (%d bytes) for slot %d", tick, len(data), request.joiner)
+		log.infof(
+			"sent snapshot of tick %d (%d bytes, %d compressed) for slot %d",
+			tick,
+			len(client.out_raw),
+			len(data),
+			request.joiner,
+		)
 		ordered_remove(&client.snap_reqs, i)
 	}
 }
 
+// Sends a compressed snapshot (snapshot_pack) to the relay for `target`: its Snap_Begin, then its chunks.
 @(private)
 send_snapshot :: proc(client: ^Client($G), target: u8, tick: u32, data: []u8, now: i64) {
 	writer := msg_begin(&client.w, .Snap_Begin)
@@ -1277,8 +1330,8 @@ send_image :: proc(client: ^Client($G), tick: u32, now: i64) {
 	for kept_tick, k in client.kept_ticks {
 		if kept_tick == tick && tick != 0 && client.sim != nil {
 			client.received_work = true
-			if bytes, kept, ok := usim.snapshot_encode_kept(client.sim, k, &client.image_buf); ok && kept == tick {
-				send_snapshot(client, RELAY_TARGET, tick, bytes, now)
+			if bytes, kept, ok := usim.snapshot_encode_kept(client.sim, k, &client.out_raw); ok && kept == tick {
+				send_snapshot(client, RELAY_TARGET, tick, snapshot_pack(bytes, &client.out_packed), now)
 				return
 			}
 		}
@@ -1971,7 +2024,7 @@ client_json :: proc(result: Client_Result) -> string {
 		append(&zones, ..transmute([]u8)fmt.tprintf(`"%s":%.2f`, zone.name, zone.us))
 	}
 	return fmt.tprintf(
-		`{{"slot":%d,"member":%d,"final_tick":%d,"checksums":[%s],"client_step_us":{{"p99":%d,"max":%d,"count":%d}},"snapshot_bytes":%d,"snapshot_ms":%.1f,"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"ceiling_ms":%.1f,"slow":%v,"slow_changes":%d,"desyncs":%d,"reconnects":%d,"resumes":%d,"resyncs":%d,"ok":%v,"net":%s,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"zones":{{%s}}}}`,
+		`{{"slot":%d,"member":%d,"final_tick":%d,"checksums":[%s],"client_step_us":{{"p99":%d,"max":%d,"count":%d}},"snapshot_bytes":%d,"snapshot_sent":%d,"snapshot_ms":%.1f,"rollbacks":%d,"rollback_depth_avg":%.2f,"rollback_depth_max":%d,"stall_ticks":%d,"resim_ticks":%d,"join_tick":%d,"delay":%d,"delay_changes":%d,"rtt_ms":%.1f,"ceiling_ms":%.1f,"slow":%v,"slow_changes":%d,"desyncs":%d,"reconnects":%d,"resumes":%d,"resyncs":%d,"ok":%v,"net":%s,"steps":{{"verified":%d,"resim":%d,"predicted":%d}},"step_us":{{"verified":%d,"resim":%d,"predicted":%d}},"zones":{{%s}}}}`,
 		result.slot,
 		result.member,
 		result.final_tick,
@@ -1980,6 +2033,7 @@ client_json :: proc(result: Client_Result) -> string {
 		result.client_steps.max_us,
 		result.client_steps.count,
 		result.snapshot_bytes,
+		result.snapshot_sent,
 		f64(result.snapshot_us) / 1000,
 		result.rollbacks,
 		result.rollbacks > 0 ? f64(result.depth_sum) / f64(result.rollbacks) : 0,

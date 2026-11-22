@@ -41,14 +41,16 @@ RULES := []Rule {
 	},
 	// The byte encoding under every binary format: a leaf the tick packages (sim, level) import, so held to their rules.
 	{pkg = "wire", kind = .Tick, imports = {"base:intrinsics"}},
+	// The snapshot codec: a leaf held to the tick rules, so its bytes are the same everywhere and anything may use it.
+	{pkg = "lz", kind = .Tick, imports = {}},
 	// Real-time code beside the sim: the netcode (its clocks are fine), the EOS transport (its SDK bindings need f64
 	// fields and system: libraries), the headless library, modes and scenarios, the lint itself.
-	{pkg = "netcode", kind = .Realtime, imports = {"unified:sim", "unified:wire"}},
+	{pkg = "netcode", kind = .Realtime, imports = {"unified:sim", "unified:wire", "unified:lz"}},
 	{pkg = "eos", kind = .Realtime, imports = {"unified:netcode", "system:"}},
 	{
 		pkg     = "headless",
 		kind    = .Realtime,
-		imports = {"unified:headless", "unified:sim", "unified:netcode", "unified:wire"},
+		imports = {"unified:headless", "unified:sim", "unified:netcode", "unified:wire", "unified:lz"},
 	},
 	{pkg = "lint", kind = .Realtime},
 	// Host side (Godot bindings and views, dev UI, the CLI): never feeds back into the sim. gdext's generated API imports

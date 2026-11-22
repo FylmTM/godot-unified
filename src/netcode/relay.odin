@@ -60,8 +60,6 @@ SNAP_STALL_US :: 5_000_000 // a joiner's snapshot provider that sends nothing th
 // A seated connection heard from within this long (4 keepalives) is live: an earlier try's Hello of the same person
 // doesn't replace it (on_hello).
 SEATED_LIVE_US :: 4 * KEEPALIVE_US
-@(private)
-IMAGE_MAX :: 256 << 20 // the largest snapshot the relay takes for a desync report
 NO_REPORTS :: max(u32) // Conn.report_from of a connection that sends no checksums yet
 
 // A received command waiting for the tick it goes in.
@@ -209,7 +207,7 @@ Relay :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Ga
 	cfg:                 Relay_Config(G),
 	setup:               sim.part(G, sim.GAME_SETUP), // the session's: what every client creates its sim with
 	compat:              u64,
-	desync_diff:         proc(a, b: []u8) -> string, // cfg.desync_detail: the game State's snapshot diff
+	desync_diff:         proc(a, b: []u8) -> string, // cfg.desync_detail: the game State's diff of two portable snapshots
 	tm:                  Timing,
 	ch:                  ^Channel,
 	w:                   wire.Writer,
@@ -1247,9 +1245,18 @@ send_reports :: proc(relay: ^Relay($G), now: i64) {
 		}
 		detail := "the snapshots of that tick were not available"
 		if relay.pending[0].done && relay.pending[1].done && relay.pending[0].total > 0 && relay.pending[1].total > 0 {
-			detail = relay.desync_diff(relay.pending[0].image[:], relay.pending[1].image[:])
-			if detail == "" {
-				detail = "the two snapshots are the same"
+			// They came compressed, as every snapshot does.
+			majority, diverged: [dynamic]u8
+			defer delete(majority)
+			defer delete(diverged)
+			a, a_ok := snapshot_unpack(relay.pending[0].image[:], &majority)
+			b, b_ok := snapshot_unpack(relay.pending[1].image[:], &diverged)
+			detail = "the snapshots of that tick did not decompress"
+			if a_ok && b_ok {
+				detail = relay.desync_diff(a, b)
+				if detail == "" {
+					detail = "the two snapshots are the same"
+				}
 			}
 		}
 		relay.reports[0].detail = strings.clone(detail)
@@ -1541,7 +1548,8 @@ take_image :: proc(relay: ^Relay($G), peer: Peer, kind: Msg, reader: ^wire.Reade
 			if tick := wire.r_u32(&peek); peek.ok && tick == fetch.tick {
 				total := wire.r_u32(&peek)
 				fetch.begun = true
-				fetch.total = peek.ok && total <= IMAGE_MAX ? total : 0
+				fetch.total = peek.ok && total <= SNAPSHOT_MAX ? total : 0
+				snapshot_reserve(&fetch.image, int(fetch.total))
 				fetch.asked_us = now
 				return
 			}
@@ -1571,8 +1579,9 @@ take_image :: proc(relay: ^Relay($G), peer: Peer, kind: Msg, reader: ^wire.Reade
 			if !reader.ok || pending.total != 0 {
 				return // a connection answers once: another Snap_Begin restarts nothing
 			}
-			pending.total = tick == relay.pending_tick && total <= IMAGE_MAX ? total : 0
+			pending.total = tick == relay.pending_tick && total <= SNAPSHOT_MAX ? total : 0
 			pending.done = pending.total == 0
+			snapshot_reserve(&pending.image, int(pending.total))
 			relay.pending_us = now // the answer: a large image arrives at the pace, bytes at a time
 			return
 		}
@@ -1947,7 +1956,12 @@ forward_snapshot_to :: proc(
 		}
 		// A snapshot of a checksum tick (the joiner's checksum of it is compared with the others'), still in the
 		// ring (the ticks after it are streamed from there).
-		if !ok || tick < conn.snap_min || tick % CHECKSUM_EVERY != 0 || relay_tick(relay, tick) == nil || total == 0 {
+		if !ok ||
+		   tick < conn.snap_min ||
+		   tick % CHECKSUM_EVERY != 0 ||
+		   relay_tick(relay, tick) == nil ||
+		   total == 0 ||
+		   total > SNAPSHOT_MAX {
 			conn.refused += {int(from)} // it would send the same again: ask another connection
 			restart_snapshot(
 				relay,

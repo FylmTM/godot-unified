@@ -94,7 +94,7 @@ a_resume_too_old_falls_back_to_a_snapshot :: proc(t: ^testing.T) {
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	testing.expect_value(t, client.stats.resumes, 0)
 	testing.expect_value(t, session.relay.resumes, 0)
-	testing.expect(t, client.stats.snapshot_bytes > 0 && client.stats.snapshot_us > 0)
+	testing.expect(t, client.stats.snapshot_bytes > 0 && client.stats.snapshot_sent > 0)
 	_ = snapshot_bytes
 	net_run(&session, 2)
 	testing.expect_value(t, session.relay.desyncs, 0)
@@ -337,7 +337,7 @@ a_resume_the_client_cannot_take_reconnects_without_it :: proc(t: ^testing.T) {
 	testing.expect_value(t, session.relay.resumes, 1)
 	testing.expect_value(t, client.stats.resumes, 0)
 	testing.expect_value(t, client.stats.reconnects, 2)
-	testing.expect(t, client.stats.snapshot_us > 0)
+	testing.expect(t, client.stats.snapshot_sent > 0)
 	net_run(&session, 2)
 	testing.expect_value(t, session.relay.desyncs, 0)
 	expect_agree(t, &session)

@@ -49,29 +49,34 @@ Bench_Run :: struct {
 
 // One benchmark's report, with the target check added.
 Bench_Report :: struct {
-	name:               string, // "": the game's row; else the row <game>/<name> (headless.Bench.name)
-	setup:              string, // the Setup it played, in --setup's text form ("": the game's)
-	what:               string,
-	entities:           int,
-	window:             int,
-	ticks:              int,
-	warmup:             int,
-	step_us:            Bench_Stat,
-	save_us:            Bench_Stat,
-	restore_us:         Bench_Stat,
-	resim_us:           Bench_Stat,
-	resim_final_us:     Bench_Stat, // the same re-sim of final ticks, saving only the last (a catch-up burst)
-	checksum_us:        Bench_Stat, // sim.checksum of a tick peers don't compare
-	checksum_deep_us:   Bench_Stat, // ... and of one they do (every 16th: every extra's whole state)
-	snapshot_encode_us: Bench_Stat, // a portable snapshot of a checksum tick (a joiner's, a desync report's)
-	snapshot_keep_us:   Bench_Stat, // a checksum tick kept for a desync report (every checksum tick, every client)
-	snapshot_bytes:     int,
-	save_bytes:         int, // what each tick's save copies (the block and the extras' saves)
-	mismatches:         int,
+	name:                      string, // "": the game's row; else the row <game>/<name> (headless.Bench.name)
+	setup:                     string, // the Setup it played, in --setup's text form ("": the game's)
+	what:                      string,
+	entities:                  int,
+	window:                    int,
+	ticks:                     int,
+	warmup:                    int,
+	step_us:                   Bench_Stat,
+	save_us:                   Bench_Stat,
+	restore_us:                Bench_Stat,
+	resim_us:                  Bench_Stat,
+	resim_final_us:            Bench_Stat, // the same re-sim of final ticks, saving only the last (a catch-up burst)
+	checksum_us:               Bench_Stat, // sim.checksum of a tick peers don't compare
+	checksum_deep_us:          Bench_Stat, // ... and of one they do (every 16th: every extra's whole state)
+	snapshot_encode_us:        Bench_Stat, // a portable snapshot of a checksum tick (a joiner's, a desync report's)
+	snapshot_keep_us:          Bench_Stat, // a checksum tick kept for a desync report (every checksum tick, every client)
+	snapshot_bytes:            int,
+	// That snapshot compressed as the netcode sends it (unified:lz), the provider's cost on top of the encode, and
+	// decompressed, the joiner's
+	snapshot_compress_us:      Bench_Stat,
+	snapshot_decompress_us:    Bench_Stat,
+	snapshot_compressed_bytes: int,
+	save_bytes:                int, // what each tick's save copies (the block and the extras' saves)
+	mismatches:                int,
 	// The game's zones (sim.zone): each one's self time per forward step, from a second pass with the zones timed.
-	zones:              map[string]Bench_Stat,
-	frame_p99_us:       f64, // the target's measure: step + restore + re-sim + deep checksum, each at its p99
-	within_target:      bool,
+	zones:                     map[string]Bench_Stat,
+	frame_p99_us:              f64, // the target's measure: step + restore + re-sim + deep checksum, each at its p99
+	within_target:             bool,
 }
 
 // A game's `session` report: clients on the virtual clock under a network profile.
@@ -97,6 +102,7 @@ Net_Report :: struct {
 	join_ms:             f64, // its Hello to playing (snapshot restored and checked), virtual ms
 	join_bytes:          int, // the bytes it received by then
 	join_snapshot_bytes: int, // its snapshot
+	join_snapshot_sent:  int, // ... as it went over the wire (compressed)
 	join_transfer_ms:    f64, // the snapshot's Snap_Begin to its last chunk, virtual ms
 	join_step_max_us:    f64, // the joiner's worst client step (its catch-up after the check)
 }
@@ -183,7 +189,7 @@ cmd_bench :: proc(args: []string) -> Result {
 			bench.within_target = bench.frame_p99_us <= BENCH_TARGET_US
 			summary.benchmarks[row] = bench
 			log(
-				"%-12s step %5.0f us + restore %3.0f us + %d-tick re-sim %5.0f us + deep checksum %3.0f us = %5.2f ms at p99 (target <= %.0f ms: %s; means %.0f + %.0f us); final ticks %.0f us; save %.0f us (%d bytes), restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes (encode %.0f us, keep %.0f us)",
+				"%-12s step %5.0f us + restore %3.0f us + %d-tick re-sim %5.0f us + deep checksum %3.0f us = %5.2f ms at p99 (target <= %.0f ms: %s; means %.0f + %.0f us); final ticks %.0f us; save %.0f us (%d bytes), restore %.0f us, checksum %.1f us (deep %.1f us), snapshot %d bytes (encode %.0f us, keep %.0f us; compressed %d bytes, %.1f%%, in %.0f us, decompressed in %.0f us)",
 				row,
 				bench.step_us.p99,
 				bench.restore_us.p99,
@@ -204,6 +210,10 @@ cmd_bench :: proc(args: []string) -> Result {
 				bench.snapshot_bytes,
 				bench.snapshot_encode_us.mean,
 				bench.snapshot_keep_us.mean,
+				bench.snapshot_compressed_bytes,
+				bench.snapshot_bytes > 0 ? 100 * f64(bench.snapshot_compressed_bytes) / f64(bench.snapshot_bytes) : 0,
+				bench.snapshot_compress_us.mean,
+				bench.snapshot_decompress_us.mean,
 			)
 			if len(bench.zones) > 0 do log("%-12s %s", "", zones_row(bench))
 			if bench.mismatches > 0 {
@@ -253,13 +263,14 @@ cmd_bench :: proc(args: []string) -> Result {
 			join_text := ""
 			if net.late_join != 0 {
 				join_text = aprintf(
-					"; the last client joined at tick %d in %.0f ms (%.0f kB; its %.0f kB snapshot in %.0f ms, %.0f kB/s; catch-up step %.2f ms)",
+					"; the last client joined at tick %d in %.0f ms (%.0f kB; its %.0f kB snapshot, %.0f kB compressed, in %.0f ms, %.0f kB/s; catch-up step %.2f ms)",
 					net.late_join,
 					net.join_ms,
 					f64(net.join_bytes) / 1000,
 					f64(net.join_snapshot_bytes) / 1000,
+					f64(net.join_snapshot_sent) / 1000,
 					net.join_transfer_ms,
-					net.join_transfer_ms > 0 ? f64(net.join_snapshot_bytes) / net.join_transfer_ms : 0,
+					net.join_transfer_ms > 0 ? f64(net.join_snapshot_sent) / net.join_transfer_ms : 0,
 					net.join_step_max_us / 1000,
 				)
 			}

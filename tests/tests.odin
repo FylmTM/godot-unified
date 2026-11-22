@@ -9,6 +9,7 @@ package tests
 
 @(require) import "dmath"
 @(require) import "headless"
+@(require) import "lz"
 @(require) import "nav"
 @(require) import "netcode"
 @(require) import "physics"
