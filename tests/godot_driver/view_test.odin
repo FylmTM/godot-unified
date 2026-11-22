@@ -574,6 +574,51 @@ track_at_rest_across_skipped_frames :: proc(t: ^testing.T) {
 	}
 }
 
+// Runs of keys share blocks of slots: overlapping runs of several kinds (handles of two generations among them), grown
+// from a small table, each find the pose they had a tick before, and a key pushed in the last fill only has none.
+@(test)
+pose_memory_keeps_runs_of_keys :: proc(t: ^testing.T) {
+	memory: godot.Pose_Memory
+	godot.pose_memory_init(&memory, 4, 4)
+	defer godot.pose_memory_destroy(&memory)
+	key_of :: proc(i: int) -> u64 {return u64(i % 7) << 32 | u64(i)} 	// index i, a few generations
+	for tick in u32(1) ..= 3 {
+		godot.pose_memory_begin(&memory)
+		for kind in u8(0) ..< 3 {
+			for i in 0 ..< 1500 {
+				x := f32(tick) * 1000 + f32(kind) * 10 + f32(i)
+				previous, found, _ := godot.pose_remember(
+					&memory,
+					.Multi,
+					kind,
+					key_of(i),
+					tick,
+					{x, 0, 0},
+					godot.IDENTITY,
+				)
+				if tick == 1 {
+					testing.expectf(t, !found, "kind %d key %d: no previous pose at the first fill", kind, i)
+				} else if !found || previous.pos.x != x - 1000 {
+					testing.expectf(
+						t,
+						false,
+						"tick %d kind %d key %d: previous %v (found %v)",
+						tick,
+						kind,
+						i,
+						previous.pos.x,
+						found,
+					)
+					return
+				}
+			}
+		}
+	}
+	godot.pose_memory_begin(&memory)
+	_, found, _ := godot.pose_remember(&memory, .Multi, 0, key_of(9000), 4, {}, godot.IDENTITY)
+	testing.expect(t, !found, "a new key has no previous pose")
+}
+
 // Appear-on-verified's `since`: kept across clean fills; reset by a rollback that re-simulated it; confirmed by a
 // verified fill that has the key (also under steady rollbacks, where a reset alone would never let it appear); a key
 // a rollback handed to another thing (missing from the verified fill) waits for its own.

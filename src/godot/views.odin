@@ -10,6 +10,7 @@ import "core:fmt"
 import "core:math"
 import "core:slice"
 import "core:strings"
+import "core:sync"
 import "core:time"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
@@ -1039,6 +1040,12 @@ multi_mesh :: proc(multi: ^Multi_View) -> bool {
 	multi.has_custom = gd.MultiMesh_is_using_custom_data(multi.mm)
 	if multi.has_col do multi.stride += 4
 	if multi.has_custom do multi.stride += 4
+	if multi.kind >= 0 { 	// the session thread writes a kind's colors and custom data only once a view of it uses them
+		uses: u8 = 1
+		if multi.has_col do uses |= 1 << (1 + uint(Multi_Field.Color))
+		if multi.has_custom do uses |= 1 << (1 + uint(Multi_Field.Custom))
+		sync.atomic_or(&multi_kind_uses[multi.kind], uses)
+	}
 	multi.bounds = gd.MultiMesh_get_custom_aabb(multi.mm) == {}
 	return true
 }
@@ -1073,22 +1080,30 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 		next[i] = first[multi.kind]
 		first[multi.kind] = i32(i)
 	}
-	for &item in frame.multis[:frame.n_multis] {
+	for &item, index in frame.multis[:frame.n_multis] {
 		view_index := first[item.kind]
 		if view_index < 0 do continue
 		if int(item.kind) < len(api.multi_policy) && !appear_now(api.multi_policy[item.kind].appear, item.since, frame.verified) do continue
 		pos := item.pos
 		rot := item.rot
+		prev: Remembered_Pose
 		if item.has_prev {
-			pos = lerp3(item.prev_pos, item.pos, alpha)
-			rot = nlerp(item.prev_rot, item.rot, alpha) // the shorter arc
+			prev = frame.multi_prev[index]
+			pos = lerp3(prev.pos, item.pos, alpha)
+			rot = nlerp(prev.rot, item.rot, alpha) // the shorter arc
 		}
-		scale := item.scale == {} ? [3]f32{1, 1, 1} : item.scale
+		scale := [3]f32{1, 1, 1}
+		if item.has_scale do scale = frame.multi_scale[index]
+		fields := frame.multi_fields[item.kind]
+		color := [4]f32{1, 1, 1, 1}
+		if .Color in fields && frame.multi_color[index] != {} do color = frame.multi_color[index]
+		custom: [4]f32
+		if .Custom in fields do custom = frame.multi_custom[index]
 		for ; view_index >= 0; view_index = next[view_index] {
 			multi := &V.multis[view_index]
 			view_pos, view_rot := pos, rot
 			if multi.smooth && item.key != 0 {
-				view_pos, view_rot = multi_smooth(multi, &item, frame.tick, fresh, alpha, dt)
+				view_pos, view_rot = multi_smooth(multi, &item, prev, frame.tick, fresh, alpha, dt)
 			}
 			view_pos = to_view_units(view_pos) // the origin only: the mesh is the view's content, `scale` a multiplier
 			if multi.is_2d do view_pos.z = 0
@@ -1117,11 +1132,10 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 				offset = 12
 			}
 			if multi.has_col {
-				color := item.color == {} ? [4]f32{1, 1, 1, 1} : item.color
 				out[offset], out[offset + 1], out[offset + 2], out[offset + 3] = color[0], color[1], color[2], color[3]
 				offset += 4
 			}
-			if multi.has_custom do out[offset], out[offset + 1], out[offset + 2], out[offset + 3] = item.custom[0], item.custom[1], item.custom[2], item.custom[3]
+			if multi.has_custom do out[offset], out[offset + 1], out[offset + 2], out[offset + 3] = custom[0], custom[1], custom[2], custom[3]
 		}
 	}
 	for &multi, i in V.multis do multi.count = cursor[i]
@@ -1219,6 +1233,7 @@ quat_basis :: proc(q: [4]f32) -> (basis: [3][3]f32) {
 multi_smooth :: proc(
 	multi: ^Multi_View,
 	item: ^Multi_Out,
+	prev: Remembered_Pose, // its tick - 1 pose (item.has_prev)
 	tick: u32,
 	fresh: bool,
 	alpha: f32,
@@ -1238,7 +1253,7 @@ multi_smooth :: proc(
 	if fresh && entry.seen != V.fresh_count {
 		entry.seen = V.fresh_count
 		track_warp(&entry.track, &entry.warp, item.warp) // teleported: snaps
-		track_push_prev(&entry.track, tick, {item.prev_pos, item.prev_rot}, item.has_prev, smoothing)
+		track_push_prev(&entry.track, tick, {prev.pos, prev.rot}, item.has_prev, smoothing)
 		track_push(&entry.track, tick, {item.pos, item.rot}, smoothing)
 	}
 	pose := track_sample_decayed(&entry.track, tick, alpha, multi.decay, dt, smoothing)
