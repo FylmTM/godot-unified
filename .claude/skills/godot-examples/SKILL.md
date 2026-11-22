@@ -1,6 +1,6 @@
 ---
 name: godot-examples
-description: This repo's example games under examples/<game> (survivor, friendslop, drift, deckbuilder, holdout, playground, minimal_3d) and the Godot-side library code (src/godot, src/gdext) - the app layer every example but minimal_3d copies, what a new example takes, and the suites to run before handing back. Use with the unified-godot skill (the godot suite, levels, uni drive, windowed checks) after changing an example's GDScript, scenes or extension, or src/godot or src/gdext.
+description: This repo's example games under examples/<game> (survivor, friendslop, drift, horde, deckbuilder, holdout, playground, minimal_3d) and the Godot-side library code (src/godot, src/gdext) - the app layer every example but minimal_3d copies, what a new example takes, and the suites to run before handing back. Use with the unified-godot skill (the godot suite, levels, uni drive, windowed checks) after changing an example's GDScript, scenes or extension, or src/godot or src/gdext.
 ---
 
 # The example games and the Godot-side library
@@ -9,9 +9,9 @@ The `unified-godot` skill is how any unified game is checked, run and driven; th
 there are several games: every command it names takes the example's name (`./uni test <game> --suite godot`,
 `./uni drive <game> start`, `./uni bake <game>`), and its paths are under `examples/<game>/`.
 
-Every example but minimal_3d (survivor, friendslop, drift, holdout, playground, deckbuilder) owns a copy of the same
-app layer, so they all open on the same main menu and play the same way: `game/app/` (the `Game`, `Settings`, `Sfx`
-and `LibraryCheck` autoloads), the menus and HUD panels in `game/ui/` (main menu, pause menu, settings, connect
+Every example but minimal_3d (survivor, friendslop, drift, horde, holdout, playground, deckbuilder) owns a copy of the
+same app layer, so they all open on the same main menu and play the same way: `game/app/` (the `Game`, `Settings`,
+`Sfx` and `LibraryCheck` autoloads), the menus and HUD panels in `game/ui/` (main menu, pause menu, settings, connect
 overlay, session and controls panels, banner), `game/tools/menu_tool.gd`, `validate.gd` (it names the play scene:
 the main scene is the menu) and `ui_walk.gd`. **A change to the app layer lands in every copy in the same PR**, unless
 a game differs on purpose. Nothing compares them. On purpose: each game's `Sfx` sounds, `Settings` rows and
