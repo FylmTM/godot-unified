@@ -120,7 +120,7 @@ lowercased (`card`: its scenes' marker, the view index, `EnumView.CARD`). A Mult
 MultiMesh kinds stay an enum. How a kind is shown is its **policy** (`Glue.view_policy`, by its type, only for a kind
 that isn't the default; `multi_policy`): Odin literals, not properties spread over the kinds' scenes: a kind's
 smoothing (a bullet, a heavy crate and a remote player want different ones) and, for a scene view, who poses its root.
-How it looks stays in its scene: the marker's linger time and the node its views spawn under.
+How it looks stays in its scene: the marker's linger time, the node its views spawn under and whether they are pooled.
 A script-posed kind's root is left alone and its script gets the pose the host would have set (`Posed_By.Script`), so
 it can draw what the local player holds at render rate from the camera. A MultiMesh kind keeps a track per instance
 only when its policy sets a smoothing: thousands of instances cost nothing per instance by default.
@@ -219,8 +219,23 @@ spawn under `view_root`, or under the node its marker's `parent_path` names from
 which lays its cards out): the views are added at the end, so their order is the game's (a card's script moves
 itself with `move_child` when its data changes), and a posed kind there is posed in that parent's space. A view
 whose parent was freed under it spawns again on the next frame, under that parent if it is back, else under
-`view_root` (an error, once). A
-MultiMeshInstance3D / 2D holding a **`UnifiedMultiView`** marker shows one MultiView kind. Views and their data are
+`view_root` (an error, once).
+
+**Pooled views.** A kind spawned and gone often (projectiles, pickups, enemies drawn as scenes) keeps its views
+instead of freeing them when its marker sets `pool`. The pool is the host's, inside the view lifecycle, so linger,
+revive, cancel and appear-on-verified behave as for any view: a view goes into its kind's pool only where it would
+have been freed (its linger ended, or its spawn was cancelled), hidden and out of the tree, and the kind's next spawn
+takes it back instead of instancing the scene. The host sets what it owns as for a new view: key, player, pose (no
+glide from the old one) and data, which it set to null when the view went in, so the setter sees null and then the new
+item's, as a new view's does; events reach it under its new key only. `_ready` does not run again: the host calls
+`_sim_reused()`, where the script resets whatever it changed itself (an exit animation's transform or modulate, a
+hidden child, a tween, a counter), and a pooled kind's data setter takes null. A pool keeps at most the most views of
+its kind ever out at once, with no cap and nothing made ahead, and goes with the scene views (a level change, another
+`view_root`, the session node leaving the tree). The switch is the scene's, not the kind's Odin policy, because the
+scene's script is what must handle a reuse; and it is off by default, because a view with state of its own that is
+reused without resetting it shows the old item's.
+
+A MultiMeshInstance3D / 2D holding a **`UnifiedMultiView`** marker shows one MultiView kind. Views and their data are
 set before any other node's `_process` (the session runs at priority −1000), so a view's own `_process` sees the
 frame's pose. A `view_root` that leaves the tree holds no views, so a play scene needs no teardown. Unset, it is
 the session's parent: right for a session placed in the play scene (the template's); a session an autoload owns sets
@@ -359,8 +374,8 @@ that every view kind has a scene and every indexed kind is one of them.
 - **Data.** A view's data is set before the view enters the tree, then whenever its bytes differ from the last
   set's: its bytes copied into an object, fields converted only when a script reads them. Each view alternates two
   objects and refills the spare only when no script holds it, so a change makes no object (a script that keeps an old
-  value keeps it unchanged: the view makes a new spare). A root script without `data` for a kind that carries some is
-  an error, once per kind.
+  value keeps it unchanged: the view makes a new spare); a pooled view keeps its two across reuses. A root script
+  without `data` for a kind that carries some is an error, once per kind.
 - **Remote links** go through a live netsim (`netcode.netsim_live`) the dev UI's Conditions panel impairs.
 - **The dev UI** (`dev.odin`, the only file that reaches `unified:devui`) graphs the frame, the sim and the net, and
   feeds its panels. Dev UI builds also record the session as it is verified (a portable snapshot of the first saved

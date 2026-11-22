@@ -1,0 +1,16 @@
+[gd_scene format=3]
+
+[ext_resource type="Script" path="res://views/churn3d.gd" id="1"]
+
+[sub_resource type="BoxMesh" id="mesh"]
+size = Vector3(0.1, 0.1, 0.4)
+
+[node name="churn3d" type="Node3D"]
+script = ExtResource("1")
+
+[node name="Body" type="MeshInstance3D" parent="."]
+mesh = SubResource("mesh")
+
+[node name="UnifiedView" type="UnifiedView" parent="."]
+kind = "churn3d"
+linger_s = 0.0

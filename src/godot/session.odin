@@ -466,7 +466,7 @@ register_session_class :: proc() {
 		class,
 		"take_sync_stats",
 		take_sync_stats,
-		doc = "The view sync's cost since the last call, then counts anew. The main thread: frames, fresh (frames with a new tick), events (deliveries), event_objects (event objects made: none for an event no view and no [signal sim_event] connection takes, none while the last one is refilled), and microseconds summed over the frames: scene_us, multi_build_us, multi_upload_us, delivery_us, total_us; total_max_us is the slowest frame's. The session thread: fills (published frames), fill_us summed (tracking the ticks' events, fill_frame, publishing; appear-on-verified's extra fills included), fill_max_us the slowest published one; wakes (its sleeps), how late they woke (wake_p50_us, wake_p99_us, wake_max_us) and how many woke more than 1 ms late (wakes_over_ms) or a whole tick late (wakes_over_tick).",
+		doc = "The view sync's cost since the last call, then counts anew. The main thread: frames, fresh (frames with a new tick), events (deliveries), event_objects (event objects made: none for an event no view and no [signal sim_event] connection takes, none while the last one is refilled), scene view spawns (spawns: instanced from their kind's scene; reuses: taken from their kind's pool, [member UnifiedView.pool]) and the microseconds they took (spawn_us, reuse_us: part of scene_us), and microseconds summed over the frames: scene_us, multi_build_us, multi_upload_us, delivery_us, total_us; total_max_us is the slowest frame's. The session thread: fills (published frames), fill_us summed (tracking the ticks' events, fill_frame, publishing; appear-on-verified's extra fills included), fill_max_us the slowest published one; wakes (its sleeps), how late they woke (wake_p50_us, wake_p99_us, wake_max_us) and how many woke more than 1 ms late (wakes_over_ms) or a whole tick late (wakes_over_tick).",
 	)
 	gd.bind_method(
 		class,
@@ -1248,6 +1248,10 @@ take_sync_stats :: proc(session: ^Session_Node) -> gd.Dictionary {
 	gd.dict_set(&dict, "events", i64(stats.events))
 	gd.dict_set(&dict, "event_objects", i64(stats.event_objects))
 	gd.dict_set(&dict, "scene_us", us(stats.scene))
+	gd.dict_set(&dict, "spawns", i64(stats.spawns))
+	gd.dict_set(&dict, "spawn_us", us(stats.spawn))
+	gd.dict_set(&dict, "reuses", i64(stats.reuses))
+	gd.dict_set(&dict, "reuse_us", us(stats.reuse))
 	gd.dict_set(&dict, "multi_build_us", us(stats.multi_build))
 	gd.dict_set(&dict, "multi_upload_us", us(stats.multi_upload))
 	gd.dict_set(&dict, "delivery_us", us(stats.delivery))

@@ -9,6 +9,8 @@
 extends SceneTree
 
 const Card := preload("res://views/card.gd")
+const PoolView := preload("res://views/pool2d.gd")
+const PoolLateView := preload("res://views/pool_late2d.gd")
 const POS_2D := Vector2(120, 80)
 const ANGLE_2D := 0.5
 const POS_3D := Vector3(1, 2, 3)
@@ -22,6 +24,10 @@ const REMOTE_PLAYER_KEY := (77 << 16) | 3  # sim.player_key(REMOTE_PLAYER)
 const REMOTE_BLINK_KEY := (78 << 16) | 2  # sim.player_key(REMOTE_BLINK)
 const REMOTE_BLINK_FROM := 60
 const REMOTE_BLINK_TO := 100
+# ext/ext.odin's pooled views (pool_views)
+const POOL_KEY := 1000
+const POOL_BLIP_KEY := 2000
+const POOL_EVENT_PLAYER_KEY := (79 << 16) | 1  # sim.player_key(POOL_EVENT_PLAYER)
 
 var failed := 0
 
@@ -255,6 +261,7 @@ func _initialize() -> void:
 	await check_hand(session, hand, me)
 	check_remote_blink(remote_blink_seen)
 	await check_remote_views(session, views, me)
+	await check_pool(events, me)
 
 	# 2D, colors + custom: stride 16 = transform (8) + color (4) + custom (4)
 	check("2D MultiMesh instances", typed_multi.visible_instance_count == 2, typed_multi.visible_instance_count)
@@ -455,6 +462,91 @@ func check_remote_blink(seen: Dictionary) -> void:
 		and seen.despawn_session_tick > REMOTE_BLINK_TO, [last_tick, seen.despawn_session_tick, last])
 
 
+# The pooled kinds (ext/ext.odin's pool_views; views/pool2d.gd and pool_late2d.gd log every callback of every
+# instance): a view whose linger ended goes into its kind's pool (its data set to null) and the kind's next spawn takes
+# that node back, its key, player, data and pose the new item's before _sim_reused, _ready not again; events reach it
+# under its new key only; a key gone for less than its linger is revived, never pooled; the pool grows to the most
+# views of the kind out at once; a pooled kind that appears on verified is reused; a kind without
+# the marker's pool is freed (the plain2d blink above). (A single player session shows only verified ticks, so no
+# spawn is ever cancelled here: a cancelled view goes into the pool by the same path as one whose linger ended.)
+func check_pool(events: Array[Array], me: int) -> void:
+	var log := PoolView.log
+	var late_log := PoolLateView.log
+	var deadline := Time.get_ticks_msec() + 8000  # the schedule's period is half a second
+	while Time.get_ticks_msec() < deadline:
+		await create_timer(0.05).timeout
+		if _whats(log, "reused") >= 4 and _whats(log, "revived") >= 2 and _whats(late_log, "reused") >= 2:
+			break
+	var reused := log.filter(func(e: Dictionary) -> bool: return e.what == "reused")
+	var readied := log.filter(func(e: Dictionary) -> bool: return e.what == "ready")
+	var made_ids := readied.map(func(e: Dictionary) -> int: return e.id)
+	check("a pooled kind takes a gone view's node back for a later key, _ready only for new nodes",
+		reused.size() >= 4 and reused.all(func(e: Dictionary) -> bool: return made_ids.has(e.id) \
+			and _before(log, e).key != e.key),
+		[readied.size(), reused.size()])
+	var wrong := reused.filter(func(e: Dictionary) -> bool:
+		var key: int = e.key
+		var period := key - POOL_KEY
+		var player := me if key < POOL_BLIP_KEY and period % 2 == 1 else 0
+		return e.serial != key or not (e.position as Vector2).is_equal_approx(Vector2(key * 10, 10)) \
+			or e.player != player or not e.inside or not e.visible or not e.old_null)
+	check("a reused view: its key, player, data (after null) and pose the new item's at _sim_reused, in the tree, shown",
+		reused.size() > 0 and wrong.is_empty(), wrong.slice(0, 3))
+	check("into the pool: after its linger (not before), its data set to null, then reused",
+		reused.all(func(e: Dictionary) -> bool: return _before(log, e).what == "nulled") \
+		and log.all(func(e: Dictionary) -> bool:
+			if e.what != "nulled" or _before(log, e).what != "despawned":
+				return true
+			return e.msec - _before(log, e).msec >= 110), _whats(log, "nulled"))
+	var heard := log.filter(func(e: Dictionary) -> bool: return e.what == "event" and e.from == POOL_EVENT_PLAYER_KEY)
+	var keys_heard := {}  # instance -> the keys it heard events of
+	for e: Dictionary in heard:
+		var keys: Dictionary = keys_heard.get_or_add(e.id, {})
+		keys[e.key] = true
+	var sent_old := events.filter(func(e: Array) -> bool:
+		return e[0] is EventSpawned and e[0].player == POOL_EVENT_PLAYER_KEY \
+			and reused.any(func(r: Dictionary) -> bool:
+				return roundi((e[0] as EventSpawned).position.x / 10.0) == (r.key as int) - 1))
+	check("events reach a reused view under its new key, never its old one (sent to it too)",
+		heard.size() > 0 and heard.all(func(e: Dictionary) -> bool: return e.target == e.key) \
+		and keys_heard.values().any(func(keys: Dictionary) -> bool: return keys.size() >= 2) and sent_old.size() > 0,
+		[heard.size(), heard.filter(func(e: Dictionary) -> bool: return e.target != e.key).slice(0, 3), sent_old.size()])
+	var revived := log.filter(func(e: Dictionary) -> bool: return e.what == "revived")
+	check("a key gone for less than its linger is revived, not pooled: the same view, its key kept",
+		revived.size() >= 2 and revived.all(func(e: Dictionary) -> bool:
+			var before := _before(log, e)
+			return before.what == "despawned" and before.key == e.key), revived.size())
+	var out := 0  # views of the kind out of the pool (alive or lingering), as the log goes
+	var most := 0
+	for e: Dictionary in log:
+		out += 1 if e.what in ["ready", "reused"] else -1 if e.what == "nulled" else 0
+		most = maxi(most, out)
+	check("the pool keeps no more nodes than the kind ever had out at once (a one-tick key beside the period's)",
+		most >= 2 and readied.size() <= most, [readied.size(), most])
+	var late_reused := late_log.filter(func(e: Dictionary) -> bool: return e.what == "reused")
+	check("a pooled kind that appears on verified: reused, its data the new key's",
+		late_reused.size() >= 2 and late_reused.all(func(e: Dictionary) -> bool: return e.serial == e.key),
+		late_reused.size())
+	var marker := UnifiedView.new()
+	check("a kind's views are not pooled unless its marker says so", not marker.pool)
+	marker.free()
+
+
+func _whats(log: Array[Dictionary], what: String) -> int:
+	return log.filter(func(e: Dictionary) -> bool: return e.what == what).size()
+
+
+# The entry of the same instance before `entry` in `log`, events left out ({} : none).
+func _before(log: Array[Dictionary], entry: Dictionary) -> Dictionary:
+	var found := {}
+	for e in log:
+		if is_same(e, entry):
+			return found
+		if e.id == entry.id and e.what != "event":
+			found = e
+	return found
+
+
 # A remote3d pose ([x, data tick, ...]) as a tick on the walk: its data's tick plus how far it is past that tick's
 # place (playback never glides across a jump, so the pose is on its data's stretch).
 func remote_pose_tick(pose: Array) -> float:
@@ -497,6 +589,11 @@ func check_levels(session: UnifiedSession, level_root: Node2D, level_signals: Ar
 	var well := session.level_marker(0)
 	check("level_marker: the shown level's", well != null and well.name == "Well" and session.level_marker(1) == null,
 		well)
+	var at_swap := {ids = [], logged = 0}  # when the new level came in: every pooled kind's node until then
+	session.level_changed.connect(func(_level: int) -> void:
+		at_swap.ids = PoolView.log.map(func(e: Dictionary) -> int: return e.id) \
+			+ PoolLateView.log.map(func(e: Dictionary) -> int: return e.id)
+		at_swap.logged = PoolView.log.size(), CONNECT_ONE_SHOT)
 	var travel := CommandTravel.new()
 	travel.to = EnumLevel.CAVE
 	check("send_command Travel", session.send_command(travel))
@@ -511,6 +608,18 @@ func check_levels(session: UnifiedSession, level_root: Node2D, level_signals: Ar
 		level_signals)
 	var gem := session.level_marker(1)
 	check("level_marker: the new level's", gem != null and gem.name == "Gem", gem)
+	var pooled: Array = at_swap.ids
+	var made_after: int = at_swap.logged
+	check("a level change frees the pooled kinds' nodes, in their pools or not", pooled.size() > 0 \
+		and not pooled.any(func(id: int) -> bool: return is_instance_id_valid(id)),
+		pooled.filter(func(id: int) -> bool: return is_instance_id_valid(id)))
+	for i in 50:  # the next key spawns within a period (half a second)
+		await create_timer(0.02).timeout
+		if PoolView.log.slice(made_after).any(func(e: Dictionary) -> bool: return e.what == "ready"):
+			break
+	check("... and the kind's next view is a new one", PoolView.log.slice(made_after).any(func(e: Dictionary) -> bool:
+		return e.what == "ready" and not pooled.has(e.id)), PoolView.log.slice(made_after).map(func(e: Dictionary) -> String:
+			return e.what))
 
 
 # A level change whose scene is still loading when the level_root goes (a play scene that left): the level changes
