@@ -18,7 +18,7 @@ import "unified:sim"
 // A registered event or command class.
 Sim_Class :: struct {
 	using class: gd.Class,
-	class_name:  ^gd.StringName, // its name, interned: an event's object is made per delivery
+	class_name:  ^gd.StringName, // its name, interned: an event's object is made when its spare is held (event_object)
 	type:        ^runtime.Type_Info, // the variant's struct
 	kind:        int, // its index in the union
 	is_event:    bool,
@@ -51,7 +51,27 @@ Sim_Object :: struct {
 
 event_base_class, command_base_class: gd.Class
 sim_classes: [dynamic]^Sim_Class
-event_classes: [dynamic]^Sim_Class // by event kind (nil: its class failed to register): one is made per delivery
+event_classes: [dynamic]^Sim_Class // by event kind (nil: its class failed to register)
+event_spares: [dynamic]Event_Spare // by event kind: the object each class delivered last (event_object)
+
+// The object an event class delivered last, and the host's reference to it (the Variant holds it): refilled for the
+// class's next delivery while nothing else holds it.
+Event_Spare :: struct {
+	object: gd.Object,
+	held:   gd.Variant,
+}
+
+// One event state to deliver (route_event): its object is made, or its class's spare refilled, only when a view
+// that takes events or a sim_event connection wants it (event_object), so an event nobody listens to makes none.
+Event_Delivery :: struct {
+	kind:   int,
+	tick:   u32,
+	id:     u64,
+	data:   []u8,
+	event:  gd.Variant, // the object, once made (borrowed from its class's spare)
+	made:   bool,
+	failed: bool, // its class failed to register (an error said why): no object
+}
 
 // The class of an object made from one of the game's event or command classes (nil otherwise).
 sim_class_of :: proc(obj: gd.Object) -> (^Sim_Class, ^Sim_Object) {
@@ -97,7 +117,7 @@ register_sim_classes :: proc() {
 		&event_base_class,
 		"id",
 		proc(object: ^Sim_Object) -> i64 {return object.id},
-		doc = "The same in its EVENT_EMITTED and in its EVENT_CONFIRMED or EVENT_CANCELLED (each state is a new object): remember what an effect started by it, undo it on EVENT_CANCELLED, forget it on EVENT_CONFIRMED. Never repeats in the process; an event cancelled and produced again later is a new one.",
+		doc = "The same in its EVENT_EMITTED and in its EVENT_CONFIRMED or EVENT_CANCELLED (each state is a new object to a script that keeps one): remember what an effect started by it, undo it on EVENT_CANCELLED, forget it on EVENT_CONFIRMED. Never repeats in the process; an event cancelled and produced again later is a new one. Tell events by it, not by the object's instance id: the host refills an object no script kept for the next event of its class.",
 	)
 	gd.bind_property(&event_base_class, "kind", proc(object: ^Sim_Object) -> string {
 			if object.class == &event_base_class do return ""
@@ -185,14 +205,49 @@ field_set :: proc(user: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Var
 	return gd.variant_nil()
 }
 
-// An event in a new object of its class (main thread; the first Variant made of it holds its reference).
-new_event_object :: proc(kind: int, tick: u32, id: u64, data: []u8) -> gd.Object {
-	if kind < 0 || kind >= len(event_classes) || event_classes[kind] == nil do return {}
+// A delivery's event as an object of its class (main thread), made on its first call; the same Variant for the rest
+// of the delivery (each view, then the signal), borrowed: the class's spare owns it. The spare is refilled when
+// nothing but the host holds it (each state of each event arrived as a new object to every script that could
+// tell); when a script kept it, the script keeps it as it was and a new object becomes the spare. False when the
+// class failed to register.
+event_object :: proc(delivery: ^Event_Delivery) -> (gd.Variant, bool) {
+	if delivery.made do return delivery.event, true
+	kind := delivery.kind
+	if delivery.failed || kind < 0 || kind >= len(event_classes) || event_classes[kind] == nil {
+		delivery.failed = true
+		return {}, false
+	}
 	sim_class := event_classes[kind]
-	object := gd.Object{gd.construct_object_named(sim_class.class_name)}
-	instance := (^Sim_Object)(gd.instance_of(object, &sim_class.class))
-	instance.tick = i64(tick)
-	instance.id = i64(id)
-	copy(instance.data[:], data)
-	return object
+	if kind >= len(event_spares) do resize(&event_spares, len(event_classes))
+	spare := &event_spares[kind]
+	if spare.object.ptr == nil || gd.RefCounted_get_reference_count(transmute(gd.RefCounted)spare.object) != 1 {
+		event_spare_drop(spare)
+		object := gd.Object{gd.construct_object_named(sim_class.class_name)}
+		if object.ptr == nil {
+			delivery.failed = true
+			return {}, false
+		}
+		spare.object = object
+		spare.held = gd.variant_from_any(object) // the host's reference: the Variant holds it, ours goes
+		gd.unref(transmute(gd.RefCounted)object)
+		V.stats.event_objects += 1
+	}
+	instance := (^Sim_Object)(gd.instance_of(spare.object, &sim_class.class))
+	instance.tick = i64(delivery.tick)
+	instance.id = i64(delivery.id)
+	copy(instance.data[:], delivery.data)
+	delivery.event, delivery.made = spare.held, true
+	return spare.held, true
+}
+
+// Lets go of a spare: freed unless a script holds it.
+event_spare_drop :: proc(spare: ^Event_Spare) {
+	if spare.object.ptr != nil do gd.variant_destroy(&spare.held)
+	spare^ = {}
+}
+
+// Lets go of every class's spare (the extension unloads).
+event_spares_free :: proc() {
+	for &spare in event_spares do event_spare_drop(&spare)
+	clear(&event_spares)
 }

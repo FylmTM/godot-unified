@@ -3,7 +3,8 @@
 # A single player toy session whose Glue (ext/ext.odin, bench_frame) makes every tick N moving instances of one
 # MultiMeshInstance3D (3D transforms and custom data, like the survivor's enemies), 64 moving and 64 resting plain3d scene views
 # with a _process script (the moving ones' data changes every tick, the resting ones' never), and the local player's bench2d view; ui_accept is down on even ticks and up on odd ones, so the
-# toy spawns a thing every other tick and expires as many (events to the player's view and the sim_event signal).
+# toy spawns a thing every other tick and expires as many (events to the player's view, which hears them and keeps
+# none: views/bench2d.gd).
 # After a second of warm-up it reads UnifiedSession.take_sync_stats over S seconds (default 2) and prints one line,
 # "VIEW BENCH {json}": the per-frame means in microseconds and the per-event cost. Headless, set_buffer reaches
 # Godot's dummy renderer; in a window it reaches the real one (and frames are paced by the display).
@@ -86,6 +87,7 @@ func _initialize() -> void:
 		"total_us": snappedf(stats.total_us / frames, 0.1),
 		"total_max_us": snappedf(stats.total_max_us, 0.1),
 		"events": stats.events,
+		"event_objects": stats.event_objects,
 		"event_us": snappedf(stats.delivery_us / maxf(stats.events, 1), 0.01),
 		"fill_us": snappedf(stats.fill_us / maxf(stats.fills, 1), 0.1),
 		"fill_max_us": snappedf(stats.fill_max_us, 0.1),

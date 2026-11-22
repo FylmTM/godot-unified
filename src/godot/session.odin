@@ -466,7 +466,7 @@ register_session_class :: proc() {
 		class,
 		"take_sync_stats",
 		take_sync_stats,
-		doc = "The view sync's cost since the last call, then counts anew. The main thread: frames, fresh (frames with a new tick), events (deliveries), and microseconds summed over the frames: scene_us, multi_build_us, multi_upload_us, delivery_us, total_us; total_max_us is the slowest frame's. The session thread: fills (published frames), fill_us summed (tracking the ticks' events, fill_frame, publishing; appear-on-verified's extra fills included), fill_max_us the slowest published one; wakes (its sleeps), how late they woke (wake_p50_us, wake_p99_us, wake_max_us) and how many woke more than 1 ms late (wakes_over_ms) or a whole tick late (wakes_over_tick).",
+		doc = "The view sync's cost since the last call, then counts anew. The main thread: frames, fresh (frames with a new tick), events (deliveries), event_objects (event objects made: none for an event no view and no [signal sim_event] connection takes, none while the last one is refilled), and microseconds summed over the frames: scene_us, multi_build_us, multi_upload_us, delivery_us, total_us; total_max_us is the slowest frame's. The session thread: fills (published frames), fill_us summed (tracking the ticks' events, fill_frame, publishing; appear-on-verified's extra fills included), fill_max_us the slowest published one; wakes (its sleeps), how late they woke (wake_p50_us, wake_p99_us, wake_max_us) and how many woke more than 1 ms late (wakes_over_ms) or a whole tick late (wakes_over_tick).",
 	)
 	gd.bind_method(
 		class,
@@ -1206,28 +1206,32 @@ drain_messages :: proc(session: ^Session_Node) {
 
 // An event in one of its states (EVENT_EMITTED, then EVENT_CONFIRMED or EVENT_CANCELLED), as an object of its
 // class (sim_classes.odin): to the subject's view (_sim_event(event, state)), then to the sim_event signal, in the
-// order the ticks emitted them.
+// order the ticks emitted them. The object is made only if a view that takes events or a connection to the signal
+// gets it (event_object: refilled when no script kept the last one), so an event nobody listens to costs no object.
 @(private)
 route_event :: proc(session: ^Session_Node, message: Event_Message) {
 	raw := message.event
 	if int(raw.kind) >= len(api.events) do return // another build's event: never from this game's sim
 	layout := &api.events[raw.kind]
-	event := new_event_object(int(raw.kind), message.tick, message.id, raw.data[:raw.size])
-	if event.ptr == nil do return // its class failed to register (an error said why)
-	// the Variant holds a reference and ours goes: the event is freed with the Variant unless a script kept it
-	held := gd.variant_from_any(event)
-	defer gd.variant_destroy(&held)
-	gd.unref(transmute(gd.RefCounted)event)
+	delivery := Event_Delivery {
+		kind = int(raw.kind),
+		tick = message.tick,
+		id   = message.id,
+		data = raw.data[:raw.size],
+	}
 	state := i64(message.action)
 	V.stats.events += 1
-	views_event(layout, &raw, state, held, message.tick)
-	gd.emit_signal(session.obj, NAMES.sim_event, held, state)
+	views_event(layout, &raw, state, &delivery, message.tick)
+	if gd.Object_has_connections(session.obj, NAMES.sim_event) {
+		if event, ok := event_object(&delivery); ok do gd.emit_signal(session.obj, NAMES.sim_event, event, state)
+	}
 	dev_event(message.tick, message.id, message.action, layout, raw.data[:raw.size])
 	control_event(message.tick, message.id, message.action, int(raw.kind), layout, raw.data[:raw.size])
 }
 
 // The view sync's cost since the last call, and starts counting anew. The main thread's (Sync_Stats): `frames` and
-// `fresh` (frames that showed a new tick), `events` (deliveries), and in microseconds summed over the frames
+// `fresh` (frames that showed a new tick), `events` (deliveries), `event_objects` (event objects made: none for an
+// event nobody listens to, none while one no script kept is refilled), and in microseconds summed over the frames
 // `scene_us`, `multi_build_us`, `multi_upload_us`, `delivery_us`, `total_us`, plus the slowest frame's
 // `total_max_us`. The session thread's frame hook (its events tracked, fill_frame, the Frame published): `fills`,
 // `fill_us` summed (appear-on-verified's extra fills included) and the slowest published `fill_max_us`; its sleeps'
@@ -1242,6 +1246,7 @@ take_sync_stats :: proc(session: ^Session_Node) -> gd.Dictionary {
 	gd.dict_set(&dict, "frames", i64(stats.frames))
 	gd.dict_set(&dict, "fresh", i64(stats.fresh))
 	gd.dict_set(&dict, "events", i64(stats.events))
+	gd.dict_set(&dict, "event_objects", i64(stats.event_objects))
 	gd.dict_set(&dict, "scene_us", us(stats.scene))
 	gd.dict_set(&dict, "multi_build_us", us(stats.multi_build))
 	gd.dict_set(&dict, "multi_upload_us", us(stats.multi_upload))

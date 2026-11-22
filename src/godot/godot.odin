@@ -141,6 +141,7 @@ on_deinitialize :: proc "c" (_: rawptr, level: gdi.InitializationLevel) {
 	app_version = ""
 	if lobby != nil && lobby.shutdown != nil do lobby.shutdown()
 	data_objects_free()
+	event_spares_free()
 	input_clear()
 	gd.shutdown() // unregisters every class, in reverse
 	data_classes_forget()

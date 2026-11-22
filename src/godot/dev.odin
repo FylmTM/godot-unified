@@ -177,7 +177,7 @@ when DEVUI {
 			state = .Cancelled
 		}
 		player, entity := event_subject(layout, data)
-		devui.log(tick, state, "#%d %s player %d entity %d", id, layout.name, player, entity)
+		devui.log_event(tick, state, id, layout.name, player, entity)
 	}
 
 	// A note in the Events panel (a desync report).

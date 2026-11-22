@@ -255,9 +255,15 @@ the **verified** one, so a mispredicted change never shows and a rollback across
   One first produced at verification is Emitted and Confirmed in the same frame. Effects go on EMITTED, what must be
   final on CONFIRMED, undoing an effect on CANCELLED. Two events are the same across re-simulations when tick, kind,
   subject and index among the tick's events of that kind and subject match.
-- **Identity.** Each state arrives as a new object; its `id` is the same in an event's EMITTED and its CONFIRMED or
-  CANCELLED, and never repeats in the process. A re-simulation may change an event's fields but not its id. Events
-  still pending when a session ends get no final state.
+- **Identity.** Each state arrives as a new object to any script that keeps one; its `id` is the same in an event's
+  EMITTED and its CONFIRMED or CANCELLED, and never repeats in the process. A re-simulation may change an event's
+  fields but not its id. Events still pending when a session ends get no final state.
+- **Objects only for listeners.** An event's object is made only when a view whose script has `_sim_event` or a
+  connection to `sim_event` gets it; an event nobody listens to still reaches the dev UI and the control port, and
+  costs no object. The host keeps the object it delivered last of each class and refills it for the next event of
+  that class while no script holds it, so a heard event allocates nothing either. A script that keeps an event (in a
+  member or an array; a `WeakRef` doesn't keep it) keeps it as it was; one that remembers only its instance id may
+  see that id again: an event is told by its `id`.
 - **Where.** Each event, in each state, goes first to its subject's views: those pushed with a subject of its subject
   field's type and the same key (a `Handle(T)` reaches only views pushed with a `Handle(T)` of that table; an
   `Entity` the views pushed with that `Entity`, of any kind: the kinds that take Entity events share one index space,

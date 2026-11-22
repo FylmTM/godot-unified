@@ -14,6 +14,8 @@
 #    (speed, seek, step, loop, the player it follows, the checkpoints it agreed with).
 # 8. a start on a running session leaves it by itself: start_single again restarts with the new Setup, no failure; a
 #    host then a single player started at once: the newest start wins.
+# 9. event objects: none while nobody listens; one per class, refilled, while a listener keeps none; a new one for
+#    each event a listener keeps, never refilled.
 # Every run ends with UnifiedSession.quit while a sound plays: the quit stops it first, so no playback leaks at exit
 # (the suite fails on a leak).
 # (The LAN token's claim, each copy of a game a slot and a token of its own, is tested in tests/godot_driver.)
@@ -30,7 +32,7 @@ const REPLAY_TICKS := 48
 var s: Node
 var failed := 0
 var idle_end := 0.0
-var sections: Array[int] = [1, 2, 3, 4, 5, 6, 7, 8]
+var sections: Array[int] = [1, 2, 3, 4, 5, 6, 7, 8, 9]
 var _statuses: Array[String] = []
 var _started := false
 var _port := 0  # the port section 2 hosted on (section 3 hosts there again)
@@ -87,6 +89,8 @@ func _run() -> void:
 				went_on = await _replay()
 			8:
 				went_on = await _restart()
+			9:
+				went_on = await _event_objects()
 			_:
 				check("section %d exists" % section, false)
 				went_on = false
@@ -395,6 +399,60 @@ func _restart() -> bool:
 	check("the waiting host start never ran", s.mode == UnifiedSession.MODE_SINGLE and s.join_code == "", "%d %s" % [s.mode, s.join_code])
 	s.leave()
 	return await _wait_for(func() -> bool: return not s.running, 5.0, "the restarted session ends")
+
+
+# 9. event objects: none while nobody listens (no scene views here, no sim_event connection); a listener that keeps
+# none gets one object per class, refilled; a listener that keeps them gets a new one each time, never refilled
+func _event_objects() -> bool:
+	check("start single player", s.start_single())
+	if not await _wait_for(func() -> bool: return s.local_player != 0 and s.tick > 5, 5.0, "single player runs"):
+		return false
+	s.take_sync_stats()
+	if not await _ticks_pass(48):
+		return false
+	var quiet: Dictionary = s.take_sync_stats()
+	check("no listener: its events are routed, no object made",
+		int(quiet.events) >= 4 and int(quiet.event_objects) == 0, quiet)
+
+	var objects := {}  # instance id: true
+	var classes := {}  # class name: true
+	var ids := {}  # event id: true
+	var hear := func(event: UnifiedEvent, _state: UnifiedSession.EventState) -> void:
+		objects[event.get_instance_id()] = true
+		classes[event.get_class()] = true
+		ids[event.id] = true
+	s.sim_event.connect(hear)
+	if not await _ticks_pass(48):
+		return false
+	s.sim_event.disconnect(hear)
+	var heard: Dictionary = s.take_sync_stats()
+	check("a listener that keeps none: one object per class, refilled with each event",
+		int(heard.events) >= 4 and objects.size() == classes.size() and int(heard.event_objects) == classes.size()
+		and ids.size() >= 2, [heard, objects.size(), classes.keys(), ids.size()])
+
+	var kept: Array[Array] = []  # [event, its id, its tick, its class] as delivered
+	var keep := func(event: UnifiedEvent, _state: UnifiedSession.EventState) -> void:
+		kept.append([event, event.id, event.tick, event.get_class()])
+	s.sim_event.connect(keep)
+	if not await _ticks_pass(48):
+		return false
+	s.sim_event.disconnect(keep)
+	var unique := {}
+	for k: Array in kept:
+		unique[(k[0] as Object).get_instance_id()] = true
+	check("a listener that keeps them: a new object for each", kept.size() >= 4 and unique.size() == kept.size(),
+		[kept.size(), unique.size()])
+	check("a kept event is never refilled", kept.all(func(k: Array) -> bool:
+		var event: UnifiedEvent = k[0]
+		return event.id == k[1] and event.tick == k[2] and event.get_class() == k[3]))
+	s.leave()
+	return await _wait_for(func() -> bool: return not s.running, 5.0, "the session ends")
+
+
+# Waits until `count` more ticks are shown.
+func _ticks_pass(count: int) -> bool:
+	var until: int = s.tick + count
+	return await _wait_for(func() -> bool: return s.tick >= until, 10.0, "%d ticks pass" % count)
 
 
 func _sleep(sec: float) -> void:
