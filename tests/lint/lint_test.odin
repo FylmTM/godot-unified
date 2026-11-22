@@ -6,6 +6,7 @@ package test_lint
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 import "unified:lint"
@@ -114,9 +115,13 @@ library_follows_determinism_rules :: proc(t: ^testing.T) {
 @(test)
 games_follow_determinism_rules :: proc(t: ^testing.T) {
 	for game in game_dirs(t) {
-		lint.check_game(t, fmt.tprintf("%s/%s/simulation", EXAMPLES_DIR, game))
+		view_only := slice.contains(VIEW_ONLY_GAMES, game)
+		lint.check_game(t, fmt.tprintf("%s/%s/simulation", EXAMPLES_DIR, game), view_only = view_only)
 	}
 }
+
+// The render experiment's examples that draw examples/horde's sim: no sim package of their own.
+VIEW_ONLY_GAMES :: []string{"horde_tuned", "horde_hybrid", "horde_odin"}
 
 // Box3D is physics' implementation (src/physics/README.md, The boundary): only src/physics and tests/physics import its
 // bindings (box3d:), across the library, its tests and the games.

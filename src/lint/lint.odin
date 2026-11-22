@@ -167,11 +167,13 @@ bans_of :: proc(kind: Kind) -> Bans {
 // Lints a game's `simulation/` directory by its layout: `headless/` (the headless binary: real-time code, off
 // core:math, no float traps), `extension/` (the GDExtension: host side) and `tests/` (test code) are known, and none
 // of them imports Box3D's bindings (box3d:); every other directory is one of the game's sim packages, linted under `sim_rule`
-// with `extra_imports`. So a new sim package can't skip the lint. Returns the sim packages' directories.
+// with `extra_imports`. So a new sim package can't skip the lint. Returns the sim packages' directories. `view_only`: a game
+// that draws another game's sim (the render experiment's horde_* examples) has no sim package of its own.
 check_game :: proc(
 	t: ^testing.T,
 	simulation_dir: string,
 	extra_imports: []string = nil,
+	view_only := false,
 	loc := #caller_location,
 ) -> (
 	sims: []string,
@@ -198,7 +200,7 @@ check_game :: proc(
 			append(&out, info.fullpath)
 		}
 	}
-	testing.expectf(t, len(out) > 0, "lint: no sim package in %s", simulation_dir, loc = loc)
+	if !view_only do testing.expectf(t, len(out) > 0, "lint: no sim package in %s", simulation_dir, loc = loc)
 	return out[:]
 }
 
