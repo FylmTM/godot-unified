@@ -216,6 +216,23 @@ log :: proc(tick: u32, state: Log_State, format: string, args: ..any) {
 	log_add(&s.events, tick, state, format, ..args)
 }
 
+// An event's row in the Events panel, as `log` would add it ("#id name player p entity e"), formatted only if the
+// panel shows it: a kept row costs a copy of its parts. `name` must outlive the row (the game's event type name).
+log_event :: proc(tick: u32, state: Log_State, id: u64, name: string, player, entity: u64) {
+	if !s.inited do return
+	panel := &s.events
+	row := &panel.rows[panel.count % LOG_ROWS]
+	row.tick, row.state, row.len = tick, state, 0
+	row.event = {
+		id     = id,
+		name   = name,
+		player = player,
+		entity = entity,
+	}
+	row.formatted = false
+	panel.count += 1
+}
+
 // A row in the Commands panel (the newest 1000 are kept): a command sent, confirmed in a verified tick, or refused.
 command :: proc(tick: u32, state: Log_State, format: string, args: ..any) {
 	if !s.inited do return

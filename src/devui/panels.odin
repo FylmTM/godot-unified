@@ -208,10 +208,19 @@ LOG_ROWS :: 1000
 
 @(private)
 Log_Row :: struct {
-	tick:  u32,
-	state: Log_State,
-	len:   u8,
-	msg:   [122]u8,
+	tick:      u32,
+	state:     Log_State,
+	len:       u8,
+	formatted: bool, // msg holds the row's text (else: an event's parts, formatted when the panel shows it)
+	msg:       [122]u8,
+	event:     Log_Event,
+}
+
+// An event row's parts (log_event), kept until the panel shows the row.
+@(private)
+Log_Event :: struct {
+	id, player, entity: u64,
+	name:               string,
 }
 
 @(private)
@@ -267,7 +276,7 @@ log_shutdown :: proc(panel: ^Log_Panel) {
 log_add :: proc(panel: ^Log_Panel, tick: u32, state: Log_State, format: string, args: ..any) {
 	row := &panel.rows[panel.count % LOG_ROWS]
 	msg := fmt.bprintf(row.msg[:], format, ..args)
-	row.tick, row.state, row.len = tick, state, u8(len(msg))
+	row.tick, row.state, row.len, row.formatted = tick, state, u8(len(msg)), true
 	panel.count += 1
 }
 
@@ -296,6 +305,18 @@ log_update :: proc(panel: ^Log_Panel) {
 			if item.ptr == nil do break // the tree refuses rows inside its own mouse handling: next frame
 			gd.TreeItem_set_text(item, 0, fmt.tprint(row.tick))
 			gd.TreeItem_set_text(item, 1, LOG_STATE_NAMES[row.state])
+			if !row.formatted {
+				parts := row.event
+				msg := fmt.bprintf(
+					row.msg[:],
+					"#%d %s player %d entity %d",
+					parts.id,
+					parts.name,
+					parts.player,
+					parts.entity,
+				)
+				row.len, row.formatted = u8(len(msg)), true
+			}
 			gd.TreeItem_set_text(item, 2, string(row.msg[:row.len]))
 			#partial switch row.state {
 			case .Emitted, .Sent:

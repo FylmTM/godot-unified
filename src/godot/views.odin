@@ -147,15 +147,16 @@ V: struct {
 // The main thread's view-sync cost, summed over frames until a script takes it (UnifiedSession.take_sync_stats:
 // the view-sync benchmark, tests/godot_views/view_bench.gd; a game's own performance readout).
 Sync_Stats :: struct {
-	frames:       int,
-	fresh:        int, // frames that showed a new tick
-	events:       int, // event deliveries (one per event state)
-	scene:        time.Duration, // scene views: spawns, data, poses
-	multi_build:  time.Duration, // MultiMesh views: every instance interpolated and written into its buffer
-	multi_upload: time.Duration, // MultiMesh views: set_buffer, set_visible_instance_count
-	delivery:     time.Duration, // events: their objects, _sim_event, the sim_event signal
-	total:        time.Duration, // the whole sync (session_process from the newest frame on)
-	total_max:    time.Duration,
+	frames:        int,
+	fresh:         int, // frames that showed a new tick
+	events:        int, // event deliveries (one per event state)
+	event_objects: int, // event objects made (none for an event nobody listens to, none while a spare is reused)
+	scene:         time.Duration, // scene views: spawns, data, poses
+	multi_build:   time.Duration, // MultiMesh views: every instance interpolated and written into its buffer
+	multi_upload:  time.Duration, // MultiMesh views: set_buffer, set_visible_instance_count
+	delivery:      time.Duration, // events: their objects, _sim_event, the sim_event signal
+	total:         time.Duration, // the whole sync (session_process from the newest frame on)
+	total_max:     time.Duration,
 }
 
 // ---- the marker classes
@@ -854,7 +855,7 @@ views_of_kind :: proc(view_kind: i64) -> gd.Array {
 // names (or none); else the views pushed with the event's subject (in kind order): its handle field's type and key, or
 // its sim.Entity field's index among the views pushed with an Entity; else (no such view, or no such field) its
 // player's views. A view named or keyed is found by its id; only the player route walks the views.
-views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, event: gd.Variant, tick: u32) {
+views_event :: proc(layout: ^Event_Layout, raw: ^sim.Raw_Event, state: i64, event: ^Event_Delivery, tick: u32) {
 	player, subject_key := event_subject(layout, raw.data[:raw.size])
 	view_key, keyed_subject := subject_key, subject_key != 0
 	if layout.subject >= 0 && !layout.subject_is_handle {
@@ -924,10 +925,13 @@ player_views :: proc(player: u64) -> (first, last: int) {
 	return
 }
 
-// An event of `tick` for a view: held for the verified timeline's playback when the view plays on it
-// (verified_players_hold), else delivered now.
-call_sim_event :: proc(scene_view: ^Scene_View, event: gd.Variant, state: i64, tick: u32) {
-	if scene_view != nil && verified_players_hold(scene_view, event, state, tick) do return
+// An event of `tick` for a view whose script takes events (_sim_event; none other makes its object): held for the
+// verified timeline's playback when the view plays on it (verified_players_hold), else delivered now.
+call_sim_event :: proc(scene_view: ^Scene_View, delivery: ^Event_Delivery, state: i64, tick: u32) {
+	if scene_view == nil || !scene_view.has_event do return
+	event, ok := event_object(delivery)
+	if !ok do return
+	if verified_players_hold(scene_view, event, state, tick) do return
 	call_sim_event_now(scene_view, event, state)
 }
 
