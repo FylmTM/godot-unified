@@ -153,6 +153,7 @@ checkout.
 | [survivor](examples/survivor/)       | Top-down survival against waves        | A game at scale: big waves, physics props, a lobby              |
 | [friendslop](examples/friendslop/)   | Third-person physics sandbox           | Characters, carrying and throwing, a level change mid-session   |
 | [drift](examples/drift/)             | Top-down ship arena                    | 2D views over physics locked to a plane, couch co-op            |
+| [horde](examples/horde/)             | 2D arena against thousands of enemies  | Crowds as MultiMesh instances, effects as shader ring buffers   |
 | [deckbuilder](examples/deckbuilder/) | Co-op card battler                     | A turn-based UI game with no physics, a saved run               |
 | [holdout](examples/holdout/)         | First-person shooter defending a core  | Shots land where the shooter saw the target, a 3D navmesh       |
 | [playground](examples/playground/)   | Box3D's sample scenes, played together | Every joint type, ragdolls and cars, all under rollback         |
