@@ -5,7 +5,8 @@ extends Node2D
 
 ## In order, one entry a callback: {what (ready, reused, despawned, revived, cancelled, event, nulled), id (the
 ## instance), key (the marker's then), serial (the data's, -1: none), position, player, visible, inside, old_null
-## (the last data set replaced null), target and from (an event's key and player), msec (when)}.
+## (the last data set replaced null), target and from (an event's key and player), msec (when), nested (the key its
+## data's nested struct and array hold: [area.corner.x, keys[0], keys[1]], [] for none)}.
 static var log: Array[Dictionary] = []
 
 var _old_null := false
@@ -56,5 +57,6 @@ func _note(what: String, target: int = 0, from: int = 0) -> void:
 	log.append({what = what, id = get_instance_id(), key = marker.key if marker else -1,
 		serial = data.serial if data else -1, position = position, player = marker.player if marker else -1,
 		visible = visible, inside = is_inside_tree(), old_null = _old_null, target = target, from = from,
-		msec = Time.get_ticks_msec()})
+		msec = Time.get_ticks_msec(),
+		nested = [roundi(data.area.corner.x), data.keys[0], data.keys[1]] if data else []})
 

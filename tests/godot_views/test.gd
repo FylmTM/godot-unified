@@ -246,6 +246,7 @@ func _initialize() -> void:
 		return
 	check("a view kind's nested struct: an object of its class", data.area is DataMarkArea and data.area.layer == 3,
 		data.area)
+	check("a view data's nested struct: the same object on every read", data.area == data.area, data.area)
 	check("a view's data fields (an enum as its int)", data.shown and data.mode == EnumMode.OPEN and data.hp == -3 \
 		and near(data.charge, 0.5) and data.dir.is_equal_approx(Vector2(0.6, -0.8)) \
 		and data.tint.is_equal_approx(Color(1, 0.5, 0.25, 1)),
@@ -338,6 +339,7 @@ func _initialize() -> void:
 	check("input_wanted: every frame before the sample", wanted[0] >= 15, wanted[0])
 	await check_levels(session, level_root, level_signals)
 	await check_commands(session, toy)
+	await check_nested_values(session, toy)
 	await check_dropped_load(session)
 	await finish(session)
 	check("session data back to zero when the session ends", toy.bumps == 0 and toy.x == 0.0, [toy.bumps, toy.x])
@@ -492,6 +494,11 @@ func check_pool(events: Array[Array], me: int) -> void:
 			or e.player != player or not e.inside or not e.visible or not e.old_null)
 	check("a reused view: its key, player, data (after null) and pose the new item's at _sim_reused, in the tree, shown",
 		reused.size() > 0 and wrong.is_empty(), wrong.slice(0, 3))
+	var stale := log.filter(func(e: Dictionary) -> bool:
+		return e.serial >= 0 and e.nested != [e.serial, e.serial, e.serial])
+	check("a reused view's nested values (its data objects' cached ones, read before it was pooled) are the new key's",
+		reused.size() > 0 and reused.all(func(e: Dictionary) -> bool: return (e.nested as Array).size() == 3) \
+		and stale.is_empty(), stale.slice(0, 3))
 	check("into the pool: after its linger (not before), its data set to null, then reused",
 		reused.all(func(e: Dictionary) -> bool: return _before(log, e).what == "nulled") \
 		and log.all(func(e: Dictionary) -> bool:
@@ -984,6 +991,118 @@ func check_commands(session: UnifiedSession, toy: DataToy) -> void:
 			break
 	check("a command without fields arrives, in order", toy.bumps == 1 and toy.bump_sum == 4,
 		[toy.bumps, toy.bump_sum])
+
+
+# Nested values (src/godot/README.md, Data and classes): a field that reads as an object or an Array gives the same
+# value while its bytes don't change, so a HUD that reads them under `changed` makes nothing. A change refills an
+# object in place while no script holds it; one a script holds never changes (the change makes another), and one whose
+# field a script sets is its own (the next read gives another; a command takes it). Arrays are read-only and made anew.
+func check_nested_values(session: UnifiedSession, toy: DataToy) -> void:
+	var constants: UnifiedConstants = Unified.constants
+	var area: DataMarkArea = toy.mark_area
+	var areas: Array[DataMarkArea] = toy.areas
+	check("a nested struct field: the same object on every read while its bytes don't change",
+		toy.mark_area == area and constants.limits == constants.limits, [area, toy.mark_area])
+	check("an Array field: the same Array while its bytes don't change, its struct elements the same objects",
+		is_same(toy.areas, areas) and toy.areas[1] == areas[1] and is_same(toy.trail, toy.trail) \
+		and is_same(toy.open, toy.open) and is_same(constants.ranges, constants.ranges), areas)
+	check("a nested struct's own Array field: the same", is_same(toy.trail_box.points, toy.trail_box.points))
+	check("an Array field is read-only, also in a constant; duplicate() gives one to change", areas.is_read_only() \
+		and toy.open.is_read_only() and constants.sizes.is_read_only() and not toy.open.duplicate().is_read_only(),
+		[areas.is_read_only(), toy.open.is_read_only(), constants.sizes.is_read_only()])
+	var open: Array[int] = toy.open.duplicate()
+	open.append(3)
+	check("a duplicate changes, the field doesn't", open == [1, 7, 3] and toy.open == [1, 7], [open, toy.open])
+	area = null
+	areas = []
+
+	# a HUD's reads of unchanged nested values, on every `changed` (toy changes every tick: Unified.input.drift),
+	# counted around its own reads (the pooled views read their changing data meanwhile)
+	var reads := [0, 0]  # values read, nested values made by those reads
+	var hud := func() -> void:
+		session.take_sync_stats()
+		var shown: Array = [toy.mark_area.layer, toy.areas[0].corner, toy.trail.size(), toy.trail_box.points.size(),
+			toy.open.size(), toy.queue.size(), Unified.constants.limits.high, Unified.constants.ranges.size()]
+		reads[0] += shown.size()
+		reads[1] += int(session.take_sync_stats().nested_values)
+	toy.changed.connect(hud)
+	for i in 20:
+		await create_timer(0.02).timeout
+	toy.changed.disconnect(hud)
+	check("a HUD reading unchanged nested values under `changed` makes none", reads[0] > 40 and reads[1] == 0, reads)
+
+	# a change while no script holds the value: refilled in place (only its instance id is kept here)
+	var area_id := toy.mark_area.get_instance_id()
+	check("send a Mark with another area", session.send_command(_mark_with_layer(4)))
+	await _layer_reaches(toy, 4)
+	check("a change while nobody holds it: the same object, refilled", toy.mark_area.get_instance_id() == area_id \
+		and toy.mark_area.layer == 4, [area_id, toy.mark_area.get_instance_id(), toy.mark_area.layer])
+
+	# a value a script holds never changes under it: the change makes another
+	var held: DataMarkArea = toy.mark_area
+	check("send a Mark with a third area", session.send_command(_mark_with_layer(5)))
+	await _layer_reaches(toy, 5)
+	check("a held value never changes: the change makes another", held.layer == 4 and toy.mark_area != held \
+		and toy.mark_area.layer == 5, [held.layer, toy.mark_area.layer])
+	var held_trail: Array = toy.trail
+	var trail := CommandTrail.new()
+	trail.points = [Vector2(1, 1), Vector2(2, 2), Vector2(3, 3)]
+	check("send a longer trail", session.send_command(trail))
+	for i in 100:
+		await create_timer(0.02).timeout
+		if toy.trail.size() == 3:
+			break
+	check("an Array's change makes a new read-only Array; a held one keeps its items", held_trail.size() == 2 \
+		and toy.trail.size() == 3 and not is_same(held_trail, toy.trail) and toy.trail.is_read_only(),
+		[held_trail, toy.trail])
+
+	# setting a field of a read value: the script's own copy, which a command takes
+	var mine: DataMarkArea = toy.mark_area
+	mine.layer = 9
+	check("a set field: the value is the script's own, the next read another with the sim's values",
+		mine.layer == 9 and toy.mark_area != mine and toy.mark_area.layer == 5, [mine.layer, toy.mark_area.layer])
+	var mark := _mark_with_layer(0)
+	mark.area = mine
+	check("send a Mark with the value set", session.send_command(mark))
+	await _layer_reaches(toy, 9)
+	check("a command takes the value a script set", toy.mark_area.layer == 9, toy.mark_area.layer)
+	var before: Array = toy.areas
+	var element: DataMarkArea = before[1]
+	element.layer = 7
+	check("a set field of a cached Array's struct element: the next read builds the Array anew",
+		not is_same(toy.areas, before) and toy.areas[1].layer == 6 and element.layer == 7,
+		[toy.areas[1].layer, element.layer])
+
+	# events and commands read through one path (their classes' fields); the toy's events hold no nested field, so a
+	# command stands for them
+	var command := CommandMark.new()
+	check("a command's nested fields: the same value on every read, its Arrays read-only", command.area == command.area \
+		and is_same(command.shapes, command.shapes) and command.shapes.is_read_only(), command.shapes)
+	var old_area := command.area
+	command.area = _area_with_layer(2)
+	command.shapes = [EnumShape.RING]
+	check("setting a whole nested field: read back anew, the old value as it was", command.area.layer == 2 \
+		and old_area.layer == 0 and command.shapes == [EnumShape.RING], [command.area.layer, old_area.layer])
+
+
+func _mark_with_layer(layer: int) -> CommandMark:
+	var mark := CommandMark.new()
+	mark.area = _area_with_layer(layer)
+	return mark
+
+
+func _area_with_layer(layer: int) -> DataMarkArea:
+	var area := DataMarkArea.new()
+	area.corner = Vector2(1, 2)
+	area.layer = layer
+	return area
+
+
+func _layer_reaches(toy: DataToy, layer: int) -> void:
+	for i in 100:
+		await create_timer(0.02).timeout
+		if toy.mark_area.layer == layer:
+			return
 
 
 func finish(session: UnifiedSession) -> void:

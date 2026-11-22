@@ -29,9 +29,12 @@ View :: union {
 	View_Churn_Pool3D, // the same churn, pooled
 }
 
-// The pooled kinds' data: the view's key, so a reused view's script can tell its data is its new key's.
+// The pooled kinds' data: the view's key, so a reused view's script can tell its data is its new key's (pool2d's
+// also in a nested struct and an array: the cached nested values a reused view's data object keeps show the new key's).
 View_Pool2D :: struct {
 	serial: u32,
+	area:   toy.Mark_Area, // corner.x: the key
+	keys:   [2]u32, // the key, twice
 }
 View_Pool_Late2D :: struct {
 	serial: u32,
@@ -479,6 +482,11 @@ drawn_tick :: proc(t: ^toy.Tick) {
 	}
 }
 
+// A pool2d view's data for `key`: the key in each field.
+pool_data :: proc(key: int) -> View_Pool2D {
+	return {serial = u32(key), area = {corner = {f32(key), 0}}, keys = {u32(key), u32(key)}}
+}
+
 // The pooled kinds' schedule (pool_views), in ticks: one key a period, alive for its first POOL_LIVE ticks but
 // POOL_GAP_FROM ..< POOL_GAP_TO (gone shorter than its linger: revived), so it is pooled long before the next key
 // spawns; a key that lives one tick only at POOL_BLIP_AT (a cancelled spawn while that tick is not yet verified); at
@@ -510,13 +518,13 @@ pool_views :: proc(f: ^Frame) {
 				pos    = {f32(key), 1, 0},
 				player = player,
 			}
-			godot.push_view(f, sim.entity(key), item, View_Pool2D{serial = u32(key)})
+			godot.push_view(f, sim.entity(key), item, pool_data(key))
 		}
 		godot.push_view(f, sim.entity(key), {pos = {f32(key), 2, 0}}, View_Pool_Late2D{serial = u32(key)})
 	}
 	if phase == POOL_BLIP_AT {
 		blip := POOL_BLIP_KEY + period
-		godot.push_view(f, sim.entity(blip), {pos = {f32(blip), 1, 0}}, View_Pool2D{serial = u32(blip)})
+		godot.push_view(f, sim.entity(blip), {pos = {f32(blip), 1, 0}}, pool_data(blip))
 		godot.push_view(f, sim.entity(blip), {pos = {f32(blip), 2, 0}}, View_Pool_Late2D{serial = u32(blip)})
 	}
 }
