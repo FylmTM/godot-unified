@@ -1,35 +1,15 @@
-# horde_tuned
+# horde_tuned: the horde done well with nodes
 
-What the game is in one paragraph: the genre, how many play, what a match or a run is, and what it shows of unified.
-`uni run horde_tuned` plays it. `GUIDE.md` is how to write gameplay that survives rollback (read it before the rules).
-
-## Controls
-
-Each action and its keys and buttons.
-
-## World
-
-The units and axes, what the State holds (and its capacities: `MAX_*`), and the World: the level and what the sim
-reads from its markers, or why there is none.
-
-## Input and commands
-
-What `Input` carries and what a player's input moves; each command (`Command_*`) and what it does, naming each tuning
-constant rather than its value.
-
-## Systems (`tick`, in this order)
-
-The rules in the order `tick` runs them, one line each, naming each tuning constant rather than its value: what the
-world does on its own, how a match or a run ends, and the event (`Event_*`) each emits.
-
-## Events
-
-Each event (`Event_*`), what it says and whose view gets it, and the library's joins and leaves.
-
-## Scripted inputs
-
-What the scripted players do in headless runs and tests (`script.odin`).
+[examples/horde](../horde/)'s game (its sim, shared) drawn the way a Godot developer who knows the engine would:
+the crowds (enemies, their HP bars, bolts, gems) are MultiMesh views whose instances the host writes in one buffer per
+frame and whose look is a shader each (`game/multi/`); the few (heroes, bombs, blasts) are scene views; sparks and
+damage numbers are ring buffers of MultiMesh instances that the shader animates from their birth, so GDScript touches
+one once, when an event makes it (`game/fx/`); lightning arcs are one node drawing every live arc. The HUD is
+horde's (`game/ui/hud.gd`). Part of the render experiment: horde's README says what each example compares.
 
 ## View contract (`simulation/extension`)
 
-What each view and MultiView shows, which events it plays, and the session data (`Data_*`) the HUD reads.
+- Scene views: `View_Hero`, `View_Bomb` (its flight's progress), `View_Blast` (its radius in pixels and progress).
+- MultiMesh views: `Enemy` (custom: kind, hit flash, HP share, radius; rotation: heading; scale: its size), `Bar`
+  (a damaged enemy's HP share), `Bolt` (custom: the shooter's slot), `Gem` (custom: value, bob phase).
+- Session data: `Data_Hud`.

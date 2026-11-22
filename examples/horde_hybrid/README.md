@@ -1,35 +1,19 @@
-# horde_hybrid
+# horde_hybrid: the world in Odin, the HUD in GDScript
 
-What the game is in one paragraph: the genre, how many play, what a match or a run is, and what it shows of unified.
-`uni run horde_hybrid` plays it. `GUIDE.md` is how to write gameplay that survives rollback (read it before the rules).
+[examples/horde](../horde/)'s game (its sim, shared) with the world drawn in Odin, immediate mode
+(`src/godot/immediate.odin`, experimental): every frame `draw` reads the shown State and the tick before it
+(`godot.Draw`) and draws into layers and quad batches on Godot's RenderingServer. There are no views: an enemy is a
+quad in a batch drawn by `shaders/enemy.gdshader`, placed between its two ticks by its table index and generation. The
+effects are the view's own Odin state (`fx.odin`), made by events that arrive as the game's union (`Glue.event`),
+with no GDScript object per event (`Glue.no_script_events`). The HUD stays GDScript Controls on `Data_Hud` (the
+match-over banner from the phase, since no script gets events). Part of the render experiment: horde's README says
+what each example compares.
 
-## Controls
+What a reader could get wrong:
 
-Each action and its keys and buttons.
-
-## World
-
-The units and axes, what the State holds (and its capacities: `MAX_*`), and the World: the level and what the sim
-reads from its markers, or why there is none.
-
-## Input and commands
-
-What `Input` carries and what a player's input moves; each command (`Command_*`) and what it does, naming each tuning
-constant rather than its value.
-
-## Systems (`tick`, in this order)
-
-The rules in the order `tick` runs them, one line each, naming each tuning constant rather than its value: what the
-world does on its own, how a match or a run ends, and the event (`Event_*`) each emits.
-
-## Events
-
-Each event (`Event_*`), what it says and whose view gets it, and the library's joins and leaves.
-
-## Scripted inputs
-
-What the scripted players do in headless runs and tests (`script.odin`).
-
-## View contract (`simulation/extension`)
-
-What each view and MultiView shows, which events it plays, and the session data (`Data_*`) the HUD reads.
+- **Corrections snap.** A view's pose glides after a rollback; here a mispredicted position is drawn as the
+  corrected one at once. A game that wants the glide keeps it in its own draw state.
+- **Interpolation is the draw's.** `Draw.alpha` places the screen between `prev` and `state`; a thing new this tick
+  (no match by index and generation in `prev`) is drawn where it is.
+- **The shaders are files in `simulation/extension/shaders/`, loaded into the binary** (`#load`): `simulation/` is
+  hidden from Godot (`.gdignore`).

@@ -135,10 +135,10 @@ draw_enemies :: proc(d: ^Draw) {
 		radius := g.ENEMY_STATS[enemy.kind].radius * d.view_scale
 		flash: f32 = enemy.hit_tick != 0 && sim.game_time(d.state, d.tick) - enemy.hit_tick < FLASH_TICKS ? 1 : 0
 		hp_k := f32(enemy.hp) / f32(max(enemy.hp_max, 1))
-		godot.quad(
+		godot.quad_dir(
 			canvas.enemies,
 			pos,
-			math.atan2(enemy.vel.y, enemy.vel.x) / math.TAU,
+			heading(enemy.vel),
 			{radius * 1.6, radius * 1.6},
 			custom = {f32(enemy.kind), flash, hp_k, radius},
 		)
@@ -156,12 +156,7 @@ draw_bolts :: proc(d: ^Draw) {
 			d.prev.bolts.items[handle.index].pos,
 			before.alive && before.generation == handle.generation,
 		)
-		godot.quad(
-			canvas.bolts,
-			px(d, pos),
-			math.atan2(bolt.vel.y, bolt.vel.x) / math.TAU,
-			custom = {f32(bolt.slot), 0, 0, 0},
-		)
+		godot.quad_dir(canvas.bolts, px(d, pos), heading(bolt.vel), custom = {f32(bolt.slot), 0, 0, 0})
 	}
 }
 
@@ -223,4 +218,10 @@ ring :: proc(layer: godot.Layer, center: [2]f32, radius: f32, color: godot.Color
 		points[i] = center + {math.cos(angle), math.sin(angle)} * radius
 	}
 	godot.polyline(layer, points[:], color, width)
+}
+
+// A velocity's direction as a unit vector (+x when still): a quad's heading without an angle.
+heading :: proc(vel: [2]f32) -> [2]f32 {
+	length := math.sqrt(vel.x * vel.x + vel.y * vel.y)
+	return length > 0 ? vel / length : {1, 0}
 }

@@ -1,35 +1,15 @@
-# horde_odin
+# horde_odin: everything in Odin
 
-What the game is in one paragraph: the genre, how many play, what a match or a run is, and what it shows of unified.
-`uni run horde_odin` plays it. `GUIDE.md` is how to write gameplay that survives rollback (read it before the rules).
+[examples/horde](../horde/)'s game (its sim, shared) with everything the player sees drawn in Odin, immediate mode
+(`src/godot/immediate.odin`, experimental): the world and the effects as in [horde_hybrid](../horde_hybrid/), and the
+HUD and level-up cards from the State itself (`hud.odin`: no session data). The only GDScript is the measurement probe
+and the script that starts the session. Part of the render experiment: horde's README says what each example
+compares.
 
-## Controls
+The UI two ways, chosen with `-- --ui`:
 
-Each action and its keys and buttons.
-
-## World
-
-The units and axes, what the State holds (and its capacities: `MAX_*`), and the World: the level and what the sim
-reads from its markers, or why there is none.
-
-## Input and commands
-
-What `Input` carries and what a player's input moves; each command (`Command_*`) and what it does, naming each tuning
-constant rather than its value.
-
-## Systems (`tick`, in this order)
-
-The rules in the order `tick` runs them, one line each, naming each tuning constant rather than its value: what the
-world does on its own, how a match or a run ends, and the event (`Event_*`) each emits.
-
-## Events
-
-Each event (`Event_*`), what it says and whose view gets it, and the library's joins and leaves.
-
-## Scripted inputs
-
-What the scripted players do in headless runs and tests (`script.odin`).
-
-## View contract (`simulation/extension`)
-
-What each view and MultiView shows, which events it plays, and the session data (`Data_*`) the HUD reads.
+- **immediate** (the default, `ui_immediate.odin`): text, bars and cards drawn on a screen layer every frame, the
+  mouse and keys read in Odin, a pick sent with `godot.send`.
+- **controls** (`ui_controls.odin`): Godot Controls (labels, bars, buttons) made once and updated from Odin, a text
+  set only when it changes, the buttons polled. The library has no Odin API for Controls, so this file imports
+  `unified:gdext` itself, the one example file that does.

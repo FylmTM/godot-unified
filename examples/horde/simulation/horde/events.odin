@@ -38,10 +38,10 @@ Event_Enemy_Hit :: struct {
 
 // `enemy` died at `position` (a burst of particles).
 Event_Enemy_Died :: struct {
-	enemy:    sim.Handle(Enemy),
-	position: sim.Position,
+	enemy:      sim.Handle(Enemy),
+	position:   sim.Position,
 	enemy_kind: Enemy_Kind,
-	_pad:     [3]u8,
+	_pad:       [3]u8,
 }
 
 // One link of a lightning strike, from `from` (the hero, or the enemy before) to `to`; `link` 0 is the first.

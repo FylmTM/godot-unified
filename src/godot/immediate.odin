@@ -9,7 +9,9 @@
 package godot
 
 import "base:runtime"
+import "core:fmt"
 import "core:math"
+import "core:time"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
 import "unified:sim"
@@ -113,12 +115,52 @@ immediate_draw :: proc(draw: proc(d: ^Draw($G)), pair: ^State_Pair($State), alph
 		local_players = pair.local_players,
 		view_scale    = api.view_scale,
 	}
+	began := time.tick_now()
 	draw(&d)
+	drawn := time.tick_now()
 	for &batch in canvas.batches do batch_upload(&batch)
 	screen := transform_inverse(canvas.camera)
 	for layer in canvas.layers {
 		if layer.screen do gd.RenderingServer_canvas_item_set_transform(rendering_server, layer.item, screen)
 	}
+	draw_stats_add(time.tick_diff(began, drawn), time.tick_since(drawn))
+}
+
+// The render experiment's breakdown (`-- --draw-stats`): the game's draw and the batch uploads, averaged and printed
+// every DRAW_STATS_FRAMES frames.
+@(private)
+DRAW_STATS_FRAMES :: 2000
+
+@(private)
+draw_stats: struct {
+	checked, on:     bool,
+	frames:          int,
+	game, upload:    time.Duration,
+	quads, commands: int,
+}
+
+@(private)
+draw_stats_add :: proc(game, upload: time.Duration) {
+	stats := &draw_stats
+	if !stats.checked {
+		stats.checked = true
+		for arg in user_args() do stats.on ||= arg == "--draw-stats"
+	}
+	if !stats.on do return
+	stats.frames += 1
+	stats.game += game
+	stats.upload += upload
+	for batch in canvas.batches do stats.quads += len(batch.data) / BATCH_STRIDE
+	if stats.frames < DRAW_STATS_FRAMES do return
+	frames := f64(stats.frames)
+	fmt.printfln(
+		"immediate: per frame over %d: game draw %.1f us, batch uploads %.1f us, %.0f quads",
+		stats.frames,
+		time.duration_microseconds(stats.game) / frames,
+		time.duration_microseconds(stats.upload) / frames,
+		f64(stats.quads) / frames,
+	)
+	stats.frames, stats.game, stats.upload, stats.quads = 0, 0, 0, 0
 }
 
 // Makes the canvas on the first draw: false while the session has no CanvasItem root to draw under.
@@ -319,27 +361,31 @@ quad :: proc(
 	color: Color = {1, 1, 1, 1},
 	custom: [4]f32 = {},
 ) {
-	sin, cos := math.sincos(turns * math.TAU)
+	dir := [2]f32{1, 0}
+	if turns != 0 {
+		sin, cos := math.sincos(turns * math.TAU)
+		dir = {cos, sin}
+	}
+	quad_dir(batch, pos, dir, scale, color, custom)
+}
+
+// quad turned to face `dir`, a unit vector (a heading straight from a velocity: no angle, no trigonometry).
+quad_dir :: proc(
+	batch: Batch,
+	pos: [2]f32,
+	dir: [2]f32,
+	scale: [2]f32 = {1, 1},
+	color: Color = {1, 1, 1, 1},
+	custom: [4]f32 = {},
+) {
 	data := &canvas.batches[batch].data
-	append(
-		data,
-		cos * scale.x,
-		-sin * scale.y,
-		0,
-		pos.x,
-		sin * scale.x,
-		cos * scale.y,
-		0,
-		pos.y,
-		color.r,
-		color.g,
-		color.b,
-		color.a,
-		custom[0],
-		custom[1],
-		custom[2],
-		custom[3],
-	)
+	at := len(data)
+	non_zero_resize(data, at + BATCH_STRIDE)
+	out := data[at:][:BATCH_STRIDE]
+	out[0], out[1], out[2], out[3] = dir.x * scale.x, -dir.y * scale.y, 0, pos.x
+	out[4], out[5], out[6], out[7] = dir.y * scale.x, dir.x * scale.y, 0, pos.y
+	out[8], out[9], out[10], out[11] = color.r, color.g, color.b, color.a
+	out[12], out[13], out[14], out[15] = custom[0], custom[1], custom[2], custom[3]
 }
 
 // Hands a batch's instances to its MultiMesh: room grown when needed, the buffer in one call.
