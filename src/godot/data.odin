@@ -35,10 +35,10 @@ Data_Layout :: struct {
 }
 
 // A struct as a class (Data_Role: session data, the constants, the input values, a nested struct, a view kind) and its
-// one live instance (none for a nested struct or a view kind: a new value per read).
+// one live instance (none for a nested struct, a view kind or the Setup: values, made as they are needed).
 Data_Class :: struct {
 	using class: gd.Class,
-	class_sn:    ^gd.StringName, // its name, interned: a nested value is made per read
+	class_sn:    ^gd.StringName, // its name, interned: a nested value is made when a read finds none to reuse
 	layout:      Data_Layout,
 	role:        Data_Role,
 	fields:      []Sim_Field,
@@ -51,6 +51,8 @@ Data_Class :: struct {
 Data_Object :: struct {
 	using hdr: gd.Instance_Header,
 	bytes:     []u8,
+	caches:    []Value_Cache, // its nested fields' cached values, by field (nested_cache.odin; nil until the first read)
+	cache:     ^Value_Cache, // the cached value it is in (nil: none, or let go): a set field detaches that value
 }
 
 // An enum type as a class of integer constants (EnumView: the View union's kinds, by index).
@@ -249,7 +251,7 @@ nested_types_of :: proc(types: []^runtime.Type_Info, out: ^[dynamic]^runtime.Typ
 
 // Registers a class per nested struct type (Glue types and the event and command unions: nested_types_of), named
 // `Data` + its type name in PascalCase (Hud_Player -> DataHudPlayer): a RefCounted value whose fields a script reads
-// and sets. A field of that type reads as a new object of it; a command's takes one.
+// and sets. A field of that type reads as an object of it (its cached one: nested_cache.odin); a command's takes one.
 register_nested_classes :: proc() {
 	context.allocator = runtime.heap_allocator()
 	if !api.installed do return
@@ -438,11 +440,14 @@ Data_Role :: enum u8 {
 	Data, // a session data type: one live instance, set from the frames, `changed`
 	Constants, // UnifiedConstants: one live instance, set at load
 	Input, // UnifiedInput: one live instance, set by scripts, read by sample_input
-	Nested, // a nested struct: a RefCounted value per read, settable
+	Nested, // a nested struct: a RefCounted value, cached per field (nested_cache.odin), settable
 	View, // a view kind's data (ViewCard): a RefCounted value per change, the root script's `data`; settable
 	Setup, // UnifiedSetup: a RefCounted value (new(): the game's default Setup), settable; start_single(setup)
 	Profile, // UnifiedProfile: one live instance (Unified.profile), set by scripts, sent when a session starts
 }
+
+// The editor's help on reading nested values (nested_cache.odin), in the classes whose fields hold them.
+NESTED_READS_DOC :: "A field that reads as an object (a nested struct's class), an Array or a Dictionary gives the same value on every read while the field's bytes don't change. An object a script holds never changes under it, and one whose field a script sets is that script's own: the next read gives another. Such an Array or Dictionary is read-only: [code]duplicate()[/code] gives one to change."
 
 register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class {
 	if gdi.classdb_get_class_tag(gd.sn(layout.class)) != nil {
@@ -469,7 +474,11 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 				object.bytes = make([]u8, type.size if type != nil else 0, runtime.heap_allocator())
 				if data_class.role == .Setup do copy(object.bytes, api.setup_default) // the game's, Game.setup
 			},
-			fini = proc(instance: rawptr) {delete((^Data_Object)(instance).bytes, runtime.heap_allocator())},
+			fini = proc(instance: rawptr) {
+				object := (^Data_Object)(instance)
+				value_caches_free(&object.caches)
+				delete(object.bytes, runtime.heap_allocator())
+			},
 		},
 		layout = layout,
 		role = role,
@@ -479,8 +488,9 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 	case .Data:
 		data_class.doc_brief = fmt.aprintf("The game's session data %v.", type_name)
 		data_class.doc = fmt.aprintf(
-			"[code]Unified.data.%s[/code]: the newest tick's values (fill_frame: push_data), zero outside a session.",
+			"[code]Unified.data.%s[/code]: the newest tick's values (fill_frame: push_data), zero outside a session. %s",
 			layout.property,
+			NESTED_READS_DOC,
 		)
 	case .Constants:
 		data_class.doc_brief = "The game's constants (what godot.init's constants proc returned): [code]Unified.constants[/code]."
@@ -490,10 +500,14 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 		data_class.doc = "What only scripts know for the game's input sampling (a camera's look direction): set each field every frame; sample_input reads the latest. No members when the game has none."
 	case .Nested:
 		data_class.doc_brief = fmt.aprintf("The game's struct %v, nested in its events, commands or data.", type_name)
-		data_class.doc = "A value: each read of a field of this type makes a new one. Set its fields to put it into a command."
+		data_class.doc =
+			"A value: a read of a field of this type gives the same object while the field's bytes don't change; it never changes while a script holds it (a change makes another), and it is yours once you set one of its fields (the next read gives another). Set its fields to put it into a command. " +
+			NESTED_READS_DOC
 	case .View:
 		data_class.doc_brief = fmt.aprintf("The data of the game's view kind %v.", type_name)
-		data_class.doc = "A scene view's [code]data[/code] (its root script declares [code]var data: ...[/code] of this class): a new value each time the view's data changes, set before the view's [code]_ready[/code], so a setter sees the old value and the new one. Positions are in view units. No members for a kind without data."
+		data_class.doc =
+			"A scene view's [code]data[/code] (its root script declares [code]var data: ...[/code] of this class): a new value each time the view's data changes, set before the view's [code]_ready[/code], so a setter sees the old value and the new one. Positions are in view units. No members for a kind without data. " +
+			NESTED_READS_DOC
 	case .Setup:
 		data_class.doc_brief = "The game's session Setup (sim.Game's Setup): what differs between two sessions of this build."
 		data_class.doc = "A value: [code]UnifiedSetup.new()[/code] starts as the game's default (Game.setup); set its fields and pass it to [method UnifiedSession.start_single], [method UnifiedSession.host_online] or [method UnifiedSession.host_direct]. [member UnifiedSession.setup] reads the running session's. No members when the game has none."
@@ -564,21 +578,25 @@ setup_of_json :: proc(text: string) -> (bytes: []u8, problem: string) {
 }
 
 // A data object's field: session data and constants hold the sim's bytes (positions in sim units), input values and
-// nested values what scripts read and set (view units).
+// nested values what scripts read and set (view units). A nested field reads as its cached value (nested_cache.odin).
 data_field_get :: proc(user: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
 	field := (^Sim_Field)(user)
 	object := (^Data_Object)(instance)
-	role := (^Data_Class)(object.class).role
-	units: Units = role == .Data || role == .Constants ? .Sim : .View
-	return field_variant(field.type, object.bytes[field.offset:][:field.type.size], units)
+	data_class := (^Data_Class)(object.class)
+	units: Units = data_class.role == .Data || data_class.role == .Constants ? .Sim : .View
+	bytes := object.bytes[field.offset:][:field.type.size]
+	return cached_field_variant(&object.caches, len(data_class.fields), field, bytes, units)
 }
 
+// A set field of a nested object that is in a cached value detaches that value: the object is the script's own.
 data_field_set :: proc(user: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
 	field := (^Sim_Field)(user)
 	object := (^Data_Object)(instance)
 	if err := write_value(field.type, object.bytes[field.offset:][:field.type.size], args[0]); err != "" {
 		gd.print_error(fmt.tprintf("unified: %s.%s: %s", object.class.name, field.name, err))
+		return gd.variant_nil()
 	}
+	value_detach(object)
 	return gd.variant_nil()
 }
 
@@ -591,6 +609,7 @@ struct_sim_fields :: proc(type: ^runtime.Type_Info) -> []Sim_Field {
 		if strings.has_prefix(name, "_") do continue
 		kind, class_name := field_kind(info.types[i])
 		append(&fields, Sim_Field {
+			index      = len(fields),
 			name       = name,
 			name_sn    = gd.sn(name),
 			type       = info.types[i],

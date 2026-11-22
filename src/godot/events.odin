@@ -163,7 +163,9 @@ i32_at :: proc(bytes: []u8, i: int) -> i32 {
 }
 
 // A field's value (field_kind says as what), from bytes in `units` (.Sim: a sim.Position is mapped to view units).
-field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, units: Units) -> gd.Variant {
+// With a `cache` (a cached value being made: nested_cache.odin), every Array and Dictionary in it is read-only and
+// every nested object in it is one of the cache's members.
+field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, units: Units, cache: ^Value_Cache = nil) -> gd.Variant {
 	switch {
 	case type.id == sim.Position:
 		point := [3]f32{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2)}
@@ -185,7 +187,7 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, units: Units) -> gd
 		return gd.to_variant(gd.Quaternion{f32_at(bytes, 0), f32_at(bytes, 1), f32_at(bytes, 2), f32_at(bytes, 3)})
 	}
 	if collection, is_collection := collection_of(type); is_collection {
-		return collection_variant(type, collection, bytes, units)
+		return collection_variant(type, collection, bytes, units, cache)
 	}
 	#partial switch info in runtime.type_info_base(type).variant {
 	case runtime.Type_Info_Integer:
@@ -208,7 +210,7 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, units: Units) -> gd
 			if bits & (1 << uint(bit)) == 0 do continue
 			gd.array_push(&array, i64(bit) + info.lower)
 		}
-		return array_variant(&array)
+		return array_variant(&array, cache)
 	case runtime.Type_Info_Array:
 		#partial switch vector_kind(info.elem, info.count) {
 		case .VECTOR2:
@@ -224,13 +226,15 @@ field_variant :: proc(type: ^runtime.Type_Info, bytes: []u8, units: Units) -> gd
 		case .VECTOR4I:
 			return gd.to_variant(gd.Vector4i{i32_at(bytes, 0), i32_at(bytes, 1), i32_at(bytes, 2), i32_at(bytes, 3)})
 		}
-		return elements_variant(type, info.elem, info.elem_size, info.count, bytes, units)
+		return elements_variant(type, info.elem, info.elem_size, info.count, bytes, units, cache)
 	case runtime.Type_Info_Enumerated_Array:
-		return elements_variant(type, info.elem, info.elem_size, info.count, bytes, units) // by the enum's order
+		return elements_variant(type, info.elem, info.elem_size, info.count, bytes, units, cache) // by the enum's order
 	case runtime.Type_Info_Struct:
-		if nested := D.nested[type.id]; nested != nil do return nested_variant(nested, bytes, units)
+		if nested := D.nested[type.id]; nested != nil do return nested_variant(nested, bytes, units, cache)
 		dict := gd.dict_new()
-		struct_fields(&dict, type, bytes, units)
+		V.stats.nested_values += 1
+		struct_fields(&dict, type, bytes, units, cache)
+		if cache != nil do gd.Dictionary_make_read_only(&dict)
 		value := gd.to_variant(dict)
 		gd.Dictionary_destroy(&dict)
 		return value
@@ -244,21 +248,28 @@ elements_variant :: proc(
 	elem_size, count: int,
 	bytes: []u8,
 	units: Units,
+	cache: ^Value_Cache = nil,
 ) -> gd.Variant {
 	array := typed_array(type)
 	for i in 0 ..< count {
-		element := field_variant(elem, bytes[i * elem_size:][:elem.size], units)
+		element := field_variant(elem, bytes[i * elem_size:][:elem.size], units, cache)
 		gd.Array_push_back(&array, element)
 		gdi.variant_destroy(&element)
 	}
-	return array_variant(&array)
+	return array_variant(&array, cache)
 }
 
 // A nested struct's value: a new object of its class holding a copy of the bytes, in view units (a script may set its
-// fields and put it into a command).
-nested_variant :: proc(nested: ^Data_Class, bytes: []u8, units: Units) -> gd.Variant {
+// fields and put it into a command). In a cached value (`cache`) it is one of the cache's members: a script that sets
+// one of its fields detaches the cached value.
+nested_variant :: proc(nested: ^Data_Class, bytes: []u8, units: Units, cache: ^Value_Cache = nil) -> gd.Variant {
 	object := gd.Object{gd.construct_object_named(nested.class_sn)}
-	nested_fill(nested, object, bytes, units)
+	V.stats.nested_values += 1
+	instance := nested_fill(nested, object, bytes, units)
+	if cache != nil {
+		instance.cache = cache
+		append(&cache.members, instance)
+	}
 	// the Variant holds a reference and ours goes: the object lives as long as a script keeps it
 	value := gd.variant_from_any(object)
 	gd.unref(transmute(gd.RefCounted)object)
@@ -266,7 +277,7 @@ nested_variant :: proc(nested: ^Data_Class, bytes: []u8, units: Units) -> gd.Var
 }
 
 // Copies a value's bytes into an object of its class, its positions mapped to view units when they are in sim units.
-nested_fill :: proc(nested: ^Data_Class, object: gd.Object, bytes: []u8, units: Units) {
+nested_fill :: proc(nested: ^Data_Class, object: gd.Object, bytes: []u8, units: Units) -> ^Data_Object {
 	instance := (^Data_Object)(gd.instance_of(object, &nested.class))
 	copy(instance.bytes, bytes)
 	if units == .Sim {
@@ -275,16 +286,23 @@ nested_fill :: proc(nested: ^Data_Class, object: gd.Object, bytes: []u8, units: 
 			position^ = sim.Position(to_view_units(([3]f32)(position^)))
 		}
 	}
+	return instance
 }
 
 // An anonymous struct (it has no class): its fields into a Dictionary (`_` fields are padding).
-struct_fields :: proc(dict: ^gd.Dictionary, type: ^runtime.Type_Info, data: []u8, units: Units) {
+struct_fields :: proc(
+	dict: ^gd.Dictionary,
+	type: ^runtime.Type_Info,
+	data: []u8,
+	units: Units,
+	cache: ^Value_Cache = nil,
+) {
 	info := runtime.type_info_base(type).variant.(runtime.Type_Info_Struct)
 	for i in 0 ..< int(info.field_count) {
 		name := info.names[i]
 		if strings.has_prefix(name, "_") do continue
 		field := info.types[i]
-		value := field_variant(field, data[info.offsets[i]:][:field.size], units)
+		value := field_variant(field, data[info.offsets[i]:][:field.size], units, cache)
 		gd.dict_set(dict, name, value)
 		gdi.variant_destroy(&value)
 	}
@@ -293,6 +311,7 @@ struct_fields :: proc(dict: ^gd.Dictionary, type: ^runtime.Type_Info, data: []u8
 // A new Array for an array field, typed by its elements when it can be.
 typed_array :: proc(type: ^runtime.Type_Info) -> gd.Array {
 	array := gd.array_new()
+	V.stats.nested_values += 1
 	kind, element := field_kind(type)
 	if kind != .ARRAY || element == "" do return array
 	element_kind, _ := field_kind(array_elem(type))

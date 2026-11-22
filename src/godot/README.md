@@ -163,7 +163,7 @@ game's own `the_extension_installs` test (the template's) calls it, so `uni test
 
 The host registers a class per such type at load, one per **view kind** (`View_Card` -> `ViewCard`), plus one per
 **nested struct** any of them, the event and command unions, the Setup or the Profile hold (`Hud_Player` ->
-`DataHudPlayer`, a RefCounted value: each read is a new one, its fields settable, so a command can take it), and a
+`DataHudPlayer`, a RefCounted value whose fields are settable, so a command can take it), and a
 class per enum they use. The view kinds are plain like session data (the host compares their bytes too). The engine
 singleton `Unified` holds the data, the constants, the input values and the session. Godot classes have no namespaces,
 so prefixes group them (`Data`, `View`, `Event`, `Command`, `Enum`); a name that clashes with an existing class is an
@@ -188,6 +188,14 @@ everywhere:
 
 `_` fields are left out. Godot's own math types are refused at install: data maps by shape, so a game never imports
 `unified:gdext`.
+
+**Nested values** (a field that reads as an object of a nested struct's class, an `Array` or a `Dictionary`, in any of
+those classes: session data, view data, events, commands, constants...) are the same value on every read while the
+field's bytes don't change, so a HUD that reads `Unified.data` on every `changed` makes nothing for what didn't
+change. A value a script holds never changes under it, and one whose field a script sets is that script's own (the next
+read gives another), so a script can still change a value it read and put it into a command. Such an `Array` (or
+`Dictionary`) is read-only, also in an Array or an object it holds: changing one in place never reached the sim
+anyway; `duplicate()` gives one to change, and a settable field still takes a whole new one.
 
 **Events and commands** are classes too: one per kind of the event union (`extends UnifiedEvent`) and of the command
 union (`extends UnifiedCommand`), named `Event` / `Command` + the type in PascalCase without its prefix
@@ -278,7 +286,8 @@ the **verified** one, so a mispredicted change never shows and a rollback across
   costs no object. The host keeps the object it delivered last of each class and refills it for the next event of
   that class while no script holds it, so a heard event allocates nothing either. A script that keeps an event (in a
   member or an array; a `WeakRef` doesn't keep it) keeps it as it was; one that remembers only its instance id may
-  see that id again: an event is told by its `id`.
+  see that id again: an event is told by its `id`. Its nested fields are nested values (Data and classes): kept on
+  the reused object, the same while their bytes don't change.
 - **Where.** Each event, in each state, goes first to its subject's views: those pushed with a subject of its subject
   field's type and the same key (a `Handle(T)` reaches only views pushed with a `Handle(T)` of that table; an
   `Entity` the views pushed with that `Entity`, of any kind: the kinds that take Entity events share one index space,
@@ -376,6 +385,13 @@ that every view kind has a scene and every indexed kind is one of them.
   objects and refills the spare only when no script holds it, so a change makes no object (a script that keeps an old
   value keeps it unchanged: the view makes a new spare); a pooled view keeps its two across reuses. A root script
   without `data` for a kind that carries some is an error, once per kind.
+- **Nested values** (`nested_cache.odin`). Every object of the game's classes keeps one cached value per nested field,
+  made at the field's first read, with the bytes it was made from; a read whose bytes match returns it. When they
+  differ, a struct's object that only the cache holds (its reference count, as the view data's spare) is refilled in
+  place; otherwise the cache lets go of it, so a script that kept it keeps it unchanged, and makes another. An `Array`
+  is never refilled (an extension can't read an Array's reference count), only made anew, read-only. Each nested
+  object in a cached value points back at its cache, so a script that sets one of its fields detaches the value (a
+  struct element detaches its whole Array) and the next read makes a fresh one.
 - **Remote links** go through a live netsim (`netcode.netsim_live`) the dev UI's Conditions panel impairs.
 - **The dev UI** (`dev.odin`, the only file that reaches `unified:devui`) graphs the frame, the sim and the net, and
   feeds its panels. Dev UI builds also record the session as it is verified (a portable snapshot of the first saved

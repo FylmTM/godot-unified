@@ -27,6 +27,7 @@ Sim_Class :: struct {
 
 // A struct field as a Godot property (an event's or command's, a data class's, a view's data): struct_sim_fields.
 Sim_Field :: struct {
+	index:      int, // among its struct's fields (its cached value's, nested_cache.odin)
 	name:       string,
 	name_sn:    ^gd.StringName, // interned: a view's data sets it by name
 	type:       ^runtime.Type_Info,
@@ -46,7 +47,13 @@ Sim_Object :: struct {
 	tick:      i64, // an event's tick
 	id:        i64, // an event's id (the same in each of its states)
 	bad:       bool, // a command property was set to a wrong value (send_command refuses it)
+	caches:    []Value_Cache, // its nested fields' cached values, by field (nested_cache.odin; nil until the first read)
 	data:      [sim.EVENT_MAX]u8,
+}
+
+// Frees an event's or command's cached values (the object is freed).
+sim_object_fini :: proc(instance: rawptr) {
+	value_caches_free(&(^Sim_Object)(instance).caches)
 }
 
 event_base_class, command_base_class: gd.Class
@@ -104,7 +111,7 @@ register_sim_classes :: proc() {
 		parent    = "RefCounted",
 		size      = size_of(Sim_Object),
 		doc_brief = "One of the game's sim events: the base of its event classes.",
-		doc       = "Each kind of the game's event union is a class extending this one, named Event + its type name (Rock_Hit: [code]EventRockHit[/code]), with a property per field. Dispatch by class: [code]if event is EventRockHit: var hit := event as EventRockHit[/code].",
+		doc       = "Each kind of the game's event union is a class extending this one, named Event + its type name (Rock_Hit: [code]EventRockHit[/code]), with a property per field. Dispatch by class: [code]if event is EventRockHit: var hit := event as EventRockHit[/code]. " + NESTED_READS_DOC,
 	}
 	gd.register_class(&event_base_class)
 	gd.bind_property(
@@ -128,7 +135,7 @@ register_sim_classes :: proc() {
 		parent    = "RefCounted",
 		size      = size_of(Sim_Object),
 		doc_brief = "One of the game's commands: the base of its command classes.",
-		doc       = "Each kind of the game's command union is a class extending this one, named Command + its type name without Command_ (Command_Drop: [code]CommandDrop[/code]), with a property per field. Make one, set its fields, and send it with [method UnifiedSession.send_command].",
+		doc       = "Each kind of the game's command union is a class extending this one, named Command + its type name without Command_ (Command_Drop: [code]CommandDrop[/code]), with a property per field. Make one, set its fields, and send it with [method UnifiedSession.send_command]. " + NESTED_READS_DOC,
 	}
 	gd.register_class(&command_base_class)
 	for layout, kind in api.events do register_sim_class(layout.type, kind, true)
@@ -156,6 +163,7 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 			parent    = is_event ? "UnifiedEvent" : "UnifiedCommand",
 			native    = "RefCounted",
 			size      = size_of(Sim_Object),
+			fini      = sim_object_fini,
 			doc_brief = fmt.aprintf("The game's %s %v.", is_event ? "event" : "command", variant.id),
 			doc       = is_event ? "Reaches views ([code]_sim_event[/code]) and [signal UnifiedSession.sim_event] in each of its states." : "Set its fields and send it with [method UnifiedSession.send_command].",
 		},
@@ -187,12 +195,11 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 field_get :: proc(user: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
 	field := (^Sim_Field)(user)
 	object := (^Sim_Object)(instance)
+	sim_class := (^Sim_Class)(object.class)
 	// an event's bytes are the sim's; a command object's positions are what the script set (view units)
-	return field_variant(
-		field.type,
-		object.data[field.offset:][:field.type.size],
-		(^Sim_Class)(object.class).is_event ? .Sim : .View,
-	)
+	units: Units = sim_class.is_event ? .Sim : .View
+	bytes := object.data[field.offset:][:field.type.size]
+	return cached_field_variant(&object.caches, len(sim_class.fields), field, bytes, units)
 }
 
 field_set :: proc(user: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {

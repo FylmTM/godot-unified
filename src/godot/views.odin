@@ -157,6 +157,7 @@ Sync_Stats :: struct {
 	fresh:         int, // frames that showed a new tick
 	events:        int, // event deliveries (one per event state)
 	event_objects: int, // event objects made (none for an event nobody listens to, none while a spare is reused)
+	nested_values: int, // nested values made (field_variant: a nested struct's objects, an array's Arrays, Dictionaries)
 	scene:         time.Duration, // scene views: spawns, data, poses
 	spawns:        int, // scene views instanced (the kind's scene instantiated, its data set, added: its _ready)
 	spawn:         time.Duration, // their spawn_view

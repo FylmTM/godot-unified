@@ -72,8 +72,14 @@ collection_of :: proc(type: ^runtime.Type_Info) -> (collection: Collection, ok: 
 	return collection, true
 }
 
-// A collection's live items (a Bits' indices) as a typed Array.
-collection_variant :: proc(type: ^runtime.Type_Info, collection: Collection, bytes: []u8, units: Units) -> gd.Variant {
+// A collection's live items (a Bits' indices) as a typed Array (read-only in a cached value: field_variant).
+collection_variant :: proc(
+	type: ^runtime.Type_Info,
+	collection: Collection,
+	bytes: []u8,
+	units: Units,
+	cache: ^Value_Cache = nil,
+) -> gd.Variant {
 	array := typed_array(type)
 	if collection.kind == .Bits {
 		// word by word, each set bit by its trailing zeros (as sim.bits_next walks)
@@ -85,7 +91,7 @@ collection_variant :: proc(type: ^runtime.Type_Info, collection: Collection, byt
 				word &= word - 1
 			}
 		}
-		return array_variant(&array)
+		return array_variant(&array, cache)
 	}
 	count := min(int(read_uint(bytes[collection.count_at:][:collection.count_size])), collection.capacity)
 	head := 0
@@ -94,11 +100,11 @@ collection_variant :: proc(type: ^runtime.Type_Info, collection: Collection, byt
 	}
 	for k in 0 ..< count {
 		place := collection.items_at + (head + k) % collection.capacity * collection.elem_size
-		element := field_variant(collection.elem, bytes[place:][:collection.elem.size], units)
+		element := field_variant(collection.elem, bytes[place:][:collection.elem.size], units, cache)
 		gd.Array_push_back(&array, element)
 		gdi.variant_destroy(&element)
 	}
-	return array_variant(&array)
+	return array_variant(&array, cache)
 }
 
 // A collection from an Array a script set: its items in order (a Queue's head 0), each written as its field would be;
