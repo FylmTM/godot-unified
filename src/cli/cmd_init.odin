@@ -344,8 +344,9 @@ public_url :: proc(url: string) -> string {
 	return aprintf("https://github.com/%s.git", path)
 }
 
-// Writes template/repo/ (a game repo's own files, every one a .tmpl with __GAME__ for `name`) at `dir`'s root, LF line
-// endings whatever the checkout has; its .gitignore replaces the game's. Returns how many files are new.
+// Writes template/repo/ (a game repo's own files, every one a .tmpl with __GAME__ for `name`) at `dir`'s root, with the
+// line endings a checkout gives them (checkout_eol) whatever this checkout has; its .gitignore replaces the game's.
+// Returns how many files are new.
 write_repo_files :: proc(template, dir, name: string) -> int {
 	count := 0
 	for file in find_files(template, ".tmpl") {
@@ -355,10 +356,9 @@ write_repo_files :: proc(template, dir, name: string) -> int {
 			rel_path = aprintf(".%s", rel_path)
 		}
 		text, _ := strings.replace_all(must_read(file), "__GAME__", name)
-		text, _ = strings.replace_all(text, "\r\n", "\n")
 		path := join(dir, rel_path)
 		if !os.exists(path) do count += 1
-		write_text(path, text)
+		write_text(path, checkout_eol(path, text))
 	}
 	return count
 }

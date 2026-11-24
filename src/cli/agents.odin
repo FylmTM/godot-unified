@@ -152,3 +152,12 @@ lf :: proc(text: string) -> string {
 	out, _ := strings.replace_all(text, "\r\n", "\n")
 	return out
 }
+
+// `text` with the line endings a checkout gives the file at `path` (src/cli/README.md, Line endings): CRLF for a batch
+// file, LF for every other.
+@(private)
+checkout_eol :: proc(path, text: string) -> string {
+	if !strings.has_suffix(path, ".cmd") && !strings.has_suffix(path, ".bat") do return lf(text)
+	out, _ := strings.replace_all(lf(text), "\n", "\r\n")
+	return out
+}

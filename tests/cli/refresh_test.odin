@@ -50,6 +50,30 @@ refresh_retires_what_an_older_unified_copied_in :: proc(t: ^testing.T) {
 	testing.expect_value(t, state, "// desyncs after a rollback (unified/docs/gameplay.md).\n")
 	shim, _ := cli.read_text(cli.join(root, "uni"))
 	testing.expect(t, strings.contains(shim, "unified/uni"), "the shim runs the submodule's")
+	testing.expect(t, !strings.contains(shim, "\r"), "the sh shim has LF line endings")
+	cmd_shim, _ := cli.read_text(cli.join(root, "uni.cmd"))
+	testing.expect(
+		t,
+		strings.contains(cmd_shim, "\r\n"),
+		"the batch shim has CRLF line endings, as a checkout gives it",
+	)
+	testing.expect(t, !strings.contains(strings.trim_suffix(cmd_shim, "\r\n"), "\n\n"), "no doubled line ends")
+}
+
+// A repo's own files from init: a batch file as a checkout gives it (CRLF), every other file LF.
+@(test)
+init_writes_line_endings_as_a_checkout_gives_them :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	root, temp_err := os.make_directory_temp("", "unified-init-eol-test-*", context.allocator)
+	testing.expect(t, temp_err == nil)
+	defer os.remove_all(root)
+	cli.write_repo_files(cli.absolute_path(root, cli.join(UNIFIED_ROOT, cli.SHIM_TEMPLATES)), root, "eolgame")
+	cmd_shim, _ := cli.read_text(cli.join(root, "uni.cmd"))
+	testing.expect(t, strings.count(cmd_shim, "\r\n") == strings.count(cmd_shim, "\n"), "uni.cmd: CRLF on every line")
+	for name in ([]string{"uni", ".gitignore", ".gitattributes", "AGENTS.md"}) {
+		text, found := cli.read_text(cli.join(root, name))
+		testing.expectf(t, found && !strings.contains(text, "\r"), "%s: LF only", name)
+	}
 }
 
 // A game's own GUIDE.md (not unified's copy) is the game's: refresh neither names nor deletes it.

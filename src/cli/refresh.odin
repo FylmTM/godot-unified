@@ -65,7 +65,7 @@ write_refresh :: proc(unified, root: string) {
 	write_agents(unified, root)
 	for shim in SHIMS {
 		path := join(root, shim)
-		write_text(path, lf(must_read(join(unified, SHIM_TEMPLATES, aprintf("%s.tmpl", shim)))))
+		write_text(path, checkout_eol(path, must_read(join(unified, SHIM_TEMPLATES, aprintf("%s.tmpl", shim)))))
 	}
 	os.change_mode(join(root, "uni"), os.perm_number(0o755))
 	for retired in RETIRED {
