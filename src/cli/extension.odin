@@ -160,13 +160,13 @@ ensure_project_extension :: proc(dir, pkg, stem: string) {
 	log("uni: %s -> %s in %.2fs", rel(pkg), rel(build.out), seconds)
 }
 
-// The dev build of a test project's GDExtension (package `pkg`, library `stem`) to <dir>/.out/bin/, with the
+// The `mode` build of a test project's GDExtension (package `pkg`, library `stem`) to <dir>/.out/bin/, with the
 // project's view index (view_index_define) when it has view scenes: a test project's extension may not import
 // unified:godot, and Odin refuses a define nothing reads.
-project_extension_build :: proc(dir, pkg, stem: string) -> Build {
+project_extension_build :: proc(dir, pkg, stem: string, mode: Mode = .dev) -> Build {
 	flags: [dynamic]string
 	append(&flags, "-build-mode:dll")
-	append(&flags, ..mode_flags(.dev))
+	append(&flags, ..mode_flags(mode))
 	if index, _ := view_index(dir); index != "" do append(&flags, view_index_define(dir))
 	return {pkg = pkg, out = join(dir, ".out", "bin", lib_name(stem)), flags = flags[:]}
 }
