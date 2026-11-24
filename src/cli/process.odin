@@ -48,6 +48,10 @@ Proc :: struct {
 @(private)
 tmp_counter: int
 
+// How many capture files a collection could not remove (atomic): a child that held another's capture file (on
+// Windows, an inherited handle) keeps it past its removal. Each is logged; spawn's handle rule keeps this at 0.
+capture_leaks: int
+
 // Starts a process (see Run); `wait` collects it.
 start :: proc(spec: Run) -> Proc {
 	child := Proc {
@@ -190,8 +194,12 @@ collect :: proc(child: ^Proc, ran: Ran) -> Ran {
 		ran.stdout, _ = read_text(child.out_path)
 		ran.stderr, _ = read_text(child.err_path)
 		if child.run.log_to == "" {
-			os.remove(child.out_path)
-			os.remove(child.err_path)
+			for path in ([]string{child.out_path, child.err_path}) {
+				if os.remove(path) != nil {
+					sync.atomic_add(&capture_leaks, 1)
+					log("cannot remove %s (a process still holds it)", path)
+				}
+			}
 		}
 	}
 	return ran
