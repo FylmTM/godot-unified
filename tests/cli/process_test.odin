@@ -4,6 +4,7 @@ package test_cli
 import "core:os"
 import "core:strings"
 import "core:testing"
+import "core:time"
 import "unified:cli"
 
 // Children started together, each captured, the last still running when the others are collected: on Windows a child
@@ -29,8 +30,16 @@ captured_runs_leave_nothing_behind :: proc(t: ^testing.T) {
 	}
 	for ran in cli.run_all(runs) do testing.expect(t, ran.ok, "every run ends well")
 
-	entries, _ := os.read_all_directory_by_path(cli.join(dir, "tmp"), context.temp_allocator)
-	testing.expectf(t, len(entries) == 0, "%d files left in .out/tmp", len(entries))
+	// state.project.out is global: another test's run in flight writes its capture files here too and removes them
+	// moments later. A leak stays, so wait a little for the directory to empty before calling it one.
+	left := 0
+	for _ in 0 ..< 40 {
+		entries, _ := os.read_all_directory_by_path(cli.join(dir, "tmp"), context.temp_allocator)
+		left = len(entries)
+		if left == 0 do break
+		time.sleep(50 * time.Millisecond)
+	}
+	testing.expectf(t, left == 0, "%d files left in .out/tmp", left)
 }
 
 // Every process start in the repo's Odin code goes through cli.spawn: a start of core:os's own (os.process_start,
