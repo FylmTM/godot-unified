@@ -29,6 +29,7 @@ Session_Node :: struct {
 	args_read:   bool,
 	frame:       ^Frame_Data, // newest frame taken this process step (valid until the next one; nil once over)
 	ended:       bool, // the session's Result came: one more frame is taken (its last), then none
+	recorded:    bool, // the session's recording was saved (dev builds: at its Result, or when the node ends it)
 	over:        bool, // that last frame was shown: views keep their pose, nothing is synced until the next start
 	last_tick:   u32,
 	shown_time:  f64, // UnifiedSession.shown_time: the game time the views are posed at, in ticks
@@ -943,7 +944,7 @@ session_start :: proc(session: ^Session_Node, request: Start) -> bool {
 @(private)
 session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	session.frame = nil // it points into the finished session, which wait frees
-	session.ended, session.over = false, false
+	session.ended, session.over, session.recorded = false, false, false
 	session.saves_seen = 0
 	api.wait() // a finished session's thread
 	request := request
@@ -1015,6 +1016,10 @@ start_pending :: proc(session: ^Session_Node) {
 
 @(private)
 session_end :: proc(session: ^Session_Node) {
+	// The app quits or the node leaves the tree before the Result: its recording is saved now (from the verified
+	// ticks so far), before the session's goodbye and wait free it. Before clear_pending, which the mode depends on.
+	if !session.recorded do dev_save_recording(session)
+	session.recorded = true
 	clear_pending(session)
 	if api.installed {
 		api.hurry() // a goodbye of at most 1 s on the main thread, not 3 (an unreachable peer)
@@ -1207,7 +1212,8 @@ drain_messages :: proc(session: ^Session_Node) {
 			set_link_slow(session, message.tick != 0)
 		case .Result:
 			fmt.printfln("unified: result %s", api.result())
-			dev_save_recording(session)
+			if !session.recorded do dev_save_recording(session)
+			session.recorded = true
 			if !session.has_pending {
 				set_link_slow(session, false)
 				data_reset()

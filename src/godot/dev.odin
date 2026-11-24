@@ -380,9 +380,9 @@ when DEVUI {
 	// The session recordings kept under <user data>/recordings (the oldest beyond go when one is written).
 	RECORDINGS_KEPT :: 10
 
-	// Main thread, a live session's Result: its recording goes to <user data>/recordings/<local time>/
-	// (snapshot.unis, inputs.unil, session.json: what UnifiedSession.replay opens), keeping the newest
-	// RECORDINGS_KEPT.
+	// Main thread, a live session's Result, or the session node ending it first (an app quit): its recording goes to
+	// <user data>/recordings/<local time>/ (snapshot.unis, inputs.unil, session.json: what UnifiedSession.replay
+	// opens), keeping the newest RECORDINGS_KEPT.
 	dev_save_recording :: proc(session: ^Session_Node) {
 		snapshot, input_log: [dynamic]u8
 		defer delete(snapshot)

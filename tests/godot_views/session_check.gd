@@ -16,6 +16,8 @@
 #    host then a single player started at once: the newest start wins.
 # 9. event objects: none while nobody listens; one per class, refilled, while a listener keeps none; a new one for
 #    each event a listener keeps, never refilled.
+# 10. the session node leaves the tree mid-session (an app that quits the tree itself, or frees its play scene): the
+#    session's recording is kept all the same; back in the tree, the node runs sessions again.
 # Every run ends with UnifiedSession.quit while a sound plays: the quit stops it first, so no playback leaks at exit
 # (the suite fails on a leak).
 # (The LAN token's claim, each copy of a game a slot and a token of its own, is tested in tests/godot_driver.)
@@ -32,7 +34,7 @@ const REPLAY_TICKS := 48
 var s: Node
 var failed := 0
 var idle_end := 0.0
-var sections: Array[int] = [1, 2, 3, 4, 5, 6, 7, 8, 9]
+var sections: Array[int] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
 var _statuses: Array[String] = []
 var _started := false
 var _port := 0  # the port section 2 hosted on (section 3 hosts there again)
@@ -91,6 +93,8 @@ func _run() -> void:
 				went_on = await _restart()
 			9:
 				went_on = await _event_objects()
+			10:
+				went_on = await _left_the_tree()
 			_:
 				check("section %d exists" % section, false)
 				went_on = false
@@ -389,6 +393,34 @@ func _newest_recording(to_tick: int) -> String:
 		if info is Dictionary and int((info as Dictionary).get("to_tick", 0)) == to_tick:
 			return root + "/" + name
 	return ""
+
+
+# 10. the session node leaves the tree while its session runs: no Result comes, and the recording is kept anyway
+func _left_the_tree() -> bool:
+	check("start single player", s.start_single())
+	if not await _wait_for(func() -> bool: return s.local_player != 0 and s.tick > REPLAY_TICKS + 20, 5.0, "single player runs past the replay section's length"):
+		return false
+	s.paused = true
+	if not await _wait_for(func() -> bool: return s.paused, 2.0, "the session pauses"):
+		return false
+	await _sleep(0.3)  # every tick verified: its recording ends on the shown tick
+	var paused_on: int = s.tick
+	var root_dir := OS.get_user_data_dir() + "/recordings"
+	var before := Array(DirAccess.get_directories_at(root_dir))
+	root.remove_child(s)  # ends the session on the spot, as a quit of the tree does
+	var kept := ""
+	for name: String in DirAccess.get_directories_at(root_dir):
+		var info: Variant = JSON.parse_string(FileAccess.get_file_as_string(root_dir + "/" + name + "/session.json"))
+		if not before.has(name) and info is Dictionary and absi(int((info as Dictionary).get("to_tick", 0)) - paused_on) <= 2:
+			kept = name
+	check("a session ended by its node leaving the tree kept its recording", kept != "", "paused on %d" % paused_on)
+	s.request_ready()
+	root.add_child(s)
+	check("back in the tree, start single player", s.start_single())
+	if not await _wait_for(func() -> bool: return s.local_player != 0 and s.tick > 10, 5.0, "the node runs a session again"):
+		return false
+	s.leave()
+	return await _wait_for(func() -> bool: return not s.running, 5.0, "the session ends")
 
 
 # 8. starting on a running session, without a leave: the start leaves it first; the newest start wins

@@ -306,8 +306,9 @@ another build plays and says where it first computes differently). `local_player
 whoever recorded it at first, so a camera that tracks the local player's view follows them. It shows the verified
 timeline: what a client predicted is not in a recording.
 
-Every live session of a dev UI build is written to `<user data>/recordings/<local time>/` when it ends (the newest
-`RECORDINGS_KEPT` kept). A step back inside the sim's ring is a restore; further back, or forward past what was
+Every live session of a dev UI build is written to `<user data>/recordings/<local time>/` when it ends, also when the
+app quits or the session node leaves the tree first (then up to its last verified tick; the newest `RECORDINGS_KEPT`
+kept). A step back inside the sim's ring is a restore; further back, or forward past what was
 played, the replay loads the nearest portable snapshot it kept of a tick it passed and steps to the target without
 showing the ticks between. Such a jump starts a new epoch in the Frame: every view snaps, and the events of ticks
 entered again going forward arrive again. A note starts some seconds before its tick and pauses on it.
