@@ -908,6 +908,9 @@ setup_of :: proc(variant: ^gd.Variant, request: ^Start, method: string) -> bool 
 
 @(private)
 session_start :: proc(session: ^Session_Node, request: Start) -> bool {
+	// A start with no session running is a new attempt: its status is news even when it repeats the last one's (a join
+	// that fails as the one before it did), so status_changed must not take it for the same status again.
+	if !api.running() do session.status = .Idle
 	if !api.installed {
 		reason := "no game installed in this extension"
 		if len(api.problems) > 0 do reason = fmt.tprintf("the game %s failed to install: %s", api.game_name, api.problems[0])

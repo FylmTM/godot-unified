@@ -18,6 +18,7 @@
 #    each event a listener keeps, never refilled.
 # 10. the session node leaves the tree mid-session (an app that quits the tree itself, or frees its play scene): the
 #    session's recording is kept all the same; back in the tree, the node runs sessions again.
+# 11. a start that fails as the one before it did says so again (a second press of a menu's Join gets its answer).
 # Every run ends with UnifiedSession.quit while a sound plays: the quit stops it first, so no playback leaks at exit
 # (the suite fails on a leak).
 # (The LAN token's claim, each copy of a game a slot and a token of its own, is tested in tests/godot_driver.)
@@ -34,7 +35,7 @@ const REPLAY_TICKS := 48
 var s: Node
 var failed := 0
 var idle_end := 0.0
-var sections: Array[int] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10]
+var sections: Array[int] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
 var _statuses: Array[String] = []
 var _started := false
 var _port := 0  # the port section 2 hosted on (section 3 hosts there again)
@@ -95,6 +96,8 @@ func _run() -> void:
 				went_on = await _event_objects()
 			10:
 				went_on = await _left_the_tree()
+			11:
+				went_on = await _failed_twice()
 			_:
 				check("section %d exists" % section, false)
 				went_on = false
@@ -393,6 +396,16 @@ func _newest_recording(to_tick: int) -> String:
 		if info is Dictionary and int((info as Dictionary).get("to_tick", 0)) == to_tick:
 			return root + "/" + name
 	return ""
+
+
+# 11. the same failed start twice: each one's FAILED reaches the game
+func _failed_twice() -> bool:
+	for attempt: int in 2:
+		_statuses.clear()
+		s.join_online("ZZZZZZ")  # this test build has no online play: the start fails at once
+		await process_frame
+		check("failed join %d says so" % (attempt + 1), _statuses.size() == 1 and _statuses[0].begins_with("failed"), _statuses)
+	return true
 
 
 # 10. the session node leaves the tree while its session runs: no Result comes, and the recording is kept anyway
