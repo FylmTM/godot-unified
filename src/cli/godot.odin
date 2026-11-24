@@ -236,9 +236,10 @@ IMPORTED :: []string {
 	".csv",
 }
 
-// What an import depends on: global class names (class_name lines), new scripts (.uid files), imported assets (path
-// and time). Editing a script body or a scene needs no import, so the edit loop skips it. Walks what Godot scans: no
-// hidden entries, no directory holding a .gdignore (all of a unified submodule but its tools_godot/).
+// What an import depends on: global class names (class_name lines), new scripts (.uid files), imported assets and
+// their import settings (.import: path and time each). Editing a script body or a scene needs no import, so the edit
+// loop skips it. Walks what Godot scans: no hidden entries, no directory holding a .gdignore (all of a unified
+// submodule but its tools_godot/).
 @(private)
 import_signature :: proc(dir: string) -> string {
 	parts: [dynamic]string
@@ -265,7 +266,7 @@ import_signature :: proc(dir: string) -> string {
 					}
 				}
 				append(parts, aprintf("%s %v %v", relative, names[:], os.exists(aprintf("%s.uid", info.fullpath))))
-			} else if slice.contains(IMPORTED, ext) {
+			} else if slice.contains(IMPORTED, ext) || ext == ".import" {
 				append(parts, aprintf("%s %d", relative, time.to_unix_nanoseconds(info.modification_time)))
 			}
 		}
@@ -297,8 +298,8 @@ ensure_imported :: proc(dir: string) -> []string {
 }
 
 // Whether Godot's import cache of a project is current: its class cache exists (a fresh checkout has none) and the
-// import signature (class names, new scripts, imported assets; the mirrored shared code included) is the one the
-// last import recorded.
+// import signature (class names, new scripts, imported assets and their import settings; the mirrored shared code
+// included) is the one the last import recorded.
 import_current :: proc(dir: string) -> bool {
 	have, ok := read_text(join(dir, ".godot", "unified_import.sig"))
 	return ok && os.is_file(join(dir, ".godot", "global_script_class_cache.cfg")) && have == import_signature(dir)

@@ -18,7 +18,9 @@ paths:
   tool-script run fails on warnings).
 - Godot writes a `.uid` file next to every new script and shader: in a game, commit it with the file. The test
   projects (`tests/godot*`) git-ignore them: nothing there refers to a file by UID.
-- Never edit `.godot/` or `.import` files; they are Godot's cache.
+- Never edit `.godot/`: it is Godot's cache. An asset's `.import` file is its import settings, which Godot writes
+  and the game commits: change a setting in its `[params]` (new files take theirs from `project.godot`'s
+  `[importer_defaults]`), keep its `uid`, and the next `uni` command re-imports it.
 - `res://unified/tools_godot/` is unified's `tools_godot/` (the library's tool scripts): a game repo's submodule, or a
   git-ignored mirror in unified's own projects. Change it in unified, never in a game. Everything else in a game is
   the game's own.

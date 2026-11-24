@@ -327,8 +327,10 @@ config_readers_take_crlf :: proc(t: ^testing.T) {
 	testing.expect_value(t, pairs[0], [2]string{"UNIFIED_GODOT", "/opt/godot"})
 }
 
+// The import stays current through a script body's edit, and goes stale when a class name, an asset or its import
+// settings (.import) change, or when the class cache is gone.
 @(test)
-import_current_follows_class_names_and_the_cache :: proc(t: ^testing.T) {
+import_current_follows_class_names_assets_and_the_cache :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
 	dir, temp_err := os.make_directory_temp("", "unified-cli-import-*", context.allocator)
 	testing.expect(t, temp_err == nil)
@@ -348,6 +350,12 @@ import_current_follows_class_names_and_the_cache :: proc(t: ^testing.T) {
 	testing.expect(t, !cli.import_current(dir), "the mirrored tool scripts gained a class")
 	cli.import_mark_current(dir)
 	testing.expect(t, cli.import_current(dir))
+	write(dir, "art/rock.png", "png")
+	testing.expect(t, !cli.import_current(dir), "a new asset")
+	cli.import_mark_current(dir)
+	write(dir, "art/rock.png.import", "[params]\n")
+	testing.expect(t, !cli.import_current(dir), "an asset's import settings changed")
+	cli.import_mark_current(dir)
 	os.remove(cli.join(dir, ".godot", "global_script_class_cache.cfg"))
 	testing.expect(t, !cli.import_current(dir), "the class cache is gone")
 }
