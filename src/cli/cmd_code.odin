@@ -332,8 +332,8 @@ fmt_files :: proc(exe: string, srcs: []string, check: bool, config := "") -> []s
 
 // Claude Code's PostToolUse hook (.claude/settings.json): formats the one .odin file an Edit or Write touched, named
 // in the hook's JSON on stdin. The file's own project is the nearest directory above it with a `uni` shim, so an edit
-// in a git worktree of this checkout (.claude/worktrees/<name>/) is formatted too, with its own odinfmt.json. Never
-// blocks the agent: anything unexpected (not Odin, outside the formatted directories, a file that doesn't parse yet)
+// in a git worktree of this checkout (.claude/worktrees/<name>/) is formatted too, with its own odinfmt.json. Builds
+// odinfmt when the project has none yet (a fresh game repo). Never blocks the agent: anything unexpected (not Odin, outside the formatted directories, a file that doesn't parse yet)
 // is skipped quietly; `fmt --check` in `verify` and CI is the gate.
 @(private)
 fmt_hook :: proc() -> ! {
@@ -367,10 +367,11 @@ fmt_hook :: proc() -> ! {
 		slashed, _ := strings.replace_all(dir, "\\", "/")
 		inside ||= strings.has_prefix(path, aprintf("%s/", slashed))
 	}
-	exe := join(state.project.out, "odinfmt", aprintf("odinfmt%s", EXE))
-	if !inside || !os.is_file(path) || !os.is_file(exe) {
+	if !inside || !os.is_file(path) {
 		os.exit(0)
 	}
+	// built on the first edit in a fresh repo (a minute at most, once), not skipped: a skipped edit fails fmt --check
+	exe := ensure_odinfmt()
 	config := join(root, "odinfmt.json")
 	if !os.is_file(config) {
 		config = join(root, "unified", "odinfmt.json") // a game repo: the submodule's

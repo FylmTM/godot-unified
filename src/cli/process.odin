@@ -72,7 +72,10 @@ start :: proc(spec: Run) -> Proc {
 		base := spec.log_to
 		if base == "" {
 			index := sync.atomic_add(&tmp_counter, 1)
-			base = join(state.project.out, "tmp", aprintf("%d-%d", os.get_pid(), index))
+			// no project (a test calling the library): the system's temp directory, never the working directory
+			out := state.project.out
+			if out == "" do out, _ = os.temp_directory(context.temp_allocator)
+			base = join(out, "tmp", aprintf("%d-%d", os.get_pid(), index))
 		}
 		make_dirs(os.dir(base))
 		child.out_path = aprintf("%s.stdout", base)

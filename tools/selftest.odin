@@ -408,6 +408,16 @@ check_init :: proc(game, head: string) -> string {
 	if problems := cli.refresh_problems(cli.join(game, "unified"), game); len(problems) > 0 {
 		return cli.aprintf("what unified ships is not the submodule's: %s", strings.join(problems, "; "))
 	}
+	// refresh_problems passes an untracked shim: init must have staged it, executable
+	shim := cli.run_proc(
+		{cmd = cli.strs("git", "-C", game, "ls-files", "--stage", "--", "uni"), capture = true, quiet = true},
+	)
+	if !strings.has_prefix(shim.stdout, "100755") {
+		return cli.aprintf("uni is not staged executable: %q", strings.trim_space(shim.stdout))
+	}
+	for starter in cli.STARTERS {
+		if !os.is_file(cli.join(game, starter.path)) do return cli.aprintf("the starter %s is missing", starter.path)
+	}
 	for gone in ([]string{"GUIDE.md", "unified_index.tres", "addons"}) {
 		if os.exists(cli.join(game, gone)) do return cli.aprintf("the new game repo holds %s, which unified keeps", gone)
 	}

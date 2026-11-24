@@ -38,7 +38,8 @@ example games in `examples/` prove it.
   (`src/cli/README.md`). Agents must know exactly how to operate everything: keep `uni help` and each command's `-h`
   current.
 - **Don't name products we take ideas from, or the developer's other games, in repo files** (the one line above
-  aside). Describe designs on their own terms. Dependencies we use (Godot, Box3D, EOS, ...) are named normally.
+  aside). Describe designs on their own terms. Dependencies we use (Godot, Box3D, EOS, ...) are named normally, and
+  so is the demo game, Crypt Crew (`FylmTM/godot-unified-demo`): it is unified's own.
 - **Design for the library, not the demo.** Every change considers how `unified` will be used as a library by
   several co-op games with Godot, now and later.
 
@@ -50,6 +51,10 @@ example games in `examples/` prove it.
   Don't dispatch extra runs as routine: `gh workflow run ci.yml --ref <branch>` is only for re-checking something on
   demand. macOS never blocks a merge (its runners are often out of capacity): the run on `main` after the merge is
   the macOS check, and a red macOS on `main` is fixed before anything else merges.
+- **The demo game is the testing ground.** A change a game can see (`src/`, `tools_godot/`, `pins.cfg`, the shims,
+  `odinfmt.json`, the `unified-*` skills, the docs a game reads) is checked against Crypt Crew
+  (`FylmTM/godot-unified-demo`) before it is done, and the demo's submodule is bumped once it is on `main`: the
+  `demo-game` skill.
 - CI must stay fast. Every platform runs `uni bench` (each game's standard benchmarks; reported, not gated).
 - Commit messages end with the co-author line. Docs stay lean: fold what we learn into the right doc, delete what
   stops being true. History lives in git.

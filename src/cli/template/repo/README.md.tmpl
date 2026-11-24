@@ -24,7 +24,8 @@ yours from here, starting with the design below (a draft skeleton: the game's ru
   GDScript reads the sim; input and commands are the only way in.
 - `tools/`: this game's CLI (unified's public commands, plus the game's own).
 - `unified/`: unified, as a git submodule. Local paths (a Godot install, the EOS SDK) go in a git-ignored `.env`.
-- `AGENTS.md`, `.claude/skills/`: for coding agents (`unified/docs/agent-guide.md`).
+- `AGENTS.md`, `.claude/`: for coding agents (`unified/docs/agent-guide.md`). `ols.json`: the editor's Odin language
+  server. `odinfmt.json`: the format, unified's (`uni refresh` keeps it so).
 
 ## What to take from where
 

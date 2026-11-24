@@ -118,13 +118,13 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "init",
-			summary = "a new game repo: the template game, shims, tools/main.odin, .gitignore, .gitattributes, the unified submodule (pinned to main's commit, or --ref); --in-repo: the template game inside this checkout (its tests join the test compile by themselves)",
+			summary = "a new game repo: the template game, shims (uni staged executable), tools/main.odin, .gitignore, .gitattributes, odinfmt.json, the starters (.claude/settings.json, ols.json), the unified submodule (pinned to main's commit, or --ref); --in-repo: the template game inside this checkout (its tests join the test compile by themselves)",
 			options = option_types(Init_Opts),
 			run     = cmd_init,
 		},
 		{
 			name    = "refresh",
-			summary = "a game repo: bring what unified ships into it in line with the unified submodule (init writes it; after a bump, vet fails until this runs): AGENTS.md's marked section, unified's skills in .claude/skills/, the shims; and retire what an older unified copied in (GUIDE.md, unified_index.tres, the addons/unified mirror, its .gitignore line and export filter)",
+			summary = "a game repo: bring what unified ships into it in line with the unified submodule (init writes it; after a bump, vet fails until this runs): AGENTS.md's marked section, unified's skills in .claude/skills/, the shims (uni marked executable in git), odinfmt.json, a missing starter (.claude/settings.json, ols.json; never one the game has); and retire what an older unified copied in (GUIDE.md, unified_index.tres, the addons/unified mirror, its .gitignore line and export filter)",
 			options = option_types(Refresh_Opts),
 			run     = cmd_refresh,
 		},

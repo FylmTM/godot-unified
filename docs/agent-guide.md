@@ -49,14 +49,19 @@ pinned unified:
   game's.
 - **unified's skills**: every `unified-*` directory of `unified/.claude/skills/`, copied into the repo's
   `.claude/skills/`. The prefix marks them as unified's; the game's own skills take other names.
-- **The shims**, `uni` and `uni.cmd`: two lines each that run the submodule's own shim for this repo.
+- **The shims**, `uni` and `uni.cmd`: two lines each that run the submodule's own shim for this repo, `uni` tracked
+  executable.
+- **`odinfmt.json`**, unified's format, at the root where the editor looks for it.
+- **The starters**, the game's once written: `.claude/settings.json` (an agent's every Odin edit formatted) and
+  `ols.json` (the editor's language server); `uni doc cli STARTERS` says what each does.
 
 Nothing else of unified's is in the repo: the docs stay in `unified/docs/`, and Godot reads unified's tool scripts in
 place at `res://unified/tools_godot/` (every other directory of unified holds a `.gdignore`). After a submodule bump,
 `./uni refresh` brings the repo in line: the marked section, the `unified-*` skills (added, rewritten, or removed
-when unified no longer ships one), the shims, and what an older unified copied in (`GUIDE.md`, `unified_index.tres`,
-an `addons/unified/` mirror, its `.gitignore` line and export filter) retired. Nothing else is touched. Until then
-`./uni vet` fails, naming each difference. Inside unified, the `unified-*` skills are the source and also its own;
+when unified no longer ships one), the shims (`uni` marked executable in the git index, which a Windows checkout
+drops), `odinfmt.json`, a missing starter (never one the game has), and what an older unified copied in
+(`GUIDE.md`, `unified_index.tres`, an `addons/unified/` mirror, its `.gitignore` line and export filter) retired.
+Nothing else is touched, and nothing is staged but the shim's mode. Until then `./uni vet` fails, naming each difference. Inside unified, the `unified-*` skills are the source and also its own;
 its other skills are for working on unified itself.
 
 **Why copies, not a Claude Code plugin.** A plugin loaded from the submodule as a directory marketplace does load,

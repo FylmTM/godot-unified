@@ -1,5 +1,6 @@
 package test_cli
 
+import "core:encoding/json"
 import "core:os"
 import "core:strings"
 import "core:testing"
@@ -67,7 +68,7 @@ init_writes_line_endings_as_a_checkout_gives_them :: proc(t: ^testing.T) {
 	root, temp_err := os.make_directory_temp("", "unified-init-eol-test-*", context.allocator)
 	testing.expect(t, temp_err == nil)
 	defer os.remove_all(root)
-	cli.write_repo_files(cli.absolute_path(root, cli.join(UNIFIED_ROOT, cli.SHIM_TEMPLATES)), root, "eolgame")
+	cli.write_repo_files(cli.absolute_path(root, cli.join(UNIFIED_ROOT, cli.REPO_TEMPLATE)), root, "eolgame")
 	cmd_shim, _ := cli.read_text(cli.join(root, "uni.cmd"))
 	testing.expect(t, strings.count(cmd_shim, "\r\n") == strings.count(cmd_shim, "\n"), "uni.cmd: CRLF on every line")
 	for name in ([]string{"uni", ".gitignore", ".gitattributes", "AGENTS.md"}) {
@@ -88,4 +89,98 @@ refresh_keeps_a_games_own_files :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(cli.refresh_problems(UNIFIED_ROOT, root)), 0)
 	cli.write_refresh(UNIFIED_ROOT, root)
 	testing.expect(t, os.is_file(cli.join(root, "GUIDE.md")))
+}
+
+// The starters: write_refresh writes a missing one, from a template that parses, and keeps the game's own; they are
+// never a problem. odinfmt.json is unified's: a missing or changed one is.
+@(test)
+refresh_writes_missing_starters_and_keeps_the_games :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	root, temp_err := os.make_directory_temp("", "unified-refresh-test-*", context.allocator)
+	testing.expect(t, temp_err == nil)
+	defer os.remove_all(root)
+	problems := strings.join(cli.refresh_problems(UNIFIED_ROOT, root), "\n")
+	testing.expectf(
+		t,
+		strings.contains(problems, "odinfmt.json"),
+		"refresh_problems names odinfmt.json:\n%s",
+		problems,
+	)
+	cli.write_refresh(UNIFIED_ROOT, root)
+	for starter in cli.STARTERS {
+		text, found := cli.read_text(cli.join(root, starter.path))
+		value, parse_err := json.parse_string(text)
+		testing.expectf(t, found && parse_err == nil, "%s: written and valid JSON (%v)", starter.path, parse_err)
+		json.destroy_value(value)
+	}
+	cli.write_text(cli.join(root, "ols.json"), "{\"the game's\": true}\n")
+	cli.write_refresh(UNIFIED_ROOT, root)
+	ols, _ := cli.read_text(cli.join(root, "ols.json"))
+	testing.expect_value(t, ols, "{\"the game's\": true}\n")
+	testing.expect_value(t, len(cli.refresh_problems(UNIFIED_ROOT, root)), 0)
+	cli.write_text(cli.join(root, "odinfmt.json"), "{}\n")
+	problems = strings.join(cli.refresh_problems(UNIFIED_ROOT, root), "\n")
+	testing.expectf(t, strings.contains(problems, "odinfmt.json"), "a changed odinfmt.json is named:\n%s", problems)
+}
+
+// The game's settings.json starter runs the same format hook as unified's own: one command, kept in step.
+@(test)
+settings_starter_runs_unifieds_format_hook :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	Settings :: struct {
+		hooks: struct {
+			PostToolUse: []struct {
+				matcher: string,
+				hooks:   []struct {
+					command: string,
+				},
+			},
+		},
+	}
+	command :: proc(t: ^testing.T, path: string) -> string {
+		settings: Settings
+		text, found := cli.read_text(path)
+		testing.expectf(t, found && json.unmarshal_string(text, &settings) == nil, "%s parses", path)
+		if len(settings.hooks.PostToolUse) == 0 || len(settings.hooks.PostToolUse[0].hooks) == 0 do return ""
+		return settings.hooks.PostToolUse[0].hooks[0].command
+	}
+	starter := command(t, cli.join(UNIFIED_ROOT, cli.STARTER_TEMPLATES, "settings.json"))
+	testing.expect(t, strings.contains(starter, "fmt --hook"))
+	testing.expect_value(t, starter, command(t, cli.join(UNIFIED_ROOT, ".claude", "settings.json")))
+}
+
+// A `uni` shim committed without its executable bit (what a Windows checkout does): refresh_problems names it and
+// write_refresh marks the mode executable in the index, leaving its staged content as it was. An untracked shim is no
+// problem.
+@(test)
+refresh_marks_the_shim_executable_in_git :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	root, temp_err := os.make_directory_temp("", "unified-refresh-test-*", context.allocator)
+	testing.expect(t, temp_err == nil)
+	defer os.remove_all(root)
+	git :: proc(root: string, args: ..string) -> string {
+		cmd := make([dynamic]string)
+		append(&cmd, cli.git(), "-C", root)
+		append(&cmd, ..args)
+		return cli.run_proc({cmd = cmd[:], capture = true, quiet = true}).stdout
+	}
+	git(root, "init", "-q")
+	cli.write_refresh(UNIFIED_ROOT, root)
+	testing.expect_value(t, len(cli.refresh_problems(UNIFIED_ROOT, root)), 0)
+	cli.write_text(cli.join(root, "uni"), "#!/bin/sh\n# an older shim\n")
+	git(root, "add", "--chmod=-x", "--", "uni")
+	staged := strings.fields(git(root, "ls-files", "--stage", "--", "uni"))
+	problems := strings.join(cli.refresh_problems(UNIFIED_ROOT, root), "\n")
+	testing.expectf(
+		t,
+		strings.contains(problems, "uni: not executable"),
+		"refresh_problems names the mode:\n%s",
+		problems,
+	)
+	cli.write_refresh(UNIFIED_ROOT, root)
+	refreshed := strings.fields(git(root, "ls-files", "--stage", "--", "uni"))
+	testing.expect(t, len(staged) >= 2 && len(refreshed) >= 2)
+	testing.expect_value(t, refreshed[0], "100755")
+	testing.expect_value(t, refreshed[1], staged[1]) // the mode alone: the staged content is the old shim's
+	testing.expect(t, !strings.contains(strings.join(cli.refresh_problems(UNIFIED_ROOT, root), "\n"), "uni: not"))
 }

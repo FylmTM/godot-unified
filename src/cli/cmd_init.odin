@@ -16,9 +16,9 @@ Init_Opts :: struct {
 // the name in paths and text): its sim, headless binary, extension, Godot scenes and tests.
 //
 // By default a new game repo: the game at the repo's root, plus template/repo/ (a README, .gitattributes, the repo's
-// .gitignore, tools/: the game's CLI; .tmpl files with __GAME__ for the name), the shims, and unified as a git
-// submodule at unified/. The game and the shims come from the submodule, so they always match the library they build
-// against.
+// .gitignore, tools/: the game's CLI; .tmpl files with __GAME__ for the name), the shims (`uni` staged executable),
+// odinfmt.json, the starters (write_starters), and unified as a git submodule at unified/. All of it comes from the
+// submodule, so it always matches the library it builds against.
 //
 // `--in-repo`: a game inside this unified checkout, at examples/<name>: the game's files only (not template/repo/). Its
 // tests join the optimised test compile through tests/games.gen.odin, which uni writes.
@@ -115,10 +115,17 @@ init_game_repo :: proc(dir, name, typed_dir, source_arg, ref: string) -> Result 
 		write_agents(submodule, dir)
 	}
 	write_text(join(dir, "tools", ".gdignore"), "")
-	if !os.is_file(join(submodule, SHIM_TEMPLATES, "uni.tmpl")) { 	// an older unified pin: its full shims
+	if !os.is_file(shim_template(submodule, "uni")) { 	// an older unified pin: its full shims
 		for shim in SHIMS do copy_file(join(dir, shim), join(submodule, shim))
 	}
 	os.change_mode(join(dir, "uni"), os.perm_number(0o755)) // template/repo's shims: they run unified's own
+	if os.is_file(join(submodule, ODINFMT_CONFIG)) {
+		copy_file(join(dir, ODINFMT_CONFIG), join(submodule, ODINFMT_CONFIG))
+	}
+	write_starters(submodule, dir)
+	// Staged executable now: a Windows checkout (core.filemode=false) would commit it without the bit, and a Linux or
+	// macOS clone couldn't run it. A later `git add` keeps the index's mode.
+	must_run({cmd = strs(git(), "-C", dir, "add", "--chmod=+x", "--", "uni")}, "staging the uni shim as executable")
 	shim := ODIN_OS == .Windows ? "uni.cmd" : "./uni"
 	return {
 		ok      = true,
