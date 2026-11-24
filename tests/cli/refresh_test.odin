@@ -28,11 +28,12 @@ refresh_retires_what_an_older_unified_copied_in :: proc(t: ^testing.T) {
 		".out/\n# unified's tool scripts (unified/src/godot/tools), mirrored by uni before every Godot run.\naddons/unified/\n.env\n",
 	)
 	cli.write_text(cli.join(root, "export_presets.cfg"), "exclude_filter=\"game/tools/*, addons/unified/*\"\n")
+	cli.write_text(cli.join(root, "simulation", "game", "state.odin"), "// desyncs after a rollback (GUIDE.md).\n")
 	cli.write_text(cli.join(root, "uni"), "#!/bin/sh\n# the full bootstrap an older init copied\n")
 	cli.write_text(cli.join(root, "uni.cmd"), "@echo off\r\nrem the full bootstrap\r\n")
 
 	problems := strings.join(cli.refresh_problems(UNIFIED_ROOT, root), "\n")
-	for named in ([]string{"GUIDE.md", "unified_index.tres", "addons/unified", ".gitignore", "export_presets.cfg", "uni:", "uni.cmd:"}) {
+	for named in ([]string{"GUIDE.md", "unified_index.tres", "addons/unified", ".gitignore", "export_presets.cfg", "uni:", "uni.cmd:", "simulation/game/state.odin"}) {
 		testing.expectf(t, strings.contains(problems, named), "refresh_problems names %s:\n%s", named, problems)
 	}
 
@@ -45,6 +46,8 @@ refresh_retires_what_an_older_unified_copied_in :: proc(t: ^testing.T) {
 	testing.expect_value(t, ignore, ".out/\n.env\n")
 	presets, _ := cli.read_text(cli.join(root, "export_presets.cfg"))
 	testing.expect_value(t, presets, "exclude_filter=\"game/tools/*, unified/*\"\n")
+	state, _ := cli.read_text(cli.join(root, "simulation", "game", "state.odin"))
+	testing.expect_value(t, state, "// desyncs after a rollback (unified/docs/gameplay.md).\n")
 	shim, _ := cli.read_text(cli.join(root, "uni"))
 	testing.expect(t, strings.contains(shim, "unified/uni"), "the shim runs the submodule's")
 }
