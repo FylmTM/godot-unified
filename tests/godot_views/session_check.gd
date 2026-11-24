@@ -302,9 +302,12 @@ func _replay() -> bool:
 	s.replay_step(5)
 	if not await _wait_for(func() -> bool: return s.tick == 15 and s.paused, 2.0, "seek 10, step 5: paused on 15"):
 		return false
+	var shown_15: float = s.shown_time
+	check("paused, the views show a whole tick's game time", shown_15 > 0.0 and shown_15 <= 15.0 and shown_15 == floorf(shown_15), shown_15)
 	s.replay_step(-3)
 	if not await _wait_for(func() -> bool: return s.tick == 12, 2.0, "a step back"):
 		return false
+	check("a step back shows no later game time", s.shown_time <= shown_15, [s.shown_time, shown_15])
 	s.replay_loop(20, 24)
 	s.paused = false
 	if not await _wait_for(func() -> bool: return s.tick >= 20 and s.tick <= 24, 3.0, "the loop plays its range"):
@@ -325,6 +328,9 @@ func _replay() -> bool:
 	check("a live single player", s.start_single())
 	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.tick > 60, 5.0, "the live session runs"):
 		return false
+	var shown_before: float = s.shown_time
+	await process_frame
+	check("live, the shown game time moves on and never passes the shown tick", s.shown_time >= shown_before and s.shown_time <= s.tick, [shown_before, s.shown_time, s.tick])
 	s.paused = true
 	if not await _wait_for(func() -> bool: return s.paused, 2.0, "the live session pauses"):
 		return false

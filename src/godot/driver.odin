@@ -1337,6 +1337,13 @@ publish_frame :: proc(
 	out.published = driver.published
 	out.tick = info.tick
 	out.verified = info.verified
+	out.time = sim.game_time(current, info.tick)
+	out.time_prev = out.time
+	if info.tick > 0 {
+		if previous := sim.state_at(simulation, info.tick - 1); previous != nil {
+			out.time_prev = sim.game_time(previous, info.tick - 1)
+		}
+	}
 	out.level = level_stamp(current)
 	if verified := sim.state_at(simulation, info.verified); verified != nil {
 		driver.verified_level = level_stamp(verified)

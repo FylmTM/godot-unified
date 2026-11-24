@@ -50,7 +50,9 @@ cmd_doc :: proc(args: []string) -> Result {
 		}
 	}
 	ensure_bindings()
-	ensure_deps_for_headless() // physics' imports: the Box3D bindings
+	// odin doc type-checks a package's imports, and unified:physics (and whatever imports it) needs the box3d:
+	// collection: fetched here whatever the project links (once; a game without physics has no other reason to)
+	ensure_box3d()
 	dirs := make([]string, len(targets))
 	runs := make([]Run, len(targets))
 	for target, i in targets {
