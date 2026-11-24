@@ -191,6 +191,13 @@ action_held :: proc(local: int, action: string, name: ^gd.StringName) -> bool {
 	return false
 }
 
+// Main thread (sample_input): whether game input is off for this sample (the dev UI has the keyboard, or the game
+// turned `game_input` off), which actions, buttons and vectors already read as nothing for. An input value a script
+// sets (a mouse aim through Glue.input_values) is the script's: sample_input checks this before using one.
+input_blocked :: proc() -> bool {
+	return input_sample.blocked
+}
+
 // Main thread (sample_input): the action's strength now, 0..1 (an analog trigger or stick direction), on the sampled
 // local player's device.
 action_strength :: proc(action: string) -> f32 {
@@ -200,18 +207,24 @@ action_strength :: proc(action: string) -> f32 {
 }
 
 // Main thread (sample_input): Input.get_vector over four actions: x right, y "back" (2D: down; 3D: toward +Z), on the
-// sampled local player's device (clamped to length 1).
+// sampled local player's device (clamped to length 1). On a device of its own it does what get_vector does: the four
+// actions' raw strengths make the vector, and one radial deadzone (their average) applies to its length, so a stick
+// aims where it points (each action's own deadzone would snap a direction near an axis onto it).
 action_vector :: proc(negative_x, positive_x, negative_y, positive_y: string) -> [2]f32 {
 	if input_sample.blocked do return {}
 	if sampled_device() != DEVICE_ANY {
-		vector := [2]f32 {
-			action_strength(positive_x) - action_strength(negative_x),
-			action_strength(positive_y) - action_strength(negative_y),
+		raw :: proc(action: string) -> (strength, deadzone: f32) {
+			tracked := tracked_of(action)
+			deadzone = gd.InputMap_action_get_deadzone(gd.InputMap_singleton(), tracked.name)
+			strength = tracked.strength[input_sample.current]
+			if strength > 0 do strength = strength * (1 - deadzone) + deadzone // the event's strength, rescaled back
+			return
 		}
-		if length := vector.x * vector.x + vector.y * vector.y; length > 1 {
-			vector /= f32_sqrt(length)
-		}
-		return vector
+		left, left_zone := raw(negative_x)
+		right, right_zone := raw(positive_x)
+		up, up_zone := raw(negative_y)
+		down, down_zone := raw(positive_y)
+		return radial_deadzone({right - left, down - up}, (left_zone + right_zone + up_zone + down_zone) / 4)
 	}
 	vector := gd.Input_get_vector(
 		gd.Input_singleton(),
@@ -222,6 +235,15 @@ action_vector :: proc(negative_x, positive_x, negative_y, positive_y: string) ->
 		-1,
 	)
 	return {vector.x, vector.y}
+}
+
+// A stick's raw vector with a radial deadzone, as Godot's Input.get_vector applies it: zero within `deadzone` of the
+// centre, then the length rescaled from the deadzone's edge to full tilt, the direction kept; clamped to length 1.
+radial_deadzone :: proc(raw: [2]f32, deadzone: f32) -> [2]f32 {
+	length := f32_sqrt(raw.x * raw.x + raw.y * raw.y)
+	if length <= deadzone do return {}
+	scaled := (length - deadzone) / (1 - deadzone)
+	return raw * (min(scaled, 1) / length)
 }
 
 @(private)

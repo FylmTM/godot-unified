@@ -49,8 +49,8 @@ each time; the views show the newest guess and are told when it changes.
 - Mispredictions hide behind acceleration rather than an instant velocity, behind an action whose animation starts at
   once and whose effect a few ticks later, and behind a projectile that is a ray cast per tick with a view-only tracer.
 - An animation is a function of the state: the view data carries what the thing does and the `t.time` it began, and
-  the view poses it at `(UnifiedSession.shown_time - started) / tick_hz` seconds, so a rollback or a replay seek shows
-  the frame the state says, smooth between ticks.
+  the view poses it at `(UnifiedSession.shown_time - started) / tick_hz` seconds (clamped at 0: the stamp's own tick
+  shows up to a tick early), so a rollback or a replay seek shows the frame the state says, smooth between ticks.
 
 **Re-simulation** (`src/sim/README.md`)
 - `tick` reads the block, the World and the inputs only: no package state, no clock, no files (`src/lint/README.md`,

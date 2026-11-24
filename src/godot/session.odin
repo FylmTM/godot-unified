@@ -32,6 +32,7 @@ Session_Node :: struct {
 	over:        bool, // that last frame was shown: views keep their pose, nothing is synced until the next start
 	last_tick:   u32,
 	shown_time:  f64, // UnifiedSession.shown_time: the game time the views are posed at, in ticks
+	shown_epoch: u32, // the epoch shown_time last followed (Frame_Data.epoch)
 	quit_at_end: bool,
 	sync_us:     f32,
 	pending:     Start, // a start that waits for the previous session's goodbye (has_pending)
@@ -245,7 +246,7 @@ register_session_class :: proc() {
 		class,
 		"shown_time",
 		proc(session: ^Session_Node) -> f64 {return session.shown_time},
-		doc = "The game time the views are posed at this frame, in ticks: between the two newest ticks' game times by the views' interpolation, so it moves at render rate; it stands still while the game is paused (the co-op pause, a paused single player or replay) and follows a replay's seek. A view times a stamp from the sim with it: [code](Unified.session.shown_time - data.started) / Unified.tick_hz[/code] seconds, smooth between ticks and right after a rollback. (A view on the verified timeline, [code]Remote.Verified[/code], is posed on an older tick: this is the predicted one's.)",
+		doc = "The game time the views are posed at this frame, in ticks: between the two newest ticks' game times by the views' interpolation, so it moves at render rate; it stands still while the game is paused (the co-op pause, a paused single player or replay) and follows a replay's seek. A view times a stamp from the sim with it: [code](Unified.session.shown_time - data.started) / Unified.tick_hz[/code] seconds, smooth between ticks and right after a rollback (on the frame of the stamp's own tick it is up to a tick short: clamp at 0). (A view on the verified timeline, [code]Remote.Verified[/code], is posed on an older tick: this is the predicted one's.)",
 	)
 	gd.bind_property(
 		class,
@@ -1092,7 +1093,11 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 		session.last_tick = frame.tick
 		tick_us := frame.tick_us != 0 ? frame.tick_us : i64(1_000_000 / max(frame.tick_hz, 1))
 		alpha := alpha(now._nsec / 1000, frame.due_us, tick_us)
-		session.shown_time = f64(frame.time_prev) + f64(alpha) * (f64(frame.time) - f64(frame.time_prev))
+		// a new epoch (a replay's seek) snaps every view to `tick`'s pose: the shown game time snaps with them
+		snapped := frame.epoch != session.shown_epoch
+		session.shown_epoch = frame.epoch
+		from := snapped ? f64(frame.time) : f64(frame.time_prev)
+		session.shown_time = from + f64(alpha) * (f64(frame.time) - from)
 		root := effective_root(session)
 		root_id := root.ptr != nil ? gdi.object_get_instance_id(root.ptr) : 0
 		if root_id != session.synced_root {

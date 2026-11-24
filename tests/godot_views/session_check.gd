@@ -302,12 +302,12 @@ func _replay() -> bool:
 	s.replay_step(5)
 	if not await _wait_for(func() -> bool: return s.tick == 15 and s.paused, 2.0, "seek 10, step 5: paused on 15"):
 		return false
-	var shown_15: float = s.shown_time
-	check("paused, the views show a whole tick's game time", shown_15 > 0.0 and shown_15 <= 15.0 and shown_15 == floorf(shown_15), shown_15)
+	# the recorded session never paused its clock, so its game time is its tick number
+	check("paused on a tick, the views show exactly its game time", s.shown_time == 15.0, s.shown_time)
 	s.replay_step(-3)
 	if not await _wait_for(func() -> bool: return s.tick == 12, 2.0, "a step back"):
 		return false
-	check("a step back shows no later game time", s.shown_time <= shown_15, [s.shown_time, shown_15])
+	check("a step back shows exactly the earlier tick's game time", s.shown_time == 12.0, s.shown_time)
 	s.replay_loop(20, 24)
 	s.paused = false
 	if not await _wait_for(func() -> bool: return s.tick >= 20 and s.tick <= 24, 3.0, "the loop plays its range"):
@@ -328,9 +328,31 @@ func _replay() -> bool:
 	check("a live single player", s.start_single())
 	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.tick > 60, 5.0, "the live session runs"):
 		return false
-	var shown_before: float = s.shown_time
-	await process_frame
-	check("live, the shown game time moves on and never passes the shown tick", s.shown_time >= shown_before and s.shown_time <= s.tick, [shown_before, s.shown_time, s.tick])
+	# live (no co-op pause yet, so game time is the tick number): between the two newest ticks, rising frame by frame,
+	# and fractional between them at render rate
+	var shown: Array[float] = []
+	var fractional := false
+	for frame in 12:
+		await process_frame
+		shown.append(s.shown_time)
+		fractional = fractional or s.shown_time != floorf(s.shown_time)
+		check("live, the shown game time lies between the two newest ticks", s.shown_time > s.tick - 1 and s.shown_time <= s.tick, [s.shown_time, s.tick])
+	check("live, it never goes back", _rising(shown), shown)
+	check("live, it moves between ticks, at render rate", fractional, shown)
+	# the co-op pause: ticks run on, game time stands still, and so does the shown game time
+	check("send the co-op pause", s.send_command(_pause(true)))
+	var sent_at: int = s.tick
+	# the command lands after the input delay and pauses from the tick after: ten ticks on, the clock has stopped
+	if not await _wait_for(func() -> bool: return s.tick > sent_at + 10, 2.0, "ticks run on after the pause"):
+		return false
+	var still: float = s.shown_time
+	var still_tick: int = s.tick
+	await _sleep(0.2)
+	check("under the co-op pause the shown game time stands still while ticks run", s.shown_time == still and s.tick > still_tick, [still, s.shown_time, still_tick, s.tick])
+	check("resume", s.send_command(_pause(false)))
+	if not await _wait_for(func() -> bool: return s.shown_time > still, 2.0, "the shown game time moves again"):
+		return false
+	check("after the pause it trails the tick number by the paused ticks", s.shown_time < s.tick - 5, [s.shown_time, s.tick])
 	s.paused = true
 	if not await _wait_for(func() -> bool: return s.paused, 2.0, "the live session pauses"):
 		return false
@@ -459,6 +481,21 @@ func _event_objects() -> bool:
 func _ticks_pass(count: int) -> bool:
 	var until: int = s.tick + count
 	return await _wait_for(func() -> bool: return s.tick >= until, 10.0, "%d ticks pass" % count)
+
+
+# Whether each value is at least the one before it, and the last above the first.
+func _rising(values: Array[float]) -> bool:
+	for i in range(1, values.size()):
+		if values[i] < values[i - 1]:
+			return false
+	return values[-1] > values[0]
+
+
+# The toy's co-op pause command.
+func _pause(paused: bool) -> CommandPause:
+	var command := CommandPause.new()
+	command.paused = paused
+	return command
 
 
 func _sleep(sec: float) -> void:

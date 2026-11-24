@@ -50,9 +50,14 @@ cmd_doc :: proc(args: []string) -> Result {
 		}
 	}
 	ensure_bindings()
-	// odin doc type-checks a package's imports, and unified:physics (and whatever imports it) needs the box3d:
-	// collection: fetched here whatever the project links (once; a game without physics has no other reason to)
-	ensure_box3d()
+	// odin doc type-checks a package's imports: one that reaches the box3d: collection needs Box3D fetched, even in a
+	// game that links no physics yet
+	for target in targets {
+		if doc_reaches_box3d(target.dir) {
+			ensure_box3d()
+			break
+		}
+	}
 	dirs := make([]string, len(targets))
 	runs := make([]Run, len(targets))
 	for target, i in targets {
@@ -522,4 +527,21 @@ readme_title :: proc(dir: string) -> string {
 	}
 	first, _, _ := strings.partition(string(bytes), "\n")
 	return strings.trim_space(strings.trim_left(first, "#"))
+}
+
+// Whether the package at `dir` imports Box3D's bindings, directly or through the unified packages it imports (their
+// own imports, one level down: unified's packages that reach Box3D import it or unified:physics directly).
+@(private = "file")
+doc_reaches_box3d :: proc(dir: string, depth := 0) -> bool {
+	if sources_import(dir, `"box3d:`, `"unified:physics"`) do return true
+	if depth > 0 do return false
+	src := join(state.project.unified, "src")
+	entries, _ := os.read_all_directory_by_path(src, context.temp_allocator)
+	for entry in entries {
+		if entry.type != .Directory do continue
+		if sources_import(dir, aprintf(`"unified:%s"`, entry.name)) && doc_reaches_box3d(entry.fullpath, depth + 1) {
+			return true
+		}
+	}
+	return false
 }
