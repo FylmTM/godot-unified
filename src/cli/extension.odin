@@ -154,19 +154,21 @@ start_extension :: proc(game: Game, mode: Mode, force := false, defines: []strin
 // stale, dev, to <dir>/.out/bin/, where its .gdextension points; a failed build stops the command.
 ensure_project_extension :: proc(dir, pkg, stem: string) {
 	ensure_bindings() // the extension imports unified:gdext, whose bindings are generated
-	flags: [dynamic]string
-	append(&flags, "-build-mode:dll")
-	append(&flags, ..mode_flags(.dev))
-	// only with view scenes: a test project's extension may not import unified:godot, and Odin refuses an unused define
-	if index, _ := view_index(dir); index != "" do append(&flags, view_index_define(dir))
-	build := Build {
-		pkg   = pkg,
-		out   = join(dir, ".out", "bin", lib_name(stem)),
-		flags = flags[:],
-	}
+	build := project_extension_build(dir, pkg, stem)
 	if !stale(build) do return
 	seconds := odin_build(build, aprintf("building %s", rel(pkg)))
 	log("uni: %s -> %s in %.2fs", rel(pkg), rel(build.out), seconds)
+}
+
+// The dev build of a test project's GDExtension (package `pkg`, library `stem`) to <dir>/.out/bin/, with the
+// project's view index (view_index_define) when it has view scenes: a test project's extension may not import
+// unified:godot, and Odin refuses a define nothing reads.
+project_extension_build :: proc(dir, pkg, stem: string) -> Build {
+	flags: [dynamic]string
+	append(&flags, "-build-mode:dll")
+	append(&flags, ..mode_flags(.dev))
+	if index, _ := view_index(dir); index != "" do append(&flags, view_index_define(dir))
+	return {pkg = pkg, out = join(dir, ".out", "bin", lib_name(stem)), flags = flags[:]}
 }
 
 // Waits for an extension build start_extension started and moves the library into place; false when the build

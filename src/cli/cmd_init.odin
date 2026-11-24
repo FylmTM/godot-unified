@@ -115,6 +115,9 @@ init_game_repo :: proc(dir, name, typed_dir, source_arg, ref: string) -> Result 
 		write_agents(submodule, dir)
 	}
 	write_text(join(dir, "tools", ".gdignore"), "")
+	if !os.is_file(join(submodule, SHIM_TEMPLATES, "uni.tmpl")) { 	// an older unified pin: its full shims
+		for shim in SHIMS do copy_file(join(dir, shim), join(submodule, shim))
+	}
 	os.change_mode(join(dir, "uni"), os.perm_number(0o755)) // template/repo's shims: they run unified's own
 	shim := ODIN_OS == .Windows ? "uni.cmd" : "./uni"
 	return {

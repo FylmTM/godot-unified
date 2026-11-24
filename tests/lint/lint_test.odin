@@ -481,6 +481,9 @@ godot_sees_only_tools_godot :: proc(t: ^testing.T) {
 	testing.expect(t, err == nil, "cannot list the checkout's root")
 	for entry in entries {
 		if entry.type != .Directory || strings.has_prefix(entry.name, ".") || entry.name == "tools_godot" do continue
+		// a test's scratch directory (`unified-<test>-*`, os.make_directory_temp's default place is the working
+		// directory), there for a moment while the suite runs
+		if strings.has_prefix(entry.name, "unified-") do continue
 		testing.expectf(
 			t,
 			os.is_file(fmt.tprintf("%s/%s/.gdignore", ROOT, entry.name)),
