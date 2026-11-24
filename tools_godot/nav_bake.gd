@@ -33,7 +33,10 @@ func _bake(path: String) -> Dictionary:
 	if packed == null:
 		errors.append("%s: cannot load the scene" % path)
 		return {}
-	var scene := packed.instantiate()
+	# as the editor opens a scene: an instanced scene's own values stay its own, so the save writes back only what the
+	# scene overrides (a plain instantiate() would copy each instance's properties into the scene, which then shadow
+	# any later change to the instanced scene)
+	var scene := packed.instantiate(PackedScene.GEN_EDIT_STATE_MAIN)
 	var region: NavigationRegion3D = null
 	for node in scene.find_children("*", "NavigationRegion3D", true, false):
 		if node.get_meta("unified_nav_bake", false):
