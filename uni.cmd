@@ -4,6 +4,9 @@ rem when there is none. Odin is always the release pins.cfg pins, downloaded onc
 rem %LOCALAPPDATA%\unified\odin\<tag> (checked against its SHA-256) and put first on PATH.
 setlocal
 set "root=%~dp0"
+rem a game repo's shim runs this one (its unified\uni.cmd) for the game repo's root
+if defined UNI_ROOT set "root=%UNI_ROOT%"
+set "UNI_ROOT="
 set "cli=%root%.out\cli"
 set "pins=%root%pins.cfg"
 rem a game repo: unified is its submodule

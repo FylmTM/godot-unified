@@ -1,6 +1,6 @@
 extends SceneTree
 ## unified's level exporter (src/level/README.md; the UNLV format in src/level/level.odin), run by `uni bake`:
-##   godot --headless --path <project> -s res://addons/unified/level_export.gd -- [--check] [--scene=res://...]...
+##   godot --headless --path <project> -s res://unified/tools_godot/level_export.gd -- [--check] [--scene=res://...]...
 ## Exports the --scene ones (uni bake passes a game's level scenes: src/level/README.md, Baking), else every
 ## res://game/levels/*.tscn (not subfolders: those hold the parts a level instances), to the .level file next to each. --check writes nothing and fails when a committed file differs from a fresh
 ## export. A scene with findings is not written. Level scenes are instantiated, not run: no node is added to the
@@ -158,9 +158,9 @@ func export_scene(path: String) -> PackedByteArray:
 		# says it in its root's metadata. Both, and they differ: a finding (the views would draw it at another scale).
 		var game_scale := 0.0
 		if Engine.has_singleton(&"Unified"):
-			game_scale = float(Engine.get_singleton(&"Unified").get(&"view_scale"))
-		_ppm = float(scene.get_meta("unified_px_per_m", game_scale))
-		_depth = float(scene.get_meta("unified_depth_m", 1.0))
+			game_scale = Engine.get_singleton(&"Unified").get(&"view_scale")
+		_ppm = scene.get_meta("unified_px_per_m", game_scale)
+		_depth = scene.get_meta("unified_depth_m", 1.0)
 		if game_scale > 0.0 and _ppm != game_scale:
 			_error(path, "unified_px_per_m is %s, the game's view_scale %s: drop the metadata" % [_ppm, game_scale])
 		if _ppm <= 0.0 or _depth <= 0.0:
@@ -208,7 +208,7 @@ func _where(n: Node) -> String:
 ## too (tests/godot_views/markers_check.gd compares them).
 func _collect(n: Node, bodies: Array[Node], markers: Array[Node]) -> void:
 	var is_2d := _ppm > 0.0
-	if n is StaticBody3D or n is StaticBody2D or (n is TileMapLayer and _tile_collision(n)):
+	if n is StaticBody3D or n is StaticBody2D or (n is TileMapLayer and _tile_collision(n as TileMapLayer)):
 		if (n is StaticBody3D) == is_2d:
 			_error(_where(n), "a %s body in a %s level" % ["3D" if is_2d else "2D", "2D" if is_2d else "3D"])
 		else:
@@ -263,7 +263,8 @@ func _props(n: Node) -> Array[Array]:
 		var usage: int = p["usage"]
 		if usage & PROPERTY_USAGE_SCRIPT_VARIABLE == 0 or usage & PROPERTY_USAGE_EDITOR == 0:
 			continue
-		out.append([p["name"], n.get(p["name"])])
+		var prop_name: String = p["name"]
+		out.append([prop_name, n.get(prop_name)])
 	return out
 
 
@@ -280,7 +281,7 @@ func _encode(bodies: Array[Node], markers: Array[Node], marker_index: Dictionary
 		var ps := _props(m)
 		marker_props.append(ps)
 		for p: Array in ps:
-			_intern(strings, p[0])
+			_intern(strings, str(p[0]))
 			if p[1] is String or p[1] is StringName:
 				_intern(strings, str(p[1]))
 	var w := StreamPeerBuffer.new()
@@ -322,25 +323,25 @@ func _nav(w: StreamPeerBuffer) -> void:
 		else:
 			agent = Vector3(mesh.agent_radius, mesh.agent_height, mesh.agent_max_climb)
 			var xf := _xf(region)
-			var welded := {}  # position -> index in `vertices`
-			var remap := PackedInt32Array()
+			var welded: Dictionary[Vector3, int] = {}  # position -> index in `vertices`
+			var vertex_remap := PackedInt32Array()
 			for v in mesh.get_vertices():
 				var p := xf * v
 				if not welded.has(p):
 					welded[p] = vertices.size()
 					vertices.append(p)
-				remap.append(welded[p])
-			var edges := {}  # Vector2i(lower, higher) index -> polygons using it
+				vertex_remap.append(welded[p])
+			var edges: Dictionary[Vector2i, int] = {}  # Vector2i(lower, higher) index -> polygons using it
 			for i in mesh.get_polygon_count():
 				var where := "%s: navigation polygon %d" % [_where(region), i]
 				var source := mesh.get_polygon(i)
 				var polygon := PackedInt32Array()
 				for index in source:
-					if index < 0 or index >= remap.size():
+					if index < 0 or index >= vertex_remap.size():
 						_error(where, "a vertex index out of range")
 						polygon.clear()
 						break
-					polygon.append(remap[index])
+					polygon.append(vertex_remap[index])
 				if polygon.size() != source.size():
 					continue
 				polygon = _nav_polygon(polygon, vertices, where)
@@ -351,7 +352,8 @@ func _nav(w: StreamPeerBuffer) -> void:
 					var a := polygon[k]
 					var b := polygon[(k + 1) % polygon.size()]
 					var edge := Vector2i(mini(a, b), maxi(a, b))
-					edges[edge] = int(edges.get(edge, 0)) + 1
+					var uses: int = edges.get(edge, 0)
+					edges[edge] = uses + 1
 					if edges[edge] == 3:
 						_error(where, "its edge %d-%d is shared by more than two polygons" % [edge.x, edge.y])
 			# Godot's bake floats the mesh up to a couple of cells above the floor (its voxels' rounding, the detail
@@ -363,7 +365,8 @@ func _nav(w: StreamPeerBuffer) -> void:
 				var floor_y := _floor_under(v.x, v.z, v.y + 0.001, v.y - reach)
 				if floor_y > -INF:
 					vertices[i] = Vector3(v.x, floor_y, v.z)
-					_nav_changes["max_lowered"] = maxf(float(_nav_changes["max_lowered"]), v.y - floor_y)
+					var lowered: float = _nav_changes["max_lowered"]
+					_nav_changes["max_lowered"] = maxf(lowered, v.y - floor_y)
 			# Godot's bake rasterizes a shape's surfaces, not its inside: a box taller than the agent leaves a walkable
 			# island on the floor within it, which no walker can reach and a nearest-point query may pick. A polygon
 			# whose middle raised by half the agent's height is inside a solid static shape is left out (half: a
@@ -482,7 +485,8 @@ func _add_floors(frame: Transform3D, recs: Array[ShapeRec]) -> void:
 		for q in points:
 			lo = lo.min(q)
 			hi = hi.max(q)
-		var pad := Vector3.ONE * float(f.get("radius", 0.0))
+		var radius: float = f.get("radius", 0.0)
+		var pad := Vector3.ONE * radius
 		f["lo"] = lo - pad
 		f["hi"] = hi + pad
 		_floors.append(f)
@@ -612,12 +616,13 @@ func _body(w: StreamPeerBuffer, b: Node, strings: Array[String]) -> void:
 		mat = (b as StaticBody3D).physics_material_override
 		var frame := Transform3D(brot, bt.origin)
 		for c in b.get_children():
-			if c is CollisionShape3D and c.shape != null and not c.disabled:
+			var cs := c as CollisionShape3D
+			if cs != null and cs.shape != null and not cs.disabled:
 				var before := recs.size()
-				_shape3d(recs, frame.affine_inverse() * _xf(c), c.shape, _where(c))
-				if _has_surface_meta(c):
+				_shape3d(recs, frame.affine_inverse() * _xf(cs), cs.shape, _where(cs))
+				if _has_surface_meta(cs):
 					for k in range(before, recs.size()):
-						recs[k].surface_node = c
+						recs[k].surface_node = cs
 		_add_floors(frame, recs)
 	else:
 		# a StaticBody2D or TileMapLayer: the node's position and rotation about Z
@@ -638,7 +643,8 @@ func _body(w: StreamPeerBuffer, b: Node, strings: Array[String]) -> void:
 	_v3(w, origin)
 	_quat(w, rot)
 	_write_surface(w, surface)
-	w.put_u64(int(b.get_meta("unified_category", 0)))
+	var category: int = b.get_meta("unified_category", 0)
+	w.put_u64(category)
 	w.put_u16(recs.size())
 	for r in recs:
 		_write_shape(w, r, surface)
@@ -652,8 +658,8 @@ func _has_surface_meta(c: Node) -> bool:
 
 ## A node's surface metadata over `surface`: unified_material, unified_rolling_resistance, unified_tangent_velocity.
 func _surface_meta(surface: Surface, n: Node) -> void:
-	surface.material = int(n.get_meta(&"unified_material", surface.material))
-	surface.rolling_resistance = float(n.get_meta(&"unified_rolling_resistance", surface.rolling_resistance))
+	surface.material = n.get_meta(&"unified_material", surface.material)
+	surface.rolling_resistance = n.get_meta(&"unified_rolling_resistance", surface.rolling_resistance)
 	surface.tangent_velocity = n.get_meta(&"unified_tangent_velocity", surface.tangent_velocity)
 
 
@@ -696,7 +702,7 @@ func _write_shape(w: StreamPeerBuffer, r: ShapeRec, body: Surface) -> void:
 			w.put_u32(r.points.size())
 			for p in r.points:
 				_v3(w, p)
-			w.put_u32(r.triangles.size() / 3)
+			w.put_u32(int(r.triangles.size() / 3.0))  # a multiple of 3: exact
 			for i in r.triangles:
 				w.put_u32(i)
 			w.put_u32(0)  # no per-triangle materials: Godot's trimesh has none (every triangle is the shape's)
@@ -739,38 +745,51 @@ func _marker(w: StreamPeerBuffer, m: Node, props: Array, marker_index: Dictionar
 	for p in kept:
 		var v: Variant = p[1]
 		var t := _prop_type(v)
-		w.put_u32(_intern(strings, p[0]))
+		w.put_u32(_intern(strings, str(p[0])))
 		w.put_u8(t)
 		match t:
 			Prop.BOOL:
 				w.put_u8(1 if v else 0)
 			Prop.INT:
-				w.put_32(v)
+				var i: int = v
+				w.put_32(i)
 			Prop.FLOAT:
-				w.put_float(v)
+				var f: float = v
+				w.put_float(f)
 			Prop.VEC3:
-				_v3(w, Vector3(v.x, v.y, 0.0) if v is Vector2 else v)  # Vector2: raw, z = 0
+				if v is Vector2:
+					var v2: Vector2 = v
+					_v3(w, Vector3(v2.x, v2.y, 0.0))  # Vector2: raw, z = 0
+				else:
+					var v3: Vector3 = v
+					_v3(w, v3)
 			Prop.STRING:
 				w.put_u32(_intern(strings, str(v)))
 			Prop.REF:
 				var target: Node = null
-				if v is NodePath and not (v as NodePath).is_empty():
-					target = m.get_node_or_null(v)
+				if v is NodePath:
+					var path: NodePath = v
+					if not path.is_empty():
+						target = m.get_node_or_null(path)
 				elif v is Node:
 					target = v
-				w.put_32(marker_index.get(target, -1))
+				var index: int = marker_index.get(target, -1)
+				w.put_32(index)
 			Prop.CURVE:
-				for sample in _curve_samples(v as Curve):
+				var curve: Curve = v
+				for sample in _curve_samples(curve):
 					w.put_float(sample)
 	var pts := PackedVector3Array()
 	for c in m.get_children():
-		if c is Path3D and c.curve != null:
-			for k: int in c.curve.point_count:
-				pts.append(_xf(c) * c.curve.get_point_position(k))
+		var path3 := c as Path3D
+		if path3 != null and path3.curve != null:
+			for k: int in path3.curve.point_count:
+				pts.append(_xf(path3) * path3.curve.get_point_position(k))
 			break
-		if c is Path2D and c.curve != null:
-			for k: int in c.curve.point_count:
-				pts.append(_m3(_xf2(c) * c.curve.get_point_position(k)))
+		var path2 := c as Path2D
+		if path2 != null and path2.curve != null:
+			for k: int in path2.curve.point_count:
+				pts.append(_m3(_xf2(path2) * path2.curve.get_point_position(k)))
 			break
 	w.put_u16(pts.size())
 	for p in pts:
@@ -781,20 +800,22 @@ func _marker(w: StreamPeerBuffer, m: Node, props: Array, marker_index: Dictionar
 ## it). Scale (and any skew or mirroring) is baked into the shapes. Returns the physics material.
 func _shapes2d(recs: Array[ShapeRec], b: Node2D, inv: Transform2D, g: Transform2D) -> PhysicsMaterial:
 	if b is TileMapLayer:
-		_tiles(recs, b, inv * g)
+		_tiles(recs, b as TileMapLayer, inv * g)
 		return (b as TileMapLayer).tile_set.get_physics_layer_physics_material(0)
 	for c in b.get_children():
-		if c is CollisionShape2D and c.shape != null and not c.disabled:
-			if c.one_way_collision:
-				_error(_where(c), "one-way collision is not supported")
-			_shape2d(recs, inv * _xf2(c), c.shape, _where(c))
-		elif c is CollisionPolygon2D and not c.disabled:
-			if c.build_mode != CollisionPolygon2D.BUILD_SOLIDS:
-				_error(_where(c), "a polygon in segments mode is not supported (solids only)")
+		var cs := c as CollisionShape2D
+		var cp := c as CollisionPolygon2D
+		if cs != null and cs.shape != null and not cs.disabled:
+			if cs.one_way_collision:
+				_error(_where(cs), "one-way collision is not supported")
+			_shape2d(recs, inv * _xf2(cs), cs.shape, _where(cs))
+		elif cp != null and not cp.disabled:
+			if cp.build_mode != CollisionPolygon2D.BUILD_SOLIDS:
+				_error(_where(cp), "a polygon in segments mode is not supported (solids only)")
 				continue
-			if c.one_way_collision:
-				_error(_where(c), "one-way collision is not supported")
-			_polygon(recs, inv * _xf2(c), c.polygon, _where(c))
+			if cp.one_way_collision:
+				_error(_where(cp), "one-way collision is not supported")
+			_polygon(recs, inv * _xf2(cp), cp.polygon, _where(cp))
 	return (b as StaticBody2D).physics_material_override
 
 
@@ -944,7 +965,7 @@ func _mesh3d(recs: Array[ShapeRec], local: Transform3D, s: ConcavePolygonShape3D
 		_error(where, "a concave polygon without faces")
 		return
 	var r := _rec(Shape.MESH)
-	var index := {}
+	var index: Dictionary[Vector3, int] = {}
 	var order: Array[int] = [0, 2, 1]
 	if local.basis.determinant() < 0.0:
 		order = [0, 1, 2]

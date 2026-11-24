@@ -12,12 +12,12 @@ Selftest_Opts :: struct {}
 // bootstrapped by its shim with an empty per-user cache, so the shim downloads the pinned Odin, checks its SHA-256,
 // unpacks it and builds the CLI with it. Then `init` a game outside it with the clone as its submodule pinned to HEAD
 // (checking the pin, the commands and links its files name, and its agent guidance: AGENTS.md's section and unified's
-// skills), then check its view index, build it, run a headless mode and every test suite in that game repo; later,
-// that guidance gone stale fails its vet until `agents` rewrites it. Then `init --in-repo` the same game inside the clone (checking it wrote
-// only the game and its tests import), its index, build, a headless mode, the clone's odin suite and the game's godot
-// suite. Last, the test watchdog: a test crashing while it holds a lock must fail its run within seconds. Only when
-// called (before tooling PRs, after a pin or toolchain change); never by `verify`, nor by CI. It tests the committed
-// HEAD, so it refuses uncommitted changes.
+// skills), then check its levels and view markers, build it, run a headless mode and every test suite in that game
+// repo; later, that guidance gone stale fails its vet until `refresh` rewrites it. Then `init --in-repo` the same game
+// inside the clone (checking it wrote only the game and its tests import), its bake check, build, a headless mode, the
+// clone's odin suite and the game's godot suite. Last, the test watchdog: a test crashing while it holds a lock must
+// fail its run within seconds. Only when called (before tooling PRs, after a pin or toolchain change); never by
+// `verify`, nor by CI. It tests the committed HEAD, so it refuses uncommitted changes.
 cmd_selftest :: proc(args: []string) -> cli.Result {
 	opts: Selftest_Opts
 	cli.parse(&opts, args)
@@ -82,7 +82,7 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 			check = check_init,
 		},
 		Step {
-			what = "its view index is what the build writes",
+			what = "its levels and view markers check out (bake --check)",
 			cmd  = shim(game, "bake", "--check"),
 			dir  = game,
 			env  = env,
@@ -155,7 +155,7 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 			check = check_in_repo,
 		},
 		Step {
-			what = "its view index is what the build writes",
+			what = "its levels and view markers check out (bake --check)",
 			cmd  = shim(clone, "bake", IN_REPO_GAME, "--check"),
 			dir  = clone,
 			env  = env,
@@ -238,11 +238,11 @@ cmd_selftest :: proc(args: []string) -> cli.Result {
 		}
 		cli.log("selftest: %s: ok (%.1fs)", step.what, cli.seconds_since(started))
 	}
-	// The agent guidance after a bump: what the game repo's copy no longer matches fails its vet, and `agents` brings
-	// it back (src/cli/agents.odin).
-	cli.log("selftest: == stale agent guidance fails vet; agents rewrites it")
+	// The agent guidance after a bump: what the game repo's copy no longer matches fails its vet, and `refresh` brings
+	// it back (src/cli/refresh.odin).
+	cli.log("selftest: == stale agent guidance fails vet; refresh rewrites it")
 	agents_start := time.tick_now()
-	if problem := check_agents_refresh(game, env, shim(game, "vet"), shim(game, "agents")); problem != "" {
+	if problem := check_agents_refresh(game, env, shim(game, "vet"), shim(game, "refresh")); problem != "" {
 		return {
 			ok      = false,
 			summary = cli.aprintf("selftest: the agents check: %s; the work is in %s", problem, cli.rel(work)),
@@ -331,9 +331,9 @@ download_env :: proc(work, cache: string) -> []string {
 IN_REPO_GAME :: "selftest_game"
 
 // Makes the game repo's agent guidance stale as a submodule bump would (an edited section, a changed skill, a
-// unified-* skill unified no longer ships), then: `vet` must fail naming `uni agents`, `agents` must pass, and the
+// unified-* skill unified no longer ships), then: `vet` must fail naming `uni refresh`, `refresh` must pass, and the
 // guidance must be the submodule's again, the retired skill gone and the game's own skill kept ("": all held).
-check_agents_refresh :: proc(game: string, env, vet, agents: []string) -> string {
+check_agents_refresh :: proc(game: string, env, vet, refresh: []string) -> string {
 	skills := cli.join(game, cli.SKILLS_DIR)
 	agents_md := cli.join(game, "AGENTS.md")
 	text := cli.must_read(agents_md)
@@ -344,17 +344,17 @@ check_agents_refresh :: proc(game: string, env, vet, agents: []string) -> string
 	cli.write_text(cli.join(skills, retired, "SKILL.md"), "a skill unified no longer ships\n")
 	cli.write_text(cli.join(skills, "own", "SKILL.md"), "the game's own skill\n")
 	vetted := cli.run_proc({cmd = vet, dir = game, env = env, capture = true, quiet = true})
-	if vetted.ok || !strings.contains(strings.concatenate({vetted.stdout, vetted.stderr}), "uni agents") {
-		return cli.aprintf("vet passed, or failed without naming uni agents (exit %d)", vetted.exit_code)
+	if vetted.ok || !strings.contains(strings.concatenate({vetted.stdout, vetted.stderr}), "uni refresh") {
+		return cli.aprintf("vet passed, or failed without naming uni refresh (exit %d)", vetted.exit_code)
 	}
-	if written := cli.run_proc({cmd = agents, dir = game, env = env}); !written.ok {
-		return cli.aprintf("agents failed (exit %d)", written.exit_code)
+	if written := cli.run_proc({cmd = refresh, dir = game, env = env}); !written.ok {
+		return cli.aprintf("refresh failed (exit %d)", written.exit_code)
 	}
-	if problems := cli.agents_problems(cli.join(game, "unified"), game); len(problems) > 0 {
-		return cli.aprintf("still stale after agents: %s", strings.join(problems, "; "))
+	if problems := cli.refresh_problems(cli.join(game, "unified"), game); len(problems) > 0 {
+		return cli.aprintf("still stale after refresh: %s", strings.join(problems, "; "))
 	}
 	if os.exists(cli.join(skills, retired)) || !os.is_file(cli.join(skills, "own", "SKILL.md")) {
-		return "agents left the retired skill or removed the game's own"
+		return "refresh left the retired skill or removed the game's own"
 	}
 	os.remove_all(cli.join(skills, "own"))
 	return ""
@@ -405,8 +405,11 @@ check_init :: proc(game, head: string) -> string {
 	if !strings.contains(pinned.stdout, head) {
 		return cli.aprintf("the unified submodule is not pinned to %s: %s", head, strings.trim_space(pinned.stdout))
 	}
-	if problems := cli.agents_problems(cli.join(game, "unified"), game); len(problems) > 0 {
-		return cli.aprintf("the agent guidance is not the submodule's: %s", strings.join(problems, "; "))
+	if problems := cli.refresh_problems(cli.join(game, "unified"), game); len(problems) > 0 {
+		return cli.aprintf("what unified ships is not the submodule's: %s", strings.join(problems, "; "))
+	}
+	for gone in ([]string{"GUIDE.md", "unified_index.tres", "addons"}) {
+		if os.exists(cli.join(game, gone)) do return cli.aprintf("the new game repo holds %s, which unified keeps", gone)
 	}
 	skills := cli.unified_skills(game)
 	if len(skills) == 0 {

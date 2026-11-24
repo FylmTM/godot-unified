@@ -43,7 +43,7 @@ the same `./uni` from its own root. Coding agents: [`agent-guide.md`](agent-guid
 ## Next
 
 - [`examples/minimal_3d/README.md`](../examples/minimal_3d/README.md): the template game, what it shows and what a
-  new game takes from the other examples; its [`GUIDE.md`](../examples/minimal_3d/GUIDE.md), which every new game
-  carries: how to write gameplay that survives rollback.
+  new game takes from the other examples.
+- [`gameplay.md`](gameplay.md): how to write gameplay that survives rollback.
 - `./uni doc` lists the packages, `./uni doc <pkg>` prints one's API.
 - [`src/README.md`](../src/README.md): how the core works inside.

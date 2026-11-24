@@ -238,7 +238,7 @@ IMPORTED :: []string {
 
 // What an import depends on: global class names (class_name lines), new scripts (.uid files), imported assets (path
 // and time). Editing a script body or a scene needs no import, so the edit loop skips it. Walks what Godot scans: no
-// hidden entries, no directory holding a .gdignore (a unified submodule).
+// hidden entries, no directory holding a .gdignore (all of a unified submodule but its tools_godot/).
 @(private)
 import_signature :: proc(dir: string) -> string {
 	parts: [dynamic]string
@@ -449,10 +449,10 @@ judge_tool :: proc(ran: Ran, echo: bool) -> Tool_Result {
 	return report
 }
 
-// A tool script by name: the game's game/tools/<name>.gd, else unified's (src/godot/tools, mirrored as
-// res://addons/unified/) ("" when neither has it). A name ending in .gd is a script file by path instead (relative to
-// the working directory), anywhere: an agent's throwaway script, run against the project without joining it. It comes
-// back absolute, which Godot's -s takes as it takes a res:// path ("" when there is no such file).
+// A tool script by name: the game's game/tools/<name>.gd, else unified's (res://unified/tools_godot/) ("" when
+// neither has it). A name ending in .gd is a script file by path instead (relative to the working directory),
+// anywhere: an agent's throwaway script, run against the project without joining it. It comes back absolute, which
+// Godot's -s takes as it takes a res:// path ("" when there is no such file).
 tool_script :: proc(game: Game, name: string) -> string {
 	if strings.has_suffix(name, ".gd") {
 		if !os.is_file(name) do return ""
@@ -470,8 +470,8 @@ tool_script :: proc(game: Game, name: string) -> string {
 }
 
 // Whether the script file at `path` can be Godot's -s main loop: it extends SceneTree or MainLoop, directly or through
-// the classes and res:// scripts it extends, found in the project at `dir` or in unified's tools at `library` (the
-// source of res://addons/unified/). Godot refuses any other -s script and runs the main scene instead, a run that
+// the classes and res:// scripts it extends, found in the project at `dir` or in unified's tools at `library` (what
+// res://unified/tools_godot/ is). Godot refuses any other -s script and runs the main scene instead, a run that
 // never ends, so `tool` refuses it first. `extends` is what the script itself extends ("": nothing found).
 tool_script_runs :: proc(path, dir, library: string) -> (ok: bool, extends: string) {
 	classes := make(map[string]string, context.temp_allocator) // class_name -> what it extends

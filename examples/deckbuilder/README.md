@@ -8,7 +8,7 @@ rules on a state block (card tables, piles as `sim.List`s, keyed random streams)
 whole Godot side is Controls fed with view data, drawn in code on a felt table (no image assets). A Godot project (this folder is `res://`): the sim, its tests, the
 headless binary and the GDExtension in `simulation/` (Odin), everything Godot in `game/`. `uni run deckbuilder`
 plays it; `uni coop deckbuilder` opens two windows in one session. How to write gameplay that survives rollback:
-`examples/minimal_3d/GUIDE.md`.
+`docs/gameplay.md`.
 
 Every rule number is a named constant in `simulation/deckbuilder/tuning.odin` (the cards' and enemies' own numbers in
 their tables, `CARDS` and `ENEMIES`); this README names them. There is no physics and no World (`sim.No_World`).

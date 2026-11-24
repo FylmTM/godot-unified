@@ -17,7 +17,9 @@ import "unified:gdext/gdi"
 import "unified:sim"
 
 LINGER_S :: 0.25 // UnifiedView.linger_s's default: a despawned view stays this long (exit animation, or a rollback)
-INDEX_PATH :: "res://unified_index.tres" // the view index `uni bake` writes (metadata `views`: kind -> scene path)
+// The view index (src/godot/README.md, The view index), built in by uni (the -define its extension build passes):
+// `kind=res://path` entries joined by `;`.
+VIEW_INDEX :: #config(UNIFIED_VIEW_INDEX, "")
 
 Root_Mode :: enum u8 {
 	Node3D,
@@ -209,7 +211,7 @@ register_classes :: proc() {
 		parent = "Node",
 		size = size_of(Unified_View_Node),
 		doc_brief = "Marks a scene as the view of one kind of the game's scene views.",
-		doc = "A direct child of the scene's root. [code]uni bake[/code] indexes the scenes by it; the host sets [member key] and keeps [member player] current. The root may be a Node3D (position and quaternion), a Node2D (position and rotation) or anything else (data only), posed before any other node's [code]_process[/code]; a kind the game's view policy script-poses is not posed: the host calls its script's [code]_sim_pose(position: Vector3, rotation: Quaternion)[/code] (2D: [code](position: Vector2, rotation: float)[/code]) with that pose whenever it changes. Its script declares [code]var data: ViewCard[/code] when its kind carries data (the kind's class: the host sets a new object before [code]_ready[/code] and whenever the data changes, so a setter sees the old value and the new one), and may define [code]_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState)[/code] and the lifecycle callbacks [code]_sim_despawned()[/code] (its key is gone: it lingers [member linger_s], no longer posed, then is freed), [code]_sim_revived()[/code] (a rollback brought it back while it lingered), [code]_sim_cancelled()[/code] (a rollback removed it before its spawn tick was verified: freed at once) and, for a kind whose marker sets [member pool], [code]_sim_reused()[/code] (taken from the pool for a new item, instead of [code]_ready[/code]).",
+		doc = "A direct child of the scene's root. uni indexes the scenes by it (built into the game's extension); the host sets [member key] and keeps [member player] current. The root may be a Node3D (position and quaternion), a Node2D (position and rotation) or anything else (data only), posed before any other node's [code]_process[/code]; a kind the game's view policy script-poses is not posed: the host calls its script's [code]_sim_pose(position: Vector3, rotation: Quaternion)[/code] (2D: [code](position: Vector2, rotation: float)[/code]) with that pose whenever it changes. Its script declares [code]var data: ViewCard[/code] when its kind carries data (the kind's class: the host sets a new object before [code]_ready[/code] and whenever the data changes, so a setter sees the old value and the new one), and may define [code]_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState)[/code] and the lifecycle callbacks [code]_sim_despawned()[/code] (its key is gone: it lingers [member linger_s], no longer posed, then is freed), [code]_sim_revived()[/code] (a rollback brought it back while it lingered), [code]_sim_cancelled()[/code] (a rollback removed it before its spawn tick was verified: freed at once) and, for a kind whose marker sets [member pool], [code]_sim_reused()[/code] (taken from the pool for a new item, instead of [code]_ready[/code]).",
 		init = proc(instance: rawptr) {(^Unified_View_Node)(instance).linger_s = LINGER_S},
 		fini = proc(instance: rawptr) {
 			delete((^Unified_View_Node)(instance).kind)
@@ -317,24 +319,10 @@ report_once :: proc(key, msg: string, error := true) {
 index_read :: proc() {
 	if V.index_read do return
 	V.index_read = true
-	if !gd.ResourceLoader_exists(gd.ResourceLoader_singleton(), INDEX_PATH, "") do return
-	resource := gd.ResourceLoader_load(gd.ResourceLoader_singleton(), INDEX_PATH, "", .CACHE_MODE_REUSE)
-	if resource.ptr == nil do return
-	defer gd.unref(resource)
-	nil_variant := gd.variant_nil()
-	meta := gd.Object_get_meta(resource, "views", nil_variant)
-	defer gd.variant_destroy(&meta)
-	views, ok := gd.from_variant(gd.Dictionary, &meta)
-	if !ok do return
-	defer gd.Dictionary_destroy(&views)
-	keys := gd.Dictionary_keys(&views)
-	defer gd.Array_destroy(&keys)
-	for i in 0 ..< gd.array_len(&keys) {
-		kind, _ := gd.from_variant(string, gd.array_at(&keys, i))
-		value := gd.Dictionary_get(&views, gd.array_at(&keys, i)^, nil_variant)
-		path, _ := gd.from_variant(string, &value)
-		gd.variant_destroy(&value)
-		V.index[strings.clone(kind)] = strings.clone(path)
+	rest: string = VIEW_INDEX
+	for entry in strings.split_iterator(&rest, ";") {
+		kind, _, path := strings.partition(entry, "=")
+		if kind != "" do V.index[strings.clone(kind)] = strings.clone(path)
 	}
 }
 
@@ -346,9 +334,8 @@ views_check_index :: proc() {
 			report_once(
 				fmt.tprintf("index:%s", name),
 				fmt.tprintf(
-					"unified: view kind %q has no scene in the view index (%s): give a scene a UnifiedView marker with kind %q and run `uni bake`",
+					"unified: view kind %q has no scene in the view index: give a scene a UnifiedView marker with kind %q, then build (uni builds the index into the extension)",
 					name,
-					INDEX_PATH,
 					name,
 				),
 			)

@@ -3,18 +3,19 @@ extends UnifiedTool
 ## The headless project check, no editor (the godot suite's `validate` step):
 ##   godot --headless -d --path examples/<game> -s <this script> -- --no-settings [--frames=N]
 ## 1. compiles every script of the project (`-d` makes Godot print GDScript warnings; uni fails on them): all of
-## res:// but hidden directories, those with a .gdignore and res://addons/unified (unified's own, checked by its
+## res:// but hidden directories, those with a .gdignore and res://unified (unified's own, checked by its
 ## suites), 2. loads and instantiates every scene and resource there (missing dependencies, and the unknown
 ## properties Godot silently drops), 3. checks the game's own contract with its sim (`_check_contract()`, in a game's
 ## game/tools/validate.gd that extends this), 4. runs the main scene for N frames (default 30) to catch runtime errors.
 
 ## Also: no preload() in the scripts the play scene loads (`_play_scene()`: the main scene unless a game's validate says
 ## otherwise), the play scene draws every MultiMesh kind of the game (EnumMultiView) once, and the project keeps
-## GDScript strictly typed. unified's library tooling (src/godot/README.md, Library tooling), mirrored into every game
-## as res://addons/unified/.
+## GDScript strictly typed. unified's library tooling (src/godot/README.md, Library tooling), at
+## res://unified/tools_godot/ in every project.
 
-## Left out of the walk besides hidden and .gdignore'd directories: unified's tool scripts.
-const SKIP_DIRS: Array[String] = ["res://addons/unified"]
+## Left out of the walk besides hidden and .gdignore'd directories: unified (a game repo's submodule, or the mirror
+## of its tool scripts in unified's own projects).
+const SKIP_DIRS: Array[String] = ["res://unified"]
 
 
 func _run() -> void:
@@ -37,7 +38,7 @@ func _run() -> void:
 			if r == null:
 				log_capture.add("resource failed to load", f)
 			elif r is PackedScene:
-				_check_scene(f, r)
+				_check_scene(f, r as PackedScene)
 	var t2 := Time.get_ticks_usec()
 	_check_play_scene_preloads()
 	_check_multi_views()
@@ -48,7 +49,7 @@ func _run() -> void:
 		contract = "differs"
 	step("%d scripts, %d resources; contract: %s" % [scripts, resources, contract])
 	var frames_to_run := int(arg("frames", "30"))
-	change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
+	change_scene_to_file(str(ProjectSettings.get_setting("application/run/main_scene")))
 	var t3 := Time.get_ticks_usec()
 	await frames(frames_to_run)
 	step("the main scene ran %d frames" % frames_to_run)
@@ -89,7 +90,8 @@ const STRICT_WARNINGS: Array[String] = ["untyped_declaration", "unsafe_property_
 func _check_strict_typing() -> void:
 	for warning in STRICT_WARNINGS:
 		var setting := "debug/gdscript/warnings/" + warning
-		if int(ProjectSettings.get_setting(setting, 0)) != 2:
+		var level: int = ProjectSettings.get_setting(setting, 0)
+		if level != 2:
 			log_capture.add("%s is not an error (2) in project.godot: unified games are strictly typed" % setting,
 				"res://project.godot")
 
@@ -107,7 +109,8 @@ func _check_multi_views() -> void:
 	var found := {}
 	for marker: Node in root_node.find_children("*", "UnifiedMultiView", true, false):
 		var kind := (marker as UnifiedMultiView).kind
-		found[kind] = int(found.get(kind, 0)) + 1
+		var so_far: int = found.get(kind, 0)
+		found[kind] = so_far + 1
 	root_node.free()
 	for member: String in ClassDB.class_get_integer_constant_list(&"EnumMultiView", true):
 		var kind := member.to_lower()

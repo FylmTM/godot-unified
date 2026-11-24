@@ -4,8 +4,7 @@
 touches every part of the library a game uses, with as little game as possible: it is what `uni init` copies for a
 new game, and the showcase of how to write one. A Godot project (this folder is `res://`): the sim, its tests, the
 headless binary and the GDExtension in `simulation/` (Odin), everything Godot in `game/`. `uni run minimal_3d` plays
-it. `GUIDE.md`, which every new game carries, is how to write gameplay that survives rollback: the patterns, and the
-gotchas by symptom.
+it. How to write gameplay that survives rollback, the patterns and the gotchas by symptom: `docs/gameplay.md`.
 
 ## Controls
 

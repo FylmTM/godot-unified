@@ -51,7 +51,8 @@ its own `bench` rows. The library knows nothing of this repo's layout but where 
   release first on PATH, downloading it into the per-user cache once per machine and pin (curl), its SHA-256 checked,
   unpacked beside its final directory and renamed into place. No other Odin is used. Then they run the binary
   `.out/cli/current` names, or, when there is none, build `tools/` into `uni-bootstrap` and run that; it installs
-  itself under its hash.
+  itself under its hash. A game repo's shims are two lines that run its submodule's with `UNI_ROOT` set to the repo
+  (`src/cli/template/repo/`), so the bootstrap is always the pinned unified's.
 - **The binary checks itself** before every command against its manifest (`self_check`): unchanged inputs run at
   once, the same content refreshes the times, anything else rebuilds and runs the new binary with the same arguments.
   A binary's name holds its source hash and the Odin commit that built it, so another Odin's build of the same
@@ -104,11 +105,13 @@ LF everywhere (`.gitattributes`), CRLF for batch files, which cmd.exe misreads w
 
 ## Tool scripts
 
-unified's own Godot tooling (`src/godot/tools`: the tool base, validate, coop, the level exporter) is mirrored into
-every Godot project the CLI runs Godot on, as `addons/unified/`, before every Godot run (`sync_tools`). A game's own
-Godot code is all in the game; nothing else is mirrored. Everything else is where the game likes it, but for two
-fixed places: its tool scripts are `game/tools/<name>.gd` (`tool_script`), and a new level scene goes in
-`game/levels/` (`level_scenes`).
+unified's own Godot tooling (`tools_godot/`: the tool base, validate, coop, the level exporter) is at
+`res://unified/tools_godot/` in every Godot project the CLI runs Godot on. In a game repo that is the submodule,
+which Godot scans in place: every other top-level directory of unified holds a `.gdignore` (the lint checks it).
+unified's own projects (`examples/<game>`, `tests/godot*`) sit inside the checkout rather than around it, so they get
+a git-ignored mirror at that path, refreshed before every Godot run (`sync_tools`). Everything else is where the game
+likes it, but for two fixed places: its tool scripts are `game/tools/<name>.gd` (`tool_script`), and a new level
+scene goes in `game/levels/` (`level_scenes`).
 
 A tool script prints one `UNIFIED_RESULT {json}` line (`ok`, `errors`, its own data). The godot suite's steps, `tool`,
 `coop` and `bake` run tool scripts strictly (`Tool_Run`, `judge_tool`): a failing exit, a missing or `ok: false`

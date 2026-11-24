@@ -1,6 +1,6 @@
 extends SceneTree
 ## unified's navigation baker (src/level/README.md, Authoring), run by `uni bake --nav` before the level exporter:
-##   godot --headless --path <project> -s res://addons/unified/nav_bake.gd -- --scene=res://... [--scene=...]
+##   godot --headless --path <project> -s res://unified/tools_godot/nav_bake.gd -- --scene=res://... [--scene=...]
 ## What the editor's Bake NavigationMesh button does, for the level scenes whose NavigationRegion3D opts in (metadata
 ## `unified_nav_bake = true`; any other region, a hand-made bake among them, is left alone): bakes the region with its
 ## own settings exactly as the author set them (`region.bake_navigation_mesh`), and saves the scene. A region must

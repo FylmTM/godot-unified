@@ -1,4 +1,4 @@
-# UnifiedTool's own checks (src/godot/tools/tool.gd, mirrored as res://addons/unified/): run headless by
+# UnifiedTool's own checks (tools_godot/tool.gd, mirrored as res://unified/tools_godot/): run headless by
 # `uni test --suite godot-bindings`. A headless run's window is the project's window size, not Godot's 64x64; click
 # and click_at give real mouse events of the button asked for, where they aim (a target past 64x64 is hit).
 # Prints one line per check and "TOOL TESTS: <n> failed"; a failure fails the run.

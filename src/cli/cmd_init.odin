@@ -13,8 +13,7 @@ Init_Opts :: struct {
 }
 
 // `init <dir>`: a new game, a copy of unified's examples/minimal_3d named after the directory (minimal_3d replaced by
-// the name in paths and text): its sim, headless binary, extension, Godot scenes and tests, its view index and its
-// GUIDE.md (writing gameplay that survives rollback).
+// the name in paths and text): its sim, headless binary, extension, Godot scenes and tests.
 //
 // By default a new game repo: the game at the repo's root, plus template/repo/ (a README, .gitattributes, the repo's
 // .gitignore, tools/: the game's CLI; .tmpl files with __GAME__ for the name), the shims, and unified as a git
@@ -116,10 +115,10 @@ init_game_repo :: proc(dir, name, typed_dir, source_arg, ref: string) -> Result 
 		write_agents(submodule, dir)
 	}
 	write_text(join(dir, "tools", ".gdignore"), "")
-	for shim in ([]string{"uni", "uni.cmd"}) {
-		copy_file(join(dir, shim), join(submodule, shim))
+	if !os.is_file(join(submodule, SHIM_TEMPLATES, "uni.tmpl")) { 	// an older unified pin: its full shims
+		for shim in SHIMS do copy_file(join(dir, shim), join(submodule, shim))
 	}
-	os.change_mode(join(dir, "uni"), os.perm_number(0o755))
+	os.change_mode(join(dir, "uni"), os.perm_number(0o755)) // template/repo's shims: they run unified's own
 	shim := ODIN_OS == .Windows ? "uni.cmd" : "./uni"
 	return {
 		ok      = true,
@@ -158,9 +157,9 @@ init_in_repo :: proc(dir, name: string) -> Result {
 TEMPLATE_GAME :: "examples/" + TEMPLATE_NAME
 TEMPLATE_NAME :: "minimal_3d"
 // Its files a copy leaves out: its README (template/README.md.tmpl, a draft skeleton of the new game's design, takes
-// its place) and the view index (written below). The `.uid` files are copied: the scenes name their scripts by UID, so
+// its place). The `.uid` files are copied: the scenes name their scripts by UID, so
 // a copy without them warns on every load until Godot rewrites them.
-TEMPLATE_SKIP :: []string{"README.md", "unified_index.tres"}
+TEMPLATE_SKIP :: []string{"README.md"}
 // Its folders a copy leaves out: its replay regressions are recordings of minimal_3d's play (a new game records its
 // own: src/headless/README.md, Replay regressions).
 TEMPLATE_SKIP_DIRS :: []string{"simulation/tests/replays/"}
@@ -174,9 +173,8 @@ TEMPLATE_REFERENCE :: "simulation/tests/reference_test.odin"
 TEMPLATE_REFERENCE_RESULTS :: []string{"checkpoints", "trace", "snapshot", "log", "compat"}
 
 // Writes the game: unified's minimal_3d (at `unified`, a checkout) with `name` for minimal_3d in paths and text
-// (`repo`: and template/repo/, a game repo's own files, at its root), formats its Odin files (the name changes line
-// lengths) and writes its view index the way every build does, so the new game passes fmt --check and its first
-// build rewrites nothing. Returns how many files it wrote.
+// (`repo`: and template/repo/, a game repo's own files, at its root) and formats its Odin files (the name changes line
+// lengths), so the new game passes fmt --check. Returns how many files it wrote.
 @(private)
 write_game :: proc(unified, dir, name: string, repo: bool) -> int {
 	source := join(unified, TEMPLATE_GAME)
@@ -221,13 +219,13 @@ write_game :: proc(unified, dir, name: string, repo: bool) -> int {
 		append(&odin_files, ..find_files(join(dir, "tools"), ".odin"))
 	}
 	fmt_files(ensure_odinfmt(), odin_files[:], false)
-	bake_view_index({name, dir}, check = false, quiet = true)
 	return count + 1
 }
 
 // A copied file's text for the new game (minimal_3d already renamed): its game.odin starts at `VERSION :: "1"`, without
-// minimal_3d's version history; its reference run is unpinned (TEMPLATE_REFERENCE); in a game repo the paths its code's comments name are the repo's: the game's own files
-// at the root (examples/<name>/ goes) and unified's under unified/ (src/, examples/). The Markdown is written for both.
+// minimal_3d's version history; its reference run is unpinned (TEMPLATE_REFERENCE); in a game repo the paths its
+// code's comments name are the repo's: the game's own files at the root (examples/<name>/ goes) and unified's under
+// unified/ (src/, examples/, docs/). The Markdown is written for both.
 @(private)
 template_text :: proc(rel_path, text, name: string, repo: bool) -> string {
 	out := text
@@ -250,6 +248,7 @@ template_text :: proc(rel_path, text, name: string, repo: bool) -> string {
 		out, _ = strings.replace_all(out, aprintf("examples/%s/", name), "")
 		out = prefix_paths(out, "src/", "unified/src/")
 		out = prefix_paths(out, "examples/", "unified/examples/")
+		out = prefix_paths(out, "docs/", "unified/docs/")
 	}
 	return out
 }

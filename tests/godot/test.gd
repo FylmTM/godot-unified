@@ -204,13 +204,13 @@ func press_fires(at: Vector2) -> bool:
 	return fired
 
 
-## The level exporter, mirrored here as into a game (res://addons/unified/) and run in its own Godot process: the 2D
+## The level exporter, at res://unified/tools_godot/ as in every project, and run in its own Godot process: the 2D
 ## and 3D fixtures export to their committed files (tests/level reads them), and an unsupported shape or a bad
 ## navigation region fails naming the node.
 func check_level_export() -> void:
 	var out: Array = []
 	var code := OS.execute(OS.get_executable_path(), ["--headless", "--path", ProjectSettings.globalize_path("res://"),
-			"-s", "res://addons/unified/level_export.gd", "--", "--check", "--scene=res://levels/level_2d.tscn",
+			"-s", "res://unified/tools_godot/level_export.gd", "--", "--check", "--scene=res://levels/level_2d.tscn",
 			"--scene=res://levels/bad_2d.tscn", "--scene=res://levels/shapes_3d.tscn",
 			"--scene=res://levels/bad_3d.tscn", "--scene=res://levels/bad_nav.tscn",
 			"--scene=res://levels/bad_nav_empty.tscn", "--scene=res://levels/bad_2d_nav.tscn"], out, true)

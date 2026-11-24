@@ -258,14 +258,7 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 		if i > 0 && project.pkg == projects[i - 1].pkg {
 			continue
 		}
-		flags: [dynamic]string
-		append(&flags, "-build-mode:dll")
-		append(&flags, ..cli.mode_flags(.dev))
-		build := cli.Build {
-			pkg   = project.pkg,
-			out   = cli.join(project.dir, ".out", "bin", cli.lib_name(project.stem)),
-			flags = flags[:],
-		}
+		build := cli.project_extension_build(project.dir, project.pkg, project.stem)
 		if cli.stale(build) {
 			append(&building, Started{build, cli.start_build(build)})
 		}
@@ -275,7 +268,7 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 			cli.fatal("building %s failed", cli.rel(started.build.pkg))
 		}
 	}
-	// tests/godot runs unified's level exporter (mirrored as res://addons/unified/, so it is imported first);
+	// tests/godot runs unified's level exporter (mirrored as res://unified/tools_godot/, so it is imported first);
 	// tests/godot_views/markers_check.gd extends it (loaded by path), and tool_check.gd extends UnifiedTool (by its
 	// class name: imported too)
 	cli.ensure_imported(projects[0].dir)

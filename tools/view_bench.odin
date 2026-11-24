@@ -65,14 +65,7 @@ cmd_view_bench :: proc(args: []string) -> cli.Result {
 	cli.parse(&opts, args)
 	dir := cli.join(cli.state.project.root, "tests", "godot_views")
 	cli.ensure_bindings()
-	flags: [dynamic]string
-	append(&flags, "-build-mode:dll")
-	append(&flags, ..cli.mode_flags(.release))
-	build := cli.Build {
-		pkg   = cli.join(dir, "ext"),
-		out   = cli.join(dir, ".out", "bin", cli.lib_name("views_test")),
-		flags = flags[:],
-	}
+	build := cli.project_extension_build(dir, cli.join(dir, "ext"), "views_test", .release)
 	if cli.stale(build) {
 		cli.odin_build(build, "building tests/godot_views/ext (release)")
 	}

@@ -448,11 +448,6 @@ fatal :: proc(format: string, args: ..any) -> ! {
 	finish({ok = false, summary = msg})
 }
 
-// Whether this runs in CI (CI=true): the view index is checked by the godot suite instead of rewritten.
-in_ci :: proc() -> bool {
-	return os.get_env("CI", context.temp_allocator) == "true"
-}
-
 // Rounds seconds to two decimals for the reports (--json, the suites' results).
 round2 :: proc(value: f64) -> f64 {
 	return f64(i64(value * 100 + 0.5)) / 100

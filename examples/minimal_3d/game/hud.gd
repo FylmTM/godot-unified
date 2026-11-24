@@ -12,7 +12,7 @@ func _ready() -> void:
 
 
 # Session data is the newest prediction, so it can roll back: what must be final (a win) comes from a CONFIRMED event,
-# or the HUD flickers (GUIDE.md).
+# or the HUD flickers (docs/gameplay.md).
 func _on_hud_changed() -> void:
 	swatch.color = Unified.data.hud.color
 	players_label.text = "Players: %d" % Unified.data.hud.players

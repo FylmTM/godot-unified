@@ -6,7 +6,7 @@ description: Finding and shrinking a determinism bug - a sync-test failure, a de
 # Finding a desync
 
 The same inputs computed different bytes: find the first tick, then the first field, then why. The usual causes by
-symptom: `unified/examples/minimal_3d/GUIDE.md` (Gotchas). The headless modes: `./uni headless -- help`.
+symptom: `unified/docs/gameplay.md` (Gotchas). The headless modes: `./uni headless -- help`.
 
 ## Read the failure
 

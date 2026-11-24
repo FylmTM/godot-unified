@@ -55,7 +55,7 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "vet",
-			summary = "odin check with the strict flags, every target and define variant, of every program and package (the headless binaries, the tests, the benchmark programs in <tests>/<module>/bench, the extensions, tools/); in a game repo, also that the agent guidance is the unified submodule's (uni agents)",
+			summary = "odin check with the strict flags, every target and define variant, of every program and package (the headless binaries, the tests, the benchmark programs in <tests>/<module>/bench, the extensions, tools/); in a game repo, also that what unified ships into it is the submodule's (uni refresh)",
 			options = option_types(Vet_Opts),
 			run     = cmd_vet,
 		},
@@ -104,7 +104,7 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "bake",
-			summary = "write the view index and bake .level files from their scenes, in headless Godot with the game's extension (built when stale: the exporter reads its view_scale; a level scene with no .level yet gets an empty one first, so it builds) (--check: fail if one is stale)",
+			summary = "check the view markers and bake .level files from their scenes, in headless Godot with the game's extension (built when stale: the exporter reads its view_scale; a level scene with no .level yet gets an empty one first, so it builds) (--check: fail if one is stale)",
 			options = option_types(Bake_Opts),
 			details = bake_details,
 			run     = cmd_bake,
@@ -123,10 +123,10 @@ public_commands :: proc() -> []Command {
 			run     = cmd_init,
 		},
 		{
-			name    = "agents",
-			summary = "a game repo: rewrite the agent guidance from the unified submodule (init writes it; after a bump, vet fails until this runs): AGENTS.md's marked section and unified's skills in .claude/skills/",
-			options = option_types(Agents_Opts),
-			run     = cmd_agents,
+			name    = "refresh",
+			summary = "a game repo: bring what unified ships into it in line with the unified submodule (init writes it; after a bump, vet fails until this runs): AGENTS.md's marked section, unified's skills in .claude/skills/, the shims; and retire what an older unified copied in (GUIDE.md, unified_index.tres, the addons/unified mirror, its .gitignore line and export filter)",
+			options = option_types(Refresh_Opts),
+			run     = cmd_refresh,
 		},
 		{
 			name    = "verify",

@@ -6,6 +6,11 @@ case "$0" in
 */*) root=${0%/*} ;;
 *) root=. ;;
 esac
+# a game repo's shim runs this one (its unified/uni) for the game repo's root
+if [ -n "$UNI_ROOT" ]; then
+	root=$UNI_ROOT
+	unset UNI_ROOT
+fi
 cli="$root/.out/cli"
 pins="$root/pins.cfg"
 [ -f "$pins" ] || pins="$root/unified/pins.cfg" # a game repo: unified is its submodule
