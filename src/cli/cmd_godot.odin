@@ -16,7 +16,7 @@ GODOT_STEP_CHECKS :: []string {
 	"the project imports (stale imports only)",
 	"the headless editor loads the extension, with no error line",
 	"a short headless session (scripted input) computes the offline headless binary's checksums",
-	"the view index and every .level file are current (uni bake --check)",
+	"every .level file is current and every view marker sound (uni bake --check)",
 	"every script compiles with warnings as errors and every scene loads; game/tools/validate.gd adds the game's own checks",
 	"game/tools/ui_walk.gd, when the game has one: a walk through its menus and flows with real input events, then its play smoke (a game without menus has none: skipped)",
 	"the game headless under uni drive, as an agent drives it: status, pause, exact steps, a timed press, state, input, held input values, events, ui, find, eval, a script error named by file:line (games with an extension)",
@@ -159,7 +159,7 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 		}
 		if slice.contains(plan.rest, "bake") && !halted(game, ok, "bake") {
 			start := time.tick_now()
-			baked := bake_view_index(game, check = true, quiet = !state.verbose)
+			_, baked := view_index(game.dir)
 			baked = bake(game, check = true, quiet = !state.verbose).ok && baked
 			ok = pass(game, "bake", baked, seconds_since(start)) && ok
 		}
@@ -587,7 +587,7 @@ cmd_tool :: proc(args: []string) -> Result {
 	script := tool_script(selected, name)
 	if script == "" {
 		usage(
-			"%s has no tool script %s (game/tools/ or unified's src/godot/tools/, or a .gd file by path)",
+			"%s has no tool script %s (game/tools/ or unified's tools_godot/, or a .gd file by path)",
 			selected.name,
 			name,
 		)
@@ -843,7 +843,7 @@ start_joiner :: proc(game: Game, script: string, args: []string, env: []string, 
 @(private)
 Bake_Opts :: struct {
 	game:   string `args:"pos=0" usage:"a game (default: every game, then the project's own level scenes)"`,
-	check:  bool `usage:"write nothing; fail when the view index or a .level file is stale"`,
+	check:  bool `usage:"write nothing; fail when a .level file is stale (or a view scene's marker is wrong)"`,
 	nav:    bool `usage:"first bake each level's NavigationRegion3D that opts in (metadata unified_nav_bake) with its own settings and save the scene (the editor's Bake NavigationMesh), then export"`,
 	report: bool `usage:"then report each exported level's navigation mesh (--check: the committed files): its islands, where each marker is on them, what the export changed (src/navreport/README.md)"`,
 }
@@ -867,7 +867,8 @@ cmd_bake :: proc(args: []string) -> Result {
 	count := 0
 	reports: [dynamic]json.Value
 	for game in games_or_all(opts.game) {
-		ok = bake_view_index(game, opts.check) && ok
+		_, markers_ok := view_index(game.dir) // built into the extension: only its markers are checked here
+		ok = markers_ok && ok
 		if opts.nav && len(level_scenes(game.dir)) > 0 {
 			ensure_game(game)
 			ok = bake_nav(game.dir, level_scenes(game.dir)) && ok
@@ -953,22 +954,25 @@ report_nav :: proc(dir: string, baked: Tool_Result, reports: ^[dynamic]json.Valu
 	return true
 }
 
-VIEW_INDEX :: "unified_index.tres"
+// The -define the extension build passes the view index in (src/godot/README.md, The view index): `kind=res://path`
+// entries joined by `;`, sorted by kind.
+VIEW_INDEX_DEFINE :: "UNIFIED_VIEW_INDEX"
 
-// The view index (src/godot/README.md): every scene of the game whose root has a UnifiedView marker as a direct child,
-// by the marker's kind, written to <game>/unified_index.tres (committed; `check`: fail when it is stale instead). A
-// scene's text is read directly: `[node ... type="UnifiedView" parent="."]` and its `kind = "..."` line. `quiet`:
-// say nothing when it is current.
-bake_view_index :: proc(game: Game, check: bool, quiet := false) -> bool {
+// The view index of the project at `dir` (src/godot/README.md, The view index): every scene whose root has a
+// UnifiedView marker as a direct child, by the marker's kind, as VIEW_INDEX_DEFINE's value ("" when there is none). A
+// scene's text is read directly: `[node ... type="UnifiedView" parent="."]` and its `kind = "..."` line. ok is false,
+// each problem logged, when a marker is not a direct child of its root, has no kind, shares its kind with another
+// scene, or a kind or path holds a `;` or `=`.
+view_index :: proc(dir: string) -> (index: string, ok: bool) {
 	Found :: struct {
 		kind, path: string,
 	}
 	found: [dynamic]Found
-	ok := true
-	for file in godot_scenes(game.dir) {
-		rel_path := strings.trim_prefix(file[len(game.dir):], "/")
+	ok = true
+	for file in godot_scenes(dir) {
+		rel_path := strings.trim_prefix(file[len(dir):], "/")
 		rel_path, _ = strings.replace_all(strings.trim_prefix(rel_path, "\\"), "\\", "/")
-		if strings.has_prefix(rel_path, "addons/") do continue
+		if strings.has_prefix(rel_path, "addons/") || strings.has_prefix(rel_path, "unified/") do continue
 		text, read := read_text(file)
 		if !read do continue
 		in_marker := false
@@ -991,6 +995,11 @@ bake_view_index :: proc(game: Game, check: bool, quiet := false) -> bool {
 				ok = false
 				continue
 			}
+			if strings.contains_any(kind, ";=") || strings.contains_any(rel_path, ";=") {
+				log("uni: %s: a view scene's path and kind hold no ';' or '=' (the view index's separators)", rel_path)
+				ok = false
+				continue
+			}
 			for earlier in found {
 				if earlier.kind == kind {
 					log("uni: view kind %q is in two scenes: %s and %s", kind, earlier.path, rel_path)
@@ -1001,27 +1010,17 @@ bake_view_index :: proc(game: Game, check: bool, quiet := false) -> bool {
 		}
 	}
 	slice.sort_by(found[:], proc(a, b: Found) -> bool {return a.kind < b.kind})
-	builder := strings.builder_make(context.temp_allocator)
-	strings.write_string(&builder, "[gd_resource type=\"Resource\" format=3]\n\n[resource]\nmetadata/views = {\n")
-	for item, i in found {
-		strings.write_string(&builder, aprintf("%q: %q%s\n", item.kind, item.path, i + 1 < len(found) ? "," : ""))
-	}
-	strings.write_string(&builder, "}\n")
-	want := strings.to_string(builder)
-	path := join(game.dir, VIEW_INDEX)
-	have, exists := read_text(path)
-	if len(found) == 0 && !exists do return ok
-	if exists && have == want {
-		if !quiet do log("uni: %s view index: %d kind(s), current", game.name, len(found))
-		return ok
-	}
-	if check {
-		log("uni: %s: %s is stale: run `uni bake %s`", game.name, VIEW_INDEX, game.name)
-		return false
-	}
-	write_text(path, want)
-	log("uni: %s view index: %d kind(s) -> %s", game.name, len(found), VIEW_INDEX)
-	return ok
+	entries := make([]string, len(found))
+	for item, i in found do entries[i] = aprintf("%s=%s", item.kind, item.path)
+	return strings.join(entries, ";"), ok
+}
+
+// The extension build's -define that passes it the view index of the project at `dir` (view_index); a bad marker
+// stops the command, naming it.
+view_index_define :: proc(dir: string) -> string {
+	index, ok := view_index(dir)
+	if !ok do fatal("%s: its view scenes' markers are wrong (above)", rel(dir))
+	return aprintf("-define:%s=%s", VIEW_INDEX_DEFINE, index)
 }
 
 // The .tscn files Godot sees in the project at `dir`, sorted (godot_files).
@@ -1051,7 +1050,7 @@ godot_files :: proc(dir, suffix: string) -> []string {
 	return out[:]
 }
 
-// Runs unified's level exporter (src/godot/tools/level_export.gd, mirrored as res://addons/unified/) on the game's
+// Runs unified's level exporter (tools_godot/level_export.gd, at res://unified/tools_godot/) on the game's
 // level scenes (level_scenes; none: nothing to do). `quiet`: name only the levels that changed.
 bake :: proc(game: Game, check: bool, quiet := false) -> Tool_Result {
 	scenes := level_scenes(game.dir)
@@ -1104,7 +1103,7 @@ level_scenes :: proc(dir: string) -> []string {
 	for file in godot_scenes(dir) {
 		rel_path := strings.trim_prefix(file[len(dir):], "/")
 		rel_path, _ = strings.replace_all(strings.trim_prefix(rel_path, "\\"), "\\", "/")
-		if strings.has_prefix(rel_path, "addons/") do continue
+		if strings.has_prefix(rel_path, "addons/") || strings.has_prefix(rel_path, "unified/") do continue
 		in_levels := strings.has_prefix(rel_path, "game/levels/") && strings.count(rel_path, "/") == 2
 		if in_levels || os.is_file(aprintf("%s.level", strings.trim_suffix(file, ".tscn"))) {
 			append(&out, aprintf("res://%s", rel_path))
@@ -1147,7 +1146,7 @@ bake_project :: proc(dir: string, scenes: []string, check: bool, quiet := false)
 	return result
 }
 
-// Runs unified's navigation baker (src/godot/tools/nav_bake.gd) on a project's level scenes (res:// paths): each one
+// Runs unified's navigation baker (tools_godot/nav_bake.gd) on a project's level scenes (res:// paths): each one
 // whose NavigationRegion3D opts in is baked with the region's own settings and saved, as the editor's Bake
 // NavigationMesh button does.
 bake_nav :: proc(dir: string, scenes: []string) -> bool {

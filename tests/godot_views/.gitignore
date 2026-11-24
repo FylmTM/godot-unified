@@ -1,4 +1,4 @@
-# unified's tool scripts (src/godot/tools), mirrored by uni for markers_check.gd
-/addons/unified/
+# unified's tool scripts (tools_godot), mirrored by uni for markers_check.gd and tool_check.gd
+/unified/
 # the UIDs Godot writes when uni imports this project (nothing here refers to a script by UID)
 *.uid

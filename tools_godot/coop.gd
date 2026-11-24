@@ -129,6 +129,7 @@ func _join() -> void:
 		return
 	await wait_for(func() -> bool: return _connected() and _present() >= 2, 30.0, "both players in")
 	step("joined as player %d: %s" % [session.local_player, player_names()])
+	@warning_ignore("redundant_await")  # a stub here: a game's override awaits
 	await _join_play()
 	if crash or rejoin:
 		await wait_for(func() -> bool: return FileAccess.file_exists(_played_file()), 60.0, "the host's play")
@@ -160,6 +161,7 @@ func _wait_host_left() -> void:
 	if failed():
 		return
 	step("host left: the session ended (%s)" % status_detail)
+	@warning_ignore("redundant_await")  # a stub here: a game's override awaits
 	await _host_left()
 
 

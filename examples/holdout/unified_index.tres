@@ -1,7 +1,0 @@
-[gd_resource type="Resource" format=3]
-
-[resource]
-metadata/views = {
-"enemy": "res://game/views/enemy.tscn",
-"player": "res://game/views/player.tscn"
-}

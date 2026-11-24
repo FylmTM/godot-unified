@@ -155,11 +155,11 @@ cmd_vet :: proc(args: []string) -> Result {
 		}
 	}
 	failed: [dynamic]string
-	// a game repo's agent guidance is the submodule's (agents.odin): stale after a bump until `uni agents`
+	// what unified ships into a game repo is the submodule's (refresh.odin): stale after a bump until `uni refresh`
 	if !is_unified_repo() {
-		if problems := agents_problems(state.project.unified, state.project.root); len(problems) > 0 {
-			append(&failed, "the agent guidance (run uni agents)")
-			log("vet: the agent guidance differs from the unified submodule's:\n  %s", strings.join(problems, "\n  "))
+		if problems := refresh_problems(state.project.unified, state.project.root); len(problems) > 0 {
+			append(&failed, "what unified ships into this repo (run uni refresh)")
+			log("vet: this repo differs from what the unified submodule ships:\n  %s", strings.join(problems, "\n  "))
 		}
 	}
 	// A check per core at a time: every job at once (about a hundred) runs a CI runner out of memory, which then kills

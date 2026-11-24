@@ -6,7 +6,7 @@ import "unified:sim"
 MOVE_SPEED :: f32(4) // metres per second at full input
 
 // Someone new starts at x = their slot; someone who comes back keeps their position. Everything a player owns is
-// keyed by their sim.Player, never the slot: who comes back may hold another slot (GUIDE.md).
+// keyed by their sim.Player, never the slot: who comes back may hold another slot (docs/gameplay.md).
 place_new_players :: proc(t: ^Tick) {
 	for player in t.player_changes.joined {
 		slot := sim.player_slot(t, player)

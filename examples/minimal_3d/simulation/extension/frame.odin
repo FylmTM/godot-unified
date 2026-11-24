@@ -43,7 +43,7 @@ Data_Hud :: struct {
 
 // The views of a published tick, from its state (the newest prediction, filled again after a rollback): reads the
 // state, never writes it. What a view shows of the rules' next move calls the sim's own proc, or the two disagree
-// (GUIDE.md).
+// (docs/gameplay.md).
 fill_frame :: proc(f: ^Frame) {
 	fill_frame_players(f)
 	fill_frame_balls(f)
@@ -51,7 +51,7 @@ fill_frame :: proc(f: ^Frame) {
 }
 
 // A capsule per present player. Nothing here teleports; a body that does pushes its warp epoch
-// (`warp = physics.body_warp(f.world.phys, body)`), or its view glides across the map (GUIDE.md).
+// (`warp = physics.body_warp(f.world.phys, body)`), or its view glides across the map (docs/gameplay.md).
 fill_frame_players :: proc(f: ^Frame) {
 	players := sim.iterate_present(&f.state.players)
 	for data, player in sim.next(&players) {

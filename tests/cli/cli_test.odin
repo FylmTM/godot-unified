@@ -344,7 +344,7 @@ import_current_follows_class_names_and_the_cache :: proc(t: ^testing.T) {
 	testing.expect(t, cli.import_current(dir), "just imported")
 	write(dir, "game/main.gd", "class_name Main\nextends Node\n\nfunc _ready() -> void:\n\tpass\n")
 	testing.expect(t, cli.import_current(dir), "a script body changed: no import needed")
-	write(dir, "addons/unified/validate.gd", "class_name UnifiedValidate\nextends SceneTree\n")
+	write(dir, "unified/tools_godot/validate.gd", "class_name UnifiedValidate\nextends SceneTree\n")
 	testing.expect(t, !cli.import_current(dir), "the mirrored tool scripts gained a class")
 	cli.import_mark_current(dir)
 	testing.expect(t, cli.import_current(dir))
@@ -652,7 +652,7 @@ tool_script_runs_only_a_main_loop :: proc(t: ^testing.T) {
 		{"game/game/tools/menu_tool.gd", "class_name MenuTool extends UnifiedTool\n"},
 		{"game/game/tools/walk.gd", "@tool\n## A walk.\nextends MenuTool\n\nfunc _run() -> void:\n\tpass\n"},
 		{"game/game/tools/tour.gd", "extends \"res://game/tools/walk.gd\"\n"},
-		{"game/game/tools/check.gd", "extends 'res://addons/unified/export.gd'\n"},
+		{"game/game/tools/check.gd", "extends 'res://unified/tools_godot/export.gd'\n"},
 		{"game/game/ui/score.gd", "extends Control\n"},
 		{"game/game/ui/bare.gd", "func f() -> void:\n\tpass\n"},
 	}

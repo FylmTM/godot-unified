@@ -3,7 +3,8 @@
 A co-op game on [unified](https://github.com/FylmTM/godot-unified) (deterministic rollback netcode, Odin + Godot), started
 from `uni init`: a copy of unified's `examples/minimal_3d`, where 1–4 players move capsules and throw balls up. Make it
 yours from here, starting with the design below (a draft skeleton: the game's rules, before its code), and read
-`GUIDE.md` before writing gameplay: the patterns that survive prediction and rollback, and the gotchas by symptom.
+`unified/docs/gameplay.md` before writing gameplay: the patterns that survive prediction and rollback, and the
+gotchas by symptom.
 
 ```
 ./uni test --suite all # the sim tests and the game under headless Godot (uni.cmd on Windows)
@@ -21,8 +22,8 @@ yours from here, starting with the design below (a draft skeleton: the game's ru
   `input.odin` turns Godot's input into an Input, `frame.odin` the state into views.
 - `simulation/tests/`: the standard scenarios and the determinism lint (`suite_test.odin`, which says how to pin a
   reference run), and the game's own rule tests.
-- `game/`: the Godot side: scenes, views (each with a UnifiedView marker; `uni bake` indexes them into
-  `unified_index.tres`) and scripts. GDScript reads the sim; input and commands are the only way in.
+- `game/`: the Godot side: scenes, views (each with a UnifiedView marker, which the build indexes) and scripts.
+  GDScript reads the sim; input and commands are the only way in.
 - `tools/`: this game's CLI (unified's public commands, plus the game's own).
 - `unified/`: unified, as a git submodule. Local paths (a Godot install, the EOS SDK) go in a git-ignored `.env`.
 - `AGENTS.md`, `.claude/skills/`: for coding agents (`unified/docs/agent-guide.md`).

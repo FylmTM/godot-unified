@@ -3,7 +3,7 @@ package minimal_3d
 import "unified:sim"
 
 // The whole simulation state: one pointer-free block (checked by sim.create). Everything tick reads across ticks lives
-// here: kept anywhere else (the World, a package variable), it desyncs after a rollback (GUIDE.md).
+// here: kept anywhere else (the World, a package variable), it desyncs after a rollback (docs/gameplay.md).
 State :: struct {
 	clock:   sim.Clock, // game time and the co-op pause (pause.odin): the harness advances it unless paused
 	players: sim.Players(Player_Data, sim.No_Profile, Input, PLAYERS),

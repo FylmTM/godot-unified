@@ -64,7 +64,8 @@ func report() -> Dictionary:
 	print("frames: %d, p50 %.1f ms, p99 %.1f ms, max %.1f ms, %d over %.0f ms" % [n, pct.call(0.5), pct.call(0.99),
 		sorted[n - 1] / 1000.0, hitches.size(), HITCH_MS])
 	for h in hitches:
-		print("  hitch  frame %5d  %6.1f ms  %s" % [h.frame, h.ms, ", ".join(h.tags)])
+		var tags: Array[String] = h.tags
+		print("  hitch  frame %5d  %6.1f ms  %s" % [h.frame, h.ms, ", ".join(PackedStringArray(tags))])
 	# The worst of the four frames from each first use: a first draw is measured in the same or the next frame.
 	var firsts := {}
 	for i: int in _tags:

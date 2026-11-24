@@ -275,7 +275,7 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 			cli.fatal("building %s failed", cli.rel(started.build.pkg))
 		}
 	}
-	// tests/godot runs unified's level exporter (mirrored as res://addons/unified/, so it is imported first);
+	// tests/godot runs unified's level exporter (mirrored as res://unified/tools_godot/, so it is imported first);
 	// tests/godot_views/markers_check.gd extends it (loaded by path), and tool_check.gd extends UnifiedTool (by its
 	// class name: imported too)
 	cli.ensure_imported(projects[0].dir)

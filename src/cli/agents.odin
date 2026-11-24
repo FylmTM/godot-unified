@@ -1,7 +1,8 @@
 // The guidance unified ships for coding agents in a game repo (docs/agent-guide.md, How the integration works): a short
 // section of the repo's AGENTS.md between markers, and unified's skills (every SKILL_PREFIX directory of its
 // .claude/skills/) copied into the repo's. Both come from the unified submodule, so they match the library the game
-// builds against; `init` writes them, `agents` rewrites them after a submodule bump, and `vet` fails while they differ.
+// builds against; `init` writes them, `refresh` rewrites them after a submodule bump (refresh.odin), and `vet` fails
+// while they differ.
 package cli
 
 import "core:os"
@@ -11,7 +12,7 @@ import "core:strings"
 // Where a project keeps its Claude Code skills, from its root.
 SKILLS_DIR :: ".claude/skills"
 
-// How the names of unified's shipped skills start. The prefix marks a game repo's copies as unified's: `agents`
+// How the names of unified's shipped skills start. The prefix marks a game repo's copies as unified's: `refresh`
 // rewrites and removes only those, and never touches the game's own skills beside them.
 SKILL_PREFIX :: "unified-"
 
@@ -21,35 +22,13 @@ AGENTS_SECTION :: "src/cli/template/agents-section.md"
 
 // The line before the section in a game repo's AGENTS.md. A line starting with AGENTS_BEGIN_MARK is the marker, so its
 // wording can change.
-AGENTS_BEGIN :: AGENTS_BEGIN_MARK + ": managed by `./uni agents`, edit outside it -->"
+AGENTS_BEGIN :: AGENTS_BEGIN_MARK + ": managed by `./uni refresh`, edit outside it -->"
 
 // How the section's first line starts.
 AGENTS_BEGIN_MARK :: "<!-- unified: begin"
 
 // The line after the section.
 AGENTS_END :: "<!-- unified: end -->"
-
-@(private)
-Agents_Opts :: struct {}
-
-// `agents`: rewrites the game repo's agent guidance from its unified submodule (write_agents), after a bump.
-@(private)
-cmd_agents :: proc(args: []string) -> Result {
-	opts: Agents_Opts
-	parse(&opts, args)
-	if is_unified_repo() {
-		usage("agents writes a game repo's guidance from its unified submodule; unified's own is the source")
-	}
-	write_agents(state.project.unified, state.project.root)
-	return {
-		ok      = true,
-		summary = aprintf(
-			"agents: AGENTS.md's unified section and the skills %s in %s/, from the submodule",
-			strings.join(unified_skills(state.project.unified), ", "),
-			SKILLS_DIR,
-		),
-	}
-}
 
 // The SKILL_PREFIX skills in the SKILLS_DIR of the project at `root`, sorted by name (none without the directory).
 unified_skills :: proc(root: string) -> []string {
@@ -92,7 +71,7 @@ write_agents :: proc(unified, root: string) {
 
 // What is stale in the agent guidance of the game repo at `root` against unified's checkout at `unified`, a line each
 // (none: it is current): AGENTS.md's marked section; each of unified's skills (a file missing, differing or not
-// unified's); a SKILL_PREFIX skill unified no longer ships. `agents` fixes each.
+// unified's); a SKILL_PREFIX skill unified no longer ships. `refresh` fixes each.
 agents_problems :: proc(unified, root: string) -> []string {
 	problems: [dynamic]string
 	existing, found := read_text(join(root, "AGENTS.md"))

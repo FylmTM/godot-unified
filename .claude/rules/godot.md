@@ -19,8 +19,9 @@ paths:
 - Godot writes a `.uid` file next to every new script and shader: in a game, commit it with the file. The test
   projects (`tests/godot*`) git-ignore them: nothing there refers to a file by UID.
 - Never edit `.godot/` or `.import` files; they are Godot's cache.
-- A game's `addons/unified/` is a copy of `src/godot/tools` (the library's tool scripts), refreshed by `uni` before
-  every run: change it there, never in a game. Everything else in a game is the game's own.
+- `res://unified/tools_godot/` is unified's `tools_godot/` (the library's tool scripts): a game repo's submodule, or a
+  git-ignored mirror in unified's own projects. Change it in unified, never in a game. Everything else in a game is
+  the game's own.
 - Static typing per Godot's style guide, members in its order (signals, enums, constants, exports, vars,
   `@onready` vars, virtuals, public, private).
 - A tool script (`-s`) is compiled before the autoloads exist: it never names a script that uses `Game`,

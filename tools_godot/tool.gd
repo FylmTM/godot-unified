@@ -11,8 +11,8 @@ extends SceneTree
 ## run ends through the game's own quit when it has a Game autoload with `quit_app(exit_code)`, else `quit()`. A
 ## headless run's window is the project's window size (Godot's headless one is 64x64), so a UI lays out as a player
 ## sees it.
-## unified's library tooling (src/godot/README.md, Library tooling), mirrored into every game as
-## res://addons/unified/. It knows no game's menus: a game drives its own UI from its tool scripts (game/tools/).
+## unified's library tooling (src/godot/README.md, Library tooling), at res://unified/tools_godot/ in every project.
+## It knows no game's menus: a game drives its own UI from its tool scripts (game/tools/).
 ##
 ## Arguments come after `--`: `arg("name")` reads `--name=value` (or `--name value`), `flag("name")` `--name`. Every
 ## tool takes `--shots=<dir>` (PNGs from `shot()`, a windowed run) and `--frames` (frame times and first-use hitches,
@@ -127,7 +127,8 @@ func finish() -> void:
 	_done = true
 	var ok := not failed() and log_capture.errors.is_empty()
 	var ms := Time.get_ticks_msec() - _t0
-	var script_name := (get_script() as Script).resource_path.get_file().get_basename()
+	var own_script: Script = get_script()
+	var script_name := own_script.resource_path.get_file().get_basename()
 	print("%s%s: %d steps, %s in %d ms" % [script_name, " " + tag if tag != "" else "", _steps.size(),
 		"OK" if ok else "FAILED", ms])
 	if not log_capture.errors.is_empty() or not log_capture.warnings.is_empty():
@@ -325,7 +326,7 @@ func player_names() -> String:
 ## keeps it in its main scene gets it this way. Waits until there is one.
 func load_session(timeout_s := 5.0) -> void:
 	if session == null:
-		change_scene_to_file(ProjectSettings.get_setting("application/run/main_scene"))
+		change_scene_to_file(str(ProjectSettings.get_setting("application/run/main_scene")))
 	await wait_for(func() -> bool: return session != null, timeout_s, "a UnifiedSession in the tree")
 
 
@@ -351,5 +352,6 @@ func _start() -> void:
 		# A window that loses focus or gets covered can stall a frame in the driver: tag it, not to blame the game.
 		root.focus_entered.connect(frame_tag.bind("window focused"))
 		root.focus_exited.connect(frame_tag.bind("window unfocused"))
+	@warning_ignore("redundant_await")  # this _run is a stub: the script's own _run (an override) awaits
 	await _run()
 	finish()

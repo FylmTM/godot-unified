@@ -1,10 +1,11 @@
 # Writing gameplay that survives rollback
 
-For whoever writes this game's sim and views: the patterns that hold up under prediction, rollback, late joins and
+For whoever writes a game's sim and views: the patterns that hold up under prediction, rollback, late joins and
 replays, then the symptoms of breaking them. Each line points at the README section or declaration that holds the
 detail. `src/` and `examples/` are unified's (`unified/src/`, `unified/examples/` in a game repo); `uni doc <pkg>`
 prints a package's API (`--brief`: a line per declaration; `uni doc sim Game`: one declaration, a struct with its
-fields' comments); this game's own code comments repeat the warnings where they apply.
+fields' comments); `examples/minimal_3d`'s code comments (a new game's, copied from it) repeat the warnings where they
+apply.
 
 `tick` turns the state block and one tick's inputs into the next block. Every client runs it ahead on guesses of the
 others' inputs and, when the real ones arrive, restores an older tick and runs it again (`src/sim/README.md`, The
@@ -77,7 +78,7 @@ each time; the views show the newest guess and are told when it changes.
 - A time is seconds converted to ticks (`X_TICKS :: u32(X_S * TICK_HZ)`) or a `sim.Timer`; nothing counts down by
   hand. A stamp is `t.time` (a `sim.Game_Time`), never `t.number`, which names the record only (Game time).
 - A `sim.Clock` in the State makes game time pausable. The co-op pause is a command `tick` reads before it returns
-  early on `t.paused`, before `physics.step` (this game's `pause.odin`); single player pauses from outside
+  early on `t.paused`, before `physics.step` (minimal_3d's `pause.odin`); single player pauses from outside
   (`UnifiedSession.paused`) (Game time).
 - Work too costly for every entity every tick runs on `sim.due` turns (Neighbours and time slicing).
 

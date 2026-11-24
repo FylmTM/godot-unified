@@ -19,7 +19,6 @@ config/features=PackedStringArray("4.7")
 
 gdscript/warnings/directory_rules={
 "res://.out": 0,
-"res://addons": 0,
 "res://game/tools": 0
 }
 gdscript/warnings/unused_signal=0

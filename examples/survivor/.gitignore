@@ -1,7 +1,7 @@
 # Build outputs (game library, exports, screenshots, test output) and Godot's import cache.
 /.out/
 /.godot/
-# unified's tool scripts (src/godot/tools), mirrored by uni before every Godot run.
-/addons/unified/
+# unified's tool scripts (tools_godot), mirrored by uni before every Godot run.
+/unified/
 # A background window's no-focus override, written by uni for the run (safe to delete).
 /override.cfg

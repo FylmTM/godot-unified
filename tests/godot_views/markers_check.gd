@@ -1,9 +1,9 @@
 # Unified.level_markers against unified's level exporter: run headless by `uni test --suite godot-bindings`. The
-# exporter is mirrored here (res://addons/unified/) and this script extends it, so its own `_collect` gives the order
-# the .level file holds the markers in; Unified.level_markers (Odin, src/godot/level_markers.odin) must return the
+# exporter is mirrored here (res://unified/tools_godot/) and this script extends it, so its own `_collect` gives the
+# order the .level file holds the markers in; Unified.level_markers (Odin, src/godot/level_markers.odin) must return the
 # same nodes in the same order, for a level whose markers declare their kind each supported way, nested.
 # Prints one line per check and "MARKERS TESTS: <n> failed"; exits with the failure count.
-extends "res://addons/unified/level_export.gd"
+extends "res://unified/tools_godot/level_export.gd"
 
 var failed := 0
 

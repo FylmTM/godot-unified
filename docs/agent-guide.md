@@ -8,10 +8,10 @@ game repo sees them, with unified at `unified/`; inside unified's own checkout, 
 Read in this order; each holds its facts once, so look there rather than for a summary:
 
 1. `unified/README.md`: the programming model and the principles.
-2. `unified/examples/minimal_3d/`: the reference game (a new game repo starts as a copy of it), and its `GUIDE.md`:
-   the patterns that survive rollback, and the gotchas by symptom.
-3. `./uni doc` lists the packages; `./uni doc <pkg>` prints one's API.
-4. `unified/src/<pkg>/README.md`: how a package works and the decisions behind it.
+2. `unified/docs/gameplay.md`: the patterns that survive rollback, and the gotchas by symptom.
+3. `unified/examples/minimal_3d/`: the reference game (a new game repo starts as a copy of it).
+4. `./uni doc` lists the packages; `./uni doc <pkg>` prints one's API.
+5. `unified/src/<pkg>/README.md`: how a package works and the decisions behind it.
 
 The determinism lint (in `./uni test`) and `./uni vet` enforce the simulation's rules: fix what they name.
 
@@ -29,7 +29,7 @@ one's options. A game repo holds one game, so no command needs its name.
 - Drive a running game (input, exact steps, state, screenshots, menus): `./uni drive`
 - The developer's playtest notes (F3, freezes): `./uni feedback`
 - Tool scripts (validate, the game's own): `./uni tool <script>`
-- Levels and the view index: `./uni bake`
+- Levels: `./uni bake`
 - Speed: `./uni bench`
 - The API: `./uni doc`
 - Before handing work back: `./uni verify`
@@ -41,18 +41,23 @@ determinism bug) and `unified-feedback` (the developer's playtest notes).
 
 ## How the integration works
 
-`./uni init` writes two things into a new game repo, both from the submodule, so they match the pinned unified:
+`./uni init` writes the game (a copy of `unified/examples/minimal_3d`) and, from the submodule, so they match the
+pinned unified:
 
 - **A marked section of `AGENTS.md`**, a few lines pointing here, between `<!-- unified: begin ... -->` and
   `<!-- unified: end -->`. Its text is `unified/src/cli/template/agents-section.md`; the rest of the file is the
   game's.
 - **unified's skills**: every `unified-*` directory of `unified/.claude/skills/`, copied into the repo's
   `.claude/skills/`. The prefix marks them as unified's; the game's own skills take other names.
+- **The shims**, `uni` and `uni.cmd`: two lines each that run the submodule's own shim for this repo.
 
-After a submodule bump, `./uni agents` rewrites both: the marked section, and the `unified-*` skills (added,
-rewritten, or removed when unified no longer ships one). Nothing else is touched. Until then `./uni vet` fails,
-naming each difference. Inside unified, the `unified-*` skills are the source and also its own; its other skills are
-for working on unified itself.
+Nothing else of unified's is in the repo: the docs stay in `unified/docs/`, and Godot reads unified's tool scripts in
+place at `res://unified/tools_godot/` (every other directory of unified holds a `.gdignore`). After a submodule bump,
+`./uni refresh` brings the repo in line: the marked section, the `unified-*` skills (added, rewritten, or removed
+when unified no longer ships one), the shims, and what an older unified copied in (`GUIDE.md`, `unified_index.tres`,
+an `addons/unified/` mirror, its `.gitignore` line and export filter) retired. Nothing else is touched. Until then
+`./uni vet` fails, naming each difference. Inside unified, the `unified-*` skills are the source and also its own;
+its other skills are for working on unified itself.
 
 **Why copies, not a Claude Code plugin.** A plugin loaded from the submodule as a directory marketplace does load,
 but Claude Code registers marketplaces per user, by name: every checkout of unified (each game repo, each worktree)

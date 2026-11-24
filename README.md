@@ -35,8 +35,7 @@ window and **Join on the LAN** in the other.
 ./uni run holdout
 ```
 
-Before writing gameplay, read [`GUIDE.md`](examples/minimal_3d/GUIDE.md) (every new game gets a copy): the patterns
-that survive rollback.
+Before writing gameplay, read [`docs/gameplay.md`](docs/gameplay.md): the patterns that survive rollback.
 
 ## What you get
 
@@ -191,8 +190,7 @@ macOS ARM64 and Linux x64. It does not fit, today:
 
 ## Learn more
 
-- [`GUIDE.md`](examples/minimal_3d/GUIDE.md), copied into every new game: the patterns that survive rollback, and
-  the gotchas by symptom.
+- [`docs/gameplay.md`](docs/gameplay.md): the patterns that survive rollback, and the gotchas by symptom.
 - [`docs/getting-started.md`](docs/getting-started.md): the toolchain, editor setup, local overrides.
 - [`src/README.md`](src/README.md): how the core works inside, with a README per package.
 - [`docs/EOS.md`](docs/EOS.md): setting up online play with Epic Online Services.

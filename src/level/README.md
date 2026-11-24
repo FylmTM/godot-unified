@@ -59,7 +59,7 @@ marker's node by its index (`Unified.level_markers`).
   shared by more than two polygons. The mesh the editor draws for the region is the one the sim gets. A mesh can still
   be cut in pieces no error names: `uni bake --report` reports it (src/navreport/README.md).
 
-The exporter is unified's (`src/godot/tools/level_export.gd`, mirrored into every project as `addons/unified/`);
+The exporter is unified's (`tools_godot/level_export.gd`, at `res://unified/tools_godot/` in every project);
 scenes depend on no library script.
 
 ## 2D levels

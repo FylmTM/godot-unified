@@ -4,7 +4,7 @@ import "unified:sim"
 
 // One player's input for one tick: the stick, each axis -127..127 (dmath.axis_i8). The controls' state, never a
 // one-shot (prediction repeats an input, the relay replaces a late one: a tap is lost or repeats): a button is a
-// held bit in a `buttons` bit_set (sim.buttons), a one-shot a command (GUIDE.md).
+// held bit in a `buttons` bit_set (sim.buttons), a one-shot a command (docs/gameplay.md).
 Input :: struct {
 	dx: i8, // right
 	dy: i8, // down

@@ -56,25 +56,19 @@ extension_lib :: proc(game: Game) -> string {
 }
 
 // The build of the game's GDExtension (simulation/extension) as a shared library for `mode`, with the Box3D
-// and EOS defines it needs; ensure_extension runs it when stale.
+// and EOS defines it needs and the game's view index (view_index_define); ensure_extension runs it when stale.
 extension_build :: proc(game: Game, mode: Mode) -> Build {
 	flags: [dynamic]string
 	append(&flags, "-build-mode:dll")
 	append(&flags, ..mode_flags(mode))
 	append(&flags, ..box3d_defines(mode, game_uses_box3d(game)))
 	append(&flags, ..eos_defines(game))
+	append(&flags, view_index_define(game.dir)) // a view scene added, moved or renamed rebuilds the extension
 	return {
 		pkg   = join(game.dir, "simulation", "extension"),
 		out   = extension_lib(game),
 		flags = flags[:],
 	}
-}
-
-// Rewrites the game's view index when a view scene was added, moved or renamed, so that needs no separate
-// `uni bake` (a scan of the .tscn files, no Godot run). Not in CI: there the godot suite's bake step checks that
-// the committed index is current.
-refresh_view_index :: proc(game: Game) {
-	if !in_ci() do bake_view_index(game, check = false, quiet = true)
 }
 
 // Whether the game has a GDExtension to build (simulation/extension) for Godot to load.
@@ -107,15 +101,14 @@ Extension_Build :: struct {
 	mode:      Mode,
 }
 
-// Prepares the game's extension and starts its build when stale (always with `force`), without waiting: refreshes
-// the game's view index (refresh_view_index), stages the Box3D library next to it (the .gdextension's [dependencies]
+// Prepares the game's extension and starts its build when stale (always with `force`), without waiting: stages the
+// Box3D library next to it (the .gdextension's [dependencies]
 // ship it from there; the debug build for --mode debug) and the EOS SDK's. nil when it is current. The build tag
 // (-define:UNIFIED_BUILD_TAG=<mode>-<time>) is outside the manifest key, so it doesn't make every build stale.
 start_extension :: proc(game: Game, mode: Mode, force := false, defines: []string = nil) -> Maybe(Extension_Build) {
 	if !has_extension(game) {
 		fatal("%s has no simulation/extension to build", game.name)
 	}
-	refresh_view_index(game)
 	uses_box3d := game_uses_box3d(game)
 	if uses_box3d {
 		ensure_box3d()
@@ -164,6 +157,8 @@ ensure_project_extension :: proc(dir, pkg, stem: string) {
 	flags: [dynamic]string
 	append(&flags, "-build-mode:dll")
 	append(&flags, ..mode_flags(.dev))
+	// only with view scenes: a test project's extension may not import unified:godot, and Odin refuses an unused define
+	if index, _ := view_index(dir); index != "" do append(&flags, view_index_define(dir))
 	build := Build {
 		pkg   = pkg,
 		out   = join(dir, ".out", "bin", lib_name(stem)),

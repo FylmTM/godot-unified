@@ -349,9 +349,11 @@ and its reply, a JSON line each; `uni drive -h` lists the verbs.
 
 ## The view index
 
-`uni bake <game>` scans the game's scenes for `UnifiedView` markers and writes `res://unified_index.tres` (each kind
-name to its scene's path), committed next to the game; every build of the game's library refreshes it, and the godot
-suite's `bake` step fails when the committed one is stale. Games keep their scenes wherever they like (a level scene
+Every build of the game's library scans the game's scenes for `UnifiedView` markers and builds the index (each kind
+name to its scene's path) into the library, as a define (`views.odin`'s `VIEW_INDEX`): a view scene added, moved or
+renamed rebuilds it, and no file holds the index. A scene's path is all an export needs: it ships every resource.
+`uni bake --check` and the godot suite's `bake` step check the markers (a direct child of the root, a kind, each kind
+in one scene). Games keep their scenes wherever they like (a level scene
 outside `game/levels/` by its committed `.level`: `src/level/README.md`, Baking). At the first session the host checks
 that every view kind has a scene and every indexed kind is one of them.
 
@@ -435,8 +437,12 @@ that every view kind has a scene and every indexed kind is one of them.
 
 ## Library tooling
 
-`uni` mirrors `src/godot/tools/` into every game as `res://addons/unified/` (git-ignored there). None of it knows a
-game's menus: a game drives its own UI from its own tool scripts (`game/tools/`), which extend these.
+unified's GDScript, in `tools_godot/` at unified's root, which every project sees at `res://unified/tools_godot/`: in a
+game repo Godot scans the submodule in place (each other top-level directory of unified holds a `.gdignore`), so a
+game holds no copy and always runs its pinned unified's; unified's own projects get a git-ignored mirror at that path
+(`src/cli/README.md`, Tool scripts). The scripts compile under a game's strict typing (no warnings rule exempts
+them), and a game's export leaves out `unified/*`. None of it knows a game's menus: a game drives its own UI from its
+own tool scripts (`game/tools/`), which extend these by class name.
 
 - `level_export.gd`: `uni bake`'s level exporter.
 - `nav_bake.gd`: `uni bake --nav`'s navigation baker (the editor's Bake NavigationMesh, without the editor).
