@@ -393,6 +393,12 @@ uses_scenarios :: proc(root: string) -> bool {
 	return sources_import(root, `"unified:headless/scenarios"`)
 }
 
+// The file name of an optimised test binary: `--long` and `--bless` compile it with other defines, so each has its
+// own and switching between them recompiles nothing (the unoptimised root takes neither).
+test_binary_stem :: proc(name: string, long, bless: bool) -> string {
+	return aprintf("%s_tests%s%s%s", name, long ? "_long" : "", bless ? "_bless" : "", EXE)
+}
+
 // The odin suite's builds: every test package under the project's test root in one optimised compile
 // (Project_Config.tests, with -all-packages) and, when the project has one, every package under its unoptimised root
 // in another (Project_Config.unoptimized_tests: on a quarter of the cores, so it stays out of the optimised compile's
@@ -407,7 +413,7 @@ test_builds :: proc(opts: Test_Options) -> []Build {
 		append(&flags, ..mode_flags(opts.library_unoptimized ? .debug : .dev))
 		if opts.long && uses_scenarios(opts.library_tests) do append(&flags, "-define:UNIFIED_LONG_TESTS=true")
 		if opts.bless && uses_scenarios(opts.library_tests) do append(&flags, "-define:UNIFIED_BLESS=true")
-		stem := aprintf("package_%s_tests%s%s", os.base(opts.library_tests), opts.bless ? "_bless" : "", EXE)
+		stem := test_binary_stem(aprintf("package_%s", os.base(opts.library_tests)), opts.long, opts.bless)
 		return slice.clone(
 			[]Build{{pkg = opts.library_tests, out = join(state.project.out, "test", stem), flags = flags[:]}},
 		)
@@ -434,7 +440,7 @@ test_builds :: proc(opts: Test_Options) -> []Build {
 	}
 	append(&builds, Build {
 		pkg   = root,
-		out   = join(state.project.out, "test", aprintf("%s_tests%s%s", name, opts.bless ? "_bless" : "", EXE)),
+		out   = join(state.project.out, "test", test_binary_stem(name, opts.long, opts.bless)),
 		flags = flags[:],
 	})
 	if unoptimized := unoptimized_test_root(opts.game); unoptimized != "" {

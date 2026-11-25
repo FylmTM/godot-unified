@@ -9,27 +9,25 @@ import "unified:cli"
 
 // This repo's own test suites: the netcode over real UDP, and the Godot bindings under headless Godot.
 private_suites :: proc() -> []cli.Suite {
-	return slice.clone(
-		[]cli.Suite {
-			{
-				name = "net",
-				summary = "the toy's relay and 3 clients over real UDP on the real clock (5 s; --long: 15 s)",
-				run = suite_net,
-				beside = true,
-				prepare = proc() {cli.build_headless(.release)}, 	// .out/release/: the godot suite's binaries are there too
-			},
-			{
-				name = "godot-bindings",
-				summary = "tests/godot and tests/godot_views (views, the level marker order, the session lifecycle, UnifiedTool) under headless Godot",
-				run = suite_godot_bindings,
-				beside = true,
-				prepare = proc() {
-					cli.godot()
-					cli.ensure_bindings()
-				},
+	return slice.clone([]cli.Suite {
+		{
+			name = "net",
+			summary = "the toy's relay and 3 clients over real UDP on the real clock (5 s; --long: 15 s)",
+			run = suite_net,
+			beside = true,
+			prepare = proc(_: []cli.Game, _: cli.Test_Options) {cli.build_headless(.release, only = "toy")},
+		},
+		{
+			name = "godot-bindings",
+			summary = "tests/godot and tests/godot_views (views, the level marker order, the session lifecycle, UnifiedTool) under headless Godot",
+			run = suite_godot_bindings,
+			beside = true,
+			prepare = proc(_: []cli.Game, _: cli.Test_Options) {
+				cli.godot()
+				cli.ensure_bindings()
 			},
 		},
-	)
+	})
 }
 
 // --- net --------------------------------------------------------------------------------------------------------
@@ -42,7 +40,7 @@ UDP_CLIENTS :: 3 // the last one under the `bad` profile
 // verifies every tick, their checksums (every 16th tick) agree, and nobody reports a desync. Each process's output
 // goes to .out/net/ (a failure names it).
 suite_net :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool {
-	cli.build_headless(.release)
+	cli.build_headless(.release, only = "toy")
 	binary := cli.headless_path("toy", .release)
 	work := cli.join(cli.state.project.out, "net")
 	cli.remove_tree(work)

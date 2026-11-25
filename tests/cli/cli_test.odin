@@ -699,6 +699,23 @@ tool_script_runs_only_a_main_loop :: proc(t: ^testing.T) {
 	testing.expect(t, !ok && extends == "", extends)
 }
 
+// `test`, `test --long`, `test --bless` and both together compile the optimised root with different defines: each has
+// its own binary, so switching between them recompiles nothing.
+@(test)
+long_and_bless_tests_have_their_own_binaries :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	stems := []string {
+		cli.test_binary_stem("unified", false, false),
+		cli.test_binary_stem("unified", true, false),
+		cli.test_binary_stem("unified", false, true),
+		cli.test_binary_stem("unified", true, true),
+	}
+	for stem, i in stems {
+		for other in stems[i + 1:] do testing.expect(t, stem != other, stem)
+	}
+	testing.expect(t, strings.has_prefix(stems[0], "unified_tests"), stems[0])
+}
+
 // --json and --verbose are uni's only before a `--`: after it they belong to the game, the script or the mode.
 @(test)
 global_flags_stop_at_double_dash :: proc(t: ^testing.T) {

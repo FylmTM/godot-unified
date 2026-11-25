@@ -17,11 +17,7 @@ Grid_Row :: struct {
 	neighbours: int,
 }
 
-grid_bench :: proc(work: string) -> (data: any, ok: bool) {
-	binary := cli.ensure_headless(
-		cli.Headless{"grid_bench", cli.join(cli.state.project.root, "tests", "sim", "bench"), false},
-		.release,
-	)
+grid_bench :: proc(work, binary: string) -> (data: any, ok: bool) {
 	report := new(Grid_Report)
 	if !cli.run_report(binary, {}, cli.join(work, "grid"), 60, report) {
 		return nil, false

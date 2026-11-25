@@ -81,11 +81,14 @@ Extra_Headless :: struct {
 	pkg:  string, // relative to the project
 }
 
-// A `bench` row of the project's own: `run` measures (its files may go in `work`), logs its line and returns what
-// .out/bench.json's `rows` keeps under `name`.
+// A `bench` row of the project's own: its benchmark program, which `bench` builds (release) together with the games'
+// binaries before any row runs, and `run`, which runs that binary (its files may go in `work`), logs its line and
+// returns what .out/bench.json's `rows` keeps under `name`.
 Bench_Row :: struct {
-	name: string,
-	run:  proc(work: string) -> (data: any, ok: bool),
+	name:     string,
+	program:  Extra_Headless,
+	bindings: bool, // the program imports unified:godot: its Godot API bindings are generated first
+	run:      proc(work, binary: string) -> (data: any, ok: bool),
 }
 
 // Registers a project's additions (call before `run`).
@@ -101,8 +104,9 @@ Suite :: struct {
 	run:     proc(games: []Game, opts: Test_Options) -> bool,
 	// Mostly waits (the real clock, timers): run with other suites, it runs beside them in a child process.
 	beside:  bool,
-	// With `beside`: makes current, before the others start, what it builds that they share (nil: nothing).
-	prepare: proc(),
+	// With `beside`: makes current, before any suite of the run starts, what it builds that the others share (nil:
+	// nothing); it gets what `run` will (the games the run names and its options), so it builds only what they need.
+	prepare: proc(games: []Game, opts: Test_Options),
 }
 
 // What `test` passes each suite it runs: the options of that run (a nested `test`, as `verify` runs it, has its own).

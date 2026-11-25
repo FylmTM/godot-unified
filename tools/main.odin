@@ -17,10 +17,10 @@ main :: proc() {
 		fmt               = {"src", "tests"},
 		uses_box3d        = true,
 		bench             = {
-			{name = "physics", run = physics_bench},
-			{name = "grid", run = grid_bench},
-			{name = "nav", run = nav_bench},
-			{name = "wake", run = wake_bench},
+			{name = "physics", program = {"physics_bench", "tests/physics/bench"}, run = physics_bench},
+			{name = "grid", program = {"grid_bench", "tests/sim/bench"}, run = grid_bench},
+			{name = "nav", program = {"nav_bench", "tests/nav/bench"}, run = nav_bench},
+			{name = "wake", program = {"wake_bench", "tests/godot_driver/bench"}, bindings = true, run = wake_bench},
 		},
 		bake              = {
 			{

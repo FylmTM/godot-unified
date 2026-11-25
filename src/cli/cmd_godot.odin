@@ -208,8 +208,8 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 // run shares, made current before any starts, so they never race on it: Godot, the bindings, Box3D, and the
 // `session` step's offline binaries in .out/release/ (a child writing them while another's binary holds the box3d
 // library loaded fails on Windows).
-godot_prepare :: proc() {
-	godot_shared(state.project.games, nil)
+godot_prepare :: proc(games: []Game, opts: Test_Options) {
+	godot_shared(games, opts.only)
 }
 
 @(private)

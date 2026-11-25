@@ -61,11 +61,7 @@ Physics_Rollback :: struct {
 	bodies_fit:                int,
 }
 
-physics_bench :: proc(work: string) -> (data: any, ok: bool) {
-	binary := cli.ensure_headless(
-		cli.Headless{"physics_bench", cli.join(cli.state.project.root, "tests", "physics", "bench"), true},
-		.release,
-	)
+physics_bench :: proc(work, binary: string) -> (data: any, ok: bool) {
 	report := new(Physics_Report)
 	if !cli.run_report(binary, {}, cli.join(work, "physics"), 120, report) {
 		return nil, false

@@ -362,10 +362,10 @@ odin_build :: proc(build: Build, what: string) -> f64 {
 
 // --- the headless binaries --------------------------------------------------------------------------------------
 
-// Builds every headless binary into .out/<mode>/ in parallel (only the stale ones unless `force`), with the Box3D
-// library beside them when one links it.
-build_headless :: proc(mode: Mode, force := false) -> (built: int) {
-	builds := start_headless(mode, force = force)
+// Builds every headless binary (`only`: the one of that name) into .out/<mode>/ in parallel (only the stale ones unless
+// `force`), with the Box3D library beside them when one links it.
+build_headless :: proc(mode: Mode, only := "", force := false) -> (built: int) {
+	builds := start_headless(mode, only = only, force = force)
 	return finish_headless(&builds)
 }
 
