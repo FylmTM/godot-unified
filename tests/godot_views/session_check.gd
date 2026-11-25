@@ -391,7 +391,10 @@ func _replay() -> bool:
 			kept = name
 	check("the left live session kept its recording", kept != "", "paused on %d" % paused_on)
 	s.leave()
-	return await _wait_for(func() -> bool: return not s.running, 5.0, "the replay ends")
+	if not await _wait_for(func() -> bool: return not s.running, 5.0, "the replay ends"):
+		return false
+	# a viewer leaving a replay is told as a player leaving a live session is: the app goes back to its menu on it
+	return await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_LEFT, 2.0, "a left replay says LEFT")
 
 
 # The newest whole recording folder under user://recordings that ends on `to_tick` ("" for none): its session.json is

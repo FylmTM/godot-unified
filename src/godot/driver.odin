@@ -1566,6 +1566,9 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 		wake_sleep(&driver.wakes, wake)
 	}
 	if replay := driver.replay; replay != nil {
+		// a replay has no link to end it: it ends when the viewer leaves (UnifiedSession.leave), STATUS_LEFT as a
+		// live session's does
+		if sync.atomic_load(&driver.stop_req) do post_status(driver, .Left, "")
 		driver.result = fmt.aprintf(
 			`{{"mode":"replay","tick":%d,"first":%d,"last":%d,"checkpoints":%d,"agreed_tick":%d,"diverged_tick":%d,"ok":%v}}`,
 			replay.simulation.tick,
