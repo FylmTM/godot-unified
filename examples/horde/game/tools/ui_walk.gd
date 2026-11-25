@@ -93,10 +93,23 @@ func _walk_play() -> void:
 	var card: DataUpgradeCard = Unified.constants.upgrades[row.offers[0]]
 	expect(first != null and first.text.begins_with(card.name), "the first card is the first offer (%s)" % card.name)
 	await shot("04_levelup")
-	var pending := row.pending_levelups
+	var picked := row.level - row.pending_levelups  # the level-ups picked so far: only a pick raises it
+	await press_action(&"menu")
 	await press_action(&"levelup_1")
-	await wait_for(func() -> bool: return local_row().pending_levelups < pending, 2.0, "a pick by key takes the offer")
+	await press_action(&"menu")
+	await seconds(0.3)
+	expect(_picks() == picked, "a pick key under the pause menu picks nothing")
+	await press_action(&"levelup_1")
+	await press_action(&"levelup_1")  # a double press
+	await wait_for(func() -> bool: return _picks() > picked, 2.0, "a pick by key takes the offer")
+	await seconds(0.5)
+	expect(_picks() == picked + 1, "a double press picks once (%d picks)" % (_picks() - picked))
 	step("level-up picked: %s" % card.name)
+
+
+## The level-ups the local hero has picked, give or take a constant: its level less those still pending.
+func _picks() -> int:
+	return local_row().level - local_row().pending_levelups
 
 
 ## The Esc menu opens over the play and closes; in single player it pauses the session meanwhile.

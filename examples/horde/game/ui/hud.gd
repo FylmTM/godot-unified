@@ -10,6 +10,8 @@ const PICKS: Array[StringName] = [&"levelup_1", &"levelup_2", &"levelup_3"]
 const MOVE: Array[StringName] = [&"move_forward", &"move_left", &"move_back", &"move_right"]
 ## The level-up panel stays up this long after a pick, so the picked card can be seen.
 const PICK_HOLD_S := 0.35
+## How long a sent pick may take to show in the HUD data before another is taken (one the sim refused never shows).
+const PICK_WAIT_S := 1.0
 ## Below this share of HP the screen's edges pulse red.
 const LOW_HP_SHARE := 0.3
 
@@ -24,6 +26,10 @@ var _hurt := 0.0
 var _low_hp := 0.0
 var _choosing := false
 var _hold_until := 0.0
+## The pending level-ups when the last pick was sent (-1: none waits): no other pick until the HUD data shows fewer,
+## so a double press can't spend the next level-up, and a press within the hold can't pick from the next level's cards.
+var _picked_at_pending := -1
+var _pick_wait_until := 0.0
 ## The upgrades the cards show (EnumUpgrade values, by card), while choosing.
 var _offers: Array[int] = []
 
@@ -85,8 +91,9 @@ func _process(delta: float) -> void:
 		_back.modulate.a = 0.6 + 0.4 * sin(_time_s * 4.0)
 
 
+## The level-up keys and pad buttons pick while choosing, not while game input is off (the pause menu, the dev UI).
 func _unhandled_input(event: InputEvent) -> void:
-	if not _choosing:
+	if not _choosing or not Unified.session.game_input:
 		return
 	for i in PICKS.size():
 		if event.is_action_pressed(PICKS[i]):
@@ -115,6 +122,8 @@ func _on_hud_changed() -> void:
 
 	var pending := me.pending_levelups if me != null else 0
 	var choosing := pending > 0 and playing and alive
+	if not choosing or pending < _picked_at_pending:
+		_picked_at_pending = -1  # the pick is in (or there is nothing to pick)
 	if choosing:
 		_show_offers(me)
 	if choosing and not _levelup.visible:
@@ -261,8 +270,10 @@ func _pop_levelup() -> void:
 
 
 ## A level-up pick (key, pad button or click): pops the card, holds the panel a moment and sends the `pick` command
-## with card `index`'s upgrade.
+## with card `index`'s upgrade. Nothing while the last pick waits (`_picked_at_pending`) or the panel holds it.
 func _choose(index: int) -> void:
+	if (_picked_at_pending >= 0 and _time_s < _pick_wait_until) or _time_s < _hold_until or not _choosing:
+		return
 	if index >= _offers.size():
 		return
 	var button := _options.get_child(index) as Button
@@ -272,6 +283,8 @@ func _choose(index: int) -> void:
 	tween.tween_property(button, "scale", Vector2(1.12, 1.12), 0.08)
 	tween.tween_property(button, "scale", Vector2.ONE, 0.12)
 	_hold_until = _time_s + PICK_HOLD_S
+	_pick_wait_until = _time_s + PICK_WAIT_S
+	_picked_at_pending = _local_hero().pending_levelups
 	Sfx.play(&"click")
 	var pick := CommandPick.new()
 	pick.upgrade = _offers[index]
