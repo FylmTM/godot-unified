@@ -436,15 +436,15 @@ func _hero_panel(hero: int) -> HeroPanel:
 
 
 ## The session panel's rows: who is here, and whether their hero ended their turn.
-func _session_rows() -> Array[Dictionary]:
-	var rows: Array[Dictionary] = []
+func _session_rows() -> Array[SessionPanel.Row]:
+	var rows: Array[SessionPanel.Row] = []
 	for player: int in Unified.session.get_players():
 		var status := ""
 		for hero in 4:
 			var row: DataHeroRow = Unified.data.heroes.heroes[hero]
 			if row.in_run and row.player == player:
 				status = EnumHeroClass.name(row.hero_class).capitalize() + (", ready" if row.ready else "")
-		rows.append({"player": player, "name": Unified.session.get_player_name(player), "status": status})
+		rows.append(SessionPanel.Row.new(player, Unified.session.get_player_name(player), status))
 	return rows
 
 

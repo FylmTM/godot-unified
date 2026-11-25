@@ -1,5 +1,5 @@
 extends CanvasLayer
-## The in-game HUD (hud.tscn): the run clock and the best time, the checkpoint, a crosshair, the local player's state
+## The in-game HUD (hud.tscn): the run clock and the personal best time (Settings), the checkpoint, a crosshair, the local player's state
 ## (holding, charge, held, stunned, fallen), the session panel and controls list, and banners for run events.
 ## Redrawn when the session data (Unified.data.hud), the roster, the join code or the input device changes.
 
@@ -10,6 +10,10 @@ const CONTROLS_HELD := [[&"jump", "Mash to break free"], [&"menu", "Menu"]]
 const CONTROLS_HOLDING := [[MOVE, "Move"], [LOOK, "Look", "Mouse"], [&"jump", "Jump"], [&"grab", "Drop"],
 	[&"throw", "Hold to charge, release to throw"], [&"menu", "Menu"]]
 const CONTROLS := [[MOVE, "Move"], [LOOK, "Look", "Mouse"], [&"jump", "Jump"], [&"grab", "Grab"], [&"menu", "Menu"]]
+
+## The controls list on show (one of the CONTROLS consts) and the device it was labelled for.
+var _controls_for: Array = []
+var _controls_pad := false
 
 @onready var _phase: Label = %Phase
 @onready var _clock: Label = %Clock
@@ -41,7 +45,7 @@ func _on_hud_changed() -> void:
 	else:
 		_phase.text = "HUB"
 		_clock.text = ""
-	var best := _best_time(h.best_s)
+	var best := Settings.best_time
 	_best.text = "best %s" % UiTheme.clock(best) if best > 0.0 else ""
 	_session.refresh(_session_rows(), h.phase == EnumPhase.HUB, "Walk through the start gate to start the run.")
 
@@ -58,16 +62,15 @@ func _on_hud_changed() -> void:
 		_state.text = "Dazed"
 	else:
 		_state.text = ""
-	if held:
-		_controls.refresh(CONTROLS_HELD)
-	elif holding:
-		_controls.refresh(CONTROLS_HOLDING)
-	else:
-		_controls.refresh(CONTROLS)
+	var controls: Array = CONTROLS_HELD if held else (CONTROLS_HOLDING if holding else CONTROLS)
+	if not is_same(controls, _controls_for) or Game.using_pad != _controls_pad:
+		_controls_for = controls
+		_controls_pad = Game.using_pad
+		_controls.refresh(controls)
 
 
-func _session_rows() -> Array[Dictionary]:
-	var rows: Array[Dictionary] = []
+func _session_rows() -> Array[SessionPanel.Row]:
+	var rows: Array[SessionPanel.Row] = []
 	for player: int in Unified.session.get_players():
 		var p := Unified.data.hud.players[Unified.session.get_player_slot(player)] as DataHudPlayer
 		var tags: Array[String] = []
@@ -77,19 +80,12 @@ func _session_rows() -> Array[Dictionary]:
 			tags.append("dazed")
 		if p.fallen:
 			tags.append("fell")
-		rows.append({"player": player, "name": Unified.session.get_player_name(player), "status": ", ".join(tags)})
+		rows.append(SessionPanel.Row.new(player, Unified.session.get_player_name(player), ", ".join(tags)))
 	return rows
 
 
-## The better of this session's best (the sim's) and the personal best kept in the settings; 0 when neither.
-static func _best_time(session_best: float) -> float:
-	var saved := Settings.best_time
-	if saved <= 0.0 or (session_best > 0.0 and session_best < saved):
-		return session_best
-	return saved
-
-
-## Verified events only (as the banners always were).
+## Banners and the personal best follow a run's events once confirmed. A replay's run (maybe someone else's) never sets
+## the best time.
 func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
@@ -103,7 +99,7 @@ func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> voi
 		var seconds := finished.duration_s
 		_banner.show_message("Finished in %s" % UiTheme.clock(seconds), UiTheme.GOLD, 4.0)
 		var saved := Settings.best_time
-		if saved <= 0.0 or seconds < saved:
+		if (saved <= 0.0 or seconds < saved) and Unified.session.mode != UnifiedSession.MODE_REPLAY:
 			Settings.best_time = seconds
 
 

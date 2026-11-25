@@ -213,12 +213,12 @@ func _show_name() -> void:
 
 ## The session panel's rows: everyone present, with their level and HP, or how long until a downed hero is back up.
 func _show_session() -> void:
-	var rows: Array[Dictionary] = []
+	var rows: Array[SessionPanel.Row] = []
 	for player in Unified.session.get_players():
 		var hero := Unified.data.hud.heroes[Unified.session.get_player_slot(player)] as DataHudHero
 		var status := "LV %d" % hero.level if hero.alive else "down %.0fs" % ceilf(hero.respawn_s)
 		var bar := float(hero.hp) / maxf(hero.hp_max, 1.0)
-		rows.append({"player": player, "name": Unified.session.get_player_name(player), "status": status, "bar": bar})
+		rows.append(SessionPanel.Row.new(player, Unified.session.get_player_name(player), status, bar))
 	_session.refresh(rows, false, "")
 
 
@@ -303,10 +303,11 @@ func _on_match_over(hud: DataHud, me: DataHudHero) -> void:
 	tween.tween_property(_over_panel, "modulate:a", 1.0, 0.25)
 
 
-## The match's end is confirmed: the wave it reached (1-based) against this player's record, which it may raise.
+## The match's end is confirmed: the wave it reached (1-based) against this player's record, which it may raise (not a
+## replay's match: maybe someone else's).
 func _show_best(over: EventMatchOver) -> void:
 	var reached := over.wave + 1
-	var new_best := reached > Settings.best_wave
+	var new_best := reached > Settings.best_wave and Unified.session.mode != UnifiedSession.MODE_REPLAY
 	if new_best:
 		Settings.best_wave = reached
 	_best.text = "New best!" if new_best else "Best: wave %d" % Settings.best_wave

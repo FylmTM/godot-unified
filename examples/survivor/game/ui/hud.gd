@@ -229,14 +229,14 @@ func _show_name() -> void:
 ## The session panel's rows: everyone present, with their level and HP in a match.
 func _show_session() -> void:
 	var lobby := Unified.data.hud.phase == EnumPhase.LOBBY
-	var rows: Array[Dictionary] = []
+	var rows: Array[SessionPanel.Row] = []
 	for player in Unified.session.get_players():
 		var info := Unified.data.hud.players[Unified.session.get_player_slot(player)] as DataHudPlayer
 		var status := "ready"
 		if not lobby:
 			status = "down %.0fs" % ceilf(info.respawn_s) if not info.alive else "LV %d" % info.level
 		var bar := -1.0 if lobby else float(info.hp) / maxf(info.hp_max, 1.0)
-		rows.append({"player": player, "name": Unified.session.get_player_name(player), "status": status, "bar": bar})
+		rows.append(SessionPanel.Row.new(player, Unified.session.get_player_name(player), status, bar))
 	_session.refresh(rows, lobby, "Anyone walking out of the circle starts the match.")
 
 

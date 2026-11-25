@@ -86,10 +86,10 @@ func _controls_rows(h: DataHud) -> Array:
 	return rows
 
 
-func _session_rows() -> Array[Dictionary]:
-	var rows: Array[Dictionary] = []
+func _session_rows() -> Array[SessionPanel.Row]:
+	var rows: Array[SessionPanel.Row] = []
 	for player: int in Unified.session.get_players():
-		rows.append({"player": player, "name": Unified.session.get_player_name(player)})
+		rows.append(SessionPanel.Row.new(player, Unified.session.get_player_name(player)))
 	return rows
 
 
