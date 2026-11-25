@@ -61,7 +61,7 @@ Tracked_Action :: struct {
 
 // Main thread, every frame, before sample_input: latches a tick has taken are cleared; game input is on unless the
 // dev UI has the keyboard or the game turned it off. Turning off drops the latches; coming back (or the window
-// getting the focus back) swallows what is still held. Losing the focus releases the keyboard players' actions (Godot
+// getting the focus back) swallows the buttons still held (a direction reads at once). Losing the focus releases the keyboard players' actions (Godot
 // drops held keys without events).
 @(private)
 input_sample_begin :: proc(dev_keyboard: bool) {

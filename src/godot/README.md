@@ -73,8 +73,9 @@ false and the menu is an overlay: a game that pauses together sends a command (`
 
 **Game input is off** while a dev UI text field has the keyboard and while `UnifiedSession.game_input` is false (a
 pause menu): the action helpers read nothing and latched taps drop; `Unified.input` still flows. When it comes back,
-and when the window gets the focus back, an action still held counts only once released (the key that closed a menu,
-the click that focused the window never fire). An unfocused window still reads input: Godot releases what was held
+and when the window gets the focus back, a button still held counts only once released (the key that closed a menu,
+the click that focused the window never fire), while a held direction reads at once (a stick held through a menu
+keeps moving). An unfocused window still reads input: Godot releases what was held
 when it lost the focus, and tool runs drive windows that never take it. A press on the dev UI never reaches the
 actions (`src/devui/README.md`, How it works). The game's scripted player (`sim.Game.scripted_input`) replaces the
 sample in `--scripted` runs, and its players join as the offline binary's scripted players do, so the session computes

@@ -161,7 +161,7 @@ register_session_class :: proc() {
 		"game_input",
 		proc(session: ^Session_Node) -> bool {return !input_sample.off},
 		proc(session: ^Session_Node, on: bool) {set_game_input(on)},
-		doc = "Off, the game's input helpers read nothing (a pause menu, a chat field: their keys and clicks don't reach the sim); [member Unified.input] still flows. When it is turned back on, an action still held counts only once it is released.",
+		doc = "Off, the game's input helpers read nothing (a pause menu, a chat field: their keys and clicks don't reach the sim); [member Unified.input] still flows. When it is turned back on, a button still held (action_down, buttons) counts only once it is released, while a held direction or strength (action_vector, action_strength) reads at once: the key that closed a menu never fires, and a stick held through it keeps moving.",
 	)
 	gd.bind_property(class, "paused", proc(session: ^Session_Node) -> bool {
 			if session.mode == .Replay do return session.frame != nil && session.frame.replay.paused
