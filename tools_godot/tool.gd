@@ -211,16 +211,31 @@ func click_at(pos: Vector2, button := MOUSE_BUTTON_LEFT) -> void:
 	await process_frame
 
 
-## Presses and releases a gamepad button through the event pipeline.
-func pad_button(button: JoyButton) -> void:
+## Presses and releases a gamepad button through the event pipeline, as pad `device` (0: the first pad; a couch test
+## presses a second player's buttons as pad 1).
+func pad_button(button: JoyButton, device := 0) -> void:
 	if failed():
 		return
 	for pressed: bool in [true, false]:
 		var e := InputEventJoypadButton.new()
 		e.button_index = button
 		e.pressed = pressed
+		e.device = device
 		Input.parse_input_event(e)
 		await process_frame
+	await process_frame
+
+
+## Moves pad `device`'s `axis` to `value` (-1 to 1) through the event pipeline and leaves it there, as a held stick or
+## trigger: 0 lets go.
+func pad_axis(axis: JoyAxis, value: float, device := 0) -> void:
+	if failed():
+		return
+	var e := InputEventJoypadMotion.new()
+	e.axis = axis
+	e.axis_value = value
+	e.device = device
+	Input.parse_input_event(e)
 	await process_frame
 
 
