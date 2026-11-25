@@ -109,16 +109,13 @@ block_compile :: proc(nodes: ^[dynamic]Block_Node, type: ^runtime.Type_Info, off
 	case runtime.Type_Info_Boolean:
 		builtin.append(nodes, Block_Node{kind = .Bool, offset = offset, type = type, size = type.size})
 	case runtime.Type_Info_Enum:
-		builtin.append(
-			nodes,
-			Block_Node {
-				kind = .Enum,
-				offset = offset,
-				type = type,
-				size = type.size,
-				enumerated = wire_enum_of(info, 0),
-			},
-		)
+		builtin.append(nodes, Block_Node {
+			kind       = .Enum,
+			offset     = offset,
+			type       = type,
+			size       = type.size,
+			enumerated = wire_enum_of(info, 0),
+		})
 	case runtime.Type_Info_Bit_Set:
 		allowed: u128
 		for i in 0 ..< type.size * 8 {

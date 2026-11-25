@@ -248,7 +248,7 @@ BENCH_CHURN :: 2 // per live thing, views of each churn kind: they come and go w
 bench_instances: int
 
 // Holds no sim state: the count only drives the views (bench_frame).
-bench_prepare :: proc(state: ^toy.State, world: ^toy.World, count: int) {
+bench_prepare :: proc(t: ^toy.Tick, count: int) {
 	bench_instances = count
 }
 

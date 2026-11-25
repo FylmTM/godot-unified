@@ -48,9 +48,8 @@ a_pick_takes_an_offered_upgrade :: proc(t: ^testing.T) {
 // The bench holds its population and its heroes never go down.
 @(test)
 the_bench_holds_its_population :: proc(t: ^testing.T) {
-	simulation := sim.create(&g.GAME, 1)
+	simulation := sim.create_bench(&g.GAME, 1, g.GAME.setup, 1500)
 	defer sim.destroy(simulation)
-	g.bench_prepare(&simulation.state, simulation.world, 1500)
 	inputs: g.Inputs
 	for slot in 0 ..< g.PLAYERS do sim.seat(&inputs, simulation, slot, slot + 1)
 	sim.step(simulation, &inputs) // the joins

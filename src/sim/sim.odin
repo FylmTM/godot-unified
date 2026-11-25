@@ -264,10 +264,14 @@ Game :: struct(
 	// never saved. Cheap and allocation-free (it runs on every re-simulated tick); it reads the state and writes
 	// nothing else.
 	save:                  proc(state: ^State, setup: ^Setup) -> bool,
-	// Optional, never called by the sim: fill the initial state with `count` entities and hold that population (the
-	// headless `bench`, Godot's `-- --bench N`). Single player only: it changes the initial state, which every peer
-	// would have to share.
-	bench_prepare:         proc(state: ^State, world: ^World, count: int),
+	// Optional: fill the initial state with `count` entities and hold that population (the headless `bench`, Godot's
+	// `-- --bench N`). create_bench calls it on tick 0 right after init, with init's Tick (its seed, Setup, World and
+	// events: it may emit, roll and create bodies as init does). Single player only: it changes the initial state,
+	// which every peer would have to share.
+	bench_prepare:         proc(
+		t: ^Tick(Game(State, Input, World, Event, Command, Setup, Profile, PLAYERS)),
+		count: int,
+	),
 	// Optional, never read by the tick: the game's standard benchmarks, what the headless `bench` runs without options
 	// and `uni bench` keeps a row of each (one per level or scene, say; at most one unnamed: the game's own row).
 	// game_violation checks each one, its Setup text included, so a stale benchmark fails the game's tests.
@@ -710,6 +714,28 @@ create_with_setup :: proc(
 	return create_checked(game, seed, setup, {content_hash(game.levels), layout, compat_with(game, layout, {})})
 }
 
+// create holding the game's benchmark population (the headless `bench`, Godot's `-- --bench N`): Game.bench_prepare
+// with `count` runs on tick 0 right after init, with init's Tick, and tick 0 is saved with it. Without a
+// bench_prepare it is create. Single player only: no peer could start from that tick 0. Panics as create does.
+create_bench :: proc(
+	game: ^$G,
+	seed: u64,
+	setup: $S,
+	count: int,
+) -> ^Sim(G) where intrinsics.type_is_specialization_of(G, Game) &&
+	S == part(G, GAME_SETUP) {
+	if reason := game_violation(game); reason != "" {
+		panic(reason)
+	}
+	checked := setup
+	if reason := setup_violation(game, &checked); reason != "" {
+		panic(fmt.tprintf("%s: the session's Setup %s", game.name, reason))
+	}
+	layout := layout_hash(part(G, GAME_STATE))
+	identity := Sim_Identity{content_hash(game.levels), layout, compat_with(game, layout, {})}
+	return create_checked(game, seed, setup, identity, bench = dmath.max(count, 0))
+}
+
 // What identifies a game build's sims (Sim.content_hash, layout, compat), worked out once by create or from_snapshot.
 @(private)
 Sim_Identity :: struct {
@@ -723,8 +749,8 @@ create_checked :: proc(
 	seed: u64,
 	setup: $S,
 	identity: Sim_Identity,
-) -> ^Sim(G) where intrinsics.type_is_specialization_of(G, Game) &&
-	S == part(G, GAME_SETUP) {
+	bench := -1, // >= 0: Game.bench_prepare with this count after init (create_bench)
+) -> ^Sim(G) where intrinsics.type_is_specialization_of(G, Game) && S == part(G, GAME_SETUP) {
 	State :: part(G, GAME_STATE)
 	Input :: part(G, GAME_INPUT)
 	simulation := new(Sim(G))
@@ -756,10 +782,9 @@ create_checked :: proc(
 	slot := &simulation.ring[0]
 	slot.tick = 0
 	slot.valid = true
-	if game.init != nil {
-		t := make_tick(simulation, 0, &inputs, &slot.events)
-		game.init(&t)
-	}
+	t := make_tick(simulation, 0, &inputs, &slot.events)
+	if game.init != nil do game.init(&t)
+	if bench >= 0 && game.bench_prepare != nil do game.bench_prepare(&t, bench)
 	save(simulation)
 	return simulation
 }

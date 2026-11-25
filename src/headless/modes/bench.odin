@@ -87,12 +87,8 @@ bench_zones :: proc(
 	warmup: u32,
 	result: ^Bench_Result,
 ) {
-	simulation := sim.create(game, seed)
+	simulation := sim.create_bench(game, seed, game.setup, entities)
 	defer sim.destroy(simulation)
-	if game.bench_prepare != nil {
-		game.bench_prepare(&simulation.state, simulation.world, entities)
-		sim.save(simulation)
-	}
 	dev := sim.dev_attach(simulation, bench_clock)
 	if dev == nil do return // a build without the dev UI times no zones
 	samples: [sim.ZONES_MAX + 1][dynamic]f64
@@ -131,12 +127,8 @@ run_bench :: proc(game: ^$G, entities: int, window, ticks: u32, seed: u64, playe
 	Input :: sim.part(G, sim.GAME_INPUT)
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	assert(window >= 1 && int(window) <= uheadless.max_window(game))
-	simulation := sim.create(game, seed)
+	simulation := sim.create_bench(game, seed, game.setup, entities)
 	defer sim.destroy(simulation)
-	if game.bench_prepare != nil {
-		game.bench_prepare(&simulation.state, simulation.world, entities)
-		sim.save(simulation)
-	}
 	for k in 0 ..< sim.KEEP_SLOTS {
 		sim.snapshot_keep(simulation, 0, k) // the keep slots and their buffers, at the population's size
 	}

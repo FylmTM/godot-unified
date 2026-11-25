@@ -1623,7 +1623,7 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 			driver.bench.init = proc(t: ^sim.Tick(G)) {
 				game := (^G)(g_game)
 				if game.init != nil do game.init(t)
-				game.bench_prepare(t.state, t.world, g_bench_count)
+				game.bench_prepare(t, g_bench_count)
 			}
 			driver.host = netcode.host_create(&driver.bench, host_config, hooks)
 		} else {

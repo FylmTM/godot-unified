@@ -29,13 +29,13 @@ BENCH_HALF :: 24 // the bench's population starts spread over a square of twice 
 
 // The bench's setup: the population held at `count` (the waves refill to it, the heroes take no damage and start with
 // every weapon high), pre-spawned over the arena from a fixed stream (outside any tick).
-bench_prepare :: proc(state: ^State, world: ^World, count: int) {
-	state.bench_hold = u32(dmath.min(count, MAX_ENEMIES))
+bench_prepare :: proc(t: ^Tick, count: int) {
+	t.state.bench_hold = u32(dmath.min(count, MAX_ENEMIES))
 	rng := sim.rng_seed(u64(count))
-	for _ in 0 ..< int(state.bench_hold) {
+	for _ in 0 ..< int(t.state.bench_hold) {
 		x := f32(sim.rng_below(&rng, BENCH_HALF * 200)) / 100 - BENCH_HALF // whole centimetres
 		y := f32(sim.rng_below(&rng, BENCH_HALF * 200)) / 100 - BENCH_HALF
-		enemy, _ := sim.spawn(&state.enemies) or_break
+		enemy, _ := sim.spawn(&t.state.enemies) or_break
 		enemy_set(enemy, SPAWN_KINDS[sim.rng_below(&rng, len(SPAWN_KINDS))], {x, y}, 0, 0)
 	}
 }
