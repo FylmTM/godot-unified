@@ -14,11 +14,7 @@ Nav_Report :: struct {
 	arrivals:   int,
 }
 
-nav_bench :: proc(work: string) -> (data: any, ok: bool) {
-	binary := cli.ensure_headless(
-		cli.Headless{"nav_bench", cli.join(cli.state.project.root, "tests", "nav", "bench"), false},
-		.release,
-	)
+nav_bench :: proc(work, binary: string) -> (data: any, ok: bool) {
 	report := new(Nav_Report)
 	if !cli.run_report(binary, {}, cli.join(work, "nav"), 60, report) {
 		return nil, false

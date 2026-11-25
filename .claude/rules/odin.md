@@ -5,26 +5,17 @@ paths:
 
 # Odin pitfalls in this repo
 
-- `_test.odin` files are compiled into normal builds (and pull in `core:testing`), so tests live in their own packages
-  (`tests/<module>/`, a game's `simulation/tests/`), never next to the code.
-- Package names must be unique program-wide and must avoid Odin's own (`net`, `log`, `bytes`, ...): `core:net` is
-  package `net`, which is why ours is `netcode`.
-- Generic procs only type-check when instantiated, so `-vet` flags an import used only inside them as unused in a
-  package that doesn't call them. Keep such imports behind small non-generic helpers (`headless.write_file`,
-  `sim.hash_bytes`, ...), or in a package of their own (`unified:headless/modes`: the game suites import
-  `unified:headless` and never instantiate the CLI modes).
-- A struct field named like an imported package shadows it inside generic code (`Client.sim`): netcode's
-  `client.odin` imports `sim` as `usim`.
+- The traps a game meets too (tests in their own package, package names, `-vet` and imports used only in generic
+  code, a field shadowing a package, a range's end, `*.gen.odin`): `docs/agent-guide.md`, Odin traps. Read them.
+  Here, tests live in `tests/<module>/`; `unified:headless/modes` is a package of its own so the game suites, which
+  import `unified:headless`, never instantiate the CLI modes; netcode's `client.odin` imports `sim` as `usim`
+  (`Client.sim`).
 - `core:hash/xxhash`'s streaming XXH3 (`XXH3_64_update/digest`) returns wrong digests for some input lengths (e.g.
   100,097 bytes), and is still deterministic, so it's easy to miss. Hash one-shot with `XXH3_64_default`
   (upstream fix: odin-lang/Odin#8257).
-- A range's end is evaluated before every iteration: `for _ in 0 ..< wire.r_u16(&reader)` reads a u16 each time
-  round. Read a count into a local first.
 - `foreign import` takes no absolute path and no `#config` path; relative paths work (the `box3d:` bindings).
 - Windows sleeps round to ~15.6 ms without `timeBeginPeriod(1)` (headless startup calls it), and UDP `recvfrom`
   reports WSAECONNRESET after an ICMP port-unreachable: skip it, it isn't "no data".
-- Never edit `*.gen.odin`: every command that needs them generates them from the API dump when stale. `.odin`
-  files are formatted with odinfmt on every edit (a hook); `uni fmt --check` is what CI runs.
 
 # Names
 

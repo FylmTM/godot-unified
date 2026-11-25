@@ -39,6 +39,7 @@ godot :: proc() -> string {
 		// (the first rename wins), and a half-unpacked editor never sits at the final path.
 		tmp := aprintf("%s.%d.tmp", dir, os.get_pid())
 		remove_tree(tmp)
+		defer remove_tree(tmp) // gone once renamed; else (a failed check) not left in the cache
 		zip := join(tmp, asset)
 		download(
 			aprintf("https://github.com/godotengine/godot/releases/download/%s-stable/%s", version, asset),
@@ -52,6 +53,7 @@ godot :: proc() -> string {
 		tmp_exe := join(tmp, exe[len(dir) + 1:])
 		os.change_mode(tmp_exe, os.perm_number(0o755))
 		if got := godot_version(tmp_exe); !strings.has_prefix(got, want) {
+			remove_tree(tmp) // fatal runs no defer
 			fatal("the downloaded Godot reports %q, want %s", got, want)
 		}
 		rename_into_place(tmp, dir, exe)
@@ -71,6 +73,9 @@ godot_download :: proc() -> (dir, exe, asset, sha256: string) {
 	} else when ODIN_OS == .Windows {
 		sha256 = pin("godot", "sha256_windows")
 		asset = aprintf("Godot_v%s_win64.exe.zip", tag)
+	} else when ODIN_ARCH == .arm64 {
+		sha256 = pin("godot", "sha256_linux_arm64")
+		asset = aprintf("Godot_v%s_linux.arm64.zip", tag)
 	} else {
 		sha256 = pin("godot", "sha256_linux")
 		asset = aprintf("Godot_v%s_linux.x86_64.zip", tag)
@@ -80,6 +85,8 @@ godot_download :: proc() -> (dir, exe, asset, sha256: string) {
 		exe = join(dir, "Godot.app", "Contents", "MacOS", "Godot")
 	} else when ODIN_OS == .Windows {
 		exe = join(dir, aprintf("Godot_v%s_win64_console.exe", tag))
+	} else when ODIN_ARCH == .arm64 {
+		exe = join(dir, aprintf("Godot_v%s_linux.arm64", tag))
 	} else {
 		exe = join(dir, aprintf("Godot_v%s_linux.x86_64", tag))
 	}
@@ -458,8 +465,7 @@ tool_script :: proc(game: Game, name: string) -> string {
 	if strings.has_suffix(name, ".gd") {
 		if !os.is_file(name) do return ""
 		path, _ := os.get_absolute_path(name, context.allocator)
-		slashed, _ := strings.replace_all(path, "\\", "/")
-		return slashed
+		return slashed(path)
 	}
 	if os.is_file(join(game.dir, "game", "tools", aprintf("%s.gd", name))) {
 		return aprintf("res://game/tools/%s.gd", name)

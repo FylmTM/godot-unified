@@ -11,29 +11,29 @@ rebuilds the CLI.
 
 ## Requirements
 
-The developer installs what Odin needs (clang on macOS and Linux; Visual Studio Build Tools on Windows: its linker
-and the Windows SDK), git and curl (shipped with macOS, Windows 10+ and Linux), nothing else. Everything else the CLI
-or its shims fetch or build, pinned and hash-checked: Odin, Godot, export templates, odinfmt, Box3D. Nothing it builds
-is C or C++. The EOS SDK is the exception: Epic's licence keeps it out of the repo and CI, so a machine that plays
-online downloads it from Epic and names it with `UNIFIED_EOS_SDK` (`docs/EOS.md`).
+What a developer installs is `docs/getting-started.md`'s. Everything else the CLI or its shims fetch or build, pinned:
+Odin, Godot, export templates, odinfmt, Box3D. Nothing it builds is C or C++. The EOS SDK is the exception: Epic's
+licence keeps it out of the repo and CI, so a machine that plays online downloads it from Epic and names it with
+`UNIFIED_EOS_SDK` (`docs/EOS.md`).
 
 ## Layout
 
 A project is this repo, or a game repo: a Godot project at its root with `unified` as a submodule, always at
 `unified/`. Its root holds the shims, `tools/` and `.out/`, where everything generated goes (git-ignored, safe to
-delete): the CLI binaries, odinfmt, the headless binaries per build mode, the unpacked unified-box3d release. Only
-this repo has `pins.cfg`; a game repo reads its submodule's.
+delete): the CLI binaries, the headless binaries per build mode, the unpacked unified-box3d release, release builds.
+Only this repo has `pins.cfg`; a game repo reads its submodule's.
 
 A game is a directory with `project.godot` and `simulation/`: the project root, else every `examples/*/`. Commands take
 the game by name, optional when there is one. In a game repo, `test`, `vet`, `fmt` and `verify` cover the game only,
 never the submodule, which `unified`'s own CI proves. Every Odin build gets two collections: `unified` (`src/`) and
 `box3d` (unified-box3d's bindings).
 
-**The per-user cache** (`user_cache`) holds the pinned downloads every checkout on the machine shares, a directory or
-file per version and SHA-256, so two pins never share a path: the shims' Odin, the Godot editor (one path for the OS
-to remember, e.g. Windows Firewall), the unified-box3d zips each project unpacks. A download goes to a part file of
-the process's own and is renamed into place: checkouts fetching the same pin at once each finish, and the first rename
-wins.
+**The per-user cache** (`user_cache`) holds the pinned downloads and builds every checkout on the machine shares, a
+directory or file per version and SHA-256 (or commit), so two pins never share a path: the shims' Odin, the Godot
+editor (one path for the OS to remember, e.g. Windows Firewall), the unified-box3d zips each project unpacks, odinfmt
+(built once per machine, not per worktree). A download goes to a part file of the process's own and is renamed into
+place: checkouts fetching the same pin at once each finish, and the first rename wins. What one process must make
+alone (an unpack in place, a build) takes a lock file first (`lock_acquire`).
 
 ## What a project adds
 
@@ -81,9 +81,10 @@ or one JSON object (`Result`). The command lines it runs are echoed only when ve
 (AGENTS.md, Non-negotiables). Nothing is held to a wall-clock budget: one machine's busy minute or a slower CI runner
 would make it noise. The simulation's own speed is `bench`'s, judged against the frame (`BENCH_TARGET_US`).
 
-**Builds** go through manifests: an output records the sizes and times of every source file and directory it was
-built from, the odin executable, and its command line as the key (`stale`, `finish_build`). Every command builds only
-what is stale, `build` included, and starts its builds at once.
+**Builds** go through manifests: an output records the sizes and times of every source file and its directory (a new
+file joins its package), every file it `#load`s (alone: a new file beside one is no input), the odin executable, and
+its command line as the key (`stale`, `finish_build`). Every command builds only what is stale, `build` included, and
+starts the builds it needs at once.
 
 **Game windows.** A game window can be muted, placed on a screen and kept from taking focus (`Window_Opts`,
 `with_window`). `run` leaves each to its caller; a check's window (a tool script's, coop's, a driven game's, this
@@ -117,21 +118,23 @@ A tool script prints one `UNIFIED_RESULT {json}` line (`ok`, `errors`, its own d
 `coop` and `bake` run tool scripts strictly (`Tool_Run`, `judge_tool`): a failing exit, a missing or `ok: false`
 result, or what `godot_problems` names (an `ERROR` line, a leak at exit, a GDScript warning, a warning from a
 `res://game/` script) fails the run; the editor and session steps judge their output by `godot_problems` too. `run`
-and `editor` only report. A
-headless run has Godot's debugger on and a `quit` line on its stdin, so a script error ends it at once (`Run`).
+and `editor` only report. A headless run has Godot's debugger on and a `quit` line on its stdin, so a script error
+ends it at once (`Run`).
 
 ## Test suites
 
 `test` runs suites (`Suite`): the public ones (`public_suites`) and a project's own (`add_suites`), each optionally
 with a long variant (by hand, never in CI). `test` passes each the run's options (`Test_Options`), so a `test` that
 `verify` nests keeps its own. A suite that mostly waits (`Suite.beside`) runs beside the others in a child `uni test
---suite <name>`, started once its `prepare` has made current what it shares with them. Suites are quiet on success: a passing one prints only warnings, and a passing
-child's log is cut to its warnings (`child_log`).
+--suite <name>`, started once every chosen suite's `prepare` has made current what they share; when every chosen suite
+waits, the first runs here and the rest beside it. Suites are quiet on success: a passing one prints only warnings,
+and a passing child's log is cut to its warnings (`child_log`).
 
-- `odin`: every test package, or the named game's tests only (the inner loop of game work), or one library test package
-  alone (`uni test dmath`: one the test roots import, in the mode of the root that does; the odin and box3d-debug
-  suites only), built through their
-  manifests so an unchanged tree only runs (`suite_odin`). The test root compiles optimised: the sim tests need it.
+- `odin`: every test package, or the named game's tests only (the inner loop of game work), or one library test
+  package alone (`uni test dmath`: one the test roots import, in the mode of the root that does; the odin and
+  box3d-debug suites only), built through their manifests so an unchanged tree only runs (`suite_odin`); `--long`
+  builds binaries of their own, so switching to it and back recompiles nothing. The test root compiles optimised: the
+  sim tests need it.
   A project's unoptimised root (`Project_Config.unoptimized_tests`: this repo's tooling tests) compiles beside it on
   a quarter of the cores, since its tests run as fast without optimisation and optimising them would be a third of
   the optimised compile; both binaries then run at once. A binary never runs bare: Odin's runner freezes a crashed
@@ -161,7 +164,8 @@ run of a game, and with `.out/`. `run` and `editor` are the developer's own, wit
 with `drive`.
 
 Benchmarks are no suite: `bench` runs each game's standard benchmarks (a row each) and its sessions on the virtual
-clock, plus the project's own rows, into `.out/bench.json`, reported and never gated by time (`uni bench -h`, `BENCH_TARGET_US`).
+clock, plus the project's own rows, into `.out/bench.json`, reported and never gated by time (`uni bench -h`,
+`BENCH_TARGET_US`).
 
 ## The template game
 
@@ -171,23 +175,33 @@ commit, never a local one, so the repo clones anywhere, and writes the game, the
 `odinfmt.json`, the starters and the agent guidance (`docs/agent-guide.md`) from that submodule, never from this
 checkout, so they always match the library they build against (`cmd_init`).
 
+## Releases
+
+`release` makes a game's playable package for this host (macOS arm64, Windows x64): it stamps the version into the
+game's files for the export only, exports with Godot, checks what the export carries, zips it and smoke-tests the
+unzipped game (`cmd_release`; the `unified-release` skill has the steps and the rules a game's export follows). The
+stamps never outlive the run: each file is swapped for the run (`swap_text`), its original kept in memory and in
+`.out/release/restore/`, and put back after the export; a failing command undoes it on the way out (`on_failure`,
+`unwind`), and a run that was killed is undone by the next one before it reads the files (`restore_backups`).
+
 ## Dependencies
 
-Every dependency is pinned, checked against its SHA-256 and written to a temp path, then renamed into place.
+Every dependency is pinned (a SHA-256, or a git commit for odinfmt), checked, and written to a temp path, then
+renamed into place.
 
 - **Downloads:** the system curl (`download`); SHA-256 in Odin; our own zip reader and writer (`zip.odin`), which
   reads only the members it needs out of a remote archive over HTTP byte ranges.
 - **Godot:** the pinned editor in the per-user cache; `UNIFIED_GODOT` may name a local install that reports exactly
   the pinned version (`godot`).
-- **Box3D:** unified-box3d, Box3D ported to Odin, as a shared library with upstream's C API, headers and Odin
-  bindings, unpacked into `.out/unified-box3d/`, or the local checkout `UNIFIED_BOX3D` names (`ensure_box3d`). A
-  program loads the library from its own directory: the CLI copies it next to each output that links it
-  (`stage_box3d`), and keeps each game's `.gdextension` `[dependencies]` section listing what the extension links, so
+- **Box3D:** unified-box3d, Box3D ported to Odin, as a shared library with upstream's C API, headers and Odin bindings,
+  unpacked beside `.out/unified-box3d/` and renamed into it, or the local checkout `UNIFIED_BOX3D` names
+  (`ensure_box3d`). A program loads the library from its own directory: the CLI copies it next to each output that links
+  it (`stage_box3d`), and keeps each game's `.gdextension` `[dependencies]` section listing what the extension links, so
   Godot loads it with the extension and an export ships it (`write_dependencies`).
 - **EOS SDK:** never fetched; read where `UNIFIED_EOS_SDK` names it (`eos.odin`). Without it a game builds and plays
   single player and LAN.
-- **odinfmt:** built from the pinned OLS commit; no other odinfmt is used, so CI and the format hook agree
-  (`ensure_odinfmt`, `fmt_hook`).
+- **odinfmt:** built from the pinned OLS commit into the per-user cache; no other odinfmt is used, so CI and the
+  format hook agree (`ensure_odinfmt`, `fmt_hook`).
 
 ## Testing
 

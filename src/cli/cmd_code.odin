@@ -232,6 +232,9 @@ cmd_fmt :: proc(args: []string) -> Result {
 			append(&srcs, abs)
 			continue
 		}
+		if !os.is_directory(abs) {
+			usage("no file or directory %s", root) // a typo would otherwise format (or check) nothing and pass
+		}
 		for file in find_files(abs, ".odin") {
 			if !strings.has_suffix(file, ".gen.odin") {
 				append(&srcs, file)
@@ -333,8 +336,9 @@ fmt_files :: proc(exe: string, srcs: []string, check: bool, config := "") -> []s
 // Claude Code's PostToolUse hook (.claude/settings.json): formats the one .odin file an Edit or Write touched, named
 // in the hook's JSON on stdin. The file's own project is the nearest directory above it with a `uni` shim, so an edit
 // in a git worktree of this checkout (.claude/worktrees/<name>/) is formatted too, with its own odinfmt.json. Builds
-// odinfmt when the project has none yet (a fresh game repo). Never blocks the agent: anything unexpected (not Odin, outside the formatted directories, a file that doesn't parse yet)
-// is skipped quietly; `fmt --check` in `verify` and CI is the gate.
+// odinfmt when the machine has none yet (ensure_odinfmt: the hook's timeout allows for it). Never blocks the agent:
+// anything unexpected (not Odin, outside the formatted directories, a file that doesn't parse yet) is skipped
+// quietly; `fmt --check` in `verify` and CI is the gate.
 @(private)
 fmt_hook :: proc() -> ! {
 	data, err := os.read_entire_file(os.stdin, context.allocator)
@@ -353,7 +357,7 @@ fmt_hook :: proc() -> ! {
 		os.exit(0)
 	}
 	path, _ := os.get_absolute_path(hook.tool_input.file_path, context.allocator)
-	path, _ = strings.replace_all(path, "\\", "/")
+	path = slashed(path)
 	root := os.dir(path)
 	for !os.is_file(join(root, "uni")) {
 		parent := os.dir(root)
@@ -364,13 +368,13 @@ fmt_hook :: proc() -> ! {
 	}
 	inside := false
 	for dir in fmt_dirs(root) {
-		slashed, _ := strings.replace_all(dir, "\\", "/")
-		inside ||= strings.has_prefix(path, aprintf("%s/", slashed))
+		dir_slashed := slashed(dir)
+		inside ||= strings.has_prefix(path, aprintf("%s/", dir_slashed))
 	}
 	if !inside || !os.is_file(path) {
 		os.exit(0)
 	}
-	// built on the first edit in a fresh repo (a minute at most, once), not skipped: a skipped edit fails fmt --check
+	// built on the first edit on a fresh machine (a minute at most, once), not skipped: a skipped edit fails fmt --check
 	exe := ensure_odinfmt()
 	config := join(root, "odinfmt.json")
 	if !os.is_file(config) {
@@ -389,6 +393,12 @@ uses_scenarios :: proc(root: string) -> bool {
 	return sources_import(root, `"unified:headless/scenarios"`)
 }
 
+// The file name of an optimised test binary: `--long` and `--bless` compile it with other defines, so each has its
+// own and switching between them recompiles nothing (the unoptimised root takes neither).
+test_binary_stem :: proc(name: string, long, bless: bool) -> string {
+	return aprintf("%s_tests%s%s%s", name, long ? "_long" : "", bless ? "_bless" : "", EXE)
+}
+
 // The odin suite's builds: every test package under the project's test root in one optimised compile
 // (Project_Config.tests, with -all-packages) and, when the project has one, every package under its unoptimised root
 // in another (Project_Config.unoptimized_tests: on a quarter of the cores, so it stays out of the optimised compile's
@@ -403,7 +413,7 @@ test_builds :: proc(opts: Test_Options) -> []Build {
 		append(&flags, ..mode_flags(opts.library_unoptimized ? .debug : .dev))
 		if opts.long && uses_scenarios(opts.library_tests) do append(&flags, "-define:UNIFIED_LONG_TESTS=true")
 		if opts.bless && uses_scenarios(opts.library_tests) do append(&flags, "-define:UNIFIED_BLESS=true")
-		stem := aprintf("package_%s_tests%s%s", os.base(opts.library_tests), opts.bless ? "_bless" : "", EXE)
+		stem := test_binary_stem(aprintf("package_%s", os.base(opts.library_tests)), opts.long, opts.bless)
 		return slice.clone(
 			[]Build{{pkg = opts.library_tests, out = join(state.project.out, "test", stem), flags = flags[:]}},
 		)
@@ -430,7 +440,7 @@ test_builds :: proc(opts: Test_Options) -> []Build {
 	}
 	append(&builds, Build {
 		pkg   = root,
-		out   = join(state.project.out, "test", aprintf("%s_tests%s%s", name, opts.bless ? "_bless" : "", EXE)),
+		out   = join(state.project.out, "test", test_binary_stem(name, opts.long, opts.bless)),
 		flags = flags[:],
 	})
 	if unoptimized := unoptimized_test_root(opts.game); unoptimized != "" {

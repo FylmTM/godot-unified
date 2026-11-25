@@ -368,7 +368,7 @@ write_extension_list_dir :: proc(dir: string) -> []string {
 		for key in LIB_KEYS {
 			lib, ok := config_get(config, "libraries", key)
 			if ok && os.exists(join(dir, strings.trim_prefix(lib, "res://"))) {
-				relative, _ := strings.replace_all(ext[len(dir) + 1:], "\\", "/")
+				relative := slashed(ext[len(dir) + 1:])
 				append(&listed, aprintf("res://%s", relative))
 				break
 			}

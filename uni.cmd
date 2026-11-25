@@ -22,8 +22,9 @@ for /f "usebackq eol=; tokens=1,2 delims== " %%a in ("%pins%") do (
 	if defined sec if "%%a"=="sha256_windows_x64" set "sha=%%~b"
 )
 :pinned
+rem (a path inside a parenthesised block is quoted: a ")" in it, as in "Program Files (x86)", would close the block)
 if not defined tag (
-	echo uni: %pins%: no [odin] tag 1>&2
+	echo uni: "%pins%": no [odin] tag 1>&2
 	exit /b 1
 )
 set "odin=%LOCALAPPDATA%\unified\odin\%tag%"
@@ -48,7 +49,7 @@ exit /b %errorlevel%
 rem The pinned release, downloaded, checked and unpacked into %odin%.
 :download
 if not defined sha (
-	echo uni: %pins%: no [odin] sha256_windows_x64 1>&2
+	echo uni: "%pins%": no [odin] sha256_windows_x64 1>&2
 	exit /b 1
 )
 set "asset=odin-windows-amd64-%tag%.zip"

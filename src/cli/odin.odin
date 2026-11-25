@@ -343,8 +343,8 @@ finish_build :: proc(build: Build, child: ^Proc) -> Ran {
 	ran := wait(child)
 	deps := aprintf("%s.deps.json", build.out)
 	if ran.ok {
-		files, odin_path := read_deps(deps)
-		write_manifest(manifest_path(build), build_key(build), files, odin_path)
+		inputs := read_deps(deps)
+		write_manifest(manifest_path(build), build_key(build), inputs.sources, inputs.odin, inputs.loads)
 	}
 	os.remove(deps)
 	return ran
@@ -362,10 +362,10 @@ odin_build :: proc(build: Build, what: string) -> f64 {
 
 // --- the headless binaries --------------------------------------------------------------------------------------
 
-// Builds every headless binary into .out/<mode>/ in parallel (only the stale ones unless `force`), with the Box3D
-// library beside them when one links it.
-build_headless :: proc(mode: Mode, force := false) -> (built: int) {
-	builds := start_headless(mode, force = force)
+// Builds every headless binary (`only`: the one of that name) into .out/<mode>/ in parallel (only the stale ones unless
+// `force`), with the Box3D library beside them when one links it.
+build_headless :: proc(mode: Mode, only := "", force := false) -> (built: int) {
+	builds := start_headless(mode, only = only, force = force)
 	return finish_headless(&builds)
 }
 

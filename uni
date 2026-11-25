@@ -1,7 +1,8 @@
 #!/bin/sh
-# uni, the unified CLI (src/cli/README.md, Bootstrap and self-rebuild): runs the binary .out/cli/current names, building one first when
-# there is none. Odin is always the release pins.cfg pins, downloaded once into ~/.cache/unified/odin/<tag> (checked
-# against its SHA-256) and put first on PATH.
+# uni, the unified CLI (src/cli/README.md, Bootstrap and self-rebuild): runs the binary .out/cli/current names,
+# building one first when there is none. Odin is always the release pins.cfg pins, downloaded once into the per-user
+# cache's odin/<tag> (${XDG_CACHE_HOME:-~/.cache}/unified, on Windows %LOCALAPPDATA%\unified, where uni.cmd looks too),
+# checked against its SHA-256, and put first on PATH.
 case "$0" in
 */*) root=${0%/*} ;;
 *) root=. ;;
@@ -74,7 +75,20 @@ while read -r k _ v; do
 done < "$pins"
 [ -n "$tag" ] || die "$pins: no [odin] tag"
 if [ "$OS" = Windows_NT ]; then
-	odin="$HOME/AppData/Local/unified/odin/$tag" # where uni.cmd puts it (%LOCALAPPDATA%)
+	# where uni.cmd and the CLI put it: %LOCALAPPDATA% (C:\Users\x\AppData\Local) as a POSIX path (/C/Users/x/...), made
+	# without starting a process; $HOME may be another directory (a share, a set HOME)
+	base=$HOME/AppData/Local
+	if [ -n "$LOCALAPPDATA" ]; then
+		bs='\' p=$LOCALAPPDATA base=
+		while :; do
+			case $p in
+			*"$bs"*) base="$base${p%%"$bs"*}/" p=${p#*"$bs"} ;;
+			*) base="$base$p" && break ;;
+			esac
+		done
+		case $base in ?:/*) base="/${base%%:*}${base#?:}" ;; esac
+	fi
+	odin="$base/unified/odin/$tag"
 else
 	odin="${XDG_CACHE_HOME:-$HOME/.cache}/unified/odin/$tag"
 fi

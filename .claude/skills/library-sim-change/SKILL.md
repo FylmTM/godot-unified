@@ -5,8 +5,8 @@ description: What a change to what unified's own deterministic code computes nee
 
 # Changing what the library computes
 
-The `unified-sim-change` skill is how any game's reference run and replay regressions are re-pinned, and the long suites and
-the benchmark; it holds here for every example game. This is what only this repo adds.
+The `unified-sim-change` skill is how any game's reference run and replay regressions are re-pinned, and the long suites
+and the benchmark; it holds here for every example game. This is what only this repo adds.
 
 ## The golden traces and the toy's reference run
 
@@ -21,8 +21,8 @@ change. A golden or a result that moved without the bump is refused (`unified/sr
 ## CI
 
 The goldens and reference runs must reproduce on Linux x64 and arm64, Windows x64 and macOS ARM64. The PR's own run
-covers the first three and is the check before merging: no extra dispatch. macOS doesn't block the merge: `main`'s
-run after it covers macOS, and if it fails there, fix it first (AGENTS.md, Workflow).
+covers the first three and is the check before merging: no extra dispatch. macOS is `main`'s run after the merge
+(AGENTS.md, Workflow).
 
 ## The long suites
 

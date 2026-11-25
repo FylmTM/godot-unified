@@ -129,6 +129,12 @@ public_commands :: proc() -> []Command {
 			run     = cmd_refresh,
 		},
 		{
+			name    = "release",
+			summary = "playable builds of every game with export_presets.cfg (or one) for this host: export, version stamp, sign, zip, smoke test (macOS arm64 and Windows x64)",
+			options = option_types(Release_Opts),
+			run     = cmd_release,
+		},
+		{
 			name    = "verify",
 			summary = "the gate before handing work back or merging: fmt --check, vet, test --suite all",
 			options = option_types(Verify_Opts),
@@ -233,20 +239,29 @@ cmd_test :: proc(args: []string) -> Result {
 	}
 	results := make([]Suite_Result, len(suites))
 	ok := true
-	// With other suites, the `beside` ones run in child processes while the rest run here, in order. Each child starts
-	// once its `prepare` has made current what it shares with the others.
+	// With other suites, the `beside` ones run in child processes while the rest run here, in order; when every one
+	// is `beside`, the first runs here and the rest beside it. No child starts before every suite's `prepare` has made
+	// current what they share, so no two build or unpack the same thing at once.
 	children := make([]Maybe(Proc), len(suites))
+	apart := make([]bool, len(suites))
 	in_process := 0
 	for suite in suites {
 		in_process += suite.beside ? 0 : 1
 	}
-	if in_process > 0 && in_process < len(suites) {
+	if len(suites) > 1 {
+		for suite, i in suites {
+			apart[i] = suite.beside && (in_process > 0 || i > 0)
+		}
+	}
+	if slice.contains(apart, true) {
+		for suite in suites {
+			if suite.prepare != nil {
+				suite.prepare(games, test_opts)
+			}
+		}
 		exe := self_exe()
 		for suite, i in suites {
-			if !suite.beside do continue
-			if suite.prepare != nil {
-				suite.prepare()
-			}
+			if !apart[i] do continue
 			cmd: [dynamic]string
 			append(&cmd, exe, "test")
 			if opts.game != "" {
@@ -372,7 +387,7 @@ test_details :: proc() -> string {
 	fmt.sbprintf(
 		&builder,
 		"With other suites, the ones that mostly wait (godot, and the project's own that say so) run beside them in\n" +
-		"child processes. A passing run prints a summary: each suite's result and time and the warnings it logged (a\n" +
+		"child processes (all such: the first here, the rest beside it). A passing run prints a summary: each suite's result and time and the warnings it logged (a\n" +
 		"leak); a failing one prints the whole log of what failed, and --verbose everything. A test binary still\n" +
 		"running after %.0f minutes has hung: the watchdog kills it and the run fails.",
 		time.duration_minutes(TEST_HANG_TIMEOUT),

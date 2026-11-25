@@ -29,7 +29,8 @@ Command :: struct {
 // One way to call a command: its options struct, after a subcommand word when the command has several (`board
 // list`, `board set`; "": none). An options field's tags say how it reads: `usage` (what it does, for -h), `args`
 // (core:flags: `pos=N`, `required`, `name=...`, `hidden`) and `hint` (what -h shows for its value: `<url>`; an enum
-// shows its names, any other value `<name>`; the `overflow` field's whole text, e.g. `[-- args]`).
+// shows its names, any other value `<name>`; the `overflow` field's whole text, e.g. `[-- args]`) and, on the
+// `overflow` field, `after:"--"` (it takes only what follows --: a positional before it is a usage error).
 Form :: struct {
 	word: string,
 	type: typeid,
@@ -80,11 +81,14 @@ Extra_Headless :: struct {
 	pkg:  string, // relative to the project
 }
 
-// A `bench` row of the project's own: `run` measures (its files may go in `work`), logs its line and returns what
-// .out/bench.json's `rows` keeps under `name`.
+// A `bench` row of the project's own: its benchmark program, which `bench` builds (release) together with the games'
+// binaries before any row runs, and `run`, which runs that binary (its files may go in `work`), logs its line and
+// returns what .out/bench.json's `rows` keeps under `name`.
 Bench_Row :: struct {
-	name: string,
-	run:  proc(work: string) -> (data: any, ok: bool),
+	name:     string,
+	program:  Extra_Headless,
+	bindings: bool, // the program imports unified:godot: its Godot API bindings are generated first
+	run:      proc(work, binary: string) -> (data: any, ok: bool),
 }
 
 // Registers a project's additions (call before `run`).
@@ -100,8 +104,9 @@ Suite :: struct {
 	run:     proc(games: []Game, opts: Test_Options) -> bool,
 	// Mostly waits (the real clock, timers): run with other suites, it runs beside them in a child process.
 	beside:  bool,
-	// With `beside`: makes current, before the others start, what it builds that they share (nil: nothing).
-	prepare: proc(),
+	// With `beside`: makes current, before any suite of the run starts, what it builds that the others share (nil:
+	// nothing); it gets what `run` will (the games the run names and its options), so it builds only what they need.
+	prepare: proc(games: []Game, opts: Test_Options),
 }
 
 // What `test` passes each suite it runs: the options of that run (a nested `test`, as `verify` runs it, has its own).
@@ -138,7 +143,29 @@ State :: struct {
 	start:    time.Tick,
 	env_keys: []string, // the variables .env set
 	suites:   [dynamic]Suite,
-	on_fatal: proc(), // undoes a command's half-done work when it fails (fatal); runs once
+	undo:     [dynamic]Undo, // what a failing command undoes (on_failure), run newest first by `unwind`
+}
+
+// Work a failing command undoes (on_failure): `undo(data)`.
+Undo :: struct {
+	undo: proc(data: rawptr),
+	data: rawptr,
+}
+
+// Registers what to undo if the command fails before its work is done: a stamped file to put back, a half-made
+// directory to remove. `fatal`, a usage error and a failed result run every one (`unwind`); a command that finishes
+// its work undoes it itself, or keeps it. `data` (nil: none) must outlive the caller's frame.
+on_failure :: proc(undo: proc(data: rawptr), data: rawptr = nil) {
+	append(&state.undo, Undo{undo, data})
+}
+
+// Runs every registered undo once, newest first, and forgets them (what every failing exit of a command does). An
+// undo that itself fails with `fatal` stops there; the older ones still run.
+unwind :: proc() {
+	for len(state.undo) > 0 {
+		undo := pop(&state.undo)
+		undo.undo(undo.data)
+	}
 }
 
 // Set by --verbose for the processes the CLI starts (another uni reads it).
@@ -173,17 +200,9 @@ run :: proc(command_sets: ..[]Command) -> ! {
 			append(&state.commands, command)
 		}
 	}
-	argv := make([dynamic]string)
-	for arg in args {
-		if arg == "--json" {
-			state.json = true
-		} else if arg == "--verbose" {
-			state.verbose = true
-		} else {
-			append(&argv, arg)
-		}
-	}
-	state.argv = argv[:]
+	argv: []string
+	argv, state.json, state.verbose = split_global_flags(args)
+	state.argv = argv
 	if state.verbose {
 		_ = os.set_env(VERBOSE_ENV, "1")
 	} else {
@@ -204,6 +223,29 @@ run :: proc(command_sets: ..[]Command) -> ! {
 	finish(result)
 }
 
+// The command line without the options every command takes (--json, --verbose), and whether each was there. They
+// count only before a `--`: what follows belongs to the game, the script or the mode (Godot's own --verbose).
+split_global_flags :: proc(args: []string) -> (argv: []string, as_json, verbose: bool) {
+	out := make([dynamic]string)
+	ended := false
+	for arg in args {
+		switch {
+		case ended:
+			append(&out, arg)
+		case arg == "--":
+			ended = true
+			append(&out, arg)
+		case arg == "--json":
+			as_json = true
+		case arg == "--verbose":
+			verbose = true
+		case:
+			append(&out, arg)
+		}
+	}
+	return out[:], as_json, verbose
+}
+
 // The registered command of that name, or nil: `run` dispatches the command line with it and refuses a name
 // defined twice; `verify` finds its steps with it.
 find_command :: proc(name: string) -> ^Command {
@@ -221,7 +263,7 @@ print_help :: proc() {
 	fmt.println("uni: build, test, check and run the games of this project (src/cli/README.md)\n")
 	fmt.println("usage: uni <command> [options] [--json] [--verbose]   (uni <command> -h: its options and details)\n")
 	fmt.println(
-		"Any command: --json prints the result as one JSON object; --verbose echoes every command line it runs.\n",
+		"Any command (before any --): --json prints the result as one JSON object; --verbose echoes every command line it runs.\n",
 	)
 	for command in state.commands {
 		fmt.printf("  %s\n      %s\n", strings.trim_space(command_usage(command)), command.summary)
@@ -257,6 +299,30 @@ parse :: proc(opts: ^$Options, args: []string) {
 	if err := flags.parse(opts, args, .Unix); err != nil {
 		usage_error(err)
 	}
+	for field in reflect.struct_fields_zipped(Options) {
+		if field.name != "overflow" || field.type.id != typeid_of([dynamic]string) {
+			continue
+		}
+		if after, tagged := reflect.struct_tag_lookup(field.tag, "after"); tagged && after == "--" {
+			overflow := (^[dynamic]string)(uintptr(opts) + field.offset)
+			if stray := stray_positionals(args, overflow[:]); len(stray) > 0 {
+				usage("unexpected argument %q (the game's own arguments go after --)", stray[0])
+			}
+		}
+	}
+}
+
+// The positionals core:flags put in an `overflow` field that came before the first `--` (it fills the field with
+// both): for a field that takes only what follows -- (`after:"--"`), each one is a mistake.
+stray_positionals :: proc(args, overflow: []string) -> []string {
+	after := 0
+	for arg, i in args {
+		if arg == "--" {
+			after = len(args) - i - 1
+			break
+		}
+	}
+	return overflow[:max(0, len(overflow) - after)]
 }
 
 // A command's -h: its usage line (every form) and summary, each option of its `options` with what it does,
@@ -394,18 +460,24 @@ usage_error :: proc(err: flags.Error) -> ! {
 		msg = "-h prints the usage"
 	}
 	log("uni %s: %s (uni %s -h)", state.command.name, msg, state.command.name)
+	unwind()
 	os.exit(2)
 }
 
 // Stops with a usage error (exit 2).
 usage :: proc(format: string, args: ..any) -> ! {
 	log("uni %s: %s (uni %s -h)", state.command.name, aprintf(format, ..args), state.command.name)
+	unwind()
 	os.exit(2)
 }
 
-// Ends the run: the result on stdout, how long it took on stderr, the exit code.
+// Ends the run: the result on stdout, how long it took on stderr, the exit code. A failed one first undoes what the
+// command registered (unwind).
 @(private)
 finish :: proc(result: Result) -> ! {
+	if !result.ok {
+		unwind()
+	}
 	secs := time.duration_seconds(time.tick_since(state.start))
 	what := strings.join(state.argv, " ", context.temp_allocator)
 	log("uni: %s %s in %.1fs", what, result.ok ? "done" : "FAILED", secs)
@@ -436,12 +508,9 @@ finish :: proc(result: Result) -> ! {
 // Stops the command as failed: the message on stderr (and in the --json result).
 fatal :: proc(format: string, args: ..any) -> ! {
 	msg := aprintf(format, ..args)
-	if undo := state.on_fatal; undo != nil {
-		state.on_fatal = nil
-		undo()
-	}
 	if state.command == nil {
 		log("uni: %s", msg)
+		unwind()
 		os.exit(1)
 	}
 	log("uni %s: %s", state.command.name, msg)

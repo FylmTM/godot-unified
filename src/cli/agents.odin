@@ -140,7 +140,7 @@ files_under :: proc(dir: string) -> []string {
 	base = strings.trim_right(base, "/\\")
 	out: [dynamic]string
 	for file in find_files(base, "") {
-		rel_path, _ := strings.replace_all(file[len(base) + 1:], "\\", "/")
+		rel_path := slashed(file[len(base) + 1:])
 		append(&out, rel_path)
 	}
 	return out[:]
