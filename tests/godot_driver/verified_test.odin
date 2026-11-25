@@ -134,7 +134,11 @@ verified_sampler_on_a_session :: proc(t: ^testing.T) {
 			u32(i + 1) * 7919,
 			&clock,
 		)
-		clients[i] = netcode.client_create(&toy.GAME, {slot = -1, player_name = "p"}, link, sampling_hooks(&sampling))
+		config := netcode.Client_Config(toy.Game) {
+			player_name = "p",
+		}
+		config.slot = any_slot(type_of(config.slot))
+		clients[i] = netcode.client_create(&toy.GAME, config, link, sampling_hooks(&sampling))
 	}
 	defer for &sampling, i in samplings {
 		netcode.client_destroy(clients[i])
@@ -183,4 +187,14 @@ verified_sampler_on_a_session :: proc(t: ^testing.T) {
 		agreed += 1
 	}
 	testing.expect(t, agreed > 0)
+}
+
+// The slot that asks for any free one, as netcode's Local_Config.slot takes it (an int: -1; a Maybe(int): nil).
+@(private = "file")
+any_slot :: proc($T: typeid) -> T {
+	when T == int {
+		return -1
+	} else {
+		return nil
+	}
 }
