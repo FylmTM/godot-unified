@@ -65,23 +65,8 @@ apply_commands :: proc(t: ^Tick) {
 // The three upgrades a hero's level-up to `level` offers: a keyed roll naming no tick (tick 0), only the player and
 // the level, so a HUD computes the same offer from the state it shows, whenever it asks.
 upgrade_offers :: proc(seed: u64, player: sim.Player, level: i32) -> [3]Upgrade {
-	key := sim.player_key(player)
-	first := sim.roll_below_at(seed, 0, len(Upgrade), Roll.Upgrade_Offer, key, int(level) * 3)
-	second := sim.roll_below_at(seed, 0, len(Upgrade) - 1, Roll.Upgrade_Offer, key, int(level) * 3 + 1)
-	third := sim.roll_below_at(seed, 0, len(Upgrade) - 2, Roll.Upgrade_Offer, key, int(level) * 3 + 2)
-	// Three distinct of the seven: the second skips the first, the third is the third-th of those left.
-	a := int(first)
-	b := (a + 1 + int(second)) % len(Upgrade)
-	c, left := 0, int(third)
-	for upgrade in 0 ..< len(Upgrade) {
-		if upgrade == a || upgrade == b do continue
-		if left == 0 {
-			c = upgrade
-			break
-		}
-		left -= 1
-	}
-	return {Upgrade(a), Upgrade(b), Upgrade(c)}
+	picks := sim.roll_distinct_at(seed, len(Upgrade), 3, Roll.Upgrade_Offer, sim.player_key(player), int(level))
+	return {Upgrade(picks[0]), Upgrade(picks[1]), Upgrade(picks[2])}
 }
 
 // The level the oldest of a hero's pending level-ups reached: the one a pick goes to.
