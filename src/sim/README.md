@@ -30,7 +30,8 @@ reason, the Godot host reports it.
 with a sized backing integer, fixed arrays and nested structs, with no implicit padding (gaps are explicit `_pad`
 fields). Its memory is its canonical little-endian serialization: a snapshot is a copy, the checksum hashes its
 bytes, a desync report reads it by RTTI. It holds the session's players in a field named `players` (Players, below)
-and the game's tables (Tables and handles).
+and the game's tables (Tables and handles). The library's containers in it (`Table`, `Players`, the Collections) pad
+themselves, so a game's `_pad` fields are only ever for its own structs.
 
 ### Input
 
@@ -135,10 +136,12 @@ game with other `levels` (a headless run's, from a file); a re-baked level rebui
 ### Build identity
 
 `compat_of` is the build's identity: the layouts of the types, the unions, the tick rate, the game's name and
-version, its levels' hash and the library's part (`LIBRARY_VERSION`, the unified-box3d pin). The netcode's hello,
-input logs and snapshots carry it, so builds that would compute differently refuse each other instead of desyncing. A
-change a layout doesn't show bumps a version by hand: `Game.version` for the game's rules, `LIBRARY_VERSION` for the
-library's (the `unified-sim-change` and `library-sim-change` skills).
+version, its levels' hash and the library's part (`LIBRARY_VERSION`, the unified-box3d pin). A layout covers what
+bytes mean as well as where they are: an enum's values and a bit_set's elements, so a build that adds a button
+refuses the old one at hello instead of desyncing on its first press. The netcode's hello, input logs and snapshots
+carry it, so builds that would compute differently refuse each other instead of desyncing. A change a layout doesn't
+show bumps a version by hand: `Game.version` for the game's rules, `LIBRARY_VERSION` for the library's (the
+`unified-sim-change` and `library-sim-change` skills).
 
 ## The tick
 
@@ -156,14 +159,14 @@ Timers are state with nothing to decrement: a `Timer` holds the game time it sta
 read compares them with the tick's `t.time`, so a rollback restores it with the block, a system that skips a tick
 misses nothing and no loop counts down. A counter that only counts down, or a stored "tick it happens at", is a Timer;
 a count-up meter stays an integer. One exception: a row of a big table (an enemy's contact cooldown in a crowd of
-thousands) keeps a small countdown, as a Timer is 8 bytes a row and every byte is in each tick's snapshot.
+thousands) keeps a small countdown, as a Timer's bytes are in every row of each tick's snapshot.
 
 A time constant is written in seconds and converted, never written as raw ticks: `RESPAWN_TICKS :: u32(RESPAWN_S *
 TICK_HZ)` for a timer's ticks (what `timer_start_ticks` takes), `sim.Game_Time(...)` for a length compared with a
 stamp. Odin refuses a constant conversion that truncates, so a time that is not a whole number of ticks does not
 compile. A time from data converts with `ticks`, a view's with `seconds`; inside `tick`, `t.dt`. A Timer takes
-seconds at run time (`timer_start`, rounded to the nearest tick), outside that check: a time that must be a whole
-number of ticks stays an `X_TICKS` constant for `timer_start_ticks`.
+seconds at run time (`timer_start`), outside that check: a time that must be a whole number of ticks stays an
+`X_TICKS` constant for `timer_start_ticks`.
 
 Game time is the tick number unless the State holds a `Clock`. Then the harness advances the clock before every tick
 that isn't paused and gives the tick `t.time` and `t.paused`, so every timer, `due` and stamp in that game holds
@@ -279,7 +282,14 @@ them the same way, so a bad value can neither crash `tick` (an index out of boun
   alike: one that a command would leave out is the zero Profile, so a Profile's enum must declare a member of value 0
   too.
 - **A Setup** that does not read as sent is refused (`setup_violation`), never zeroed: a zeroed Setup would play
-  another session than the host's.
+  another session than the host's. Types can't say every range a Setup's values must keep (a saved floor within the
+  map), so the game's own check (`Game.setup_check`) refuses the rest in the same place: a save the build can't
+  continue is a problem the menu shows, never an index past a table at tick 0.
+- **A snapshot's block** is checked before anything indexes by it (`block_violation`): the library's own bookkeeping
+  (a Table's counts and free list, who holds which slot, a List's count), bools, bit_sets and enums. A crafted or
+  damaged block is refused (`Block_Rejected`), as a damaged digest or a refused Extra image is; a NaN is not refused (it
+  indexes nothing, and an honest game with one must still let a late joiner in). An index the game keeps in its own
+  fields is the game's to check before use.
 
 ## Hidden information
 
@@ -387,6 +397,8 @@ Two kinds, on SplitMix64's mixing function, integer-only:
   key, index), with `purpose` a value of the game's own enum. A roll depends only on what it names, so adding or
   reordering one system's rolls never moves another's; two rolls that should differ must differ in something (in a
   loop, the index). A rule's own rolls on a tick no command decides are keyed: a spawn wave on the clock.
+- **K distinct of n** (`roll_distinct_at`: a level-up's three offers of seven upgrades) is a keyed roll too, named
+  like one but by no tick, so the tick and the HUD that shows the offers compute the same choice whenever they ask.
 - **A keyed roll can be peeked.** It reads no state, so anyone who can name it computes it early: a HUD shows "the next
   upgrade" with `roll_below_at` from `Frame.seed`, touching nothing. Put the roll in one proc that both the tick and
   the view call. Name the tick when it is known from state (the tick a spawn is due); name tick 0 and something stable
@@ -426,9 +438,10 @@ is `restore` to a tick still in the ring, then `step` again; the ring's size bou
 The **Extra** is the rollback state outside the block, at most one per game (`Game.extra`; physics:
 `physics.extra`). The harness saves and restores it with each ring slot, appends its canonical bytes to the checksum
 (all of its state on the ticks the netcode compares, `DEEP_CHECKSUM_EVERY`) and puts its portable image in snapshots.
-Its optional `check` is how the sync-tests catch it disagreeing with the block after every restore.
+Its optional `check` is how the sync-tests catch it disagreeing with the block after every restore, beside
+`block_violation`, which every restored state must pass too (a game writing a table's bookkeeping by hand fails it).
 
-`checksum` is XXH3-64 over the tick, the block and the Extra's bytes; peers compare it on finalized ticks.
+`checksum` covers the tick, the block and the Extra's bytes; peers compare it on finalized ticks.
 
 ## Files
 
