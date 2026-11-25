@@ -187,3 +187,14 @@ refresh_marks_the_shim_executable_in_git :: proc(t: ^testing.T) {
 	testing.expect_value(t, refreshed[1], staged[1]) // the mode alone: the staged content is the old shim's
 	testing.expect(t, !strings.contains(strings.join(cli.refresh_problems(UNIFIED_ROOT, root), "\n"), "uni: not"))
 }
+
+// No example keeps a file refresh would retire from a game repo (an older unified's copy, such as GUIDE.md).
+@(test)
+no_example_keeps_a_retired_copy :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	entries, _ := os.read_all_directory_by_path(cli.join(UNIFIED_ROOT, "examples"), context.allocator)
+	for entry in entries {
+		if entry.type != .Directory do continue
+		for problem in cli.retired_copies(entry.fullpath) do testing.expectf(t, false, "%s: %s", entry.name, problem)
+	}
+}
