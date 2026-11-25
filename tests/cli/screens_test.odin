@@ -45,3 +45,9 @@ os_screens_have_one_primary :: proc(t: ^testing.T) {
 		}
 	}
 }
+
+// `uni tool --window --size WxH`: the size's text (UnifiedTool places the window: tests/godot_views' tool check).
+@(test)
+a_window_size_reads_as_width_by_height :: proc(t: ^testing.T) {
+	testing.expect_value(t, cli.parse_window_size("2560x1440"), [2]int{2560, 1440})
+}
