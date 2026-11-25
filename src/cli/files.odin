@@ -6,6 +6,67 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 
+// A file a command changed for its run (swap_text): its original bytes and their backup.
+@(private)
+Swapped :: struct {
+	path, original, backup, backups: string,
+}
+
+@(private)
+swapped: [dynamic]Swapped
+
+// Writes `text` to `path` (a file of the project) for the rest of the command, keeping its original bytes the first
+// time: in memory, and on disk under `backups` (a directory in .out/, the path mirrored from the project's root) in
+// case the run is killed. `restore_texts` puts them back; so does a failure (on_failure), and a killed run's are put
+// back by the next run's `restore_backups`.
+swap_text :: proc(path, text, backups: string) {
+	known := false
+	for file in swapped do known ||= path_key(file.path) == path_key(path)
+	if !known {
+		inside := rel(path)
+		if inside == path || os.is_absolute_path(inside) {
+			fatal("%s is not a file of the project %s", path, state.project.root)
+		}
+		original := must_read(path)
+		backup := join(backups, inside)
+		if !write_file(backup, transmute([]byte)original) {
+			fatal("cannot back up %s to %s", path, backup)
+		}
+		if len(swapped) == 0 do on_failure(proc(_: rawptr) {restore_texts()})
+		append(&swapped, Swapped{path, original, backup, backups})
+	}
+	write_text(path, text)
+}
+
+// Puts every file swap_text changed back as it was, byte for byte, then drops the backups. Again: nothing to do.
+restore_texts :: proc() {
+	backups: [dynamic]string
+	for len(swapped) > 0 {
+		file := pop(&swapped)
+		write_text(file.path, file.original)
+		os.remove(file.backup)
+		if !slice.contains(backups[:], file.backups) do append(&backups, file.backups)
+	}
+	for dir in backups do remove_tree(dir) // with the directories that mirrored the project's
+}
+
+// Puts back the originals a killed run left under `backups` (swap_text), each over the file of the project it
+// mirrors, before anything reads those files; returns their paths. Nothing there: nothing to do.
+restore_backups :: proc(backups: string) -> []string {
+	out: [dynamic]string
+	if !os.is_directory(backups) {
+		return nil
+	}
+	for backup in find_files(backups, "") {
+		target := join(state.project.root, slashed(backup[len(backups) + 1:]))
+		write_text(target, must_read(backup))
+		os.remove(backup)
+		append(&out, target)
+	}
+	remove_tree(backups)
+	return out[:]
+}
+
 // The path with / separators (Godot's, a JSON report's, a zip entry's), on every OS.
 slashed :: proc(path: string) -> string {
 	out, _ := strings.replace_all(path, "\\", "/")

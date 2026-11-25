@@ -31,13 +31,15 @@ one's options. A game repo holds one game, so no command needs its name.
 - Tool scripts (validate, the game's own): `./uni tool <script>`
 - Levels: `./uni bake`
 - Speed: `./uni bench`
+- A playable build (a zip for testers): `./uni release`
 - The API: `./uni doc`
 - Before handing work back: `./uni verify`
 
 The multi-step procedures are skills in `.claude/skills/unified-*/SKILL.md` (plain Markdown, for any agent):
 `unified-godot` (checking and play-checking in Godot), `unified-godot-authoring` (scenes, levels, input maps and UI
 without the editor), `unified-sim-change` (a change that moves the sim's results), `unified-desync` (finding a
-determinism bug) and `unified-feedback` (the developer's playtest notes).
+determinism bug), `unified-feedback` (the developer's playtest notes) and `unified-release` (a playable build and the
+rules of the game's export).
 
 ## How the integration works
 

@@ -716,6 +716,79 @@ long_and_bless_tests_have_their_own_binaries :: proc(t: ^testing.T) {
 	testing.expect(t, strings.has_prefix(stems[0], "unified_tests"), stems[0])
 }
 
+// What `release` stamps it swaps for the run (swap_text): the first original is kept (two stamps of one file put
+// back the bytes before both), restore_texts puts it back byte for byte and again does nothing, a failing command's
+// unwind does the same, and a run killed before either leaves a backup the next run's restore_backups puts back.
+@(test)
+release_stamps_never_outlive_the_run :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	dir, _ := os.make_directory_temp("", "unified-cli-test-*", context.allocator)
+	defer os.remove_all(dir)
+	root := cli.state.project.root
+	cli.state.project.root = dir
+	defer cli.state.project.root = root
+	path := cli.join(dir, "game", "project.godot")
+	original := "config/version=\"dev\"\r\n" // CRLF and all: put back byte for byte
+	testing.expect(t, cli.write_file(path, transmute([]byte)original))
+	backups := cli.join(dir, ".out", "release", "restore")
+	read :: proc(path: string) -> string {
+		data, _ := os.read_entire_file(path, context.temp_allocator)
+		return string(data)
+	}
+	cli.swap_text(path, "config/version=\"1.0\"\n", backups)
+	cli.swap_text(path, "config/version=\"2.0\"\n", backups)
+	testing.expect_value(t, read(path), "config/version=\"2.0\"\n")
+	testing.expect_value(t, read(cli.join(backups, "game", "project.godot")), original)
+	cli.restore_texts()
+	testing.expect_value(t, read(path), original)
+	testing.expect(t, !os.exists(backups), "the backups go")
+	cli.restore_texts()
+	testing.expect_value(t, read(path), original)
+	cli.swap_text(path, "stamped\n", backups)
+	cli.unwind() // what fatal does
+	testing.expect_value(t, read(path), original)
+	// killed: the stamp stays, its backup too
+	testing.expect(t, cli.write_file(cli.join(backups, "game", "project.godot"), transmute([]byte)original))
+	testing.expect(t, cli.write_file(path, transmute([]byte)string("stamped by a killed run\n")))
+	restored := cli.restore_backups(backups)
+	testing.expect_value(t, len(restored), 1)
+	testing.expect_value(t, read(path), original)
+	testing.expect(t, !os.exists(backups), "nothing left to restore")
+	testing.expect_value(t, len(cli.restore_backups(backups)), 0)
+}
+
+// The pure parts of `release`: which versions it takes, what the zip and the platforms' numeric fields show, the
+// stamp of a ConfigFile key, and the lines of Godot's output that fail a step.
+@(test)
+release_versions_keys_and_errors :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	for good in ([]string{"0.1.2", "0.2.0-rc.1", "dev-1a2b3c4", "1.0+build.5"}) do testing.expect(t, cli.valid_version(good), good)
+	for bad in ([]string{"", "-1", "1 0", "v1/2", "é1"}) do testing.expect(t, !cli.valid_version(bad), bad)
+	testing.expect_value(t, cli.release_label("0.1.2"), "v0.1.2")
+	testing.expect_value(t, cli.release_label("dev-1a2b3c4"), "dev-1a2b3c4")
+	testing.expect_value(t, cli.platform_version("0.2.0-rc.1"), "0.2.0")
+	testing.expect_value(t, cli.platform_version("1.2.3.4"), "1.2.3.4")
+	testing.expect_value(t, cli.platform_version("dev-1a2b3c4"), "0.0.0")
+	testing.expect_value(t, cli.platform_version("1.2.3.4.5"), "0.0.0")
+	presets :=
+		"[preset.1]\nname=\"Windows Desktop\"\n[preset.1.options]\napplication/file_version=\"0.0.0\"\n" +
+		"application/product_version = \"0.0.0\"\n[preset.2.options]\napplication/file_version=\"0.0.0\"\n"
+	stamped := cli.set_keys(
+		presets,
+		"preset.1.options",
+		{"application/file_version", "application/product_version"},
+		"1.2.0",
+		"export_presets.cfg",
+	)
+	testing.expect(t, strings.contains(stamped, "[preset.1.options]\napplication/file_version=\"1.2.0\"\n"), stamped)
+	testing.expect(t, strings.contains(stamped, "application/product_version=\"1.2.0\""), stamped)
+	testing.expect(t, strings.has_suffix(stamped, "[preset.2.options]\napplication/file_version=\"0.0.0\"\n"), stamped)
+	errors := cli.release_errors(
+		"Godot Engine v4.7.2\n  ERROR: something\nUSER SCRIPT ERROR: Parse Error: x\nCan't open dynamic library: a.dll\nok\n",
+	)
+	testing.expect_value(t, len(errors), 3)
+}
+
 // --json and --verbose are uni's only before a `--`: after it they belong to the game, the script or the mode.
 @(test)
 global_flags_stop_at_double_dash :: proc(t: ^testing.T) {

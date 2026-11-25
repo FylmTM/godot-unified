@@ -21,8 +21,8 @@ through the pause menu's dim, so the session panel's Copy works while the mouse 
 palette and serif face are its tabletop's. A new example starts minimal_3d-shaped (no menus or settings: it plays
 together through the session's flags and `uni coop`) and takes the app layer when it becomes one players open.
 Online lobbies: `eos.lobby({})` in `godot.init` and `lobbies` in its headless main (`examples/minimal_3d/README.md`,
-What a new game takes from where). An example with `export_presets.cfg` is one `uni release` builds: every one but
-minimal_3d.
+What a new game takes from where). Every example has an `export_presets.cfg`, which `uni release` builds (the
+`unified-release` skill); minimal_3d's is the one a new game starts with.
 
 deckbuilder is the 2D one: its play scene is a table of Controls (`game/table.tscn`) on `canvas_items` stretch, its
 views are Controls with data only, and its cards, enemies, map and felt are drawn in code (`game/ui/card_face.gd`,

@@ -143,7 +143,29 @@ State :: struct {
 	start:    time.Tick,
 	env_keys: []string, // the variables .env set
 	suites:   [dynamic]Suite,
-	on_fatal: proc(), // undoes a command's half-done work when it fails (fatal); runs once
+	undo:     [dynamic]Undo, // what a failing command undoes (on_failure), run newest first by `unwind`
+}
+
+// Work a failing command undoes (on_failure): `undo(data)`.
+Undo :: struct {
+	undo: proc(data: rawptr),
+	data: rawptr,
+}
+
+// Registers what to undo if the command fails before its work is done: a stamped file to put back, a half-made
+// directory to remove. `fatal`, a usage error and a failed result run every one (`unwind`); a command that finishes
+// its work undoes it itself, or keeps it. `data` (nil: none) must outlive the caller's frame.
+on_failure :: proc(undo: proc(data: rawptr), data: rawptr = nil) {
+	append(&state.undo, Undo{undo, data})
+}
+
+// Runs every registered undo once, newest first, and forgets them (what every failing exit of a command does). An
+// undo that itself fails with `fatal` stops there; the older ones still run.
+unwind :: proc() {
+	for len(state.undo) > 0 {
+		undo := pop(&state.undo)
+		undo.undo(undo.data)
+	}
 }
 
 // Set by --verbose for the processes the CLI starts (another uni reads it).
@@ -438,18 +460,24 @@ usage_error :: proc(err: flags.Error) -> ! {
 		msg = "-h prints the usage"
 	}
 	log("uni %s: %s (uni %s -h)", state.command.name, msg, state.command.name)
+	unwind()
 	os.exit(2)
 }
 
 // Stops with a usage error (exit 2).
 usage :: proc(format: string, args: ..any) -> ! {
 	log("uni %s: %s (uni %s -h)", state.command.name, aprintf(format, ..args), state.command.name)
+	unwind()
 	os.exit(2)
 }
 
-// Ends the run: the result on stdout, how long it took on stderr, the exit code.
+// Ends the run: the result on stdout, how long it took on stderr, the exit code. A failed one first undoes what the
+// command registered (unwind).
 @(private)
 finish :: proc(result: Result) -> ! {
+	if !result.ok {
+		unwind()
+	}
 	secs := time.duration_seconds(time.tick_since(state.start))
 	what := strings.join(state.argv, " ", context.temp_allocator)
 	log("uni: %s %s in %.1fs", what, result.ok ? "done" : "FAILED", secs)
@@ -480,12 +508,9 @@ finish :: proc(result: Result) -> ! {
 // Stops the command as failed: the message on stderr (and in the --json result).
 fatal :: proc(format: string, args: ..any) -> ! {
 	msg := aprintf(format, ..args)
-	if undo := state.on_fatal; undo != nil {
-		state.on_fatal = nil
-		undo()
-	}
 	if state.command == nil {
 		log("uni: %s", msg)
+		unwind()
 		os.exit(1)
 	}
 	log("uni %s: %s", state.command.name, msg)

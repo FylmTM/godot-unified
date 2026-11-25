@@ -129,6 +129,12 @@ public_commands :: proc() -> []Command {
 			run     = cmd_refresh,
 		},
 		{
+			name    = "release",
+			summary = "playable builds of every game with export_presets.cfg (or one) for this host: export, version stamp, sign, zip, smoke test (macOS arm64 and Windows x64)",
+			options = option_types(Release_Opts),
+			run     = cmd_release,
+		},
+		{
 			name    = "verify",
 			summary = "the gate before handing work back or merging: fmt --check, vet, test --suite all",
 			options = option_types(Verify_Opts),

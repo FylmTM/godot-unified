@@ -175,6 +175,15 @@ commit, never a local one, so the repo clones anywhere, and writes the game, the
 `odinfmt.json`, the starters and the agent guidance (`docs/agent-guide.md`) from that submodule, never from this
 checkout, so they always match the library they build against (`cmd_init`).
 
+## Releases
+
+`release` makes a game's playable package for this host (macOS arm64, Windows x64): it stamps the version into the
+game's files for the export only, exports with Godot, checks what the export carries, zips it and smoke-tests the
+unzipped game (`cmd_release`; the `unified-release` skill has the steps and the rules a game's export follows). The
+stamps never outlive the run: each file is swapped for the run (`swap_text`), its original kept in memory and in
+`.out/release/restore/`, and put back after the export; a failing command undoes it on the way out (`on_failure`,
+`unwind`), and a run that was killed is undone by the next one before it reads the files (`restore_backups`).
+
 ## Dependencies
 
 Every dependency is pinned (a SHA-256, or a git commit for odinfmt), checked, and written to a temp path, then

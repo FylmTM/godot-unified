@@ -54,12 +54,6 @@ private_commands :: proc() -> []cli.Command {
 			run     = cmd_view_bench,
 		},
 		{
-			name    = "release",
-			summary = "playable builds of every game (or one) for this host: export, version stamp, sign, zip, smoke test (macOS and Windows)",
-			options = cli.option_types(Release_Opts),
-			run     = cmd_release,
-		},
-		{
 			name    = "selftest",
 			summary = "the bootstrap (the shims' Odin download), init end to end from a fresh clone, and the test watchdog (run before tooling PRs; never by verify)",
 			options = cli.option_types(Selftest_Opts),

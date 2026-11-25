@@ -176,6 +176,9 @@ TEMPLATE_SKIP_DIRS :: []string{"simulation/tests/replays/"}
 // (scenarios.reference_reproduces).
 TEMPLATE_REFERENCE :: "simulation/tests/reference_test.odin"
 
+// The macOS bundle identifier of the template's export_presets.cfg, which a copy names after itself (template_text).
+TEMPLATE_BUNDLE_ID :: `"dev.unified.minimal-3d"`
+
 // The Reference fields a copy of TEMPLATE_REFERENCE leaves out: minimal_3d's results.
 TEMPLATE_REFERENCE_RESULTS :: []string{"checkpoints", "trace", "snapshot", "log", "compat"}
 
@@ -242,6 +245,13 @@ template_text :: proc(rel_path, text, name: string, repo: bool) -> string {
 			if strings.has_prefix(line, "VERSION :: ") do line = `VERSION :: "1"`
 		}
 		out = strings.join(lines, "\n")
+	}
+	if rel_path == "export_presets.cfg" {
+		// a macOS bundle identifier takes letters, digits, - and . only; in a repo of its own the domain is the game's
+		// to set (the unified-release skill)
+		dashed, _ := strings.replace_all(name, "_", "-")
+		id := aprintf("\"%s.%s\"", repo ? "com.example" : "dev.unified", dashed)
+		out, _ = strings.replace_all(out, TEMPLATE_BUNDLE_ID, id)
 	}
 	if rel_path == TEMPLATE_REFERENCE {
 		kept: [dynamic]string
@@ -326,13 +336,15 @@ pin_ref :: proc(submodule, source, ref: string) {
 // starts clean instead of finding the directory "not empty".
 @(private)
 init_undo :: proc(dir: string) {
-	@(static) target: string
-	@(static) existed: bool
-	target, existed = dir, os.exists(dir)
-	state.on_fatal = proc() {
-		remove_tree(target)
-		if existed do make_dirs(target)
+	Made :: struct {
+		dir:     string,
+		existed: bool,
 	}
+	on_failure(proc(data: rawptr) {
+			made := (^Made)(data)
+			remove_tree(made.dir)
+			if made.existed do make_dirs(made.dir)
+		}, new_clone(Made{dir, os.exists(dir)}))
 }
 
 // A GitHub SSH URL as HTTPS, which anyone (and any CI) can clone without keys: unified is public. Other URLs and
