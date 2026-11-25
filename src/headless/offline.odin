@@ -385,9 +385,10 @@ Run :: struct($G: typeid) {
 	using result: Synctest_Result,
 	simulation:   ^sim.Sim(G),
 	window:       u32,
-	recorded:     [dynamic]sim.Inputs(G), // recorded[tick]: the inputs of that tick
-	forward:      [dynamic]u64, // forward[tick]: its checksum
-	floor:        u32, // never restored before (run_pin)
+	start:        u32, // the tick it began at: 0, or its snapshot's (run_begin_from_snapshot)
+	recorded:     [dynamic]sim.Inputs(G), // recorded[tick - start]: the inputs of that tick
+	forward:      [dynamic]u64, // forward[tick - start]: its checksum
+	floor:        u32, // never restored before (run_pin; the start)
 	commands:     Scripted_Commands(G), // who holds each slot (run_seat, run_scripted) and run_scripted's commands
 	kept_events:  [sim.MAX_RING_SIZE][dynamic]sim.Raw_Event, // each forward tick's events, by tick % MAX_RING_SIZE
 	floats:       [dynamic]u32, // the State's float offsets (sim.find_nan)
@@ -434,6 +435,31 @@ run_begin_with_setup :: proc(
 		inputs := run_inputs(&run)
 		run_step(&run, &inputs)
 	}
+	return
+}
+
+// A run that continues `snapshot` (sim.from_snapshot: its tick, Setup and seed; `any_build` loads one another build
+// wrote), sync-tested `window` ticks back (1 ..= max_window(game)) as run_begin's, never restored before the snapshot's
+// tick: the first step already rolls back to it. Nobody is seated (run_seat): a test steps it with the inputs it has
+// (run_step), as a recording that continues a snapshot is replayed (regression_run). On an error the run is empty:
+// nothing to end.
+run_begin_from_snapshot :: proc(
+	game: ^$G,
+	snapshot: []u8,
+	window: u32 = 8,
+	any_build := false,
+) -> (
+	run: Run(G),
+	err: sim.Snap_Error,
+) {
+	assert(window >= 1 && int(window) <= max_window(game))
+	simulation := sim.from_snapshot(game, snapshot, any_build = any_build) or_return
+	run.simulation = simulation
+	sim.dev_attach(simulation) // draws on in the re-simulations only (run_step)
+	run.window = window
+	run.start, run.floor = simulation.tick, simulation.tick
+	append(&run.recorded, sim.Inputs(G){})
+	append(&run.forward, sim.checksum(simulation))
 	return
 }
 
@@ -526,7 +552,7 @@ run_step_inputs :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
 	sim.step(simulation, inputs)
 	tick := simulation.tick
 	append(&run.forward, sim.checksum(simulation))
-	run.final_checksum = run.forward[tick]
+	run.final_checksum = run.forward[tick - run.start]
 	kept := &run.kept_events[tick % sim.MAX_RING_SIZE]
 	clear(kept)
 	for event in sim.events_at(simulation, tick) {
@@ -552,7 +578,7 @@ run_step_inputs :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
 	sim.dev_enable(simulation, max(u64))
 	defer sim.dev_enable(simulation, 0)
 	for resim in from + 1 ..= tick {
-		sim.step(simulation, &run.recorded[resim])
+		sim.step(simulation, &run.recorded[resim - run.start])
 		run.resimulated += 1
 		events := sim.events_diff(
 			sim.events_at(simulation, resim),
@@ -562,7 +588,7 @@ run_step_inputs :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
 		if events != "" && run.problem == "" {
 			run.problem = fmt.tprintf("tick %d re-simulated at tick %d emitted other events: %s", resim, tick, events)
 		}
-		if sim.checksum(simulation) != run.forward[resim] || events != "" {
+		if sim.checksum(simulation) != run.forward[resim - run.start] || events != "" {
 			if run.mismatches == 0 {
 				run.first_tick, run.first_at = resim, tick
 			}
@@ -666,7 +692,7 @@ bytes_same :: proc(a, b: rawptr, size: int) -> bool {
 run_pin :: proc(run: ^Run($G)) {
 	simulation := run.simulation
 	sim.save(simulation)
-	run.forward[simulation.tick] = sim.checksum(simulation)
+	run.forward[simulation.tick - run.start] = sim.checksum(simulation)
 	run.floor = simulation.tick
 }
 

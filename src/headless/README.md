@@ -92,7 +92,7 @@ The suite's `scenarios.replays_reproduce` replays every folder (`headless.regres
 first tick whose checksum or events differ, then the leaf fields of the first stored block from there on that differs,
 with both values, through the typed diff the op log uses (`sim.state_changes`); when every block agrees, what differs
 is the Extra (the physics world). `uni test --long` replays each recording as a sync-tested run too (`Run`): rollback
-on real play's inputs, which no scripted player sends.
+on real play's inputs, which no scripted player sends, from the tick it starts at, its snapshot's included.
 
 **The results decide, never the build's identity.** A recording replays whatever compat or levels it was recorded and
 blessed with, so a refactor or a pin bump that computes nothing differently passes, and a rules change or a re-baked

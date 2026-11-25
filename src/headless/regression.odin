@@ -78,8 +78,8 @@ expectation_destroy :: proc(expectation: ^Expectation) {
 // gets a new one, written from this replay (`blessed`), and one that reproduces is left alone; one that diverges on
 // the build that blessed it (the same sim.compat_of: its results moved without a version bump) is never blessed, and
 // its report says so. `synctest`: the replay
-// is a sync-tested run too (Run, rolled back `window` ticks every tick; a recording that continues a snapshot is
-// replayed plainly).
+// is a sync-tested run too (Run, rolled back `window` ticks every tick; one that continues a snapshot from it on:
+// run_begin_from_snapshot), its result in `synctest`.
 regression_run :: proc(
 	game: ^$G,
 	folder: string,
@@ -133,23 +133,27 @@ regression_run :: proc(
 	defer expectation_destroy(&got)
 	run: Run(G)
 	simulation: ^sim.Sim(G)
-	synctested := synctest && snapshot == nil
-	if synctested {
-		run = run_begin_with_setup(game, input_log.seed, input_log.setup, window)
-		simulation = run.simulation
-	} else if snapshot != nil {
+	if snapshot != nil {
 		err: sim.Snap_Error
-		simulation, err = sim.from_snapshot(game, snapshot, any_build = true)
+		if synctest {
+			run, err = run_begin_from_snapshot(game, snapshot, window, any_build = true)
+			simulation = run.simulation
+		} else {
+			simulation, err = sim.from_snapshot(game, snapshot, any_build = true)
+		}
 		if err != .None {
 			return {
 				status = .Broken,
 				report = fmt.tprintf("snapshot.unis does not load: %v (record a new one)", err),
 			}
 		}
+	} else if synctest {
+		run = run_begin_with_setup(game, input_log.seed, input_log.setup, window)
+		simulation = run.simulation
 	} else {
 		simulation = sim.create(game, input_log.seed, input_log.setup)
 	}
-	defer if synctested {
+	defer if synctest {
 		run_end(&run)
 	} else {
 		sim.destroy(simulation)
@@ -170,7 +174,7 @@ regression_run :: proc(
 	variants := sim.union_variants(Event)
 	for k in 0 ..< len(input_log.ticks) {
 		inputs := sim.log_inputs(&input_log, k)
-		if synctested {
+		if synctest {
 			run_step_inputs(&run, &inputs)
 		} else {
 			sim.step(simulation, &inputs)
@@ -193,7 +197,7 @@ regression_run :: proc(
 	append(&got.event_first, u32(len(got.events)))
 	append(&got.block_at, u32(len(got.blocks)))
 	result.ticks = len(input_log.ticks)
-	if synctested do result.synctest = run.result
+	if synctest do result.synctest = run.result
 
 	path := fmt.tprintf("%s/%s", folder, REGRESSION_EXPECTED)
 	want, readable := expectation_read(path)

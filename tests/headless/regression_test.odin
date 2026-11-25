@@ -147,8 +147,17 @@ another_recording_or_a_broken_one_is_not_checked :: proc(t: ^testing.T) {
 	testing.expect_value(t, headless.regression_run(&toy.GAME, folder).status, headless.Regression_Status.Unblessed)
 }
 
-// A recording that continues a snapshot (a joiner's, an F3 note's): it replays from its snapshot.unis, and without one
-// it is broken.
+// The toy, but from tick 150 on a tick computed while draws are kept counts one more spawn: a plain replay never
+// shows it, a sync-tested one does (its re-simulations keep every draw group, its forward ticks none).
+@(private = "file")
+spawns_more_while_drawing :: proc(t: ^toy.Tick) {
+	toy.tick(t)
+	if t.number >= 150 && sim.drawing(t) do t.state.spawned += 1
+}
+
+// A recording that continues a snapshot (a joiner's, an F3 note's, every session recording): it replays from its
+// snapshot.unis, and without one it is broken; sync-tested, it rolls back from the snapshot's tick on, and a tick that
+// re-simulates differently is caught.
 @(test)
 a_recording_from_a_snapshot_reproduces :: proc(t: ^testing.T) {
 	folder := temp_path("regression-snapshot")
@@ -179,9 +188,22 @@ a_recording_from_a_snapshot_reproduces :: proc(t: ^testing.T) {
 	testing.expect_value(t, missing.status, headless.Regression_Status.Broken)
 	_ = os.write_entire_file(strings.concatenate({folder, "/snapshot.unis"}, context.temp_allocator), snapshot)
 	testing.expect(t, headless.regression_run(&toy.GAME, folder, bless = true).blessed)
-	result := headless.regression_run(&toy.GAME, folder, synctest = true) // replayed plainly: it starts at tick 120
+	result := headless.regression_run(&toy.GAME, folder, synctest = true)
 	testing.expect_value(t, result.status, headless.Regression_Status.Reproduces)
 	testing.expect_value(t, result.ticks, 180)
+	testing.expect_value(t, result.synctest.mismatches, 0)
+	testing.expect_value(t, result.synctest.check, "")
+	testing.expect_value(t, result.synctest.problem, "")
+	// tick 120 + k rolls back min(k, 8) ticks: to the snapshot's tick at first, never before it
+	testing.expect_value(t, result.synctest.resimulated, (1 + 2 + 3 + 4 + 5 + 6 + 7) + (180 - 7) * 8)
+	// a tick that re-simulates differently: the plain replay reproduces, the sync-tested one names the first tick
+	drawing := toy.GAME
+	drawing.tick = spawns_more_while_drawing
+	testing.expect_value(t, headless.regression_run(&drawing, folder).status, headless.Regression_Status.Reproduces)
+	diverging := headless.regression_run(&drawing, folder, synctest = true)
+	testing.expect(t, diverging.synctest.mismatches > 0, "the sync-test catches the re-simulation")
+	testing.expect_value(t, diverging.synctest.first_tick, 150)
+	testing.expect_value(t, diverging.synctest.first_at, 150)
 	changed := toy.GAME
 	changed.tick = spawns_more
 	testing.expect_value(t, headless.regression_run(&changed, folder).diverged_tick, 150)
