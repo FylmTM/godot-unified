@@ -1231,6 +1231,9 @@ multi_mesh :: proc(multi: ^Multi_View) -> bool {
 // its kind (usually one).
 multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 	if fresh do V.fresh_count += 1
+	// the clock View_Policy.ages channels age by: the game time the views are posed at
+	shown_time := active != nil ? active.shown_time : f64(frame.time)
+	tick_hz := f64(max(frame.tick_hz, 1))
 	counts: [256]int
 	for &item in frame.multis[:frame.n_multis] do counts[item.kind] += 1
 	// views by kind: first[kind] -> next[...] (indices into V.multis, -1 ends)
@@ -1276,6 +1279,9 @@ multi_sync :: proc(frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
 		if .Color in fields && frame.multi_color[index] != {} do color = frame.multi_color[index]
 		custom: [4]f32
 		if .Custom in fields do custom = frame.multi_custom[index]
+		if ages := api.multi_policy[item.kind].ages; ages != {} && .Custom in fields {
+			for channel in ages do custom[channel] = f32((shown_time - f64(custom[channel])) / tick_hz)
+		}
 		for ; view_index >= 0; view_index = next[view_index] {
 			multi := &V.multis[view_index]
 			view_pos, view_rot := pos, rot

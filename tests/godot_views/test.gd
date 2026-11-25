@@ -269,11 +269,18 @@ func _initialize() -> void:
 	var buf := typed_multi.buffer
 	var c := cos(0.25)
 	var s := sin(0.25)
+	# custom channel 3 is an age (multi_policy ages): the game time 4 it holds, as seconds since, at the shown time
+	var age := (session.shown_time - 4.0) / Unified.tick_hz
 	check("2D buffer (rotation on the shorter arc, scale per axis, position, color, custom)",
-		near_all(buf.slice(0, 16), [c * 2, -s * 3, 0, 30, s * 2, c * 3, 0, 40, 1, 0.5, 0.25, 1, 1, 2, 3, 4]),
+		near_all(buf.slice(0, 15), [c * 2, -s * 3, 0, 30, s * 2, c * 3, 0, 40, 1, 0.5, 0.25, 1, 1, 2, 3]),
 		buf.slice(0, 16))
+	check("an age channel is the seconds since its game time, at the shown time", age > 0.0 		and absf(buf[15] - age) <= 1.0 / Unified.tick_hz, [buf[15], age])
 	check("2D defaults (scale 1, white)",
-		near_all(buf.slice(16, 32), [1, 0, 0, -5, 0, 1, 0, 7.5, 1, 1, 1, 1, 0, 0, 0, 0]), buf.slice(16, 32))
+		near_all(buf.slice(16, 31), [1, 0, 0, -5, 0, 1, 0, 7.5, 1, 1, 1, 1, 0, 0, 0]), buf.slice(16, 32))
+	# the kind's age channel on an instance that set none: game time 0, so the seconds since the session's start
+	var since_start := session.shown_time / Unified.tick_hz
+	check("an unset age channel is the seconds since game time 0", absf(buf[31] - since_start) <= 1.0 / Unified.tick_hz,
+		[buf[31], since_start])
 	# decoded with the buffer layout Godot documents (MultiMesh.buffer): rows of the transform, then the origin
 	var t := Transform2D(Vector2(buf[0], buf[4]), Vector2(buf[1], buf[5]), Vector2(buf[3], buf[7]))
 	check("2D transform as Godot reads it", t.origin.is_equal_approx(Vector2(30, 40)) \

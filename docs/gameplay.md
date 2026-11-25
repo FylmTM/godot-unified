@@ -50,7 +50,9 @@ each time; the views show the newest guess and are told when it changes.
   once and whose effect a few ticks later, and behind a projectile that is a ray cast per tick with a view-only tracer.
 - An animation is a function of the state: the view data carries what the thing does and the `t.time` it began, and
   the view poses it at `(UnifiedSession.shown_time - started) / tick_hz` seconds (clamped at 0: the stamp's own tick
-  shows up to a tick early), so a rollback or a replay seek shows the frame the state says, smooth between ticks.
+  shows up to a tick early), so a rollback or a replay seek shows the frame the state says, smooth between ticks. A
+  MultiMesh crowd does the same in its shader: the stamp goes in a custom data channel its kind's policy names in
+  `ages` (`View_Policy.ages`), and the host writes the seconds since it at the shown time.
 
 **Re-simulation** (`src/sim/README.md`)
 - `tick` reads the block, the World and the inputs only: no package state, no clock, no files (`src/lint/README.md`,

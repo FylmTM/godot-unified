@@ -541,15 +541,15 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, !godot.api.installed)
 		testing.expectf(t, len(godot.api.problems) == 1, "no sample_input: %v", godot.api.problems)
 		// a view policy install refuses: a script-posed MultiMesh kind on the verified timeline, a ramp without its time
-		// constant
+		// constant, age channels on a scene view kind (they are MultiMesh custom data)
 		policies := GLUE
 		policies.multi_policy = {
 			.Spark = {pose = .Script, remote = .Verified},
 		}
-		policies.view_policy = {{View_Dot, {smoothing = {ramp_dist = 2}}}}
+		policies.view_policy = {{View_Dot, {smoothing = {ramp_dist = 2}, ages = {0}}}}
 		godot.install(&toy.GAME, policies)
 		testing.expect(t, !godot.api.installed)
-		testing.expectf(t, len(godot.api.problems) == 3, "the three policy problems: %v", godot.api.problems)
+		testing.expectf(t, len(godot.api.problems) == 4, "the four policy problems: %v", godot.api.problems)
 		// a policy for a type that is no View kind, and one kind twice
 		kinds := GLUE
 		kinds.view_policy = {{Stats, {}}, {View_Dot, {}}, {View_Dot, {}}}

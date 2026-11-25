@@ -251,6 +251,12 @@ View_Policy :: struct {
 	pose:      Posed_By,
 	smoothing: Smoothing, // zero fields: their defaults (smoothing_of)
 	remote:    Remote, // a scene view of another player: from the prediction or the verified timeline
+	// MultiMesh kinds: the custom data channels (0..3) that hold a game time (a sim.Game_Time stamp, in ticks, as an
+	// f32: exact for 2^24 ticks). The host writes the seconds since it, at the shown game time
+	// (UnifiedSession.shown_time), into the instance's buffer every frame, so a shader's animation (a clip's frame, a
+	// hit flash) follows the session's clock: smooth between ticks, still under a pause, and right after a rollback or
+	// a replay's seek, where a shader's own TIME would run on. The age is negative for a stamp ahead of the shown time.
+	ages:      bit_set[0 ..< 4;u8],
 }
 
 // How a scene view that shows a player who isn't local is posed (View_Policy.remote). The local players' views,

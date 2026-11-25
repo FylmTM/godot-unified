@@ -848,6 +848,7 @@ Kind_Policy :: struct {
 	smoothing: Smoothing, // smoothing_of(policy.smoothing)
 	tracks:    bool, // scene views always; a MultiMesh kind when its policy sets a smoothing
 	remote:    Remote, // scene views only
+	ages:      bit_set[0 ..< 4;u8], // MultiMesh kinds only: View_Policy.ages
 }
 
 @(private)
@@ -858,6 +859,7 @@ kind_policy :: proc(policy: View_Policy, multi: bool) -> Kind_Policy {
 		smoothing = smoothing_of(policy.smoothing),
 		tracks    = !multi || policy.smoothing != {},
 		remote    = policy.remote,
+		ages      = multi ? policy.ages : {},
 	}
 }
 
@@ -872,6 +874,9 @@ policy_problems :: proc(policy: View_Policy, kind: string, multi: bool, problems
 	}
 	if multi && policy.remote != .Predicted {
 		append(problems, fmt.aprintf("%s: remote = .Verified is for scene views (an instance shows no player)", field))
+	}
+	if !multi && policy.ages != {} {
+		append(problems, fmt.aprintf("%s: ages are MultiMesh custom data channels (a scene view ages its own)", field))
 	}
 	distances_ok := finite(smoothing.teleport_dist) && smoothing.teleport_dist >= 0
 	distances_ok &&= finite(smoothing.ramp_dist) && smoothing.ramp_dist >= 0

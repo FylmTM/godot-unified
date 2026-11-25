@@ -233,7 +233,8 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 		{View_Plain3D, {smoothing = {tau_s = 0.05}}},
 		{View_Pool_Late2D, {appear = .Verified}},
 	},
-	multi_policy = #partial{.Smooth3D = {smoothing = godot.SMOOTHING_DEFAULT}},
+	// Multi2D's custom channel 3 holds a game time (tick 4): the host writes the seconds since it, at the shown time
+	multi_policy = #partial{.Smooth3D = {smoothing = godot.SMOOTHING_DEFAULT}, .Multi2D = {ages = {3}}},
 }
 
 // The toy with the view benchmark's hook (sim.Game.bench_prepare), set by the entry point.
