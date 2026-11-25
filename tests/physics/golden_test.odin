@@ -15,7 +15,7 @@ import "unified:sim"
 // The library the golden traces were pinned on: sim.LIBRARY_VERSION and the unified-box3d pin. A golden that moves
 // on this library moved without a bump, which golden_check refuses (the library-sim-change skill).
 GOLDEN_LIBRARY :: sim.Library {
-	version = 1,
+	version = 2,
 	box3d   = "3362633-r5",
 }
 

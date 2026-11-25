@@ -15,9 +15,9 @@ REFERENCE :: scenarios.Reference {
 	snapshot_tick = 900,
 	checkpoints   = {0xa8d58e3ed5fc5495, 0x7069dfe607b701bd, 0x5f92c49def72fc7d, 0x8b6e1565d4d2f280},
 	trace         = 0x5e9e0056addb0da1,
-	snapshot      = 0x7e6ff042f56bd030,
-	log           = 0x3a1a1a9baaadf27f,
-	compat        = 0xa2cda247133ae1c5,
+	snapshot      = 0xc7e41a1b6d5c9d7c,
+	log           = 0x82606bc731082d15,
+	compat        = 0x329486100877fa42,
 }
 
 @(test)

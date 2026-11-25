@@ -11,7 +11,7 @@ import "unified:wire"
 
 // Bump on any wire change: a datagram, a message, the snapshots a late joiner gets (the library-sim-change skill). Every
 // datagram starts with it (channel.odin), so peers on two versions never parse each other's messages.
-PROTOCOL_VERSION :: 2
+PROTOCOL_VERSION :: 3
 #assert(PROTOCOL_VERSION < 0x80) // the datagram's first byte: 0x80 | PROTOCOL_VERSION
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 PLATFORM_MAX :: 15 // bytes of an account's platform name ("eos")
