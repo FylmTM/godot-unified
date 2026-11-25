@@ -477,15 +477,15 @@ windows.x86_64 = "res://addons/steam/steam.dll"
 	os.make_directory_all(cli.join(dir, "game"))
 	extension = `; the game's
 [configuration]
-entry_symbol = "rebuild_init"
+entry_symbol = "game_init"
 [libraries]
-macos.debug = "res://.out/bin/libuniblock.dylib"
-windows.x86_64 = "res://.out/bin/uniblock.dll"
-linux.x86_64 = "res://.out/bin/libuniblock.so"
+macos.debug = "res://.out/bin/libmygame.dylib"
+windows.x86_64 = "res://.out/bin/mygame.dll"
+linux.x86_64 = "res://.out/bin/libmygame.so"
 `
-	testing.expect(t, cli.write_file(cli.join(dir, "game", "uniblock.gdextension"), transmute([]byte)extension))
-	testing.expect_value(t, cli.game_name(dir), "uniblock")
-	os.remove(cli.join(dir, "game", "uniblock.gdextension"))
+	testing.expect(t, cli.write_file(cli.join(dir, "game", "mygame.gdextension"), transmute([]byte)extension))
+	testing.expect_value(t, cli.game_name(dir), "mygame")
+	os.remove(cli.join(dir, "game", "mygame.gdextension"))
 	os.make_directory_all(cli.join(dir, "bin"))
 	extension = `[libraries]
 linux.x86_64 = "res://.out/bin/libelsewhere.so"
