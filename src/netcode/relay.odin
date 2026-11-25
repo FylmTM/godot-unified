@@ -803,7 +803,7 @@ on_join :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) {
 	ask.local = wire.r_u8(reader)
 	ask.slot = wire.r_u8(reader)
 	ask.join_tick = wire.r_u32(reader)
-	ask.name = r_text(reader, NAME_MAX)
+	ask.name = r_name(reader)
 	ask.profile = r_text(reader, sim.PROFILE_MAX)
 	if !reader.ok || !conn.welcomed || !relay.started || relay.ending {
 		return

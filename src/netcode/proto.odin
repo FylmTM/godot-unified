@@ -3,6 +3,7 @@
 package netcode
 
 import "core:fmt"
+import "core:unicode/utf8"
 
 import "unified:lz"
 import "unified:sim"
@@ -291,7 +292,7 @@ read_hello :: proc(reader: ^wire.Reader) -> (hello: Hello, ok: bool) {
 		seat.local = wire.r_u8(reader)
 		seat.slot = wire.r_u8(reader)
 		seat.join_tick = wire.r_u32(reader)
-		seat.name = r_text(reader, NAME_MAX)
+		seat.name = r_name(reader)
 		seat.profile = r_text(reader, sim.PROFILE_MAX)
 	}
 	return hello, reader.ok
@@ -369,9 +370,12 @@ Text :: struct($N: int) {
 // A player's display name.
 Player_Name :: Text(NAME_MAX)
 
-// Packs text into a Text(N), cut at N bytes (a cut may split a UTF-8 sequence: the texts are display-only).
+// Packs text into a Text(N), cut at N bytes on a character boundary (a name of 16 Cyrillic letters, 32 bytes, keeps 15
+// of them, never half of the 16th: a host shows text, and half a character is an error to it).
 text_of :: proc($N: int, text: string) -> (out: Text(N)) {
-	out.len = u8(copy(out.bytes[:], text))
+	cut := min(len(text), N)
+	for cut > 0 && cut < len(text) && !utf8.rune_start(text[cut]) do cut -= 1
+	out.len = u8(copy(out.bytes[:], text[:cut]))
 	return
 }
 
@@ -410,6 +414,29 @@ r_text :: proc(reader: ^wire.Reader, $N: int) -> (text: Text(N)) {
 	return
 }
 
+// A player's name from another machine (r_text, mended): a Profile's bytes go through r_text as they are, a name is
+// text a host shows.
+@(private)
+r_name :: proc(reader: ^wire.Reader) -> (name: Player_Name) {
+	name = r_text(reader, NAME_MAX)
+	text_mend(&name)
+	return
+}
+
+// Text from another machine as valid UTF-8: each byte no character starts with, or an unfinished one, becomes '?'
+// (one byte for one, so it still fits), so whatever a peer sent, a host can show it.
+@(private)
+text_mend :: proc(text: ^Text($N)) {
+	bytes := text.bytes[:text.len]
+	for i := 0; i < len(bytes); {
+		_, width := utf8.decode_rune(bytes[i:])
+		if width == 1 && bytes[i] >= 0x80 {
+			bytes[i] = '?'
+		}
+		i += width
+	}
+}
+
 @(private)
 w_roster_entry :: proc(writer: ^wire.Writer, entry: ^Roster_Entry) {
 	wire.w_u16(writer, entry.member)
@@ -427,7 +454,7 @@ r_roster_entry :: proc(reader: ^wire.Reader) -> (entry: Roster_Entry) {
 	entry.slot = wire.r_u8(reader)
 	entry.local = wire.r_u8(reader)
 	entry.connected = wire.r_u8(reader) != 0
-	entry.name = r_text(reader, NAME_MAX)
+	entry.name = r_name(reader)
 	entry.platform = r_text(reader, PLATFORM_MAX)
 	entry.account = r_text(reader, ACCOUNT_MAX)
 	return
