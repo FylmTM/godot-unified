@@ -81,7 +81,7 @@ a_catchup_budget_below_the_cap_holds :: proc(t: ^testing.T) {
 	session: Net
 	net_make(&session, 0, 1)
 	defer net_destroy(&session)
-	net_join(&session, config = Client_Config{slot = -1, player_name = "Linus", catchup_ticks = 3})
+	net_join(&session, config = Client_Config{player_name = "Linus", catchup_ticks = 3})
 	net_run(&session, 2)
 	net_run(&session, 3, hitched = 1)
 	result := catch_up(&session, 1)
@@ -101,7 +101,7 @@ a_late_joiners_backlog_is_verified_a_budget_per_step :: proc(t: ^testing.T) {
 	net_make(&session, 0, 1)
 	defer net_destroy(&session)
 	net_run(&session, 2)
-	joiner := net_join(&session, -1, .Bad)
+	joiner := net_join(&session, profile = .Bad)
 	most := catch_up(&session, 1, seconds = 6, until_live = false).most_verified
 	testing.expect_value(t, joiner.status, netcode.Status.Connected)
 	testing.expectf(t, most <= joiner.tm.prediction_cap, "a step verified %d ticks", most)

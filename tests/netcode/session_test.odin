@@ -3,6 +3,7 @@
 // slot 0) or a plain relay, and remote clients.
 package test_netcode
 
+import "core:log"
 import "core:testing"
 
 import "../toy"
@@ -16,6 +17,37 @@ Hooks :: netcode.Hooks(toy.Game)
 Client_Config :: netcode.Client_Config(toy.Game)
 
 SEED :: 5
+
+// The warnings of a test that plants a fault the netcode warns of (a desync, a snapshot that is refused): counted, not
+// printed, so a passing run prints none; the test asserts it warned. Errors and the rest go to the runner's logger.
+Planted :: struct {
+	warnings: int,
+	runner:   log.Logger,
+}
+
+// A logger that counts the warnings in `planted` and hands everything else to the current one (the test runner's).
+planted_logger :: proc(planted: ^Planted) -> log.Logger {
+	planted.runner = context.logger
+	return {
+		procedure = proc(
+			data: rawptr,
+			level: log.Level,
+			text: string,
+			options: log.Options,
+			location := #caller_location,
+		) {
+			planted := (^Planted)(data)
+			if level == .Warning {
+				planted.warnings += 1
+				return
+			}
+			planted.runner.procedure(planted.runner.data, level, text, options, location)
+		},
+		data = planted,
+		lowest_level = planted.runner.lowest_level,
+		options = planted.runner.options,
+	}
+}
 HOST_COLOR :: 7 // the host player's Profile (net_make)
 
 // The Profile colour of the client on hub endpoint `endpoint` (net_join): each client's own, so a test can tell whose
@@ -213,13 +245,13 @@ net_link :: proc(
 	return netcode.netsim_wrap(inner, raw.? or_else netcode.PROFILES[profile], seed, &session.clock), nil
 }
 
-// A remote client asking for `slot` (-1: any) as `name` (default Grace for the first remote, then Linus) with
+// A remote client asking for `slot` (nil: any) as `name` (default Grace for the first remote, then Linus) with
 // `token`, its Profile its endpoint's colour (`config` replaces all of it), playing `game` (default the toy), on
 // `link` (default net_link's of `profile`, `raw`, `seed`, `hub` and `endpoint`), with `hooks` (default its watch's:
 // session.watch[endpoint], the last one shared past it).
 net_join :: proc(
 	session: ^Net,
-	slot := -1,
+	slot: Maybe(int) = nil,
 	profile := netcode.Network.Wan,
 	game: ^toy.Game = nil,
 	name := "",

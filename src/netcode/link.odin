@@ -6,6 +6,7 @@
 package netcode
 
 import "base:runtime"
+import "core:strings"
 import "core:sync"
 import "core:time"
 
@@ -31,21 +32,25 @@ Account :: struct {
 // The transport interface: moves whole datagrams of at most MAX_DATAGRAM bytes to and from the peers it numbers,
 // never blocking. A datagram may be lost; the channel does the rest.
 Link :: struct {
-	data:    rawptr,
+	data:       rawptr,
 	// Queues one datagram to `to`. Losing it is allowed.
-	send:    proc(data: rawptr, to: Peer, bytes: []u8),
+	send:       proc(data: rawptr, to: Peer, bytes: []u8),
 	// Returns the next received datagram (copied into buf), or ok = false when there is none.
 	// A datagram from a new remote endpoint gets a new Peer number.
-	recv:    proc(data: rawptr, buf: []u8) -> (size: int, from: Peer, ok: bool),
-	close:   proc(data: rawptr),
+	recv:       proc(data: rawptr, buf: []u8) -> (size: int, from: Peer, ok: bool),
+	close:      proc(data: rawptr),
 	// Optional: transport-level connection events (nil: the channel's own timeouts only).
-	event:   proc(data: rawptr) -> (peer: Peer, kind: Link_Event_Kind, ok: bool),
+	event:      proc(data: rawptr) -> (peer: Peer, kind: Link_Event_Kind, ok: bool),
 	// Optional: the channel is done with `peer` (it timed out, left, or sent garbage); a link that
 	// numbers remote endpoints itself (UDP) frees the number for the next endpoint.
-	forget:  proc(data: rawptr, peer: Peer),
+	forget:     proc(data: rawptr, peer: Peer),
 	// Optional: the account the transport vouches for behind `peer` (ok = false: none, as on LAN and direct UDP).
 	// The strings are valid until the next call.
-	account: proc(data: rawptr, peer: Peer) -> (account: Account, ok: bool),
+	account:    proc(data: rawptr, peer: Peer) -> (account: Account, ok: bool),
+	// Both ends are stepped by one caller in one process (a host's relay and its own client: host_create): silence on
+	// it means the caller stopped stepping, never that the peer is gone, so the channel never times its connections
+	// out. A plain loopback_link is not (tests and headless sessions time loopback peers out like remote ones).
+	in_process: bool,
 }
 
 // The account `link` vouches for behind `peer`; ok = false when it vouches for none (LAN, direct UDP).
@@ -164,26 +169,39 @@ Loop_Link :: struct {
 	self:    Peer,
 	recv:    Loop_Queue, // swapped out of the inbox in one lock
 	head:    int,
-	account: Account, // what the link vouches for behind every peer (borrowed; empty: none)
+	account: Account, // what the link vouches for behind every peer (its own copies; empty: none)
 }
 
 // A link for endpoint `self` of the hub: a send to Peer i lands in endpoint i's inbox, with no loss or delay
-// (wrap it with netsim_wrap for those). Links on different threads may share one hub. `account` (optional, borrowed
-// for the link's life): the account it vouches for behind its peers (a host's relay end, for the host's own player).
+// (wrap it with netsim_wrap for those). Links on different threads may share one hub. `account` (optional, copied):
+// the account it vouches for behind its peers (a host's relay end, for the host's own player).
 loopback_link :: proc(hub: ^Hub, self: Peer, account := Account{}) -> Link {
 	loop := new(Loop_Link)
 	loop.hub = hub
 	loop.self = self
 	loop.recv = loop_queue_make(hub.allocator)
-	loop.account = account
+	loop_vouch(loop, account)
 	return {
-		data    = loop,
-		send    = loop_send,
-		recv    = loop_recv,
-		close   = loop_close,
-		account = account.id == "" ? nil : proc(data: rawptr, peer: Peer) -> (Account, bool) {
-			return (^Loop_Link)(data).account, true
+		data = loop,
+		send = loop_send,
+		recv = loop_recv,
+		close = loop_close,
+		account = proc(data: rawptr, peer: Peer) -> (Account, bool) {
+			loop := (^Loop_Link)(data)
+			return loop.account, loop.account.id != ""
 		},
+	}
+}
+
+// Makes a loopback link vouch for `account` behind its peers from now on (empty: none), keeping its own copy.
+@(private)
+loop_vouch :: proc(loop: ^Loop_Link, account: Account) {
+	delete(loop.account.platform, loop.hub.allocator)
+	delete(loop.account.id, loop.hub.allocator)
+	loop.account = {}
+	if account.id != "" {
+		loop.account.platform = strings.clone(account.platform, loop.hub.allocator)
+		loop.account.id = strings.clone(account.id, loop.hub.allocator)
 	}
 }
 
@@ -231,6 +249,7 @@ loop_recv :: proc(data: rawptr, buf: []u8) -> (size: int, from: Peer, ok: bool) 
 loop_close :: proc(data: rawptr) {
 	loop := (^Loop_Link)(data)
 	loop_queue_destroy(&loop.recv)
+	loop_vouch(loop, {})
 	free(loop)
 }
 

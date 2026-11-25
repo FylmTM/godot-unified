@@ -319,3 +319,34 @@ reliable_sends_are_paced :: proc(t: ^testing.T) {
 	testing.expect_value(t, got, MESSAGES)
 	testing.expect_value(t, sender.stats.resends, 0)
 }
+
+// A send that opens a connection while the caller iterates a poll's events never touches them (the slice could move
+// under the loop): its Connected waits for the next poll, which returns it first.
+@(test)
+a_send_while_iterating_a_poll_leaves_its_events_alone :: proc(t: ^testing.T) {
+	hub := netcode.hub_create(netcode.MAX_PEERS + 1)
+	defer netcode.hub_destroy(hub)
+	receiver := netcode.channel_make()
+	defer netcode.channel_destroy(receiver)
+	link := netcode.channel_add_link(receiver, netcode.loopback_link(hub, 0))
+	sender := netcode.channel_make()
+	defer netcode.channel_destroy(sender)
+	to_receiver := netcode.channel_peer(sender, netcode.channel_add_link(sender, netcode.loopback_link(hub, 1)), 0)
+	now: i64 = 1_000_000
+	for k in 0 ..< 20 do netcode.channel_send(sender, to_receiver, {u8(k)}, .Reliable, now)
+	netcode.channel_flush(sender, now)
+	events := netcode.channel_poll(receiver, now)
+	testing.expect_value(t, len(events), 21) // Connected and 20 messages
+	first := raw_data(events)
+	opened := 0
+	for event, k in events {
+		if k > 0 do testing.expect_value(t, event.data[0], u8(k - 1))
+		// a send to a new peer each time round: each opens a connection
+		peer := netcode.channel_peer(receiver, link, netcode.Peer(2 + k))
+		if peer >= 0 && netcode.channel_send(receiver, peer, {1}, .Unreliable, now) do opened += 1
+	}
+	testing.expect(t, raw_data(receiver.events) == first && len(receiver.events) == 21, "the polled events moved")
+	next := netcode.channel_poll(receiver, now + 1)
+	testing.expect(t, len(next) >= opened)
+	for event in next[:opened] do testing.expect_value(t, event.kind, netcode.Event_Kind.Connected)
+}

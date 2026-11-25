@@ -15,11 +15,7 @@ local_color :: proc(local: int) -> u8 {
 
 // Adds local player 1 to `client` (before its first step: in its Hello; later: a Join).
 add_second :: proc(client: ^Client) -> bool {
-	return netcode.client_add_player(
-		client,
-		1,
-		{slot = -1, player_name = "Second", profile = {color = local_color(1)}},
-	)
+	return netcode.client_add_player(client, 1, {player_name = "Second", profile = {color = local_color(1)}})
 }
 
 // A bump from local player 1 only, once: it lands in local 1's slot, exactly once.
@@ -197,7 +193,7 @@ the_lowest_seat_leaving_mid_join_keeps_the_snapshot_coming :: proc(t: ^testing.T
 		session: Net
 		net_make(&session, 0, 0)
 		net_run(&session, 2)
-		couch := net_join(&session, -1, profile)
+		couch := net_join(&session, profile = profile)
 		testing.expect(t, add_second(couch))
 		for _ in 0 ..< 2000 {
 			net_run(&session, 0.005)
@@ -229,7 +225,7 @@ a_new_occupant_of_a_joiners_emptied_lowest_seat_gets_in_beside_it :: proc(t: ^te
 	net_make(&session, 0, 0)
 	defer net_destroy(&session)
 	net_run(&session, 2)
-	couch := net_join(&session, -1, .Ideal)
+	couch := net_join(&session, profile = .Ideal)
 	testing.expect(t, add_second(couch))
 	for _ in 0 ..< 2000 {
 		net_run(&session, 0.005)
@@ -237,7 +233,7 @@ a_new_occupant_of_a_joiners_emptied_lowest_seat_gets_in_beside_it :: proc(t: ^te
 	}
 	lowest := netcode.client_local(couch, 0).slot
 	netcode.client_remove_player(couch, 0, session.clock.now)
-	newcomer := net_join(&session, -1, .Ideal)
+	newcomer := net_join(&session, profile = .Ideal)
 	for _ in 0 ..< 2000 {
 		net_run(&session, 0.005)
 		if newcomer.welcomed do break

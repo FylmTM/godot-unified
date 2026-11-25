@@ -462,7 +462,7 @@ mode_lobby_client :: proc(game: ^$G, args: ^Args) -> bool {
 		game = game,
 		seed = 1,
 	}
-	client := netcode.client_create(game, {slot = -1}, link, uheadless.scripted_hooks(&scripted))
+	client := netcode.client_create(game, {}, link, uheadless.scripted_hooks(&scripted))
 	link_ours = false
 	defer netcode.client_destroy(client)
 	ok = uheadless.run_client(client, uheadless.session_timeout_s(ticks, game.tick_hz))

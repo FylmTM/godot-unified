@@ -354,8 +354,9 @@ Reject_Reason :: enum u8 {
 	No_Snapshot, // a joiner: no other player can send a snapshot (or the one who could left)
 	Bad_Snapshot, // a joiner: its snapshot differs from the other players' checksum, and nobody else can send one
 	Too_Far_Behind, // the client fell further behind than the relay keeps ticks (RELAY_RING)
-	// the same person (account or token) is seated on a connection whose Hello went out later, and it is live: this
-	// one is an earlier try whose Hello came late (src/netcode/README.md, Members: newest wins)
+	// the same person (account or token) is seated on a live connection, and this one is an earlier try whose Hello
+	// came late, or a resuming one (another program with the same identity) (src/netcode/README.md, Members: newest
+	// wins)
 	Newer_Connection,
 	Closed, // the session takes no new players (relay_set_open; a player who was in may come back)
 	Desynced, // the client diverged from the other players and could not be resynced, or kept diverging (RESYNCS_MAX)
