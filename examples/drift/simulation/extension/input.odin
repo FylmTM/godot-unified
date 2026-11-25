@@ -14,11 +14,13 @@ Input_Values :: struct {
 
 // The movement, fire and boost from the InputMap on this local player's device, and the aim: a pad player's own right
 // stick, else what the arena set (the mouse, for the players on the keyboard). A tap of fire or boost shorter than a
-// frame still counts (action_down).
+// frame still counts (action_down). While game input is off (a menu, the dev UI: godot.input_blocked) the arena's
+// aim is ignored too, so the ship keeps its heading instead of following the mouse over the menu.
 sample_input :: proc(local: int, input: ^g.Input) {
 	move := godot.action_vector("move_left", "move_right", "move_up", "move_down") // +y is down, the plane's +y
 	input.move_x, input.move_y = dmath.axis_i8(move.x), dmath.axis_i8(move.y)
 	aim := godot.input_values(Input_Values).aim
+	if godot.input_blocked() do aim = {}
 	if godot.local_device(local) >= 0 { 	// a pad of its own: its right stick
 		if stick := godot.action_vector("aim_left", "aim_right", "aim_up", "aim_down"); stick != {} do aim = stick
 	}

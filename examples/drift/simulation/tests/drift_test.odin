@@ -45,6 +45,34 @@ a_match_brings_waves_that_split :: proc(t: ^testing.T) {
 	testing.expect(t, headless.run_events(&run, g.Event_Rock_Split) > 0, "rocks split inside rollback windows")
 }
 
+// The rocks' rolls name the rock, never the tick: a start the relay places a tick or two later brings the same first
+// rock, only later.
+@(test)
+a_late_start_brings_the_same_rocks :: proc(t: ^testing.T) {
+	first_rock :: proc(t: ^testing.T, wait: int) -> (vel: [2]f32, spin: f32, variant: u8) {
+		run := headless.run_begin(&g.GAME, 1, seated = 1)
+		defer headless.run_end(&run)
+		for _ in 0 ..< wait do step(&run, {})
+		step(&run, {}, g.Command_Start{})
+		rocks := sim.iterate(&run.simulation.state.rocks)
+		for rock in sim.next(&rocks) {
+			phys := run.simulation.world.phys
+			return physics.body_linear_velocity_2d(phys, rock.body),
+				physics.body_angular_velocity_2d(phys, rock.body),
+				rock.variant
+		}
+		testing.expect(t, false, "no rock")
+		return
+	}
+	vel, spin, variant := first_rock(t, 5)
+	for wait in 6 ..= 7 {
+		late_vel, late_spin, late_variant := first_rock(t, wait)
+		testing.expect_value(t, late_vel, vel)
+		testing.expect_value(t, late_spin, spin)
+		testing.expect_value(t, late_variant, variant)
+	}
+}
+
 @(test)
 the_station_falls_and_the_match_resets :: proc(t: ^testing.T) {
 	run := headless.run_begin(&g.GAME, 1, seated = 2)
