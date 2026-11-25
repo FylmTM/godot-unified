@@ -241,6 +241,24 @@ grid_add_after_end_needs_another_end :: proc(t: ^testing.T) {
 	testing.expect(t, len(ids) == 2 && ids[0] == 1 && ids[1] == 2, "both adds sorted")
 }
 
+// A game's table beside the grid indexes cells as the grid files them: grid_cell_index is row × columns + column, in
+// 0 ..< grid_cells, and a position outside counts in the nearest edge cell, as grid_add files it.
+@(test)
+grid_cell_index_matches_the_grids_cells :: proc(t: ^testing.T) {
+	grid: sim.Grid(40, 8)
+	sim.grid_begin(&grid, {-4, 2}, 2, 6, 5)
+	testing.expect_value(t, sim.grid_cells(&grid), 30)
+	testing.expect_value(t, sim.grid_cell_index(&grid, {-4, 2}), 0)
+	testing.expect_value(t, sim.grid_cell_index(&grid, {1, 5}), 1 * 6 + 2) // column 2, row 1
+	testing.expect_value(t, sim.grid_cell_index(&grid, {-100, 100}), 4 * 6 + 0) // past the edges: the corner cell
+	column, row := sim.grid_cell(&grid, {7.9, 11.9})
+	testing.expect(t, column == 5 && row == 4, "the last cell")
+	sim.grid_add(&grid, 7, {1, 5})
+	sim.grid_end(&grid)
+	near := sim.grid_near(&grid, {1, 5})
+	testing.expect(t, len(near[1]) == 1 && near[1][0] == 7, "the id is filed in that cell")
+}
+
 // Each cell holds exactly its ids in the order added; grid_near is the 3 × 3 cells by row, then column, then the
 // order added; grid_box the same over a rectangle; positions outside count in the edge cells.
 @(test)

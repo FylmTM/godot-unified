@@ -33,12 +33,24 @@ grid_begin :: proc(grid: ^Grid($CELLS, $CAP), origin: [2]f32, cell_size: f32, co
 	grid.count, grid.sorted = 0, false
 }
 
-// The cell holding `pos`: a position outside the grid counts in the edge cell nearest it.
-@(private)
+// The cell holding `pos`, as the grid files it and grid_near / grid_box look it up: a position outside the grid counts
+// in the edge cell nearest it.
 grid_cell :: #force_inline proc(grid: ^Grid($CELLS, $CAP), pos: [2]f32) -> (column, row: i32) {
 	column = dmath.to_i32_clamped((pos.x - grid.origin.x) / grid.cell_size, 0, grid.columns - 1)
 	row = dmath.to_i32_clamped((pos.y - grid.origin.y) / grid.cell_size, 0, grid.rows - 1)
 	return
+}
+
+// The cell holding `pos` (grid_cell) as one index, 0 ..< grid_cells(grid): for a game's own table beside the grid, a
+// flag or a count per cell, kept in step with the cells the grid's queries walk.
+grid_cell_index :: #force_inline proc(grid: ^Grid($CELLS, $CAP), pos: [2]f32) -> int {
+	column, row := grid_cell(grid, pos)
+	return int(row * grid.columns + column)
+}
+
+// How many cells the grid laid out at its grid_begin (columns × rows, at most CELLS).
+grid_cells :: #force_inline proc(grid: ^Grid($CELLS, $CAP)) -> int {
+	return int(grid.columns * grid.rows)
 }
 
 // Adds an id at a position (between grid_begin and grid_end); false when CAP ids were added already. An add after
