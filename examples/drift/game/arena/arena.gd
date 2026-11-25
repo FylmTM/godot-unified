@@ -2,10 +2,15 @@ class_name DriftArena
 extends Node2D
 ## The play scene: the level (its art is the arena's visuals; the sim loads its exported .level), the views root
 ## handed to the session (ships, the station, gates), the multi views (rocks, bullets, gems), the camera following the
-## local ships, effects and the HUD. Couch co-op: a pad that presses Start joins as another local player (the first
-## player keeps the keyboard and mouse). Turns the mouse or the right stick into the aim for every input sample, and routes the
-## sim's events (sim_event) to effects, sounds and camera shake: rock effects as soon as an event is first shown
-## (predicted), the rest once its tick is confirmed.
+## local ships, effects and the HUD. Couch co-op: Start on a pad nobody plays on joins as another local player (the
+## first player keeps the keyboard and mouse, or the pad they were using); Start on a playing pad opens the pause menu.
+## Turns the mouse or the first player's right stick into their aim for every input sample (a joined pad aims with its
+## own stick, in the extension), and routes the sim's events (sim_event) to effects, sounds and camera shake: rock
+## effects as soon as an event is first shown (predicted), the rest once its tick is confirmed.
+
+## `_last_input` besides a pad's id: nothing seen yet in the play scene, and a key or mouse button.
+const UNSEEN := -2
+const KBM := -1
 
 ## The arena's extent in pixels (the level's art), the camera's limits.
 var bounds := Rect2()
@@ -13,6 +18,9 @@ var bounds := Rect2()
 var mouse_aim_enabled := true
 ## The mouse aims (relative to the local ship) once it moves, until the right stick is used.
 var _mouse_aim := false
+## What the last input in the play scene came from: a pad's id, KBM (keyboard or a mouse button) or UNSEEN (nothing
+## yet: Game.using_pad says which). While the first player plays on every device, a pad that did is theirs.
+var _last_input := UNSEEN
 
 @onready var camera: DriftCamera = $Camera
 @onready var effects: DriftEffects = $Effects
@@ -33,29 +41,48 @@ func _exit_tree() -> void:
 	Input.set_default_cursor_shape(Input.CURSOR_ARROW)
 
 
+## Runs before the pause menu sees the event: a pad's Start joins here when that pad is nobody's, and is handled; any
+## other Start goes on to the pause menu (the `menu` action).
 func _input(event: InputEvent) -> void:
 	if event is InputEventMouseMotion and mouse_aim_enabled:
 		_mouse_aim = true
-
-
-## A pad whose Start is pressed joins as another local player, unless it plays already.
-func _unhandled_input(event: InputEvent) -> void:
 	var button := event as InputEventJoypadButton
-	if button == null or not button.pressed or button.button_index != JOY_BUTTON_START:
-		return
+	if button != null and button.pressed and button.button_index == JOY_BUTTON_START and _joins(button.device):
+		var session := Unified.session
+		if session.local_indices.size() == 1 and session.get_local_device(0) == UnifiedSession.DEVICE_ANY:
+			# the first player keeps what they were playing with: the pad they last used, else keyboard and mouse
+			session.set_local_device(0, _last_input if _last_input >= 0 else UnifiedSession.DEVICE_KEYBOARD)
+		if session.add_local_player(button.device, "Pad %d" % (button.device + 1)) >= 0:
+			get_viewport().set_input_as_handled()
+	if button != null or (event is InputEventJoypadMotion and absf((event as InputEventJoypadMotion).axis_value) > 0.5):
+		_last_input = event.device
+	elif event is InputEventKey or event is InputEventMouseButton:
+		_last_input = KBM
+
+
+## Whether Start on pad `device` joins a new local player: no local player plays on it, and it isn't the pad the first
+## player is using while they play on every device (their Start opens the pause menu).
+func _joins(device: int) -> bool:
 	var session := Unified.session
-	for local: int in session.get_local_indices():
-		if session.get_local_device(local) == button.device:
-			return  # this pad plays already
-	if session.get_local_indices().size() == 1 and session.get_local_device(0) == UnifiedSession.DEVICE_ANY:
-		session.set_local_device(0, UnifiedSession.DEVICE_KEYBOARD)  # the first player keeps keyboard and mouse
-	var local: int = session.add_local_player(button.device, "Pad %d" % (button.device + 1))
-	if local >= 0:
-		get_viewport().set_input_as_handled()
+	for local: int in session.local_indices:
+		if session.get_local_device(local) == device:
+			return false
+	if session.get_local_device(0) != UnifiedSession.DEVICE_ANY:
+		return true
+	return not (device == _last_input or (_last_input == UNSEEN and Game.using_pad))
 
 
+## Before the sample: the first player's aim. The mouse (relative to their ship) once it moves; else the right stick of
+## the device they play on: every pad while they play on every device, theirs when they have one (the extension reads
+## it), none on the keyboard. Under the pause menu (game input off) zero: the heading stays.
 func _set_aim() -> void:
-	var stick := Input.get_vector(&"aim_left", &"aim_right", &"aim_up", &"aim_down")
+	var session := Unified.session
+	if not session.game_input:
+		Unified.input.aim = Vector2.ZERO
+		return
+	var stick := Vector2.ZERO
+	if session.get_local_device(0) == UnifiedSession.DEVICE_ANY:
+		stick = Input.get_vector(&"aim_left", &"aim_right", &"aim_up", &"aim_down")
 	if stick.length() > 0.3:
 		_mouse_aim = false
 	var dir := Vector2.ZERO

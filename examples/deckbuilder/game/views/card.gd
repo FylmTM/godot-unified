@@ -115,9 +115,11 @@ func _on_gui_input(event: InputEvent) -> void:
 		accept_event()
 
 
-## Played or discarded: it flies up and fades as it lingers (an event can still come: a refusal brings it back).
+## Played or discarded: it flies up and fades as it lingers (an event can still come: a refusal brings it back). The
+## table puts it down if it was held up.
 func _sim_despawned() -> void:
 	_gone = true
+	get_tree().call_group(&"table", &"card_gone", self)
 	_hovered = false
 	mouse_filter = Control.MOUSE_FILTER_IGNORE
 	var tween := create_tween().set_parallel()
@@ -127,7 +129,7 @@ func _sim_despawned() -> void:
 
 func _sim_revived() -> void:
 	_gone = false
-	_face.modulate.a = 1.0
+	_face.modulate = Color.WHITE  # faded out, and maybe lit by a play that was cancelled
 	_face.position.y = 0.0
 	mouse_filter = Control.MOUSE_FILTER_STOP
 
@@ -139,3 +141,5 @@ func _sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 			tween.tween_property(self, ^"_shake", x, 0.04)
 	elif event is EventCardPlayed and state == UnifiedSession.EVENT_EMITTED:
 		_face.modulate = Color(1.5, 1.4, 1.1)
+	elif event is EventCardPlayed and state == UnifiedSession.EVENT_CANCELLED:
+		_face.modulate = Color(1, 1, 1, _face.modulate.a)

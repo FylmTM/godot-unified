@@ -5,8 +5,6 @@ extends CanvasLayer
 ## `title` and `tagline` set.
 
 const SETTINGS_PANEL := preload("res://game/ui/settings_panel.tscn")
-const CODE_CHARS := "ABCDEFGHIJKLMNOPQRSTUVWXYZ0123456789"
-const CODE_LENGTH := 6
 
 @export var title := ""
 @export var tagline := ""
@@ -121,23 +119,22 @@ func _show_settings() -> void:
 	_show(_settings)
 
 
-## Codes are case-insensitive and pasted from chats: keeps letters and digits, uppercased, at most CODE_LENGTH.
+## Codes are case-insensitive and pasted from chats: the field keeps what a code is made of (_clean_code); Join waits
+## for a whole code.
 func _on_code_changed(text: String) -> void:
 	var clean := _clean_code(text)
 	if clean != text:
 		var caret := _code.caret_column
 		_code.text = clean
 		_code.caret_column = mini(caret, clean.length())
-	_code_join.disabled = clean.length() != CODE_LENGTH
+	_code_join.disabled = not _is_code(clean)
 	_code_error.visible = false
 
 
 ## Opening the Join panel with a lobby code on the clipboard (copied from a chat) fills it in.
 func _prefill_code() -> void:
-	var clip := Game.clipboard_get().strip_edges()
-	var code := _clean_code(clip)
-	var looks_like_code := code.length() == CODE_LENGTH and clip.length() <= 2 * CODE_LENGTH
-	_pasted.visible = looks_like_code and _code.text == ""
+	var code := Unified.session.clean_join_code(Game.clipboard_get())  # "": not a code
+	_pasted.visible = code != "" and _code.text == ""
 	if _pasted.visible:
 		_code.text = code
 		_on_code_changed(code)
@@ -150,17 +147,29 @@ func _paste_code() -> void:
 	_code.grab_focus()
 
 
-static func _clean_code(text: String) -> String:
+## What the field keeps of `text`: uppercased, the characters of the lobby service's codes (UnifiedSession's
+## join_code_alphabet: no look-alikes such as 0 and O), at most a code's length. A build without a lobby service has
+## no code format: then only spaces and dashes go, and joining says why it can't.
+func _clean_code(text: String) -> String:
+	var alphabet := Unified.session.join_code_alphabet
 	var out := ""
 	for ch in text.to_upper():
-		if CODE_CHARS.contains(ch):
+		if (alphabet != "" and alphabet.contains(ch)) or (alphabet == "" and ch not in [" ", "-", "\t", "\n", "\r"]):
 			out += ch
-	return out.left(CODE_LENGTH)
+	return out.left(Unified.session.join_code_length) if alphabet != "" else out
+
+
+## Whether the field holds a code Join can try: a whole one, as the session reads it (any text without a lobby service).
+func _is_code(text: String) -> bool:
+	if Unified.session.join_code_alphabet == "":
+		return text != ""
+	return Unified.session.clean_join_code(text) != ""
 
 
 func _join_code() -> void:
-	if _code.text.length() != CODE_LENGTH:
-		_code_error.text = "Lobby codes have %d letters or digits." % CODE_LENGTH
+	if not _is_code(_code.text):
+		var length := Unified.session.join_code_length
+		_code_error.text = "Lobby codes have %d characters." % length if length > 0 else "Type the lobby code."
 		_code_error.visible = true
 		return
 	Game.join_online(_code.text)

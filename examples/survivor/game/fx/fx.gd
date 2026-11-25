@@ -1,7 +1,11 @@
 class_name SurvivorFx
 extends Node3D
 ## One-shot effects driven by sim events: death puffs, barrel explosions (light, fire, smoke, shock ring, screen
-## shake), gem sparkles, level-up bursts, player death/respawn. Built from code-made CPUParticles3D, no assets.
+## shake), gem sparkles, level-up bursts, player death/respawn. No assets: the cube sprays are one Cubes node per
+## kind (a ring buffer the shader flies, so a burst makes no node), the rings code-made meshes.
+
+## The cube sprays, one Cubes node each: what falls alike and lives alike.
+enum Spray { DEATH, GEM, LEVEL_UP, PLAYER, RESPAWN, FIRE, FLASH, SMOKE }
 
 ## The enemies' colours by EnumEnemyKind value (grunt, runner, brute).
 const ENEMY_COLORS: Array[Color] = [Color("4a80c7"), Color("2ec7cc"), Color("7347b8")]
@@ -10,28 +14,40 @@ const FIRE := Color("ffb347")
 const GOLD := Color("ffd23f")
 
 var camera: SurvivorCamera
-var _cube: BoxMesh
 var _ring_mesh: TorusMesh
-var _shrink: Curve
+## By Spray value.
+var _sprays: Array[Cubes] = []
+## The cubes' material (cubes.gdshader), shared by every spray; its clock is `_now`.
+var _cubes: ShaderMaterial
+var _now := 0.0
 
 
 func _ready() -> void:
-	_cube = BoxMesh.new()
-	_cube.size = Vector3.ONE * 0.18
-	var m := StandardMaterial3D.new()
-	m.shading_mode = BaseMaterial3D.SHADING_MODE_UNSHADED
-	m.vertex_color_use_as_albedo = true
-	m.transparency = BaseMaterial3D.TRANSPARENCY_ALPHA
-	_cube.material = m
 	_ring_mesh = TorusMesh.new()
 	_ring_mesh.inner_radius = 0.92
 	_ring_mesh.outer_radius = 1.0
 	_ring_mesh.rings = 48
 	_ring_mesh.ring_segments = 4
-	_shrink = Curve.new()
-	_shrink.add_point(Vector2(0, 1))
-	_shrink.add_point(Vector2(1, 0))
+	_cubes = ShaderMaterial.new()
+	_cubes.shader = load("res://game/fx/cubes.gdshader")
+	var cube := BoxMesh.new()
+	cube.size = Vector3.ONE * 0.18
+	# Per spray (Spray order): the cubes it may have at once, its gravity (m/s², up positive) and its cubes' life (s).
+	for spray: Array in [[4096, -9.0, 0.45], [1024, -2.0, 0.3], [512, -4.0, 0.8], [256, -9.0, 0.9], [256, -3.0, 0.6],
+			[1024, 2.0, 0.55], [512, -9.0, 0.25], [1024, 1.5, 1.4]]:
+		var cubes := Cubes.new()
+		var capacity: int = spray[0]
+		var gravity: float = spray[1]
+		var life: float = spray[2]
+		cubes.setup(capacity, cube, _cubes, gravity, life)
+		add_child(cubes)
+		_sprays.append(cubes)
 	_warm_up()
+
+
+func _process(delta: float) -> void:
+	_now += delta
+	_cubes.set_shader_parameter(&"now", _now)
 
 
 ## Draws each effect material once, under the floor, while the arena loads. A new material's shader compiles the
@@ -40,7 +56,7 @@ func _ready() -> void:
 ## material needs a line here; `uni tool survivor tour --window --cold -- --frames` measures every first use.
 func _warm_up() -> void:
 	var at := Vector3(0, -4, 0)
-	_burst(at, Color.WHITE, 1, 0.0, 0.1, 0.1, 0.0)  # vertex-coloured cubes: kills, gems, level-ups, deaths
+	_burst(Spray.FLASH, at, Color.WHITE, 1, 0.0, 0.1)  # the cubes (every spray shares their material)
 	_ring(at, Color.WHITE, 0.5, 0.1)  # unshaded transparent: rings, the start shockwave, dash after-images
 
 
@@ -50,27 +66,27 @@ func play(event: UnifiedEvent) -> void:
 	if event is EventEnemyDied:
 		var died := event as EventEnemyDied
 		var color := ENEMY_COLORS[clampi(died.enemy_kind, 0, ENEMY_COLORS.size() - 1)]
-		_burst(died.position + Vector3(0, 0.5, 0), color, 22 if died.enemy_kind == EnumEnemyKind.BRUTE else 10, 4.0,
-			0.45, 0.8)
+		_burst(Spray.DEATH, died.position + Vector3(0, 0.5, 0), color, 22 if died.enemy_kind == EnumEnemyKind.BRUTE else 10,
+			4.0, 0.8)
 		Sfx.play(&"pop", -8.0, randf_range(0.9, 1.2))
 	elif event is EventBarrelExploded:
 		explosion((event as EventBarrelExploded).position, Unified.constants.blast_radius)
 	elif event is EventGemCollected:
 		var gem := event as EventGemCollected
-		_burst(gem.position + Vector3(0, 0.5, 0), GEM_COLOR, 6, 2.5, 0.3, 0.5, -2.0)
+		_burst(Spray.GEM, gem.position + Vector3(0, 0.5, 0), GEM_COLOR, 6, 2.5, 0.5)
 		if _is_local(gem.player):
 			Sfx.play(&"gem", -6.0, randf_range(0.95, 1.15))
 	elif event is EventLevelUp:
 		var level_up := event as EventLevelUp
 		_ring(level_up.position + Vector3(0, 0.1, 0), GOLD, 3.5, 0.6)
-		_burst(level_up.position + Vector3(0, 0.8, 0), GOLD, 26, 6.0, 0.8, 1.0, -4.0)
+		_burst(Spray.LEVEL_UP, level_up.position + Vector3(0, 0.8, 0), GOLD, 26, 6.0, 1.0)
 		if _is_local(level_up.player):
 			Sfx.play(&"level")
 	elif event is EventPlayerDied:
 		var dead := event as EventPlayerDied
 		var local := _is_local(dead.player)
 		var c := UiTheme.player_color(Unified.session.get_player_slot(dead.player))
-		_burst(dead.position + Vector3(0, 0.9, 0), c, 40, 7.0, 0.9, 1.2)
+		_burst(Spray.PLAYER, dead.position + Vector3(0, 0.9, 0), c, 40, 7.0, 1.2)
 		_ring(dead.position + Vector3(0, 0.1, 0), c, 4.0, 0.5)
 		_shake(0.45 if local else 0.2)
 		Sfx.play(&"die")
@@ -79,7 +95,7 @@ func play(event: UnifiedEvent) -> void:
 	elif event is EventPlayerRespawned:
 		var respawned := event as EventPlayerRespawned
 		_ring(respawned.position + Vector3(0, 0.1, 0), UiTheme.CYAN, 2.5, 0.5)
-		_burst(respawned.position + Vector3(0, 0.9, 0), UiTheme.CYAN, 18, 3.0, 0.6, 0.6, -3.0)
+		_burst(Spray.RESPAWN, respawned.position + Vector3(0, 0.9, 0), UiTheme.CYAN, 18, 3.0, 0.6)
 		Sfx.play(&"respawn", -4.0)
 	elif event is EventMatchStarted:
 		Sfx.play(&"start")
@@ -120,41 +136,18 @@ func explosion(pos: Vector3, radius: float) -> void:
 	var tw := light.create_tween()
 	tw.tween_property(light, "light_energy", 0.0, 0.45).set_ease(Tween.EASE_OUT)
 	tw.tween_callback(light.queue_free)
-	_burst(at, FIRE, 46, radius * 2.2, 0.55, 1.6, 2.0)
-	_burst(at, Color(1, 0.95, 0.75), 16, radius * 3.0, 0.25, 0.9)
-	_burst(at, Color(0.3, 0.32, 0.38, 0.8), 24, 2.5, 1.4, 2.2, 1.5)
+	_burst(Spray.FIRE, at, FIRE, 46, radius * 2.2, 1.6)
+	_burst(Spray.FLASH, at, Color(1, 0.95, 0.75), 16, radius * 3.0, 0.9)
+	_burst(Spray.SMOKE, at, Color(0.3, 0.32, 0.38, 0.8), 24, 2.5, 2.2)
 	_ring(pos + Vector3(0, 0.15, 0), FIRE, radius, 0.4)
 	_shake(0.55)
 	Sfx.play(&"boom")
 	Game.rumble(0.4, 0.8, 0.3)
 
 
-## A one-shot cube spray; frees itself after its lifetime.
-func _burst(pos: Vector3, color: Color, amount: int, speed: float, life: float, size: float, gravity_y := -9.0) -> void:
-	var p := CPUParticles3D.new()
-	p.mesh = _cube
-	p.one_shot = true
-	p.explosiveness = 1.0
-	p.amount = amount
-	p.lifetime = life
-	p.direction = Vector3.UP
-	p.spread = 180.0
-	p.initial_velocity_min = speed * 0.4
-	p.initial_velocity_max = speed
-	p.gravity = Vector3(0, gravity_y, 0)
-	p.damping_min = 1.0
-	p.damping_max = 3.0
-	p.scale_amount_min = size * 0.6
-	p.scale_amount_max = size * 1.2
-	p.scale_amount_curve = _shrink
-	p.angular_velocity_min = -360.0
-	p.angular_velocity_max = 360.0
-	p.color = color
-	p.cast_shadow = GeometryInstance3D.SHADOW_CASTING_SETTING_OFF
-	p.position = pos  # before entering the tree: a CPUParticles3D starts emitting where it enters
-	add_child(p)
-	p.emitting = true
-	p.finished.connect(p.queue_free)
+## A one-shot spray of `amount` cubes from `pos`, flying every way at up to `speed` m/s, `size` × a cube across.
+func _burst(spray: Spray, pos: Vector3, color: Color, amount: int, speed: float, size: float) -> void:
+	_sprays[spray].burst(pos, color, amount, speed, size, _now)
 
 
 ## An expanding, fading ring on the floor.

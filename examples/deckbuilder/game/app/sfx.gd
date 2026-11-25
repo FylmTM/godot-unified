@@ -1,6 +1,6 @@
 extends Node
 ## deckbuilder's sound effects (the `Sfx` autoload): synthesized once at boot (no audio assets), played with
-## `Sfx.play(&"pop")` from a small voice pool on the SFX bus. A sound with a minimum gap is rate-limited, so a burst
+## `Sfx.play(&"draw")` from a small voice pool on the SFX bus. A sound with a minimum gap is rate-limited, so a burst
 ## of the same event doesn't clip. The menus play `click` and `gem`; the game's own sounds are in `_add_sounds()`,
 ## built with `tone()` and `arpeggio()`.
 

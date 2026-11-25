@@ -1,8 +1,8 @@
 class_name CameraRig
 extends Node3D
 ## The local player's flying camera: where the sim says their camera is (their Camera view, interpolated), looking
-## where the mouse (captured while playing, free under the pause menu) or the right stick turns it, with the settings'
-## sensitivity and invert look. Every frame, just before the session samples the input (input_wanted), it tells the
+## where the mouse (captured while playing, free under the pause menu and the connect overlay) or the right stick (not
+## under the pause menu) turns it, with the settings' sensitivity and invert look. Every frame, just before the session samples the input (input_wanted), it tells the
 ## session its yaw and pitch (Unified.input), which the input sampler makes the Input's aim. On entering a scene it
 ## looks at the scene's middle. `shake` jolts the lens (an explosion nearby, a shot): the aim stays where it was.
 
@@ -28,6 +28,10 @@ func _ready() -> void:
 	_rng.seed = 7
 	Unified.session.input_wanted.connect(_tell_session)
 	Unified.session.sim_event.connect(_on_sim_event)
+
+
+func _exit_tree() -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE  # however the play scene ends, the menu gets a free mouse
 
 
 func _unhandled_input(event: InputEvent) -> void:
@@ -66,7 +70,9 @@ func shake(amount: float) -> void:
 ## in turns.
 func _tell_session() -> void:
 	var delta := get_process_delta_time()
-	var stick := Input.get_vector(&"look_left", &"look_right", &"look_up", &"look_down")
+	var stick := Vector2.ZERO
+	if Unified.session.game_input:  # not under the pause menu
+		stick = Input.get_vector(&"look_left", &"look_right", &"look_up", &"look_down")
 	var invert := -1.0 if Settings.invert_y else 1.0
 	yaw -= stick.x * STICK_YAW * delta
 	pitch = clampf(pitch - stick.y * STICK_PITCH * invert * delta, -PITCH_LIMIT, PITCH_LIMIT)
@@ -79,9 +85,10 @@ func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> voi
 		_look_at_scene = 0.3
 
 
-## The mouse is captured while playing, free under the pause menu (and never captured headless).
+## The mouse is captured while playing, free under the pause menu and the connect overlay (reconnecting: its Cancel is
+## clicked), and never captured headless.
 func _capture_mouse() -> void:
-	var free := _pause_menu.visible or DisplayServer.get_name() == "headless"
+	var free := _pause_menu.visible or Game.status != UnifiedSession.STATUS_CONNECTED or DisplayServer.get_name() == "headless"
 	var want := Input.MOUSE_MODE_VISIBLE if free else Input.MOUSE_MODE_CAPTURED
 	if Input.mouse_mode != want and Game.flow == Game.Flow.PLAYING:
 		Input.mouse_mode = want

@@ -26,6 +26,9 @@ var _shots_hit: Array[Vector3] = []  # where the local player's shots that hit s
 var _head_hits: Array[Vector3] = []  # where heads were hit
 var _killed := 0
 var _countdown := -1  # the whole second the countdown or break last beeped at
+## The controls list on show (one of the CONTROLS consts) and the device it was labelled for.
+var _controls_for: Array = []
+var _controls_pad := false
 
 @onready var _wave: Label = %Wave
 @onready var _core_bar: ProgressBar = %CoreBar
@@ -96,25 +99,24 @@ func _on_panels_changed() -> void:
 	var hud := Unified.data.hud
 	var lobby := hud.phase == EnumPhase.LOBBY
 	_session.refresh(_session_rows(), lobby, "Press %s to start the run." % Game.input_label(&"ready"))
-	if hud.downed:
-		_controls.refresh(CONTROLS_DOWNED)
-	elif lobby:
-		_controls.refresh(CONTROLS_LOBBY)
-	else:
-		_controls.refresh(CONTROLS)
+	var controls: Array = CONTROLS_DOWNED if hud.downed else (CONTROLS_LOBBY if lobby else CONTROLS)
+	if not is_same(controls, _controls_for) or Game.using_pad != _controls_pad:
+		_controls_for = controls
+		_controls_pad = Game.using_pad
+		_controls.refresh(controls)
 
 
 ## A row per present player for the session panel: "down" from their player view (the HUD data's players_down
 ## changes with it, so the panel is redrawn).
-func _session_rows() -> Array[Dictionary]:
-	var rows: Array[Dictionary] = []
-	for player: int in Unified.session.get_players():
-		var row := {"player": player, "name": Unified.session.get_player_name(player)}
+func _session_rows() -> Array[SessionPanel.Row]:
+	var rows: Array[SessionPanel.Row] = []
+	for player: int in Unified.session.players:
+		var row := SessionPanel.Row.new(player, Unified.session.get_player_name(player))
 		var view := Unified.session.get_player_view(EnumView.PLAYER, player)
 		if view != null:
 			var data: ViewPlayer = view.get(&"data")
 			if data.downed:
-				row["status"] = "down"
+				row.status = "down"
 		rows.append(row)
 	return rows
 

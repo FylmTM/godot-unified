@@ -1,6 +1,6 @@
 class_name MenuTool
 extends UnifiedTool
-## The base of the tool scripts that drive the game's own menus (ui_walk, tour): the main menu, its buttons by
+## The base of the tool scripts that drive the game's own menus (ui_walk): the main menu, its buttons by
 ## unique name, and the player's settings.
 
 
