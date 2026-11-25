@@ -445,7 +445,7 @@ func _hero_panel(hero: int) -> HeroPanel:
 ## The session panel's rows: who is here, and whether their hero ended their turn.
 func _session_rows() -> Array[SessionPanel.Row]:
 	var rows: Array[SessionPanel.Row] = []
-	for player: int in Unified.session.get_players():
+	for player: int in Unified.session.players:
 		var status := ""
 		for hero in 4:
 			var row: DataHeroRow = Unified.data.heroes.heroes[hero]

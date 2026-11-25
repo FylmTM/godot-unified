@@ -214,7 +214,7 @@ func _show_name() -> void:
 ## The session panel's rows: everyone present, with their level and HP, or how long until a downed hero is back up.
 func _show_session() -> void:
 	var rows: Array[SessionPanel.Row] = []
-	for player in Unified.session.get_players():
+	for player in Unified.session.players:
 		var hero := Unified.data.hud.heroes[Unified.session.get_player_slot(player)] as DataHudHero
 		var status := "LV %d" % hero.level if hero.alive else "down %.0fs" % ceilf(hero.respawn_s)
 		var bar := float(hero.hp) / maxf(hero.hp_max, 1.0)

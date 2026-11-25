@@ -71,7 +71,7 @@ func _on_hud_changed() -> void:
 
 func _session_rows() -> Array[SessionPanel.Row]:
 	var rows: Array[SessionPanel.Row] = []
-	for player: int in Unified.session.get_players():
+	for player: int in Unified.session.players:
 		var p := Unified.data.hud.players[Unified.session.get_player_slot(player)] as DataHudPlayer
 		var tags: Array[String] = []
 		if p.held:

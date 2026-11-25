@@ -49,7 +49,7 @@ func _input(event: InputEvent) -> void:
 	var button := event as InputEventJoypadButton
 	if button != null and button.pressed and button.button_index == JOY_BUTTON_START and _joins(button.device):
 		var session := Unified.session
-		if session.get_local_indices().size() == 1 and session.get_local_device(0) == UnifiedSession.DEVICE_ANY:
+		if session.local_indices.size() == 1 and session.get_local_device(0) == UnifiedSession.DEVICE_ANY:
 			# the first player keeps what they were playing with: the pad they last used, else keyboard and mouse
 			session.set_local_device(0, _last_input if _last_input >= 0 else UnifiedSession.DEVICE_KEYBOARD)
 		if session.add_local_player(button.device, "Pad %d" % (button.device + 1)) >= 0:
@@ -64,7 +64,7 @@ func _input(event: InputEvent) -> void:
 ## player is using while they play on every device (their Start opens the pause menu).
 func _joins(device: int) -> bool:
 	var session := Unified.session
-	for local: int in session.get_local_indices():
+	for local: int in session.local_indices:
 		if session.get_local_device(local) == device:
 			return false
 	if session.get_local_device(0) != UnifiedSession.DEVICE_ANY:

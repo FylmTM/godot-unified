@@ -113,7 +113,7 @@ func _on_input_device_changed(_pad: bool) -> void:
 func _refresh_players() -> void:
 	var slots := Unified.data.hud.players
 	var rows: Array[SessionPanel.Row] = []
-	for player in Unified.session.get_players():
+	for player in Unified.session.players:
 		var info := slots[Unified.session.get_player_slot(player)] as DataHudPlayer
 		rows.append(SessionPanel.Row.new(player, Unified.session.get_player_name(player), "%d gems" % info.gems))
 	_session.refresh(rows, Unified.data.hud.phase == EnumPhase.LOBBY,

@@ -230,7 +230,7 @@ func _show_name() -> void:
 func _show_session() -> void:
 	var lobby := Unified.data.hud.phase == EnumPhase.LOBBY
 	var rows: Array[SessionPanel.Row] = []
-	for player in Unified.session.get_players():
+	for player in Unified.session.players:
 		var info := Unified.data.hud.players[Unified.session.get_player_slot(player)] as DataHudPlayer
 		var status := "ready"
 		if not lobby:

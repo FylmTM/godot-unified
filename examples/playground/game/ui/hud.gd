@@ -88,7 +88,7 @@ func _controls_rows(h: DataHud) -> Array:
 
 func _session_rows() -> Array[SessionPanel.Row]:
 	var rows: Array[SessionPanel.Row] = []
-	for player: int in Unified.session.get_players():
+	for player: int in Unified.session.players:
 		rows.append(SessionPanel.Row.new(player, Unified.session.get_player_name(player)))
 	return rows
 

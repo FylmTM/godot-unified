@@ -110,7 +110,7 @@ func _on_panels_changed() -> void:
 ## changes with it, so the panel is redrawn).
 func _session_rows() -> Array[SessionPanel.Row]:
 	var rows: Array[SessionPanel.Row] = []
-	for player: int in Unified.session.get_players():
+	for player: int in Unified.session.players:
 		var row := SessionPanel.Row.new(player, Unified.session.get_player_name(player))
 		var view := Unified.session.get_player_view(EnumView.PLAYER, player)
 		if view != null:
