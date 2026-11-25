@@ -1,6 +1,7 @@
 // Captured runs (src/cli/process.odin): what they leave behind, and that every process start goes through cli.spawn.
 package test_cli
 
+import "core:log"
 import "core:os"
 import "core:strings"
 import "core:sync"
@@ -66,12 +67,17 @@ no_process_starts_outside_spawn :: proc(t: ^testing.T) {
 a_reused_pid_is_not_the_instance :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator
 	pid := os.get_pid()
-	info, err := os.process_info_by_pid(pid, {.Command_Args}, context.temp_allocator)
-	testing.expect(t, err == nil && .Command_Args in info.fields, "the OS gives this process's arguments")
-	testing.expect(t, !cli.process_runs(pid, "/elsewhere/.out/drive/1.port"), "another instance's port file")
-	// its last argument: Linux leaves argv[0] out of the arguments (with argv[0] alone, process_runs answers true)
-	testing.expect(t, cli.process_runs(pid, os.args[len(os.args) - 1]), "its own arguments")
 	testing.expect(t, !cli.process_runs(0, os.args[0]), "no pid")
+	testing.expect(t, cli.process_runs(pid, ""), "this process runs, though it isn't its own child")
+	// The marker checks need arguments the OS gives back: Linux leaves argv[0] out, so a test binary run with none
+	// has nothing to match (process_runs then goes by the pid alone, as for any process whose arguments are unknown).
+	info, err := os.process_info_by_pid(pid, {.Command_Args}, context.temp_allocator)
+	if err != nil || .Command_Args not_in info.fields || len(info.command_args) == 0 {
+		log.infof("no arguments of this process to match (%v): the marker checks are skipped", err)
+		return
+	}
+	testing.expect(t, !cli.process_runs(pid, "/elsewhere/.out/drive/1.port"), "another instance's port file")
+	testing.expect(t, cli.process_runs(pid, info.command_args[len(info.command_args) - 1]), "its own arguments")
 }
 
 // Two uni processes that would unpack or build the same thing take turns through a lock file; one left by a process

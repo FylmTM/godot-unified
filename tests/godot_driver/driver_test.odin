@@ -187,6 +187,13 @@ recording_replays :: proc(t: ^testing.T) {
 
 @(private = "file")
 REPLAY_DIR :: #directory + "/../../.out/test/replay"
+
+// How long a wait for the session thread gives up after (each returns as soon as it sees what it waits for): a CI
+// runner busy with the other test binaries can take seconds for what takes milliseconds here.
+@(private = "file")
+WAIT_MS :: 30_000
+@(private = "file")
+WAIT_S :: WAIT_MS / 1000
 @(private = "file")
 recorded_range: [2]u32
 
@@ -211,9 +218,13 @@ replay_wait :: proc(ms: int, done: proc(frame: ^godot.Frame_Data) -> bool) -> (f
 replay_plays :: proc(t: ^testing.T) {
 	ok, err := godot.api.start({mode = .Replay, arg = REPLAY_DIR, name = "viewer"})
 	if !testing.expectf(t, ok, "replay start: %s", err) do return
+	defer if godot.api.running() { 	// a failed check below leaves no session for the next one to trip over
+		godot.api.stop()
+		godot.api.wait()
+	}
 	testing.expect(t, godot.api.sampler() == nil, "a replay plays nothing late: every tick it shows is final")
 	first, last := recorded_range[0], recorded_range[1]
-	_, at_end := replay_wait(5000, proc(frame: ^godot.Frame_Data) -> bool {
+	_, at_end := replay_wait(WAIT_MS, proc(frame: ^godot.Frame_Data) -> bool {
 		return frame.replay.active && frame.replay.paused && frame.tick == frame.replay.last
 	})
 	frame, _ := godot.api.front()
@@ -224,20 +235,20 @@ replay_plays :: proc(t: ^testing.T) {
 	epoch := frame.epoch
 	testing.expect(t, godot.api.replay_control({kind = .Step, value = -2}))
 	stepped, step_ok := replay_wait(
-		2000,
+		WAIT_MS,
 		proc(frame: ^godot.Frame_Data) -> bool {return frame.tick == frame.replay.last - 2},
 	)
 	testing.expect(t, step_ok && stepped.epoch != epoch, "two ticks back, a new epoch")
 	testing.expect(t, godot.api.replay_control({kind = .Seek, value = i64(first + 1)}))
 	_, seek_ok := replay_wait(
-		2000,
+		WAIT_MS,
 		proc(frame: ^godot.Frame_Data) -> bool {return frame.tick == frame.replay.first + 1},
 	)
 	testing.expect(t, seek_ok, "a seek back past the ring lands on its tick")
 	godot.api.stop()
 	messages: [dynamic]godot.Message
 	defer delete(messages)
-	testing.expect(t, drain(&messages, 3000, is_result), "a replay ends with a result")
+	testing.expect(t, drain(&messages, WAIT_MS, is_result), "a replay ends with a result")
 	for godot.api.running() do time.sleep(time.Millisecond)
 	testing.expectf(t, strings.contains(godot.api.result(), `"mode":"replay"`), "%s", godot.api.result())
 	godot.api.wait()
@@ -273,7 +284,7 @@ driver_sessions :: proc(t: ^testing.T) {
 			testing.expect(t, godot.api.send(command, 0))
 		}
 		messages := make([dynamic]godot.Message, context.temp_allocator)
-		testing.expect(t, drain(&messages, 5000, is_result), "the session ends with a result")
+		testing.expect(t, drain(&messages, WAIT_MS, is_result), "the session ends with a result")
 		events := make([dynamic]godot.Event_Message, context.temp_allocator)
 		take_events(&events, max(u32))
 		connected, joined := false, false
@@ -364,7 +375,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		)
 		testing.expect(t, ok, err)
 		start := time.tick_now()
-		for sync.atomic_load(&seen.hold) != 2 && time.duration_seconds(time.tick_since(start)) < 5 {
+		for sync.atomic_load(&seen.hold) != 2 && time.duration_seconds(time.tick_since(start)) < WAIT_S {
 			time.sleep(time.Millisecond)
 		}
 		testing.expect_value(t, sync.atomic_load(&seen.hold), 2)
@@ -402,7 +413,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 8, name = "solo", scripted = true})
 		testing.expect(t, ok, err)
 		messages := make([dynamic]godot.Message, context.temp_allocator)
-		testing.expect(t, drain(&messages, 5000, is_result), "the scripted session ends with a result")
+		testing.expect(t, drain(&messages, WAIT_MS, is_result), "the scripted session ends with a result")
 		for godot.api.running() do time.sleep(time.Millisecond)
 		godot.api.wait()
 		testing.expect_value(t, sync.atomic_load(&seen.color), u32(toy.scripted_profile(7, 0).color))
@@ -419,7 +430,7 @@ driver_sessions :: proc(t: ^testing.T) {
 		}
 		testing.expect(t, godot.api.local_player(1, true, "Second", nil))
 		messages := make([dynamic]godot.Message, context.temp_allocator)
-		testing.expect(t, drain(&messages, 5000, is_result), "the session ends with a result")
+		testing.expect(t, drain(&messages, WAIT_MS, is_result), "the session ends with a result")
 		for godot.api.running() do time.sleep(time.Millisecond)
 		godot.api.wait()
 		testing.expect_value(t, sync.atomic_load(&seen.second_color), u32(toy.scripted_profile(7, 1).color))
@@ -462,13 +473,13 @@ driver_sessions :: proc(t: ^testing.T) {
 		ok, _ := godot.api.start({mode = .Host_Online, seed = 3})
 		testing.expect(t, ok)
 		messages := make([dynamic]godot.Message, context.temp_allocator)
-		got_code := drain(&messages, 5000, proc(message: godot.Message) -> bool {
+		got_code := drain(&messages, WAIT_MS, proc(message: godot.Message) -> bool {
 			return message.kind == .Join_Code && text(message) == "ABC123"
 		})
 		testing.expect(t, got_code, "the lobby code is posted")
 		time.sleep(50 * time.Millisecond)
 		godot.api.stop()
-		testing.expect(t, drain(&messages, 5000, is_result), "a stopped session ends with a result")
+		testing.expect(t, drain(&messages, WAIT_MS, is_result), "a stopped session ends with a result")
 		for godot.api.running() do time.sleep(time.Millisecond)
 		godot.api.wait()
 		testing.expect(t, seen.pumps > 0, "the lobby is pumped")
@@ -495,14 +506,14 @@ driver_sessions :: proc(t: ^testing.T) {
 		ok, err := godot.api.start({mode = .Host_Direct, seed = 3, port = 0, local = true})
 		testing.expect(t, ok, err)
 		messages := make([dynamic]godot.Message, context.temp_allocator)
-		testing.expect(t, drain(&messages, 5000, proc(message: godot.Message) -> bool {
+		testing.expect(t, drain(&messages, WAIT_MS, proc(message: godot.Message) -> bool {
 				return message.kind == .Join_Code
 			}), "a join code is posted")
 		code := text(messages[len(messages) - 1]) if len(messages) > 0 else ""
 		port, port_ok := strconv.parse_int(strings.trim_prefix(code, "127.0.0.1:"))
 		testing.expectf(t, strings.has_prefix(code, "127.0.0.1:") && port_ok && port > 0, "join code %q", code)
 		godot.api.stop()
-		testing.expect(t, drain(&messages, 5000, is_result), "a stopped session ends with a result")
+		testing.expect(t, drain(&messages, WAIT_MS, is_result), "a stopped session ends with a result")
 		for godot.api.running() do time.sleep(time.Millisecond)
 		godot.api.wait()
 	}
@@ -560,7 +571,7 @@ driver_sessions :: proc(t: ^testing.T) {
 			testing.expect(t, godot.api.send(sim.command_make(toy.Command, toy.Command_Bump{amount}), 0))
 		}
 		messages := make([dynamic]godot.Message, context.temp_allocator)
-		testing.expect(t, drain(&messages, 5000, is_result), "the session ends with a result")
+		testing.expect(t, drain(&messages, WAIT_MS, is_result), "the session ends with a result")
 		for godot.api.running() do time.sleep(time.Millisecond)
 		godot.api.wait()
 		testing.expect_value(t, sync.atomic_load(&seen.bumps), 2)
@@ -601,7 +612,7 @@ watchdog_freezes :: proc(t: ^testing.T) {
 	messages: [dynamic]godot.Message
 	defer delete(messages)
 	godot.api.stop()
-	_ = drain(&messages, 5000, is_result)
+	_ = drain(&messages, WAIT_MS, is_result)
 	for godot.api.running() do time.sleep(time.Millisecond)
 	godot.api.wait()
 	entries, _ := os.read_all_directory_by_path(dumps, context.temp_allocator)
@@ -650,7 +661,7 @@ replay_events_after_a_seek :: proc(t: ^testing.T) {
 	ok, err := godot.api.start({mode = .Single, seed = 11, ticks = 96, name = "recorder", scripted = true})
 	if !testing.expectf(t, ok, "start: %s", err) do return
 	messages := make([dynamic]godot.Message, context.temp_allocator)
-	testing.expect(t, drain(&messages, 5000, is_result), "the recorded session ends")
+	testing.expect(t, drain(&messages, WAIT_MS, is_result), "the recorded session ends")
 	snapshot, log_bytes: [dynamic]u8
 	defer delete(snapshot)
 	defer delete(log_bytes)
@@ -668,13 +679,13 @@ replay_events_after_a_seek :: proc(t: ^testing.T) {
 	if !testing.expectf(t, ok, "replay start: %s", err) do return
 	defer godot.api.wait()
 	testing.expect(t, godot.api.replay_control({kind = .Speed, speed = 4}))
-	_, at_end := replay_wait(5000, proc(frame: ^godot.Frame_Data) -> bool {
+	_, at_end := replay_wait(WAIT_MS, proc(frame: ^godot.Frame_Data) -> bool {
 		return frame.replay.paused && frame.tick == frame.replay.last
 	})
 	if !testing.expect(t, at_end, "the replay plays to its end (its events queued, none taken)") do return
 	first := info.from
 	testing.expect(t, godot.api.replay_control({kind = .Seek, value = i64(first + 1)}))
-	seek_frame, seek_ok := replay_wait(2000, proc(frame: ^godot.Frame_Data) -> bool {
+	seek_frame, seek_ok := replay_wait(WAIT_MS, proc(frame: ^godot.Frame_Data) -> bool {
 		return frame.tick == frame.replay.first + 1
 	})
 	if !testing.expect(t, seek_ok, "the seek lands") do return
@@ -685,7 +696,7 @@ replay_events_after_a_seek :: proc(t: ^testing.T) {
 	testing.expect(t, godot.api.replay_control({kind = .Play}))
 	events := make([dynamic]godot.Event_Message, context.temp_allocator)
 	start := time.tick_now()
-	for time.duration_seconds(time.tick_since(start)) < 5 {
+	for time.duration_seconds(time.tick_since(start)) < WAIT_S {
 		frame, _ := godot.api.front()
 		if frame == nil do continue
 		take_events(&events, frame.tick, frame.epoch)
@@ -709,7 +720,7 @@ replay_events_after_a_seek :: proc(t: ^testing.T) {
 	}
 	for event in events do testing.expectf(t, once[{event.id, .Emitted}] && once[{event.id, .Confirmed}], "%d both states", event.id)
 	godot.api.stop()
-	_ = drain(&messages, 3000, is_result)
+	_ = drain(&messages, WAIT_MS, is_result)
 }
 
 // Start.paused: a session started paused shows its first tick and waits (the GDScript `start_single(); paused = true`
@@ -725,7 +736,7 @@ sessions_start_paused :: proc(t: ^testing.T) {
 	godot.api.set_paused(true) // what a script sets in the frame it started the session
 	godot.api.release() // the session node's next frame
 	waited := time.tick_now()
-	for !godot.api.paused() && time.duration_seconds(time.tick_since(waited)) < 5 do time.sleep(time.Millisecond)
+	for !godot.api.paused() && time.duration_seconds(time.tick_since(waited)) < WAIT_S do time.sleep(time.Millisecond)
 	testing.expect(t, godot.api.paused(), "it pauses")
 	time.sleep(100 * time.Millisecond)
 	frame, _ = godot.api.front()
@@ -757,7 +768,7 @@ sessions_start_paused :: proc(t: ^testing.T) {
 	ok, err = godot.api.start({mode = .Single, seed = 7, name = "solo", paused = true})
 	if !testing.expectf(t, ok, "start: %s", err) do return
 	waited = time.tick_now()
-	for !godot.api.paused() && time.duration_seconds(time.tick_since(waited)) < 5 do time.sleep(time.Millisecond)
+	for !godot.api.paused() && time.duration_seconds(time.tick_since(waited)) < WAIT_S do time.sleep(time.Millisecond)
 	time.sleep(60 * time.Millisecond)
 	frame, _ = godot.api.front()
 	testing.expect(
@@ -785,12 +796,12 @@ local_commands_stay_their_players :: proc(t: ^testing.T) {
 		time.sleep(time.Millisecond)
 	}
 	testing.expect(t, godot.api.local_player(1, true, "Second", nil))
-	for second_key() == 0 && time.duration_seconds(time.tick_since(waited)) < 5 do time.sleep(time.Millisecond)
+	for second_key() == 0 && time.duration_seconds(time.tick_since(waited)) < WAIT_S do time.sleep(time.Millisecond)
 	first_second := second_key()
 	if !testing.expect(t, first_second != 0, "local player 1 joins") do return
 	// hold the session thread in fill_frame: what follows is one main-thread frame, before it looks
 	sync.atomic_store(&seen.hold, 1)
-	for sync.atomic_load(&seen.hold) != 2 && time.duration_seconds(time.tick_since(waited)) < 5 do time.sleep(time.Millisecond)
+	for sync.atomic_load(&seen.hold) != 2 && time.duration_seconds(time.tick_since(waited)) < WAIT_S do time.sleep(time.Millisecond)
 	testing.expect(t, godot.api.send(sim.command_make(toy.Command, toy.Command_Bump{5}), 1))
 	testing.expect(t, godot.api.local_player(1, false, "", nil))
 	testing.expect(t, godot.api.local_player(1, true, "Third", nil))
@@ -798,7 +809,7 @@ local_commands_stay_their_players :: proc(t: ^testing.T) {
 	// with a token the player added at index 1 is the same member again, so its key need not change: wait for the
 	// session thread to have taken both requests, then for the added one to be seated
 	time.sleep(100 * time.Millisecond)
-	for second_key() == 0 && time.duration_seconds(time.tick_since(waited)) < 5 do time.sleep(time.Millisecond)
+	for second_key() == 0 && time.duration_seconds(time.tick_since(waited)) < WAIT_S do time.sleep(time.Millisecond)
 	testing.expect(t, second_key() != 0, "removed, then another added in its place")
 	time.sleep(100 * time.Millisecond)
 	testing.expect_value(t, sync.atomic_load(&seen.second_bumps), 0)
@@ -814,7 +825,7 @@ fill_frame_writing_is_reported :: proc(t: ^testing.T) {
 	ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 40, name = "solo"})
 	if !testing.expectf(t, ok, "start: %s", err) do return
 	messages := make([dynamic]godot.Message, context.temp_allocator)
-	testing.expect(t, drain(&messages, 5000, is_result), "the session ends")
+	testing.expect(t, drain(&messages, WAIT_MS, is_result), "the session ends")
 	problems := 0
 	for message in messages do if message.kind == .Problem && strings.contains(text(message), "fill_frame wrote") do problems += 1
 	testing.expect_value(t, problems, 1)
