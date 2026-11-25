@@ -282,6 +282,9 @@ func _pop_levelup() -> void:
 func _choose(index: int) -> void:
 	if (_picked_at_pending >= 0 and _t < _pick_wait_until) or _t < _hold_until or not _choosing:
 		return
+	var me := _local_row()
+	if me == null:
+		return
 	var button := _options.get_child(index) as Button
 	if not button.visible:
 		return  # not offered: the sim would ignore it
@@ -292,11 +295,12 @@ func _choose(index: int) -> void:
 	tween.tween_property(button, "scale", Vector2.ONE, 0.12)
 	_hold_until = _t + PICK_HOLD_S
 	_pick_wait_until = _t + PICK_WAIT_S
-	_picked_at_pending = _local_row().pending_levelups
+	_picked_at_pending = me.pending_levelups
 	Sfx.play(&"click")
 	var card: DataUpgradeCard = Unified.constants.upgrades[index]
 	var pick := CommandPick.new()
 	pick.upgrade = card.upgrade
+	pick.level = me.level - me.pending_levelups + 1  # the oldest pending level-up's: the offers shown are its
 	Unified.session.send_command(pick)
 
 
