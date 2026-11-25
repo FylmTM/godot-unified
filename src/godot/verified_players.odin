@@ -480,14 +480,18 @@ verified_players_flush :: proc(id: View_Id, scene_view: ^Scene_View) {
 }
 
 // An event for a view that plays on the verified timeline: held until its pose reaches `tick` and delivered CONFIRMED
-// then (true); an EMITTED or CANCELLED one is dropped (true: the final timeline has neither). False: the view is on the
-// prediction, deliver it now.
+// then (true); an EMITTED or CANCELLED one is dropped (true: the final timeline has neither). False: deliver it now,
+// the view is on the prediction, or it is CONFIRMED and its pose reached `tick` already. The events are drained after
+// the views are posed, so a frame whose playback strides past `tick` (a long frame, a jump to the target) takes it
+// here, after verified_players_sync released the held ones: held, it would come a frame late. The ones still held are
+// past the shown tick, and confirmations come in tick order, so delivering it now keeps the view's events in order.
 @(private)
 verified_players_hold :: proc(scene_view: ^Scene_View, event: gd.Variant, state: i64, tick: u32) -> bool {
 	if !verified_players_applies(scene_view) do return false
-	if state == i64(Event_Action.Confirmed) {
-		append(&VP.pending, Verified_Event{View_Id{scene_view.kind, scene_view.key}, tick, gd.variant_from_any(event)})
-	}
+	if state != i64(Event_Action.Confirmed) do return true
+	id := View_Id{scene_view.kind, scene_view.key}
+	if f64(tick) <= verified_shown_tick(id) do return false
+	append(&VP.pending, Verified_Event{id, tick, gd.variant_from_any(event)})
 	return true
 }
 

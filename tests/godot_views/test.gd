@@ -20,6 +20,9 @@ const TUMBLE_3D := 0.3
 const REMOTE_SPEED := 0.1
 const REMOTE_JUMP := 20.0
 const REMOTE_PERIOD := 64
+const REMOTE_EVENT_EVERY := 16  # the remote player's events: a tick each REMOTE_EVENT_EVERY, at REMOTE_EVENT_AT
+const REMOTE_EVENT_AT := 10
+const REMOTE_STALL_TICKS := 14  # a long frame: playback jumps (VERIFIED_WINDOW_TICKS) or strides past an event's tick
 const REMOTE_PLAYER_KEY := (77 << 16) | 3  # sim.player_key(REMOTE_PLAYER)
 const REMOTE_BLINK_KEY := (78 << 16) | 2  # sim.player_key(REMOTE_BLINK)
 const REMOTE_BLINK_FROM := 60
@@ -412,6 +415,21 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 		else:
 			thing_local[1] += 1
 			thing_local[0] += int(absf(thing.position.x - local.position.x) < 0.01)
+	# A long frame (the main thread stalls while the session steps on, as under load) just before an event's tick is
+	# verified: the next frame's playback strides past that tick and the same frame drains its confirmation, which must
+	# come in that frame too, not held for the next.
+	var stalled_event := -1
+	for i in 200:
+		if remote == null:
+			break
+		var until := posmod(REMOTE_EVENT_AT - session.verified_tick, REMOTE_EVENT_EVERY)
+		if until >= 1 and until <= 3:
+			stalled_event = session.verified_tick + until
+			OS.delay_msec(int(1000.0 * REMOTE_STALL_TICKS / Unified.tick_hz))
+			break
+		await process_frame
+	for i in 10:
+		await process_frame
 	check("the remote walk: a remote player's, the local player's, a predicted3d and a thing's views", remote != null \
 		and local != null and predicted != null and thing != null, [remote, local, predicted, thing])
 	if remote == null or local == null:
@@ -454,6 +472,9 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 		remote_events.size() >= 2 and remote_events.all(func(e: Array) -> bool:
 			return e[1] == UnifiedSession.EVENT_CONFIRMED) and mistimed.is_empty(),
 		[remote_events.size(), mistimed.map(func(e: Array) -> Array: return [e[0].tick, e[2], e[3]])])
+	check("the event of a tick a long frame's playback strode past arrived (in that frame: above)", stalled_event > 0 \
+		and remote_events.any(func(e: Array) -> bool: return (e[0] as UnifiedEvent).tick == stalled_event),
+		stalled_event)
 	var stray := (local.get("events") as Array).filter(func(e: Array) -> bool: return e[0].get("player") != me)
 	check("its events are the remote player's, none reach the local player's view of the kind", stray.is_empty() \
 		and remote_events.all(func(e: Array) -> bool: return e[0].get("player") == REMOTE_PLAYER_KEY), stray)
