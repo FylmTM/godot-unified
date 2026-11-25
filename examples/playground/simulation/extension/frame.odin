@@ -113,7 +113,7 @@ fill_frame_props :: proc(f: ^Frame) {
 			if slot, present := sim.player_slot(&f.state.players, prop.owner); present do color = PLAYER_COLORS[slot]
 		}
 		if prop.role == .Scene && prop.kind == .Sphere do color = {0.95, 0.55, 0.35, 1}
-		if sim.timer_running_at(sim.Game_Time(f.tick), prop.flash) do color = {1, 1, 0.6, 1}
+		if sim.timer_running_at(f.time, prop.flash) do color = {1, 1, 0.6, 1}
 		if prop.inside > 0 do color = {0.4, 1, 0.6, 1}
 		if !physics.body_is_awake(world, prop.body) do color.rgb *= 0.8
 		transform := physics.body_transform(world, prop.body)

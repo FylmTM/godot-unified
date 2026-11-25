@@ -4,7 +4,7 @@ import "unified:dmath"
 import "unified:physics"
 import "unified:sim"
 
-// What can be rolled (sim.roll_*): the purpose keeps each kind of roll apart.
+// What can be rolled (sim.roll_*_at): the purpose keeps each kind of roll apart.
 Roll :: enum u8 {
 	Rain_X,
 	Rain_Z,
@@ -13,18 +13,20 @@ Roll :: enum u8 {
 	Conveyor_Shape,
 }
 
-// What the scene does before the step: Bullets' turret fires, Conveyor drops crates, Wind blows, Rain rains.
+// What the scene does before the step: Bullets' turret fires, Conveyor drops crates, Wind blows, Rain rains. Each
+// counts from the tick the scene was entered (`since`), and their rolls name that count, never the tick: a scene a
+// command enters plays the same whichever tick the relay places the command on (src/sim/README.md, Random numbers).
 run_scene_rules :: proc(t: ^Tick) {
 	since := u32(t.time - t.state.entered)
 	#partial switch t.state.level.id {
 	case .Bullets:
-		if since % TURRET_EVERY_TICKS == TURRET_EVERY_TICKS / 2 do turret(t)
+		if since % TURRET_EVERY_TICKS == TURRET_EVERY_TICKS / 2 do turret(t, since)
 	case .Conveyor:
-		if since % CONVEYOR_EVERY_TICKS == 0 do conveyor(t)
+		if since % CONVEYOR_EVERY_TICKS == 0 do conveyor(t, since)
 	case .Wind:
 		wind(t, since)
 	case .Rain:
-		if since % RAIN_EVERY_TICKS == 0 do rain(t)
+		if since % RAIN_EVERY_TICKS == 0 do rain(t, since)
 	}
 }
 
@@ -44,17 +46,17 @@ after_step :: proc(t: ^Tick) {
 }
 
 // Bullets: a bullet from TURRET_AT at the wall, a little higher or lower each time.
-turret :: proc(t: ^Tick) {
-	height := 0.4 + 4 * sim.roll_f32(t, Roll.Turret_Aim)
+turret :: proc(t: ^Tick, since: u32) {
+	height := 0.4 + 4 * sim.roll_f32_at(t.seed, since, Roll.Turret_Aim)
 	target := [3]f32{0, height, 0}
 	direction := dmath.normalize(target - TURRET_AT)
 	fire_bullet(t, {}, TURRET_AT + direction, direction * SHOT_SPEED)
 }
 
 // Conveyor: a crate (or a ball) drops onto the first belt; past CONVEYOR_CAP the oldest goes.
-conveyor :: proc(t: ^Tick) {
+conveyor :: proc(t: ^Tick, since: u32) {
 	if oldest, found := oldest_prop(t, .Rain); found && count_role(t, .Rain) >= CONVEYOR_CAP do despawn_prop(t, oldest)
-	kind: Shape = sim.roll_below(t, 3, Roll.Conveyor_Shape) == 0 ? .Sphere : .Box
+	kind: Shape = sim.roll_below_at(t.seed, since, 3, Roll.Conveyor_Shape) == 0 ? .Sphere : .Box
 	spawn_prop(t, {kind = kind, size = 0.35, pos = {-10, 3.5, 4}, role = .Rain})
 }
 
@@ -72,11 +74,11 @@ wind :: proc(t: ^Tick, since: u32) {
 }
 
 // Rain: a body of a rolled shape falls in from 14 m over a rolled point; past RAIN_CAP the oldest goes.
-rain :: proc(t: ^Tick) {
+rain :: proc(t: ^Tick, since: u32) {
 	if oldest, found := oldest_prop(t, .Rain); found && count_role(t, .Rain) >= RAIN_CAP do despawn_prop(t, oldest)
-	x := 12 * sim.roll_f32(t, Roll.Rain_X) - 6
-	z := 12 * sim.roll_f32(t, Roll.Rain_Z) - 6
-	kind := Shape(sim.roll_below(t, 4, Roll.Rain_Shape))
+	x := 12 * sim.roll_f32_at(t.seed, since, Roll.Rain_X) - 6
+	z := 12 * sim.roll_f32_at(t.seed, since, Roll.Rain_Z) - 6
+	kind := Shape(sim.roll_below_at(t.seed, since, 4, Roll.Rain_Shape))
 	size := kind == .Capsule || kind == .Cylinder ? [3]f32{0.25, 0.35, 0} : [3]f32{0.35, 0.35, 0.35}
 	spawn_prop(t, {kind = kind, size = size, pos = {x, 14, z}, role = .Rain})
 }

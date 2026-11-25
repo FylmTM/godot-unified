@@ -42,7 +42,7 @@ fly_cameras :: proc(t: ^Tick) {
 		}
 		forward := dmath.aim_vec(input.aim)
 		_, right := dmath.aim_flat(input.aim)
-		stick := [3]f32{f32(input.right), f32(input.up), f32(input.forward)} / 127
+		stick := [3]f32{dmath.axis(input.right), dmath.axis(input.up), dmath.axis(input.forward)}
 		move := right * stick.x + [3]f32{0, stick.y, 0} + forward * stick.z
 		data.pos += dmath.clamp_length3(move, 1) * (FLY_SPEED * t.dt)
 		data.pos.x = dmath.clamp(data.pos.x, -FLY_BOUND, FLY_BOUND)

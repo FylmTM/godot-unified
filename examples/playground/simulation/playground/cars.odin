@@ -121,8 +121,8 @@ drive_cars :: proc(t: ^Tick) {
 		steer, throttle: f32
 		if car.driver != {} {
 			input := sim.input(t, car.driver)
-			steer = f32(input.right) / 127
-			throttle = f32(input.forward) / 127
+			steer = dmath.axis(input.right)
+			throttle = dmath.axis(input.forward)
 		}
 		for i in 0 ..< 2 do physics.wheel_joint_set_target_steering_angle(world, car.joints[i], steer * CAR_STEER)
 		for i in 2 ..< 4 do physics.wheel_joint_set_spin_motor_speed(world, car.joints[i], -throttle * CAR_SPIN_SPEED)
