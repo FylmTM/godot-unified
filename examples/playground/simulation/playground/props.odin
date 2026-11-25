@@ -76,11 +76,11 @@ spawn_prop :: proc(t: ^Tick, def: Prop_Def) -> (prop: ^Prop, handle: sim.Handle(
 	return prop, handle, true
 }
 
-// Frees a prop and its body; whoever held it lets go first (their grab joint goes with the body).
+// Frees a prop and its body; everyone who held it lets go first (their grab joints go with the body).
 despawn_prop :: proc(t: ^Tick, handle: sim.Handle(Prop)) {
 	prop := sim.get(&t.state.props, handle)
 	if prop == nil do return
-	if holder, held := holder_of(t, physics.link(prop.body)); held do release(t, holder)
+	release_holders(t, physics.link(prop.body))
 	physics.despawn(t.world.phys, &t.state.props, handle)
 }
 
@@ -126,6 +126,6 @@ remove_fallen :: proc(t: ^Tick) {
 // Whoever holds one of `bodies` lets go (before they are destroyed).
 release_body_holders :: proc(t: ^Tick, bodies: []physics.Body_Ref) {
 	for body in bodies {
-		if holder, held := holder_of(t, physics.link(body)); held do release(t, holder)
+		release_holders(t, physics.link(body))
 	}
 }
