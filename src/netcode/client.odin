@@ -5,7 +5,6 @@ package netcode
 
 // Used only inside generic procs: @(require) keeps -vet from calling it unused in a program that never instantiates
 // them (a game's tests that don't run the netcode).
-@(require) import "core:crypto"
 @(require) import "core:fmt"
 @(require) import "core:log"
 @(require) import "core:strings"
@@ -20,8 +19,7 @@ Client_Config :: struct($G: typeid) {
 	using local:   Local_Config(G), // local player 0's: its slot, join tick, name and Profile
 	compat:        u64, // build/game id the relay checks (0: sim.compat_of(game))
 	// On a link that vouches for no account (LAN, direct UDP): what the relay recognizes this person by when they
-	// come back (the same member, in any free slot). All zero: client_create draws one for this client, so a lost
-	// connection comes back as the same member and a restarted program as someone new.
+	// come back (the same member, in any free slot). All zero: none (a new member every time).
 	token:         Token,
 	// The most finalized ticks one client_step verifies while it holds more (a joiner's backlog, a long hitch); 0: the
 	// prediction cap, so a step that catches up costs what a full-depth rollback costs, which the game's benchmark
@@ -357,9 +355,6 @@ client_create :: proc(game: ^$G, cfg: Client_Config(G), link: Link, hooks: Hooks
 	client.cfg = cfg
 	if client.cfg.compat == 0 {
 		client.cfg.compat = usim.compat_of(game)
-	}
-	if client.cfg.token == {} {
-		crypto.rand_bytes(client.cfg.token[:])
 	}
 	client.poll_us = POLL_US
 	client.hooks = hooks

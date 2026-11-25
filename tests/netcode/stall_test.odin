@@ -100,7 +100,7 @@ a_linked_host_stalled_9_s_keeps_everyone :: proc(t: ^testing.T) {
 	session: Net
 	net_make(&session, 0, 0)
 	defer net_destroy(&session)
-	remote := net_join(&session, profile = .Ideal)
+	remote := net_join(&session, profile = .Ideal, token = netcode.Token{0 = 7}) // a Godot joiner always has one
 	net_run(&session, 3)
 	testing.expect_value(t, remote.status, netcode.Status.Connected)
 	hold_host(&session, 9)
@@ -125,7 +125,7 @@ a_linked_host_stalled_12_s_brings_the_remote_back :: proc(t: ^testing.T) {
 	session: Net
 	net_make(&session, 0, 0)
 	defer net_destroy(&session)
-	remote := net_join(&session, profile = .Ideal)
+	remote := net_join(&session, profile = .Ideal, token = netcode.Token{0 = 7}) // a Godot joiner always has one
 	net_run(&session, 3)
 	testing.expect_value(t, remote.status, netcode.Status.Connected)
 	finalized := session.relay.finalized

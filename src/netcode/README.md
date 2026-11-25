@@ -177,9 +177,8 @@ A player is a session **member**, the person, not a slot (the sim's side: `src/s
 - The relay gives each distinct person a **member id** for the session (1, 2, ...; never reused; once the ids run
   out a newcomer is refused as `Full`) and keeps account-or-token -> member. The **account** comes from the link
   (`Link.account`), never from the client. On a link that vouches for none (LAN, direct UDP) the client's **token** is
-  used instead (`Client_Config.token`; the Godot host keeps it in `user://`), never forwarded. With neither, the
-  client draws a token of its own: a lost connection comes back as the same member, a restarted program as someone
-  new.
+  used instead (`Client_Config.token`; the Godot host keeps it in `user://`), never forwarded. With neither, every
+  connection is a new member (an in-process host's own link never times out, so its player stays).
 - A connection's local player 0 is its account or token; local player k is `<key>#k`, so each comes back as
   themselves, and each roster entry says which local player it is (`Roster_Entry.local`; a second local player shows
   the first one's account). Newest wins per person: a Hello whose players are seated on a live connection replaces

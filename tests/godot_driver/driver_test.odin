@@ -795,8 +795,8 @@ local_commands_stay_their_players :: proc(t: ^testing.T) {
 	testing.expect(t, godot.api.local_player(1, false, "", nil))
 	testing.expect(t, godot.api.local_player(1, true, "Third", nil))
 	sync.atomic_store(&seen.hold, 3)
-	// the client has a token, so the player added at index 1 is the same member again (its key may not change): wait
-	// for the session thread to have taken both requests, then for the added one to be seated
+	// with a token the player added at index 1 is the same member again, so its key need not change: wait for the
+	// session thread to have taken both requests, then for the added one to be seated
 	time.sleep(100 * time.Millisecond)
 	for second_key() == 0 && time.duration_seconds(time.tick_since(waited)) < 5 do time.sleep(time.Millisecond)
 	testing.expect(t, second_key() != 0, "removed, then another added in its place")
