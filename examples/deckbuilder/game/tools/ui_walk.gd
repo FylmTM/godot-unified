@@ -98,10 +98,16 @@ func _run() -> void:
 	if failed():
 		return
 
+	var held := Table.playable(current_scene, EnumTargetKind.ENEMY)
+	if held != null:
+		await click(held)
+		await wait_for(func() -> bool: return Unified.input.card == held.data.slot + 1, 2.0, "a card held up again")
 	var round: int = Unified.data.run.round
 	await click(find(current_scene, ^"%EndTurn") as Control)
+	expect(Unified.input.card == 0, "ending the turn puts the held card down")
 	await wait_for(func() -> bool: return Unified.data.run.round > round and Unified.data.run.phase == EnumPhase.HEROES,
 		10.0, "the enemies act, the next round")
+	expect(Unified.input.card == 0, "the next round holds no card up")
 	step("ended the turn: round %d" % Unified.data.run.round)
 	if failed():
 		return
