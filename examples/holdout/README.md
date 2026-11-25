@@ -43,7 +43,7 @@ The yard is a level (`game/levels/yard.tscn`, baked to `yard.level` with `uni ba
 inside walls, a sunken trench with a ramp at each end and a bridge across its middle, a deck 4 m up against the east
 wall with two ramps down, crates and blocks for cover, and the core: a static box whose `unified_category` is
 `CAT_CORE`. Every static body sits under the `NavigationRegion3D`, whose bake (static colliders, the agent's size) is
-the navigation mesh the enemies walk. Markers: a `spawn` per slot (in scene order), the `gate`s the waves come in at
+the navigation mesh the enemies walk. Markers: a `spawn` per slot (its `slot` property), the `gate`s the waves come in at
 (north, east on the deck, west across the trench), and the `core`.
 
 `world_create` builds the physics world from the level, the navigation mesh (`nav.build`) with a memo of `MAX_FIELDS`

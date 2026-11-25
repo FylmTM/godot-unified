@@ -57,13 +57,14 @@ world_create :: proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^W
 	assert(err == .None, "holdout: the yard's navigation mesh doesn't build (bake it: uni bake holdout --nav)")
 	world.fields = nav.fields_make(&world.mesh, MAX_FIELDS)
 	world.agent = yard.nav_agent
-	spawns := 0
+	spawned: [PLAYERS]bool
 	for &marker in yard.markers {
 		switch marker.kind {
 		case "spawn":
-			assert(spawns < PLAYERS, "holdout: more spawn markers than players")
-			world.spawns[spawns] = marker.pos
-			spawns += 1
+			slot := level.prop_int(&marker, "slot")
+			assert(slot >= 0 && slot < PLAYERS && !spawned[slot], "holdout: a spawn's slot is out of range or taken")
+			spawned[slot] = true
+			world.spawns[slot] = marker.pos
 		case "gate":
 			assert(world.gate_count < MAX_GATES, "holdout: too many gates")
 			world.gates[world.gate_count] = marker.pos
@@ -72,7 +73,8 @@ world_create :: proc(seed: u64, levels: []sim.Level_File, _: sim.No_Setup) -> ^W
 			world.core = marker.pos
 		}
 	}
-	assert(spawns == PLAYERS && world.gate_count > 0, "holdout: the yard needs a spawn per slot and a gate")
+	for slot_spawned in spawned do assert(slot_spawned, "holdout: the yard needs a spawn marker per slot")
+	assert(world.gate_count > 0, "holdout: the yard needs a gate")
 	world.core_poly, world.core_goal = nav.nearest(&world.mesh, world.core, CORE_HALF + 3)
 	assert(world.core_poly != nav.NO_POLY, "holdout: no navigation beside the core")
 	return world

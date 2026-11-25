@@ -81,9 +81,8 @@ fill_frame :: proc(f: ^Frame) {
 	enemies := sim.iterate(&f.state.enemies)
 	for enemy, handle in sim.next(&enemies) {
 		godot.push_view(f, handle, {
-			pos  = sim.Position(enemy.pos),
-			rot  = dmath.quat_yaw(enemy.facing),
-			warp = enemy.warp,
+			pos = sim.Position(enemy.pos),
+			rot = dmath.quat_yaw(enemy.facing),
 		}, View_Enemy{kind = enemy.kind, hp = f32(enemy.hp) / f32(g.ENEMY_SPECS[enemy.kind].hp)})
 	}
 	bolts := sim.iterate(&f.state.bolts)
