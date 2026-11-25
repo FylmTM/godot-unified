@@ -290,9 +290,9 @@ instance_alive :: proc(game: Game, instance: Drive_Instance) -> bool {
 }
 
 // Whether the process with this pid runs and is the one started with `marker` among its arguments (one only that
-// process has, such as the drive instance's --control port file). Arguments the OS doesn't give us count as a match:
-// the pid is all there is to go on. (The arguments, not the command line: core:os reads a Windows command line
-// at twice its length, and the text it makes of it can come back empty.)
+// process has, such as the drive instance's --control port file; never the executable: Linux leaves argv[0] out).
+// Arguments the OS doesn't give us count as a match: the pid is all there is to go on. (The arguments, not the command
+// line: core:os reads a Windows command line at twice its length, and the text it makes of it can come back empty.)
 process_runs :: proc(pid: int, marker: string) -> bool {
 	if pid <= 0 do return false
 	process, err := os.process_open(pid)
