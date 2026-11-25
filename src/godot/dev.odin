@@ -355,9 +355,7 @@ when DEVUI {
 			dev.bw_bytes, dev.bw_us = {}, 0
 		}
 		devui.lines("net", "bandwidth kB/s", dev.bw[:], {"in", "out"})
-		since: f32
-		if net.last_msg_us != 0 do since = f32(netcode.now_us() - net.last_msg_us) / 1000
-		devui.plot("net", "relay silence ms", since)
+		devui.plot("net", "relay silence ms", f32(host_silent_ms()))
 	}
 
 	// The sim's zones (sim.zone) as a stacked graph: each zone's self time this frame, in enum order, "other" last;
@@ -388,7 +386,7 @@ when DEVUI {
 
 	// Main thread, a live session's Result, or the session node ending it first (an app quit): its recording goes to
 	// <user data>/recordings/<local time>/ (snapshot.unis, inputs.unil, session.json: what UnifiedSession.replay
-	// opens), keeping the newest RECORDINGS_KEPT.
+	// opens; session.json comes last, so a folder without one is not whole yet), keeping the newest RECORDINGS_KEPT.
 	dev_save_recording :: proc(session: ^Session_Node) {
 		snapshot, input_log: [dynamic]u8
 		defer delete(snapshot)
@@ -406,9 +404,14 @@ when DEVUI {
 			context.temp_allocator,
 		)
 		stamp, _ = strings.replace_all(stamp, "T", "_", context.temp_allocator)
+		if os.make_directory_all(root) != nil do return
+		// a folder this save made itself, not one it found free: another instance of the game (uni coop's windows share
+		// the user folder) may save in the same second
 		dir := fmt.tprintf("%s/%s", root, stamp)
-		for n := 2; os.exists(dir); n += 1 do dir = fmt.tprintf("%s/%s-%d", root, stamp, n)
-		if os.make_directory_all(dir) != nil do return
+		for n := 2; os.make_directory(dir) != nil; n += 1 {
+			if n > 100 do return
+			dir = fmt.tprintf("%s/%s-%d", root, stamp, n)
+		}
 		Session_Json :: struct {
 			game:        string,
 			version:     string,
@@ -427,8 +430,10 @@ when DEVUI {
 		}
 		_ = os.write_entire_file(fmt.tprintf("%s/snapshot.unis", dir), snapshot[:])
 		_ = os.write_entire_file(fmt.tprintf("%s/inputs.unil", dir), input_log[:])
+		// session.json last, whole (renamed into place): a folder without one is still being written
 		if text, err := json.marshal(about, {pretty = true}, context.temp_allocator); err == nil {
-			_ = os.write_entire_file(fmt.tprintf("%s/session.json", dir), text)
+			written := fmt.tprintf("%s/session.json.part", dir)
+			if os.write_entire_file(written, text) == nil do _ = os.rename(written, fmt.tprintf("%s/session.json", dir))
 		}
 		entries, _ := os.read_all_directory_by_path(root, context.temp_allocator)
 		names := make([dynamic]string, context.temp_allocator)

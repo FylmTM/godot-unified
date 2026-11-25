@@ -220,7 +220,7 @@ Client_Stats :: struct {
 	snapshot_bytes: int, // a joiner: the snapshot it restored
 	snapshot_sent:  int, // ... as it came over the wire (compressed)
 	snapshot_us:    i64, // ... from its Snap_Begin to its last chunk
-	last_msg_us:    i64, // when the relay's last message arrived (now_us; 0: none yet)
+	last_msg_us:    i64, // when the relay's last message came, on the client's clock (a host's: session time; 0: none yet)
 	slow_changes:   int, // times `slow` changed
 	// live, filled by client_stats
 	rtt_ms:         f64, // the round trip the clock and input delay use

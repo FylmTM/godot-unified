@@ -22,7 +22,10 @@ const REMOTE_JUMP := 20.0
 const REMOTE_PERIOD := 64
 const REMOTE_EVENT_EVERY := 16  # the remote player's events: a tick each REMOTE_EVENT_EVERY, at REMOTE_EVENT_AT
 const REMOTE_EVENT_AT := 10
-const REMOTE_STALL_TICKS := 14  # a long frame: playback jumps (VERIFIED_WINDOW_TICKS) or strides past an event's tick
+# a long frame: over VERIFIED_DELAY_MAX + REMOTE_EVENT_EVERY + 2 ticks, so playback jumps past the next event's tick
+const REMOTE_STALL_TICKS := 30
+const BLINK_FROM := 20  # ext/ext.odin's blink view (plain2d key 5): ticks BLINK_FROM ..< BLINK_TO
+const BLINK_TO := 40
 const REMOTE_PLAYER_KEY := (77 << 16) | 3  # sim.player_key(REMOTE_PLAYER)
 const REMOTE_BLINK_KEY := (78 << 16) | 2  # sim.player_key(REMOTE_BLINK)
 const REMOTE_BLINK_FROM := 60
@@ -138,9 +141,20 @@ func _initialize() -> void:
 	var typed: Node = null
 	var decoy_events: Array = []  # a decoy view's (another table's handle with a thing's key): it gets no event
 	var decoys_seen := false
-	var blink: Node2D = null
-	var blink_despawned := false
-	var blink_kept := false
+	# The blink view (plain2d key 5) as it leaves the tree, freed: [its despawns, its position] (the host no longer posing
+	# it after _sim_despawned set it to (999, 999)), and the node. Taken as it goes, so a slow frame can't miss its linger.
+	var blink_exit: Array = []
+	views.child_exiting_tree.connect(func(node: Node) -> void:
+		var view_marker := node.get_node_or_null(^"UnifiedView") as UnifiedView
+		if view_marker != null and view_marker.kind == "plain2d" and view_marker.key == 5 and blink_exit.is_empty():
+			blink_exit.append_array([node.get("despawns"), (node as Node2D).position, node]))
+	# The ticks shown (session.tick as each frame begins: the frame before's). A view is made for a key a shown frame
+	# has: a frame that stalls past all of the blink's ticks (a loaded machine) never shows it, and it gets no view.
+	var shown_ticks := {}
+	var see_shown := func() -> void: shown_ticks[session.tick] = true
+	process_frame.connect(see_shown)  # until the blink's check
+	var blink_shown := func() -> bool:
+		return range(BLINK_FROM, BLINK_TO).any(func(tick: int) -> bool: return shown_ticks.has(tick))
 	var card: Control = null  # the thing's data-only view, followed until it is freed
 	var remote_blink: Node3D = null  # ext/ext.odin's REMOTE_BLINK's remote3d view, followed until it despawns
 	var remote_blink_seen := {}
@@ -152,14 +166,6 @@ func _initialize() -> void:
 		if decoy != null and not decoys_seen:
 			decoys_seen = true
 			decoy_events = decoy.get("events")
-		if blink == null:
-			for child in views.get_children():
-				var view_marker := child.get_node_or_null(^"UnifiedView") as UnifiedView
-				if view_marker != null and view_marker.kind == "plain2d" and view_marker.key == 5:
-					blink = child as Node2D
-		elif is_instance_valid(blink) and blink.get("despawns") == 1:
-			blink_despawned = true
-			blink_kept = blink_kept or blink.position == Vector2(999, 999)  # the host no longer sets its pose
 		if remote_blink == null:
 			for child in views.get_children():
 				var view_marker := child.get_node_or_null(^"UnifiedView") as UnifiedView
@@ -171,10 +177,9 @@ func _initialize() -> void:
 		if card == null:
 			card = child_of_kind(hand, "card") as Control
 			if card != null:
-				card_seen = {events = card.get("events"), positions = []}
+				card_seen = {events = card.get("events"), positions = [], record = card.get("record")}
 		if card != null and is_instance_valid(card):
 			card_seen.first_life = card.get("life_at_first_process")
-			card_seen.life_sets = card.get("life_sets")
 			card_seen.despawns = card.get("despawns")
 			card_seen.parent = card.get_parent()
 			(card_seen.positions as Array).append(card.position)
@@ -183,7 +188,8 @@ func _initialize() -> void:
 		elif i == 6:
 			press(&"ui_accept", false)
 		if typed != null and typed.get("updates") > 1 and typed.get("ticks_sets") > 2 \
-				and typed_multi.visible_instance_count == 2 and blink_despawned and not is_instance_valid(blink) \
+				and typed_multi.visible_instance_count == 2 \
+				and (not blink_exit.is_empty() or session.tick >= BLINK_TO and not blink_shown.call()) \
 				and card != null and not is_instance_valid(card) and remote_blink_seen.get("despawns", 0) > 0 \
 				and events.any(func(e: Array) -> bool:
 					return e[0] is EventExpired and e[1] == UnifiedSession.EVENT_CONFIRMED):
@@ -232,7 +238,10 @@ func _initialize() -> void:
 	check("the same key in another kind is another view", plain != null and p3 != null \
 		and (p3.get("marker") as UnifiedView).key == 2, (p3.get("marker") as UnifiedView).key if p3 else null)
 	check("a view that leaves gets _sim_despawned once and is no longer posed while it lingers, then is freed",
-		blink_despawned and blink_kept and not is_instance_valid(blink), [blink_despawned, blink_kept])
+		blink_exit.size() == 3 and blink_exit[0] == 1 and blink_exit[1] == Vector2(999, 999) \
+		and not is_instance_valid(blink_exit[2]) or not blink_shown.call() and blink_exit.is_empty(),
+		[blink_shown.call(), blink_exit.slice(0, 2)])
+	process_frame.disconnect(see_shown)
 	check("session data on Unified: typed, changed when it changes", toy.x > 0 and toy_changes[0] > 2,
 		[toy.x, toy_changes[0]])
 	check("Unified.view_scale: the Glue's", near(Unified.view_scale, 10.0), Unified.view_scale)
@@ -382,9 +391,10 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 	var thing_remote := [0, 0]  # frames the thing matched the remote view / were compared, showing the remote player
 	var thing_local := [0, 0]  # and the local view, showing the local player
 	var start := session.tick
-	for i in 200:  # up to ~4 s, until a period has passed
+	# until a period has passed and the thing was compared in a few frames of each half (slow frames take longer)
+	for i in 600:
 		await create_timer(0.02).timeout
-		if session.tick > start + REMOTE_PERIOD + 8:
+		if session.tick > start + REMOTE_PERIOD + 8 and thing_remote[1] > 5 and thing_local[1] > 5:
 			break
 		for child in views.get_children():
 			var view_marker := child.get_node_or_null(^"UnifiedView") as UnifiedView
@@ -415,19 +425,15 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 		else:
 			thing_local[1] += 1
 			thing_local[0] += int(absf(thing.position.x - local.position.x) < 0.01)
-	# A long frame (the main thread stalls while the session steps on, as under load) just before an event's tick is
-	# verified: the next frame's playback strides past that tick and the same frame drains its confirmation, which must
-	# come in that frame too, not held for the next.
+	# A long frame (the main thread stalls while the session steps on, as under load) before an event's tick is verified
+	# (the next one at least 2 past the shown verified tick: its confirmation not drained yet): the next frame's playback
+	# jumps past that tick and the same frame drains its confirmation, which must come in that frame too, not held for
+	# the next.
 	var stalled_event := -1
-	for i in 200:
-		if remote == null:
-			break
-		var until := posmod(REMOTE_EVENT_AT - session.verified_tick, REMOTE_EVENT_EVERY)
-		if until >= 1 and until <= 3:
-			stalled_event = session.verified_tick + until
-			OS.delay_msec(int(1000.0 * REMOTE_STALL_TICKS / Unified.tick_hz))
-			break
-		await process_frame
+	if remote != null:
+		var verified := session.verified_tick
+		stalled_event = verified + 2 + posmod(REMOTE_EVENT_AT - verified - 2, REMOTE_EVENT_EVERY)
+		OS.delay_msec(int(1000.0 * REMOTE_STALL_TICKS / Unified.tick_hz))
 	for i in 10:
 		await process_frame
 	check("the remote walk: a remote player's, the local player's, a predicted3d and a thing's views", remote != null \
@@ -809,7 +815,11 @@ func check_card(card: Control, seen: Dictionary, hand: Node) -> void:
 	if seen.is_empty():
 		return
 	check("its data is set before its first _process", seen.first_life > 0, seen.first_life)
-	check("its data is set again when it changes", seen.life_sets > 1, seen.life_sets)
+	# at each tick its _process saw while it lived (its thing's life changes every tick), counted by the card itself: a
+	# thing lives 4 ticks or more, so slow frames can show its card at one tick only
+	var record: Dictionary = seen.record
+	check("its data is set again when it changes: at least once for each tick it is shown at while it lives",
+		record.life_sets >= maxi(record.ticks_shown, 1), [record.life_sets, record.ticks_shown])
 	check("the host never poses a data-only view: its container lays it out",
 		(seen.positions as Array).all(func(p: Vector2) -> bool: return p == Vector2.ZERO), seen.positions)
 	var on_card: Array = seen.events

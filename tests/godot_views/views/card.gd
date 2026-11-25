@@ -3,7 +3,8 @@ extends PanelContainer
 # (its marker's parent_path), which lays it out.
 
 ## Every card made since the hand check cleared it: a record each that outlives its card, kept up to date by it
-## ({key, holder, life_sets, despawns, events}), so a card that lived between two of the check's frames still counts.
+## ({key, holder, life_sets, ticks_shown, despawns, events}), so a card that lived between two of the check's frames
+## still counts.
 static var made: Array[Dictionary] = []
 
 var processed := 0
@@ -22,7 +23,8 @@ var data: ViewCard:
 		record.holder = value.holder
 		data = value
 var life_sets := 0
-var record := {life_sets = 0, holder = 0, despawns = 0}
+var ticks_shown := {}  # the ticks its _process saw while it lived
+var record := {life_sets = 0, ticks_shown = 0, holder = 0, despawns = 0}
 
 @onready var marker: UnifiedView = $UnifiedView
 
@@ -38,6 +40,9 @@ func _process(_delta: float) -> void:
 	processed += 1
 	if processed == 1:
 		life_at_first_process = data.life
+	if despawns == 0:
+		ticks_shown[Unified.session.tick] = true
+		record.ticks_shown = ticks_shown.size()
 
 
 func _sim_despawned() -> void:

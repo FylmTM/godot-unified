@@ -26,7 +26,7 @@
 # 13. the session node taken out of the tree from a script the session calls: its session ends once that frame is
 #    done with it; put back, it runs sessions again; a paused SceneTree doesn't stop it.
 # 14. `paused` set in the frame a start method was called starts the session paused on its first tick, a restart's
-#    too.
+#    too; a pause is no silence of the host (host_silent_ms).
 # 15. a second local player on the keyboard: a tap pressed and released within one frame reaches the sim; on a pad,
 #    the pad going away releases what it held (the next press is a press).
 # Every run ends with UnifiedSession.quit while a sound plays: the quit stops it first, so no playback leaks at exit
@@ -204,7 +204,10 @@ func _ended_session() -> bool:
 		return false
 	if not await _wait_for(func() -> bool: return not s.running, 5.0, "the short session ends"):
 		return false
-	await _sleep(0.2)
+	# its Result is queued before its thread ends: the next frame takes it, the one after still shows its last frame,
+	# and from the third on nothing answers from it (frames, not time: a loaded machine's frames are long)
+	for i in 3:
+		await process_frame
 	check("an ended session has no local player", s.local_player == 0, s.local_player)
 	s.ticks = 0
 	return true
@@ -323,7 +326,8 @@ func _replay() -> bool:
 	if not await _wait_for(func() -> bool: return not s.running, 5.0, "the recorded session ends"):
 		return false
 	s.ticks = 0
-	await _sleep(0.2)  # a recording another process saves at once is whole by now
+	# saved as its Result came (a folder is whole once its session.json is there: another process's may not be yet)
+	await _wait_for(func() -> bool: return _newest_recording(REPLAY_TICKS) != "", 5.0, "its recording is saved")
 	var folder := _private_copy(_newest_recording(REPLAY_TICKS))
 	check("its recording was kept", folder != "", folder)
 	check("replay it", s.replay(folder))
@@ -405,8 +409,11 @@ func _replay() -> bool:
 	var kept := ""
 	var root := OS.get_user_data_dir() + "/recordings"
 	for name: String in DirAccess.get_directories_at(root):
-		var info: Variant = JSON.parse_string(FileAccess.get_file_as_string(root + "/" + name + "/session.json"))
-		if not before.has(name) and info is Dictionary and absi(int((info as Dictionary).get("to_tick", 0)) - paused_on) <= 2:
+		var session := root + "/" + name + "/session.json"
+		if before.has(name) or not FileAccess.file_exists(session):
+			continue  # an older one, or one another process is still writing
+		var info: Variant = JSON.parse_string(FileAccess.get_file_as_string(session))
+		if info is Dictionary and absi(int((info as Dictionary).get("to_tick", 0)) - paused_on) <= 2:
 			kept = name
 	check("the left live session kept its recording", kept != "", "paused on %d" % paused_on)
 	s.leave()
@@ -416,8 +423,8 @@ func _replay() -> bool:
 	return await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_LEFT, 2.0, "a left replay says LEFT")
 
 
-# The newest whole recording folder under user://recordings that ends on `to_tick` ("" for none): its session.json is
-# written last, and the other sections' processes (the same user folder) record sessions of their own beside it.
+# The newest whole recording folder under user://recordings that ends on `to_tick` ("" for none): its session.json comes
+# last, whole, and the other sections' processes (the same user folder) record sessions of their own beside it.
 func _newest_recording(to_tick: int) -> String:
 	var root := OS.get_user_data_dir() + "/recordings"
 	var sorted := Array(DirAccess.get_directories_at(root))
@@ -575,6 +582,18 @@ func _started_paused() -> bool:
 	s.paused = false
 	if not await _wait_for(func() -> bool: return s.tick > 10, 5.0, "unpaused, it runs"):
 		return false
+	# a pause of single player is no silence of its host (it runs on session time, which the pause leaves out)
+	s.paused = true
+	if not await _wait_for(func() -> bool: return s.paused, 2.0, "it pauses again"):
+		return false
+	await _sleep(1.5)
+	var while_paused: float = s.host_silent_ms
+	s.paused = false
+	var resumed_at: int = s.tick
+	if not await _wait_for(func() -> bool: return s.tick > resumed_at + 2, 5.0, "unpaused again, it runs"):
+		return false
+	check("a 1.5 s pause of single player is no silence of its host: neither while paused nor after",
+		while_paused < 1000.0 and s.host_silent_ms < 1000.0, [while_paused, s.host_silent_ms])
 	check("restart on the running session", s.start_single())
 	s.paused = true  # the waiting start's
 	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.paused, 5.0, "the restart pauses"):
@@ -683,7 +702,9 @@ func _restart() -> bool:
 # none gets one object per class, refilled; a listener that keeps them gets a new one each time, never refilled
 func _event_objects() -> bool:
 	check("start single player", s.start_single())
-	if not await _wait_for(func() -> bool: return s.local_player != 0 and s.tick > 5, 5.0, "single player runs"):
+	# CONNECTED: the new session's frames (a session the section before left running shows its own until it is gone,
+	# and its events are not routed)
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.local_player != 0 and s.tick > 5, 5.0, "single player runs"):
 		return false
 	s.take_sync_stats()
 	if not await _ticks_pass(48):

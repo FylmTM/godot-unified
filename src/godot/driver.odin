@@ -75,6 +75,9 @@ Api :: struct {
 	// while it has other players), and whether it is paused now. Nothing, and false, with no session.
 	set_paused:      proc(paused: bool),
 	paused:          proc() -> bool,
+	// When the host was last heard from, on the real clock (netcode.now_us; 0: not yet, or no session):
+	// UnifiedSession.host_silent_ms.
+	heard:           proc() -> i64,
 	// Asks a paused single-player session to step `ticks` exact ticks (the control socket's step): the goal its
 	// `stepped` count reaches when they are done (false: no session).
 	step:            proc(ticks: u32) -> (goal: u32, ok: bool),
@@ -208,6 +211,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	// (netcode.host_set_paused, single player only; Start.paused before the first step), and whether it is paused now.
 	pause_want:      bool,
 	pause_on:        bool,
+	heard_us:        i64, // atomic: api.heard's, after each step
 	// The control socket's `step` (atomics): the ticks the main thread asked the paused session to step, in all (it adds
 	// to it), the ticks the session thread has taken of them (netcode.host_advance), and the predicted tick it reached.
 	step_req:        u32,
@@ -625,6 +629,9 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	}
 	api.paused = proc() -> bool {
 		return g_driver != nil && sync.atomic_load(&(^This_Driver)(g_driver).pause_on)
+	}
+	api.heard = proc() -> i64 {
+		return g_driver != nil ? sync.atomic_load(&(^This_Driver)(g_driver).heard_us) : 0
 	}
 	api.step = proc(ticks: u32) -> (u32, bool) {
 		if g_driver == nil do return 0, false
@@ -1693,6 +1700,12 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 			wake = netcode.client_step(driver.client, now)
 		}
 		sync.atomic_add(&driver.step_seq, 1)
+		// a host's client runs on session time, which leaves out the single-player pause and the stalls the host
+		// folds (netcode.host_step): back on the real clock, neither counts as the host's silence, and a paused
+		// single player misses nothing
+		heard := driver.client.stats.last_msg_us
+		if driver.host != nil && heard != 0 do heard = driver.host.paused ? now : heard + driver.host.paused_total
+		sync.atomic_store(&driver.heard_us, heard)
 		if driver.host != nil ? netcode.host_finished(driver.host) : netcode.client_finished(driver.client) do break
 		if driver.client.slow != driver.slow {
 			driver.slow = driver.client.slow

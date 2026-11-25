@@ -328,9 +328,8 @@ register_session_class :: proc() {
 		doc = "The round trip to the host is past [member round_trip_ceiling_ms] ([signal link_slow_changed] says when it changes): show a warning, or leave in the game's own words. Judged after a few round trips; it clears after 2 s back under the ceiling.",
 	)
 	gd.bind_property(class, "host_silent_ms", proc(session: ^Session_Node) -> f64 {
-			if session.frame == nil || session.frame.net.last_msg_us == 0 do return 0
-			return f64(netcode.now_us() - session.frame.net.last_msg_us) / 1000
-		}, doc = "How long nothing has come from the host, in milliseconds (0 before the first). The world freezes while the link is down; past a second or so, a game may say \"connection problems\".")
+			return session.frame != nil ? host_silent_ms() : 0
+		}, doc = "How long nothing has come from the host, in milliseconds (0 before the first). The world freezes while the link is down; past a second or so, a game may say \"connection problems\". The host's own player (single player, or hosting) hears its relay in-process: a pause of single player, or a stall of this process, is no silence.")
 	gd.bind_property(class, "local_player", proc(session: ^Session_Node) -> i64 {
 			return session.frame != nil ? i64(session.frame.local_player) : 0
 		}, doc = "The first local player's key at the shown tick (0 until it joins, and once the session is over): a game of one local player reads this; [member local_players] has them all.")
@@ -1321,6 +1320,14 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 	if api.installed do api.set_want_state(dev_wants_state() || control_listening())
 	dev_frame(session, dt)
 	control_poll(session) // last: a reply sees this frame's views and events
+}
+
+// How long nothing has come from the session's host, in milliseconds, on the real clock (0: nothing yet, no session):
+// UnifiedSession.host_silent_ms and the dev UI's relay silence.
+@(private)
+host_silent_ms :: proc() -> f64 {
+	heard := api.installed ? api.heard() : 0
+	return heard != 0 ? f64(netcode.now_us() - heard) / 1000 : 0
 }
 
 // Delivers the queued events of the ticks the shown Frame covers (tick <= its tick), in order; newer ones wait for the
