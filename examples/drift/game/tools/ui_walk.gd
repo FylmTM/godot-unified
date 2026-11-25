@@ -13,7 +13,7 @@ extends MenuTool
 ## one. Then couch co-op (`_walk_couch()`). Splitting and destroying rocks and warping through a gate: the full tour
 ## (`uni tool drift tour`).
 
-const HUNT_S := 20
+const HUNT_S := 40
 ## How far the hunt shoots (pixels): well inside a bullet's reach (BULLET_SPEED × BULLET_LIFE_S ≈ 500 px), so a rock
 ## drifting while a bullet flies is still hit.
 const HUNT_RANGE := 400.0

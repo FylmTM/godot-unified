@@ -291,7 +291,7 @@ func _choose(index: int) -> void:
 	Sfx.play(&"click")
 	var pick := CommandPick.new()
 	pick.upgrade = _offers[index]
-	pick.level = me.level - me.pending_levelups + 1  # the oldest pending level-up's: the offers shown are its
+	pick.level = me.offer_level  # the level the offers shown are for
 	Unified.session.send_command(pick)
 
 

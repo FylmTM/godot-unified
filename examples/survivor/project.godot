@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="survivor"
+config/name="Survivor"
 config/description="Co-op survivor prototype on unified."
 config/version="dev"
 run/main_scene="res://game/ui/main_menu.tscn"
