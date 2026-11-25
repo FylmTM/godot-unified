@@ -293,15 +293,21 @@ instance_alive :: proc(game: Game, instance: Drive_Instance) -> bool {
 // process has, such as the drive instance's --control port file; never the executable: Linux leaves argv[0] out).
 // Arguments the OS doesn't give us count as a match: the pid is all there is to go on. (The arguments, not the command
 // line: core:os reads a Windows command line at twice its length, and the text it makes of it can come back empty.)
+// Linux and macOS can't wait on a process that isn't this one's child (another uni started it, or it is this one):
+// there an error from the wait means it runs while the OS still describes it.
 process_runs :: proc(pid: int, marker: string) -> bool {
 	if pid <= 0 do return false
 	process, err := os.process_open(pid)
 	if err != nil do return false
 	state, wait_err := os.process_wait(process, 0)
-	running := wait_err == .Timeout || wait_err == nil && !state.exited // Timeout: still running
-	if !running do return false
+	if wait_err == nil && state.exited do return false // our child, and it ended
+	waited := wait_err == .Timeout // Timeout: still running
+	when ODIN_OS == .Windows {
+		if !waited do return false // Windows waits on any process: an error is a process that is gone
+	}
 	info, info_err := os.process_info_by_pid(pid, {.Command_Args}, context.temp_allocator)
-	if info_err != nil || .Command_Args not_in info.fields do return true
+	if info_err != nil do return waited // gone, unless the wait saw it running
+	if .Command_Args not_in info.fields do return true
 	for arg in info.command_args {
 		if strings.contains(slashed(arg), slashed(marker)) do return true
 	}
