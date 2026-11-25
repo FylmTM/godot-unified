@@ -1075,6 +1075,8 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	assert(!session.syncing, "a session launched while session_process holds a Frame")
 	session.frame = nil // it points into the finished session, which wait frees
 	session.ended, session.over, session.recorded = false, false, false
+	// a new session's roster is news even when its first shown tick seats the same slots as the last one's
+	session.slots_seen, session.known_seen = {}, -1
 	session.saves_seen = 0
 	api.wait() // a finished session's thread (start_pending took its Result)
 	request := request

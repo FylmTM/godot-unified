@@ -363,6 +363,7 @@ Tool_Run :: struct {
 	window:  bool,
 	place:   Window_Opts, // with window: sound and screen
 	shots:   string, // a name: --shots=res://.out/shots/<name>
+	size:    string, // with window: `WxH`, --window-size (UnifiedTool places and sizes it)
 	timeout: f64,
 	env:     []string, // the whole environment (nil: user_env's, the project's own user data)
 	quiet:   bool, // don't echo the script's output (it is shown on failure)
@@ -392,6 +393,9 @@ tool_cmd :: proc(tool_run: Tool_Run) -> []string {
 	append(&cmd, "--path", tool_run.dir, "-s", tool_run.script, "--", "--no-settings", "--local-net")
 	if tool_run.shots != "" {
 		append(&cmd, aprintf("--shots=res://.out/shots/%s", tool_run.shots))
+	}
+	if tool_run.window && tool_run.size != "" {
+		append(&cmd, aprintf("--window-size=%s", tool_run.size))
 	}
 	append(&cmd, ..tool_run.args)
 	return cmd[:]
@@ -586,7 +590,11 @@ Window_Opts :: struct {
 
 // The window of a check (tool --window, coop --window, this repo's view-bench --window): muted, on the leftmost
 // screen, never taking focus, so it never disturbs the developer's screen or keyboard.
-AGENT_WINDOW :: Window_Opts{true, "left", true}
+AGENT_WINDOW :: Window_Opts {
+	mute       = true,
+	screen     = "left",
+	background = true,
+}
 
 // The project override uni writes for a background window: Godot's no-focus flag, which can only be set before the
 // main window exists. Godot reads <project>/override.cfg at startup (a run, not the editor, which ignores it).
@@ -674,6 +682,17 @@ window_args :: proc(window: Window_Opts) -> []string {
 		append(&args, "--screen", aprintf("%d", screen_index(window.screen)))
 	}
 	return args[:]
+}
+
+// Reads a window size, `WxH` (1280x720), for a --size option; usage error otherwise.
+parse_window_size :: proc(text: string) -> (size: [2]int) {
+	x := strings.index_byte(text, 'x')
+	width, width_ok := strconv.parse_int(text[:max(x, 0)])
+	height, height_ok := strconv.parse_int(x >= 0 ? text[x + 1:] : "")
+	if x < 0 || !width_ok || !height_ok || width < 64 || height < 64 {
+		usage("--size takes WIDTHxHEIGHT, at least 64x64 (got %q)", text)
+	}
+	return {width, height}
 }
 
 @(private)

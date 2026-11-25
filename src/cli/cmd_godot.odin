@@ -473,7 +473,12 @@ Run_Opts :: struct {
 cmd_run :: proc(args: []string) -> Result {
 	opts: Run_Opts
 	parse(&opts, args)
-	return play(game(opts.game), false, opts.overflow[:], {opts.mute, opts.screen, opts.background})
+	return play(
+		game(opts.game),
+		false,
+		opts.overflow[:],
+		{mute = opts.mute, screen = opts.screen, background = opts.background},
+	)
 }
 
 @(private)
@@ -487,7 +492,7 @@ Editor_Opts :: struct {
 cmd_editor :: proc(args: []string) -> Result {
 	opts: Editor_Opts
 	parse(&opts, args)
-	return play(game(opts.game), true, nil, {opts.mute, opts.screen, false})
+	return play(game(opts.game), true, nil, {mute = opts.mute, screen = opts.screen})
 }
 
 @(private)
@@ -552,6 +557,8 @@ tool_details :: proc() -> string {
 @(private)
 Tool_Opts :: struct {
 	window:   bool `usage:"in a window: muted, on the leftmost screen, never taking focus (default: headless)"`,
+	size:     string `hint:"<WxH>" usage:"--window: its size (default: the project's); bigger than the leftmost screen, it moves just left of every screen (macOS: stays on the leftmost)"`,
+	offline:  bool `usage:"no online play, also where .env names the EOS SDK (as the godot suite's runs): a look pass that must not reach EOS"`,
 	shots:    bool `usage:"save screenshots to <game>/.out/shots/<script>/ (needs --window)"`,
 	cold:     bool `usage:"clear the shader caches first, like a player's first launch"`,
 	overflow: [dynamic]string `hint:"[game] <script> [-- args]" usage:"the game (default: the only one) and the script, then after --: the script's arguments"`,
@@ -612,6 +619,11 @@ cmd_tool :: proc(args: []string) -> Result {
 	if opts.shots && !opts.window {
 		usage("--shots needs --window")
 	}
+	if opts.size != "" {
+		if !opts.window do usage("--size needs --window")
+		size := parse_window_size(opts.size)
+		opts.size = aprintf("%dx%d", size.x, size.y)
+	}
 	ensure_game(selected)
 	if opts.cold {
 		clear_shader_cache(selected)
@@ -622,8 +634,10 @@ cmd_tool :: proc(args: []string) -> Result {
 		args    = split < len(args) ? args[split + 1:] : nil,
 		window  = opts.window,
 		shots   = opts.shots ? name : "",
+		size    = opts.size,
 		place   = AGENT_WINDOW,
 		timeout = TOOL_TIMEOUT,
+		env     = opts.offline ? user_env(selected.dir, ..SUITE_OFFLINE_ENV) : nil,
 	})
 	summary := aprintf("%s %s: %s in %.1fs", selected.name, name, result.ok ? "ok" : "FAILED", result.seconds)
 	if own := tool_own_result(result.result); own != "" {

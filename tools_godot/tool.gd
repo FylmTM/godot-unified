@@ -15,8 +15,11 @@ extends SceneTree
 ## It knows no game's menus: a game drives its own UI from its tool scripts (game/tools/).
 ##
 ## Arguments come after `--`: `arg("name")` reads `--name=value` (or `--name value`), `flag("name")` `--name`. Every
-## tool takes `--shots=<dir>` (PNGs from `shot()`, a windowed run) and `--frames` (frame times and first-use hitches,
-## UnifiedFrameLog; a script tags its own moments with `frame_tag()`).
+## tool takes `--shots=<dir>` (PNGs from `shot()`, a windowed run), `--frames` (frame times and first-use hitches,
+## UnifiedFrameLog; a script tags its own moments with `frame_tag()`) and `--window-size=WxH` (uni tool --size).
+
+## How far left of the leftmost screen a window too big for it goes (`--window-size`): past its frame's shadow.
+const OFF_SCREEN_GAP := 64
 
 ## The Game autoload, when the game has one. Untyped on purpose: a `-s` script compiles before the autoloads exist,
 ## so it names no script that uses them.
@@ -58,6 +61,7 @@ func _process(_delta: float) -> bool:
 		_started = true
 		_t0 = Time.get_ticks_msec()
 		_size_headless_window()  # here: the engine sets the root's size once more after _init and _initialize
+		_size_window()
 		_start()
 	return false
 
@@ -358,7 +362,41 @@ func _size_headless_window() -> void:
 	root.size = Vector2i(width, height)
 
 
+# `uni tool --window --size=WxH` (`--window-size`): a look at another window size. A window that fits the leftmost
+# screen stays on it, centred; a wider one moves just left of every screen before it grows, so at no moment does it
+# reach onto the next screen (Godot draws a window there, but won't create one off every screen: it opens on the
+# leftmost and moves). macOS pulls a window back onto a screen: there it grows on the leftmost one.
+func _size_window() -> void:
+	var asked: String = arg("window-size")
+	if asked == "" or DisplayServer.get_name() == "headless":
+		return
+	var size := Vector2i(asked.get_slice("x", 0).to_int(), asked.get_slice("x", 1).to_int())
+	var leftmost: int = 0
+	for screen: int in DisplayServer.get_screen_count():
+		if DisplayServer.screen_get_position(screen).x < DisplayServer.screen_get_position(leftmost).x:
+			leftmost = screen
+	var origin: Vector2i = DisplayServer.screen_get_position(leftmost)
+	var room: Vector2i = DisplayServer.screen_get_size(leftmost)
+	if (size.x <= room.x and size.y <= room.y) or OS.get_name() == "macOS":
+		root.position = origin + Vector2i((Vector2(room - size) / 2.0).floor())
+	else:
+		root.position = Vector2i(origin.x - size.x - OFF_SCREEN_GAP, origin.y)
+	root.size = size
+
+
+# The asked window size took and the window draws (a shot of another size, or none, would mislead a look pass).
+func _check_window_size() -> void:
+	var asked: String = arg("window-size")
+	if asked == "" or DisplayServer.get_name() == "headless":
+		return
+	await frames(3)
+	var size := Vector2i(asked.get_slice("x", 0).to_int(), asked.get_slice("x", 1).to_int())
+	expect(root.size == size, "the window is the asked %s (got %dx%d)" % [asked, root.size.x, root.size.y])
+	expect(DisplayServer.window_can_draw(), "the %s window draws where it was placed" % asked)
+
+
 func _start() -> void:
+	await _check_window_size()
 	game = root.get_node_or_null(^"Game")
 	if frame_log != null and session != null:
 		session.sim_event.connect(func(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:

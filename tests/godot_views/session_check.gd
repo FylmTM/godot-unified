@@ -456,6 +456,28 @@ func _failed_twice() -> bool:
 		if not await _wait_for(func() -> bool: return _statuses.any(func(x: String) -> bool: return x.begins_with("failed")), 2.0, "failed join %d" % (attempt + 1)):
 			return false
 		check("failed join %d says so, once" % (attempt + 1), _statuses.filter(func(x: String) -> bool: return x.begins_with("failed")).size() == 1, _statuses)
+	# a host name nothing resolves is told as such, not as a malformed address
+	_statuses.clear()
+	s.join_direct("nohost.invalid:7777")
+	if not await _wait_for(func() -> bool: return _statuses.any(func(st: String) -> bool: return st.begins_with("failed")),
+			5.0, "a join to an unknown host fails"):
+		return false
+	check("an unknown host name says no computer has it", str(_statuses).contains("no computer named"), _statuses)
+	# A second game on the same node seats the same slot as the first: a HUD redrawn on roster_changed alone still
+	# lists its player once it is present.
+	for game: int in 2:
+		var listed: Array = [[]]
+		var redraw := func() -> void: listed[0] = s.players
+		s.roster_changed.connect(redraw)
+		check("game %d starts" % (game + 1), s.start_single())
+		if not await _wait_for(func() -> bool: return s.local_player != 0 and s.tick > 10, 5.0, "a game runs"):
+			return false
+		await _sleep(0.2)
+		s.roster_changed.disconnect(redraw)
+		check("game %d: roster_changed lists its player" % (game + 1), listed[0].size() == 1 			and listed[0] == s.players, [listed[0], s.players])
+		s.leave()
+		if not await _wait_for(func() -> bool: return not s.running, 5.0, "the game ends"):
+			return false
 	return true
 
 
