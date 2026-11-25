@@ -41,8 +41,9 @@ func _ready() -> void:
 	_on_hud_changed()
 
 
+## The `start` hotkey (Enter, pad X): not while game input is off (the pause menu, the dev UI).
 func _unhandled_input(event: InputEvent) -> void:
-	if event.is_action_pressed(&"start"):
+	if event.is_action_pressed(&"start") and Unified.session.game_input:
 		get_viewport().set_input_as_handled()
 		_start_or_restart()
 
@@ -128,11 +129,13 @@ func _refresh_controls() -> void:
 	_controls.refresh(rows)
 
 
-## Banners and the best time, once an event's tick is confirmed.
+## A pad's player the session refused (it is full): a banner says why.
 func _on_local_player_refused(_local: int, reason: String) -> void:
 	_banner.show_message("Can't join: %s" % reason, UiTheme.TEXT, 2.5)
 
 
+## Banners and the best time, once an event's tick is confirmed. A replay's match (maybe someone else's) never sets
+## the best time.
 func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
 	if state != UnifiedSession.EVENT_CONFIRMED:
 		return
@@ -145,5 +148,5 @@ func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> voi
 	elif event is EventMatchOver:
 		_banner.show_message("Station lost", UiTheme.TEXT, 2.5)
 		var survived := (event as EventMatchOver).duration_s
-		if survived > Settings.best_time:
+		if survived > Settings.best_time and Unified.session.mode != UnifiedSession.MODE_REPLAY:
 			Settings.best_time = survived

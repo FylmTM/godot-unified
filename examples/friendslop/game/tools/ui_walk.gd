@@ -187,6 +187,10 @@ func _walk_pause_menu() -> void:
 	expect(not pause.visible, "Esc closes the menu")
 	await seconds(0.3)
 	expect(not session.paused and session.tick > held, "the ticks go on once it closes")
+	await pad_button(JOY_BUTTON_START, 1)
+	expect(pause.visible, "a second pad's Start opens the menu (the menu action hears every pad)")
+	await pad_button(JOY_BUTTON_START, 1)
+	expect(not pause.visible, "and closes it")
 	await press_action(&"menu")
 	step("Esc menu")
 	# open to friends: the single-player session hosts (online when this build can, else on the LAN port) and keeps

@@ -70,6 +70,7 @@ func _ready() -> void:
 		InputMap.action_add_event(&"menu", esc)
 		var start := InputEventJoypadButton.new()
 		start.button_index = JOY_BUTTON_START
+		start.device = -1  # every pad: an event left at device 0 hears the first pad only
 		InputMap.action_add_event(&"menu", start)
 	get_tree().auto_accept_quit = false  # the window's close button goes through quit_app too
 	_overlay_layer = CanvasLayer.new()

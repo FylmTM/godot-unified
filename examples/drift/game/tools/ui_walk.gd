@@ -10,7 +10,8 @@ extends MenuTool
 ## input actions as a player would (the right stick aims): the lobby (the ship, the station and both gates) -> click
 ## Start (the `start` command) -> the match: aim with the stick (the ship turns to it), thrust (it moves, the camera
 ## follows), fire (bullets in the multi view) while the first wave's rocks drift in -> hunt rocks until a bullet hits
-## one. Splitting and destroying rocks and warping through a gate: the full tour (`uni tool drift tour`).
+## one. Then couch co-op (`_walk_couch()`). Splitting and destroying rocks and warping through a gate: the full tour
+## (`uni tool drift tour`).
 
 const HUNT_S := 20
 ## How far the hunt shoots (pixels): well inside a bullet's reach (BULLET_SPEED × BULLET_LIFE_S ≈ 500 px), so a rock
@@ -99,18 +100,24 @@ func _walk_play() -> void:
 	await _walk_couch()
 
 
-## Couch co-op: pad 1's Start joins a second local player, whose ship moves by pad 1's stick alone; it leaves again.
+## Couch co-op, with the keyboard the last input: pad 0's Start joins a second local player (the first keeps the
+## keyboard and mouse), whose ship moves by pad 0's left stick alone and turns by its right stick alone (the first
+## ship keeps its heading); the joined pad's Start opens the pause menu; the second player leaves again.
 func _walk_couch() -> void:
 	if failed():
 		return
-	var start := InputEventJoypadButton.new()
-	start.device = 1
-	start.button_index = JOY_BUTTON_START
-	start.pressed = true
-	Input.parse_input_event(start)
-	await wait_for(func() -> bool: return session.local_players.size() == 2, 5.0, "pad 1 joins as a second local player")
+	expect(not game.using_pad, "the keyboard was the last input")
+	await pad_button(JOY_BUTTON_START, 0)
+	await wait_for(func() -> bool: return session.local_players.size() == 2, 5.0, "pad 0 joins as a second local player")
 	if failed():
 		return
+	expect(session.get_local_device(0) == UnifiedSession.DEVICE_KEYBOARD and session.get_local_device(1) == 0,
+		"the first player keeps the keyboard, the second plays on pad 0")
+	var pause := find(current_scene, ^"PauseMenu") as CanvasLayer
+	await pad_button(JOY_BUTTON_START, 0)
+	expect(pause.visible, "the joined pad's Start opens the pause menu")
+	await pad_button(JOY_BUTTON_START, 0)
+	expect(not pause.visible, "and closes it")
 	var second: int = session.get_local_player_key(1)
 	var ship := session.get_player_view(EnumView.SHIP, second) as Node2D
 	await wait_for(func() -> bool:
@@ -119,20 +126,22 @@ func _walk_couch() -> void:
 	if failed():
 		return
 	var from := ship.global_position
-	var axis := InputEventJoypadMotion.new()
-	axis.device = 1
-	axis.axis = JOY_AXIS_LEFT_X
-	axis.axis_value = 1.0
-	Input.parse_input_event(axis)
+	await pad_axis(JOY_AXIS_LEFT_X, 1.0, 0)
 	await seconds(0.6)
-	axis.axis_value = 0.0
-	Input.parse_input_event(axis)
+	await pad_axis(JOY_AXIS_LEFT_X, 0.0, 0)
 	var moved := ship.global_position.x - from.x
-	expect(moved > 10.0, "pad 1's stick moves the second ship (+%d px)" % int(moved))
+	expect(moved > 10.0, "pad 0's stick moves the second ship (+%d px)" % int(moved))
+	var first_heading := _me().rotation
+	await pad_axis(JOY_AXIS_RIGHT_Y, -1.0, 0)
+	await wait_for(func() -> bool: return absf(angle_difference(ship.rotation, -PI / 2.0)) <= 0.3, 1.5,
+		"pad 0's right stick turns the second ship")
+	await pad_axis(JOY_AXIS_RIGHT_Y, 0.0, 0)
+	expect(absf(angle_difference(_me().rotation, first_heading)) < 0.05,
+		"the first ship keeps its heading (it plays on the keyboard)")
 	session.remove_local_player(1)
 	session.set_local_device(0, UnifiedSession.DEVICE_ANY)
 	await wait_for(func() -> bool: return session.local_players.size() == 1, 5.0, "the second local player leaves")
-	step("couch: pad 1 joined, steered its own ship (+%d px), left" % int(moved))
+	step("couch: pad 0 joined, steered and aimed its own ship (+%d px), paused, left" % int(moved))
 
 
 ## Online play through the lobby service (default: skipped; it needs EOS, or a game's stand-in session).
@@ -215,6 +224,13 @@ func _lobby_and_start() -> void:
 
 	var start: Button = current_scene.get_node(^"HUD").start_button
 	expect(start.is_visible_in_tree(), "the Start button shows in the lobby")
+	# under the pause menu the `start` hotkey (pad X here: the menu's focused button takes Enter) does nothing
+	await press_action(&"menu")
+	await pad_button(JOY_BUTTON_X)
+	await press_action(&"menu")
+	await seconds(0.3)
+	expect(Unified.data.hud.phase == EnumPhase.LOBBY, "pad X under the pause menu doesn't start the match")
+	await type_text("q")  # back to keyboard hints and input: the couch check presses a pad as a newcomer
 	await click(start)
 	await wait_for(func() -> bool: return Unified.data.hud.phase == EnumPhase.MATCH, 3.0,
 		"the match after Start (the start command)")
