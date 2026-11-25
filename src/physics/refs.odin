@@ -34,8 +34,13 @@ Shape_Ref :: struct {
 }
 
 // A joint of any type: Box3D's joint index + 1 and generation. Zero: no joint. The block holds the typed refs below;
-// an untyped one (body_joints' results) converts with joint_as. Found by RTTI for check_refs, not hashed (a joint's
-// effect shows in its bodies one tick later).
+// an untyped one (body_joints' results) converts with joint_as. Found by RTTI for check_refs and destroy_refs, not
+// hashed (a joint's effect shows in its bodies one tick later).
+//
+// Weak: a joint dies with either of its bodies, usually one someone else owns (the ground a character stands on, a held
+// prop, the old level's statics), so a ref the block keeps may be stale at any point of a tick, and in any save.
+// joint_valid says whether it is live; every proc on a joint asserts it is (src/physics/joint.odin's header names the
+// few that take a stale one), so a stale ref is found where it is used, not left to touch another joint.
 Joint_Ref :: struct {
 	index1:     i32,
 	generation: u16,
@@ -112,16 +117,29 @@ link_id :: proc(world: ^World, body_link: Body_Link) -> box3d.BodyId {
 	return {index1 = body_link.index1, world0 = world.id.index1 - 1, generation = body_link.generation}
 }
 
-// The Box3D id of a shape, in this world.
+// The Box3D id of a shape, in this world. A zero ref asserts, as body_id's.
 @(private)
-shape_id :: proc(world: ^World, shape: Shape_Ref) -> box3d.ShapeId {
+shape_id :: proc(world: ^World, shape: Shape_Ref, loc := #caller_location) -> box3d.ShapeId {
+	assert(shape.index1 != 0, "physics: a zero Shape_Ref (no shape)", loc)
 	return {index1 = shape.index1, world0 = world.id.index1 - 1, generation = shape.generation}
 }
 
-// The Box3D id of a joint (any joint ref), in this world.
+// The Box3D id of a joint (any joint ref), in this world, to use now: a zero or stale ref asserts (Joint_Ref: refs are
+// weak), as Box3D's release library would take its index unchecked and act on whatever joint sits there, or joint -1.
 @(private)
-joint_id :: proc(world: ^World, joint: Joint_Ref) -> box3d.JointId {
-	return {index1 = joint.index1, world0 = world.id.index1 - 1, generation = joint.generation}
+joint_id :: proc(world: ^World, joint: Joint_Ref, loc := #caller_location) -> box3d.JointId {
+	assert(joint.index1 != 0, "physics: a zero joint ref (no joint)", loc)
+	id := box3d.JointId {
+		index1     = joint.index1,
+		world0     = world.id.index1 - 1,
+		generation = joint.generation,
+	}
+	assert(
+		box3d.Joint_IsValid(id),
+		"physics: a stale joint ref (its joint is gone, destroyed with one of its bodies): check physics.joint_valid first",
+		loc,
+	)
+	return id
 }
 
 // The block's reference to a body Box3D made (the world index dropped, so blocks match across worlds).
@@ -168,12 +186,18 @@ resolve :: proc(world: ^World, body_link: Body_Link) -> (ref: Body_Ref, ok: bool
 
 // Whether a shape ref names a live shape. Zero is not valid.
 shape_valid :: proc(world: ^World, shape: Shape_Ref) -> bool {
-	return shape.index1 != 0 && box3d.Shape_IsValid(shape_id(world, shape))
+	return(
+		shape.index1 != 0 &&
+		box3d.Shape_IsValid({index1 = shape.index1, world0 = world.id.index1 - 1, generation = shape.generation}) \
+	)
 }
 
 // Whether a (possibly stale) joint ref names a live joint (destroying a body destroys its joints). Zero is not valid.
 joint_valid :: proc(world: ^World, joint: Joint_Ref) -> bool {
-	return joint.index1 != 0 && box3d.Joint_IsValid(joint_id(world, joint))
+	return(
+		joint.index1 != 0 &&
+		box3d.Joint_IsValid({index1 = joint.index1, world0 = world.id.index1 - 1, generation = joint.generation}) \
+	)
 }
 
 // Destroys every joint and body a plain value (a table item, a player's data) refers to, and zeroes those refs and
@@ -192,8 +216,8 @@ destroy_refs :: proc(world: ^World, value: ^$T) {
 		append(&world.layouts, Type_Layout{T, layout})
 	}
 	base := ([^]u8)(value)
-	for offset in layout.joints {
-		destroy_joint(world, (^Joint_Ref)(&base[offset]))
+	for joint in layout.joints {
+		destroy_joint(world, (^Joint_Ref)(&base[joint.offset]))
 	}
 	for offset in layout.bodies {
 		destroy_body(world, (^Body_Ref)(&base[offset]))
@@ -219,10 +243,12 @@ despawn_all :: proc(world: ^World, table: ^sim.Table($T, $N)) {
 	sim.despawn_all(table)
 }
 
-// "" when every body, shape and joint ref in the block names something alive (or is zero) and no body is an orphan
-// (alive, neither the World's nor the active level's, and owned by no Body_Ref in the block: a despawn that forgot
-// its body), and every body the table calls the level's is alive and owned by no Body_Ref (a crafted snapshot's
-// table); else the first problem. The Extra's check, so scenarios.rollback_every_tick runs it after every restore and
+// "" when every body and shape ref in the block names something alive (or is zero), every joint ref is zero, stale
+// (refs are weak: Joint_Ref) or a live joint of its typed ref's type, no body is an orphan (alive, neither the World's
+// nor the active level's, and owned by no Body_Ref in the block: a despawn that forgot its body), and every body the
+// table calls the level's is alive and owned by no Body_Ref (a crafted snapshot's table); else the first problem. A
+// joint ref's index is never handed to Box3D's release library unchecked: Joint_IsValid range-checks it, and the refs
+// carry no world. The Extra's check, so scenarios.rollback_every_tick runs it after every restore and
 // sim.from_snapshot after every load. Needs `extra` first.
 check_refs :: proc(world: ^World, state: rawptr) -> string {
 	base := ([^]u8)(state)
@@ -243,10 +269,14 @@ check_refs :: proc(world: ^World, state: rawptr) -> string {
 			return fmt.tprintf("the Shape_Ref at block offset %d names no live shape", offset)
 		}
 	}
-	for offset in world.refs.joints {
-		ref := (^Joint_Ref)(&base[offset])^
-		if ref.index1 != 0 && !joint_valid(world, ref) {
-			return fmt.tprintf("the joint ref at block offset %d names no live joint", offset)
+	for joint in world.refs.joints {
+		ref := (^Joint_Ref)(&base[joint.offset])^
+		if ref.index1 < 0 {
+			return fmt.tprintf("the joint ref at block offset %d has a negative index (%d)", joint.offset, ref.index1)
+		}
+		if !joint.typed || !joint_valid(world, ref) do continue
+		if type := joint_type(world, ref); type != joint.type {
+			return fmt.tprintf("the %v joint ref at block offset %d names a %v joint", joint.type, joint.offset, type)
 		}
 	}
 	for entry, index in world.bodies {
@@ -280,69 +310,98 @@ Type_Layout :: struct {
 Ref_Layout :: struct {
 	bodies: []int,
 	shapes: []int,
-	joints: []int, // typed or not: each starts with a Joint_Ref
+	joints: []Joint_Slot,
 }
 
-// The offsets of a type's body, shape and joint refs.
+// A joint ref's place in a type: its byte offset (where its Joint_Ref starts), and the joint type a typed ref names
+// (`typed` false: an untyped Joint_Ref, which may name any).
+@(private)
+Joint_Slot :: struct {
+	offset: int,
+	type:   Joint_Type,
+	typed:  bool,
+}
+
+// The offsets of a type's body, shape and joint refs, each in field order.
 @(private)
 layout_of :: proc(type_info: ^runtime.Type_Info) -> Ref_Layout {
-	bodies, shapes, joints: [dynamic]int
-	collect_refs(type_info, 0, &bodies, Body_Ref)
-	collect_refs(type_info, 0, &shapes, Shape_Ref)
-	collect_refs(type_info, 0, &joints, Joint_Ref)
+	bodies, shapes: [dynamic]int
+	joints: [dynamic]Joint_Slot
+	collect_refs(type_info, 0, &bodies, &shapes, &joints)
 	return {bodies[:], shapes[:], joints[:]}
 }
 
-// The offsets of every field of type `want` (a distinct type: Body_Link is not Body_Ref) in a type. A typed joint ref
-// holds a Joint_Ref at its start, so collecting Joint_Ref finds every joint.
+// The offsets of every Body_Ref, Shape_Ref and joint ref (typed or not) in a type. Each is a distinct type: a
+// Body_Link is not a Body_Ref.
 @(private)
-collect_refs :: proc(type_info: ^runtime.Type_Info, base: int, out: ^[dynamic]int, want: typeid) {
-	if type_info.id == want {
-		append(out, base)
+collect_refs :: proc(
+	type_info: ^runtime.Type_Info,
+	base: int,
+	bodies, shapes: ^[dynamic]int,
+	joints: ^[dynamic]Joint_Slot,
+) {
+	switch type_info.id {
+	case Body_Ref:
+		append(bodies, base)
 		return
+	case Shape_Ref:
+		append(shapes, base)
+		return
+	case Joint_Ref:
+		append(joints, Joint_Slot{offset = base})
+		return
+	}
+	refs := JOINT_REFS
+	for typed, type in refs {
+		if type_info.id == typed {
+			append(joints, Joint_Slot{offset = base, type = type, typed = true}) // its Joint_Ref is its first field
+			return
+		}
 	}
 	#partial switch variant in type_info.variant {
 	case runtime.Type_Info_Named:
-		collect_refs(variant.base, base, out, want)
+		collect_refs(variant.base, base, bodies, shapes, joints)
 	case runtime.Type_Info_Struct:
 		for i in 0 ..< int(variant.field_count) {
-			collect_refs(variant.types[i], base + int(variant.offsets[i]), out, want)
+			collect_refs(variant.types[i], base + int(variant.offsets[i]), bodies, shapes, joints)
 		}
 	case runtime.Type_Info_Array:
-		if !contains_ref(variant.elem, want) {
+		if !contains_ref(variant.elem) {
 			return
 		}
 		for k in 0 ..< variant.count {
-			collect_refs(variant.elem, base + k * variant.elem_size, out, want)
+			collect_refs(variant.elem, base + k * variant.elem_size, bodies, shapes, joints)
 		}
 	case runtime.Type_Info_Enumerated_Array:
-		if !contains_ref(variant.elem, want) {
+		if !contains_ref(variant.elem) {
 			return
 		}
 		for k in 0 ..< variant.count {
-			collect_refs(variant.elem, base + k * variant.elem_size, out, want)
+			collect_refs(variant.elem, base + k * variant.elem_size, bodies, shapes, joints)
 		}
 	}
 }
 
+// Whether a type holds a Body_Ref, a Shape_Ref or a joint ref (each typed one holds a Joint_Ref).
 @(private)
-contains_ref :: proc(type_info: ^runtime.Type_Info, want: typeid) -> bool {
-	if type_info.id == want {
+contains_ref :: proc(type_info: ^runtime.Type_Info) -> bool {
+	switch type_info.id {
+	case Body_Ref, Shape_Ref, Joint_Ref:
 		return true
 	}
 	#partial switch variant in type_info.variant {
 	case runtime.Type_Info_Named:
-		return contains_ref(variant.base, want)
+		return contains_ref(variant.base)
 	case runtime.Type_Info_Struct:
 		for i in 0 ..< int(variant.field_count) {
-			if contains_ref(variant.types[i], want) {
+			if contains_ref(variant.types[i]) {
 				return true
 			}
 		}
 	case runtime.Type_Info_Array:
-		return contains_ref(variant.elem, want)
+		return contains_ref(variant.elem)
 	case runtime.Type_Info_Enumerated_Array:
-		return contains_ref(variant.elem, want)
+		return contains_ref(variant.elem)
 	}
 	return false
 }

@@ -1,11 +1,14 @@
 // src/physics/joint.odin: every joint type created between two bodies and stepped, joint_as, the generic procs on
 // any joint ref, each type's setters read back through its getters (and its "current" getters after a step), and
-// joints under save/restore through physics.extra.
+// joints under save/restore through physics.extra, and every getter leaving the world as it was.
 package test_physics
 
+import "base:runtime"
 import "core:math"
+import "core:mem"
 import "core:testing"
 
+import box3d "box3d:bindings"
 import "unified:physics"
 
 // A sphere body (radius 0.25, density 1) at `pos`: bodies 1 m apart don't touch.
@@ -632,4 +635,262 @@ joint_save_restore :: proc(t: ^testing.T) {
 	testing.expect_value(t, physics.revolute_joint_motor_speed(world, block.hinge), 2)
 	testing.expect(t, physics.revolute_joint_is_motor_enabled(world, block.hinge))
 	testing.expect_value(t, physics.body_position(world, block.arm), arm_at_save)
+}
+
+// One joint of every type, each between its own two dynamic bodies, set up so each getter has something to read.
+Every_Joint :: struct {
+	distance:  physics.Distance_Joint_Ref,
+	filter:    physics.Filter_Joint_Ref,
+	motor:     physics.Motor_Joint_Ref,
+	mover:     physics.Mover_Joint_Ref,
+	parallel:  physics.Parallel_Joint_Ref,
+	pogo:      physics.Pogo_Joint_Ref,
+	prismatic: physics.Prismatic_Joint_Ref,
+	revolute:  physics.Revolute_Joint_Ref,
+	spherical: physics.Spherical_Joint_Ref,
+	weld:      physics.Weld_Joint_Ref,
+	wheel:     physics.Wheel_Joint_Ref,
+}
+
+every_joint :: proc(world: ^physics.World) -> (joints: Every_Joint) {
+	bodies: [22]physics.Body_Ref
+	turned := [4]f32{0.18257418, 0.36514837, 0.5477226, 0.73029673}
+	for &body, i in bodies {
+		def := physics.body_def(.Dynamic, {f32(i % 11) * 3, 3 + f32(i / 11) * 1.5, 0}, turned)
+		def.enable_sleep = false
+		def.angular_velocity = {1, 2, 3}
+		def.linear_velocity = {0.5, 0, 1}
+		shape_def := physics.shape_def(CAT_BOX)
+		shape_def.density = 1
+		body, _ = physics.create_box(world, def, shape_def, {0.3, 0.4, 0.5})
+	}
+	pair :: proc(bodies: ^[22]physics.Body_Ref, i: int) -> (physics.Body_Link, physics.Body_Link) {
+		return physics.link(bodies[i]), physics.link(bodies[i + 11])
+	}
+	frame := physics.Transform{{0.1, 0.7, 0.2}, turned}
+	distance := physics.default_distance_joint_def()
+	distance.base.local_frame_a = frame
+	distance.enable_spring, distance.hertz = true, 2
+	distance.enable_motor, distance.max_motor_force, distance.motor_speed = true, 5, 1
+	motor := physics.default_motor_joint_def()
+	motor.base.local_frame_a = frame
+	motor.linear_hertz, motor.angular_hertz = 3, 2
+	motor.max_spring_force, motor.max_spring_torque = 100, 50
+	motor.max_velocity_force, motor.max_velocity_torque = 10, 10
+	mover := physics.default_mover_joint_def()
+	mover.max_force, mover.linear_velocity = 100, {1, 0, 0}
+	parallel := physics.default_parallel_joint_def()
+	parallel.base.local_frame_a = frame
+	pogo := physics.default_pogo_joint_def()
+	pogo.normal, pogo.rest_length, pogo.hertz = {0, 1, 0}, 1, 3
+	pogo.max_compression_force, pogo.max_tension_force = 1000, 100
+	prismatic := physics.default_prismatic_joint_def()
+	prismatic.base.local_frame_a = frame
+	prismatic.enable_spring = true
+	prismatic.enable_motor, prismatic.max_motor_force, prismatic.motor_speed = true, 10, 1
+	revolute := physics.default_revolute_joint_def()
+	revolute.base.local_frame_a = frame
+	revolute.enable_spring = true
+	revolute.enable_motor, revolute.max_motor_torque, revolute.motor_speed = true, 10, 1
+	spherical := physics.default_spherical_joint_def()
+	spherical.base.local_frame_a = frame
+	spherical.enable_spring = true
+	spherical.enable_motor, spherical.max_motor_torque = true, 10
+	spherical.enable_cone_limit, spherical.enable_twist_limit = true, true
+	weld := physics.default_weld_joint_def()
+	weld.base.local_frame_a = frame
+	wheel := physics.default_wheel_joint_def()
+	wheel.base.local_frame_a = frame
+	wheel.enable_spin_motor, wheel.max_spin_torque = true, 10
+	wheel.enable_steering = true
+	a, b := pair(&bodies, 0)
+	joints.distance = physics.create_distance_joint(world, a, b, distance)
+	a, b = pair(&bodies, 1)
+	joints.filter = physics.create_filter_joint(world, a, b, physics.default_filter_joint_def())
+	a, b = pair(&bodies, 2)
+	joints.motor = physics.create_motor_joint(world, a, b, motor)
+	a, b = pair(&bodies, 3)
+	joints.mover = physics.create_mover_joint(world, a, b, mover)
+	a, b = pair(&bodies, 4)
+	joints.parallel = physics.create_parallel_joint(world, a, b, parallel)
+	a, b = pair(&bodies, 5)
+	joints.pogo = physics.create_pogo_joint(world, a, b, pogo)
+	a, b = pair(&bodies, 6)
+	joints.prismatic = physics.create_prismatic_joint(world, a, b, prismatic)
+	a, b = pair(&bodies, 7)
+	joints.revolute = physics.create_revolute_joint(world, a, b, revolute)
+	a, b = pair(&bodies, 8)
+	joints.spherical = physics.create_spherical_joint(world, a, b, spherical)
+	a, b = pair(&bodies, 9)
+	joints.weld = physics.create_weld_joint(world, a, b, weld)
+	a, b = pair(&bodies, 10)
+	joints.wheel = physics.create_wheel_joint(world, a, b, wheel)
+	return
+}
+
+// The world's deep hash and snapshot bytes before and after one getter call: equal, or the test names the getter's line.
+leaves :: proc(
+	t: ^testing.T,
+	world: ^physics.World,
+	getter: proc(_: ^physics.World, _: $J, _: runtime.Source_Code_Location) -> $R,
+	joint: J,
+	loc := #caller_location,
+) {
+	before, after: box3d.WorldSnapshot
+	defer box3d.DestroyWorldSnapshot(&before)
+	defer box3d.DestroyWorldSnapshot(&after)
+	box3d.World_SaveSnapshot(world.id, &before)
+	hash := box3d.World_HashState(world.id)
+	_ = getter(world, joint, loc)
+	box3d.World_SaveSnapshot(world.id, &after)
+	same := box3d.World_HashState(world.id) == hash && before.size == after.size
+	same = same && mem.compare(before.data[:before.size], after.data[:after.size]) == 0
+	testing.expect(t, same, "the getter changed the world", loc = loc)
+}
+
+// Every joint getter leaves the world as it was (its deep hash and its snapshot), on a joint of every type after a few
+// steps, so a view or a tool may call one between ticks. joint_constraint_torque is the exception its doc comment
+// names: on a revolute or a parallel joint, Box3D's getter writes solver state.
+@(test)
+joint_getters_leave_the_world_alone :: proc(t: ^testing.T) {
+	world := physics.create({tick_hz = HZ})
+	defer physics.destroy(world)
+	box(world, {0, -0.5, 0}, {50, 0.5, 50})
+	joints := every_joint(world)
+	steps(world, 20)
+	all := [?]physics.Joint_Ref {
+		joints.distance.joint,
+		joints.filter.joint,
+		joints.motor.joint,
+		joints.mover.joint,
+		joints.parallel.joint,
+		joints.pogo.joint,
+		joints.prismatic.joint,
+		joints.revolute.joint,
+		joints.spherical.joint,
+		joints.weld.joint,
+		joints.wheel.joint,
+	}
+	for joint in all {
+		leaves(t, world, physics.joint_type, joint)
+		leaves(t, world, physics.joint_body_a, joint)
+		leaves(t, world, physics.joint_body_b, joint)
+		leaves(t, world, physics.joint_local_frame_a, joint)
+		leaves(t, world, physics.joint_local_frame_b, joint)
+		leaves(t, world, physics.joint_collide_connected, joint)
+		leaves(t, world, physics.joint_is_awake, joint)
+		leaves(t, world, physics.joint_constraint_force, joint)
+		leaves(t, world, physics.joint_linear_separation, joint)
+		leaves(t, world, physics.joint_angular_separation, joint)
+		leaves(t, world, physics.joint_force_threshold, joint)
+		leaves(t, world, physics.joint_torque_threshold, joint)
+		if joint != joints.revolute.joint && joint != joints.parallel.joint {
+			leaves(t, world, physics.joint_constraint_torque, joint)
+		}
+	}
+	hash := box3d.World_HashState(world.id)
+	_, _ = physics.joint_constraint_tuning(world, joints.weld)
+	_, _ = physics.distance_joint_spring_force_range(world, joints.distance)
+	testing.expect_value(t, box3d.World_HashState(world.id), hash)
+	leaves(t, world, physics.parallel_joint_spring_hertz, joints.parallel)
+	leaves(t, world, physics.parallel_joint_spring_damping_ratio, joints.parallel)
+	leaves(t, world, physics.parallel_joint_max_torque, joints.parallel)
+	leaves(t, world, physics.distance_joint_length, joints.distance)
+	leaves(t, world, physics.distance_joint_is_spring_enabled, joints.distance)
+	leaves(t, world, physics.distance_joint_spring_hertz, joints.distance)
+	leaves(t, world, physics.distance_joint_spring_damping_ratio, joints.distance)
+	leaves(t, world, physics.distance_joint_is_limit_enabled, joints.distance)
+	leaves(t, world, physics.distance_joint_min_length, joints.distance)
+	leaves(t, world, physics.distance_joint_max_length, joints.distance)
+	leaves(t, world, physics.distance_joint_current_length, joints.distance)
+	leaves(t, world, physics.distance_joint_is_motor_enabled, joints.distance)
+	leaves(t, world, physics.distance_joint_motor_speed, joints.distance)
+	leaves(t, world, physics.distance_joint_max_motor_force, joints.distance)
+	leaves(t, world, physics.distance_joint_motor_force, joints.distance)
+	leaves(t, world, physics.motor_joint_linear_velocity, joints.motor)
+	leaves(t, world, physics.motor_joint_angular_velocity, joints.motor)
+	leaves(t, world, physics.motor_joint_max_velocity_force, joints.motor)
+	leaves(t, world, physics.motor_joint_max_velocity_torque, joints.motor)
+	leaves(t, world, physics.motor_joint_linear_hertz, joints.motor)
+	leaves(t, world, physics.motor_joint_linear_damping_ratio, joints.motor)
+	leaves(t, world, physics.motor_joint_angular_hertz, joints.motor)
+	leaves(t, world, physics.motor_joint_angular_damping_ratio, joints.motor)
+	leaves(t, world, physics.motor_joint_max_spring_force, joints.motor)
+	leaves(t, world, physics.motor_joint_max_spring_torque, joints.motor)
+	leaves(t, world, physics.mover_joint_linear_velocity, joints.mover)
+	leaves(t, world, physics.mover_joint_max_velocity_force, joints.mover)
+	leaves(t, world, physics.pogo_joint_rest_length, joints.pogo)
+	leaves(t, world, physics.pogo_joint_spring_hertz, joints.pogo)
+	leaves(t, world, physics.pogo_joint_spring_damping_ratio, joints.pogo)
+	leaves(t, world, physics.pogo_joint_max_tension_force, joints.pogo)
+	leaves(t, world, physics.pogo_joint_max_compression_force, joints.pogo)
+	leaves(t, world, physics.pogo_joint_normal, joints.pogo)
+	leaves(t, world, physics.pogo_joint_current_length, joints.pogo)
+	leaves(t, world, physics.pogo_joint_current_speed, joints.pogo)
+	leaves(t, world, physics.pogo_joint_impulse, joints.pogo)
+	leaves(t, world, physics.prismatic_joint_is_spring_enabled, joints.prismatic)
+	leaves(t, world, physics.prismatic_joint_spring_hertz, joints.prismatic)
+	leaves(t, world, physics.prismatic_joint_spring_damping_ratio, joints.prismatic)
+	leaves(t, world, physics.prismatic_joint_target_translation, joints.prismatic)
+	leaves(t, world, physics.prismatic_joint_is_limit_enabled, joints.prismatic)
+	leaves(t, world, physics.prismatic_joint_lower_limit, joints.prismatic)
+	leaves(t, world, physics.prismatic_joint_upper_limit, joints.prismatic)
+	leaves(t, world, physics.prismatic_joint_is_motor_enabled, joints.prismatic)
+	leaves(t, world, physics.prismatic_joint_motor_speed, joints.prismatic)
+	leaves(t, world, physics.prismatic_joint_max_motor_force, joints.prismatic)
+	leaves(t, world, physics.prismatic_joint_motor_force, joints.prismatic)
+	leaves(t, world, physics.prismatic_joint_translation, joints.prismatic)
+	leaves(t, world, physics.prismatic_joint_speed, joints.prismatic)
+	leaves(t, world, physics.revolute_joint_is_spring_enabled, joints.revolute)
+	leaves(t, world, physics.revolute_joint_spring_hertz, joints.revolute)
+	leaves(t, world, physics.revolute_joint_spring_damping_ratio, joints.revolute)
+	leaves(t, world, physics.revolute_joint_target_angle, joints.revolute)
+	leaves(t, world, physics.revolute_joint_angle, joints.revolute)
+	leaves(t, world, physics.revolute_joint_is_limit_enabled, joints.revolute)
+	leaves(t, world, physics.revolute_joint_lower_limit, joints.revolute)
+	leaves(t, world, physics.revolute_joint_upper_limit, joints.revolute)
+	leaves(t, world, physics.revolute_joint_is_motor_enabled, joints.revolute)
+	leaves(t, world, physics.revolute_joint_motor_speed, joints.revolute)
+	leaves(t, world, physics.revolute_joint_motor_torque, joints.revolute)
+	leaves(t, world, physics.revolute_joint_max_motor_torque, joints.revolute)
+	leaves(t, world, physics.spherical_joint_is_cone_limit_enabled, joints.spherical)
+	leaves(t, world, physics.spherical_joint_cone_limit, joints.spherical)
+	leaves(t, world, physics.spherical_joint_cone_angle, joints.spherical)
+	leaves(t, world, physics.spherical_joint_is_twist_limit_enabled, joints.spherical)
+	leaves(t, world, physics.spherical_joint_lower_twist_limit, joints.spherical)
+	leaves(t, world, physics.spherical_joint_upper_twist_limit, joints.spherical)
+	leaves(t, world, physics.spherical_joint_twist_angle, joints.spherical)
+	leaves(t, world, physics.spherical_joint_is_spring_enabled, joints.spherical)
+	leaves(t, world, physics.spherical_joint_spring_hertz, joints.spherical)
+	leaves(t, world, physics.spherical_joint_spring_damping_ratio, joints.spherical)
+	leaves(t, world, physics.spherical_joint_target_rotation, joints.spherical)
+	leaves(t, world, physics.spherical_joint_is_motor_enabled, joints.spherical)
+	leaves(t, world, physics.spherical_joint_motor_velocity, joints.spherical)
+	leaves(t, world, physics.spherical_joint_motor_torque, joints.spherical)
+	leaves(t, world, physics.spherical_joint_max_motor_torque, joints.spherical)
+	leaves(t, world, physics.weld_joint_linear_hertz, joints.weld)
+	leaves(t, world, physics.weld_joint_linear_damping_ratio, joints.weld)
+	leaves(t, world, physics.weld_joint_angular_hertz, joints.weld)
+	leaves(t, world, physics.weld_joint_angular_damping_ratio, joints.weld)
+	leaves(t, world, physics.wheel_joint_is_suspension_enabled, joints.wheel)
+	leaves(t, world, physics.wheel_joint_suspension_hertz, joints.wheel)
+	leaves(t, world, physics.wheel_joint_suspension_damping_ratio, joints.wheel)
+	leaves(t, world, physics.wheel_joint_is_suspension_limit_enabled, joints.wheel)
+	leaves(t, world, physics.wheel_joint_lower_suspension_limit, joints.wheel)
+	leaves(t, world, physics.wheel_joint_upper_suspension_limit, joints.wheel)
+	leaves(t, world, physics.wheel_joint_is_spin_motor_enabled, joints.wheel)
+	leaves(t, world, physics.wheel_joint_spin_motor_speed, joints.wheel)
+	leaves(t, world, physics.wheel_joint_max_spin_torque, joints.wheel)
+	leaves(t, world, physics.wheel_joint_spin_speed, joints.wheel)
+	leaves(t, world, physics.wheel_joint_spin_torque, joints.wheel)
+	leaves(t, world, physics.wheel_joint_is_steering_enabled, joints.wheel)
+	leaves(t, world, physics.wheel_joint_steering_hertz, joints.wheel)
+	leaves(t, world, physics.wheel_joint_steering_damping_ratio, joints.wheel)
+	leaves(t, world, physics.wheel_joint_max_steering_torque, joints.wheel)
+	leaves(t, world, physics.wheel_joint_is_steering_limit_enabled, joints.wheel)
+	leaves(t, world, physics.wheel_joint_lower_steering_limit, joints.wheel)
+	leaves(t, world, physics.wheel_joint_upper_steering_limit, joints.wheel)
+	leaves(t, world, physics.wheel_joint_target_steering_angle, joints.wheel)
+	leaves(t, world, physics.wheel_joint_steering_angle, joints.wheel)
+	leaves(t, world, physics.wheel_joint_steering_torque, joints.wheel)
 }

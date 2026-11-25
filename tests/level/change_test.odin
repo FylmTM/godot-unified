@@ -252,7 +252,7 @@ level_change_does_not_grow :: proc(t: ^testing.T) {
 }
 
 // check_refs knows the level's bodies from orphans: one whose level flag is cleared is an orphan (a joint left on the
-// old level: a_joint_left_on_the_old_level_is_named).
+// old level: a_joint_left_on_the_old_level_is_stale).
 @(test)
 level_change_check_refs :: proc(t: ^testing.T) {
 	session := sim.create(&PIT, 9)
@@ -265,8 +265,9 @@ level_change_check_refs :: proc(t: ^testing.T) {
 	testing.expect(t, physics.check_refs(world, &session.state) != "", "a level body without its flag is an orphan")
 }
 
-// level_change's contract: "check_refs names a joint ref left behind". A weld from a crate to a level body, kept in the
-// block across a change, is stale after it and named; destroying the stale ref is safe.
+// level_change's contract: a joint ref left behind goes stale (refs are weak). A weld from a crate to a level body,
+// kept in the block across a change, is stale after it: joint_valid says so, check_refs and a snapshot load take it,
+// destroying it is safe, and an unguarded use asserts (an_unguarded_stale_joint_use_asserts).
 Hang :: struct {
 	crate:   physics.Body_Ref,
 	weld:    physics.Weld_Joint_Ref,
@@ -278,9 +279,9 @@ Hang :: struct {
 Hang_Game :: sim.Game(Hang, Pit_Input, Pit_World, Pit_Events, sim.No_Commands, sim.No_Setup, sim.No_Profile, 2)
 Hang_Tick :: sim.Tick(Hang_Game)
 
-@(test)
-a_joint_left_on_the_old_level_is_named :: proc(t: ^testing.T) {
-	game := Hang_Game {
+// A crate welded to the yard's floor at tick 5, the level changed to the pit at tick 10.
+hang_game :: proc() -> Hang_Game {
+	return Hang_Game {
 		name = "hang",
 		version = "1",
 		tick_hz = 64,
@@ -317,17 +318,46 @@ a_joint_left_on_the_old_level_is_named :: proc(t: ^testing.T) {
 		},
 		levels = pit_levels[:],
 	}
+}
+
+@(test)
+a_joint_left_on_the_old_level_is_stale :: proc(t: ^testing.T) {
+	game := hang_game()
 	session := sim.create(&game, 3)
 	defer sim.destroy(session)
+	world := session.world.phys
 	inputs: sim.Inputs(Hang_Game)
 	for _ in u32(1) ..= 9 do sim.step(session, &inputs)
-	testing.expect_value(t, physics.check_refs(session.world.phys, &session.state), "")
-	testing.expect(t, physics.joint_valid(session.world.phys, session.state.weld.joint))
+	testing.expect_value(t, physics.check_refs(world, &session.state), "")
+	testing.expect(t, physics.joint_valid(world, session.state.weld.joint))
 	sim.step(session, &inputs)
-	testing.expect(t, physics.check_refs(session.world.phys, &session.state) != "", "the stale weld is named")
-	testing.expect(t, !physics.joint_valid(session.world.phys, session.state.weld.joint))
-	physics.destroy_joint(session.world.phys, &session.state.weld.joint) // safe on the stale ref
-	testing.expect_value(t, physics.check_refs(session.world.phys, &session.state), "")
+	testing.expect(t, !physics.joint_valid(world, session.state.weld.joint))
+	testing.expect(t, session.state.weld != {}, "the block keeps the stale ref")
+	testing.expect_value(t, physics.check_refs(world, &session.state), "")
+	snap := sim.snapshot_encode(session, session.tick)
+	defer delete(snap)
+	joiner, err := sim.from_snapshot(&game, snap)
+	testing.expect_value(t, err, sim.Snap_Error.None)
+	if joiner != nil do sim.destroy(joiner)
+	physics.destroy_joint(world, &session.state.weld.joint) // safe on the stale ref
+	testing.expect_value(t, session.state.weld, physics.Weld_Joint_Ref{})
+	testing.expect_value(t, physics.check_refs(world, &session.state), "")
+}
+
+// A stale joint ref used without joint_valid first asserts, naming the cause, rather than reaching Box3D's unchecked
+// release library (which would set whatever joint sits at that index now).
+@(test)
+an_unguarded_stale_joint_use_asserts :: proc(t: ^testing.T) {
+	context.allocator = runtime.default_allocator() // the assert ends the test before the session is freed: untracked
+	game := hang_game()
+	session := sim.create(&game, 3)
+	inputs: sim.Inputs(Hang_Game)
+	for _ in u32(1) ..= 10 do sim.step(session, &inputs)
+	testing.expect_assert_message(
+		t,
+		"physics: a stale joint ref (its joint is gone, destroyed with one of its bodies): check physics.joint_valid first",
+	)
+	physics.weld_joint_set_linear_hertz(session.world.phys, session.state.weld, 5)
 }
 
 // "The world holds the active level only", with no dynamic body at all: only the level's statics, flipped every 4
@@ -372,7 +402,8 @@ a_world_of_level_statics_only_does_not_grow :: proc(t: ^testing.T) {
 
 // A crafted body table cannot crash a joiner: physics' load refuses a table that disagrees with the Box3D image it
 // comes with (a block-owned crate claimed by the level, a level entry where Box3D has no body), unknown flag bits,
-// non-zero padding and a dead entry that isn't zero, and puts the world back as it was.
+// non-zero padding, a dead entry that isn't zero and a table cut short of Box3D's bodies, and puts the world back as
+// it was.
 @(test)
 a_crafted_body_table_is_refused_at_load :: proc(t: ^testing.T) {
 	session := sim.create(&PIT, 9)
@@ -391,6 +422,7 @@ a_crafted_body_table_is_refused_at_load :: proc(t: ^testing.T) {
 		Unknown_Flag,
 		Padding,
 		Dead_Not_Zero,
+		Truncated,
 	}
 	for craft in Craft {
 		entries := make([]physics.Body_Entry, 64, context.temp_allocator)
@@ -411,6 +443,8 @@ a_crafted_body_table_is_refused_at_load :: proc(t: ^testing.T) {
 			entries[crate.index1 - 1]._pad2[1] = 1
 		case .Dead_Not_Zero:
 			entries[63].tag = 5
+		case .Truncated:
+			entries = entries[:crate.index1 - 1] // the crate and every body after it left out
 		}
 		crafted := make([dynamic]u8, context.temp_allocator)
 		append(&crafted, ..honest[:])
@@ -437,8 +471,8 @@ image_of :: proc(session: ^sim.Sim(Pit_Game)) -> []u8 {
 }
 
 // ... and a crafted snapshot whose digest is right is refused whole by from_snapshot (Extra_Rejected): a body table
-// grown to a level entry Box3D never made, or a Body_Ref in the block naming a body Box3D never made (the extra's
-// check, run at every load). Before, the first crashed the joiner at the next level change, the second at its next tick.
+// grown to a level entry Box3D never made, a Body_Ref in the block naming a body Box3D never made (the extra's check,
+// run at every load), or a body table cut short of Box3D's bodies (its next teleport would index past the table).
 @(test)
 a_crafted_snapshot_is_refused_by_from_snapshot :: proc(t: ^testing.T) {
 	source := sim.create(&PIT, 9)
@@ -453,15 +487,21 @@ a_crafted_snapshot_is_refused_by_from_snapshot :: proc(t: ^testing.T) {
 	image_len_at := block_at + size_of(Pit)
 	image_len := int((^u32le)(&snap[image_len_at])^)
 	testing.expect_value(t, image_len_at + 4 + image_len, len(snap))
-	for ghost_ref in ([]bool{false, true}) {
+	Craft :: enum {
+		Ghost_Level_Entry,
+		Ghost_Ref,
+		Short_Table, // the body table cut to the anchor's entry alone
+	}
+	for craft in Craft {
 		crafted := make([dynamic]u8, context.temp_allocator)
 		append(&crafted, ..snap[:])
-		extra_entries := 0
-		if ghost_ref {
+		extra_bytes := 0
+		switch craft {
+		case .Ghost_Ref:
 			crate := (^physics.Body_Ref)(&crafted[block_at + int(offset_of(Pit, crates))])
 			crate.index1 = 150_000
-		} else {
-			extra_entries = 64
+		case .Ghost_Level_Entry:
+			extra_entries := 64
 			for i in 0 ..< extra_entries {
 				entry: physics.Body_Entry
 				if i == extra_entries - 1 do entry = {
@@ -471,12 +511,19 @@ a_crafted_snapshot_is_refused_by_from_snapshot :: proc(t: ^testing.T) {
 				bytes := transmute([size_of(physics.Body_Entry)]u8)entry
 				append(&crafted, ..bytes[:])
 			}
+			extra_bytes = extra_entries * size_of(physics.Body_Entry)
+		case .Short_Table:
+			box3d_size := int((^u32le)(&crafted[image_len_at + 4])^)
+			table_bytes := image_len - 4 - box3d_size
+			testing.expect(t, table_bytes > 2 * size_of(physics.Body_Entry))
+			extra_bytes = size_of(physics.Body_Entry) - table_bytes
+			resize(&crafted, len(crafted) + extra_bytes)
 		}
-		(^u32le)(&crafted[image_len_at])^ = u32le(image_len + extra_entries * size_of(physics.Body_Entry))
+		(^u32le)(&crafted[image_len_at])^ = u32le(image_len + extra_bytes)
 		digest := transmute([8]u8)u64le(sim.hash_bytes(crafted[sim.SNAP_HEADER:]))
 		copy(crafted[sim.SNAP_HEADER - 8:], digest[:])
 		joiner, err := sim.from_snapshot(&PIT, crafted[:])
-		testing.expectf(t, joiner == nil && err == .Extra_Rejected, "ghost ref %v: %v", ghost_ref, err)
+		testing.expectf(t, joiner == nil && err == .Extra_Rejected, "%v: %v", craft, err)
 		if joiner != nil do sim.destroy(joiner)
 	}
 }

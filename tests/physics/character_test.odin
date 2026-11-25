@@ -390,6 +390,163 @@ character_limp_and_teleport :: proc(t: ^testing.T) {
 	testing.expect(t, physics.character_grounded(&scene.character))
 }
 
+// A launch (a pad, a hit) lifts the character past where the pogo would hold it: the same kick goes higher with
+// character_launch than without, the character is airborne and jumping at once, and lands grounded again.
+@(test)
+character_launch_frees_it_from_the_pogo :: proc(t: ^testing.T) {
+	peaks: [2]f32
+	for launch, i in ([2]bool{false, true}) {
+		scene := solo({0, 1.5, 0})
+		defer physics.destroy(scene.world)
+		run(&scene, 64)
+		testing.expect(t, physics.character_grounded(&scene.character))
+		body := scene.character.body
+		physics.body_apply_linear_impulse_to_center(
+			scene.world,
+			body,
+			{0, physics.body_mass(scene.world, body) * 4, 0},
+		)
+		if launch {
+			physics.character_launch(scene.world, &scene.character)
+			testing.expect(t, !physics.character_grounded(&scene.character))
+			testing.expect(t, .Jumping in scene.character.flags)
+		}
+		peaks[i] = run(&scene, 48)
+		run(&scene, 96)
+		testing.expect(t, physics.character_grounded(&scene.character))
+	}
+	testing.expectf(t, peaks[1] > peaks[0] + 0.2, "launched peak %v, held by the pogo %v", peaks[1], peaks[0])
+}
+
+// character_destroy frees the body and its joints and zeroes the character.
+@(test)
+character_destroy_frees_it :: proc(t: ^testing.T) {
+	scene := solo({0, 1.5, 0})
+	defer physics.destroy(scene.world)
+	run(&scene, 64)
+	gone := scene.character
+	testing.expect(t, physics.joint_valid(scene.world, gone.pogo) && physics.joint_valid(scene.world, gone.move_joint))
+	physics.character_destroy(scene.world, &scene.character)
+	testing.expect_value(t, scene.character, physics.Character{})
+	testing.expect(t, !physics.body_valid(scene.world, physics.link(gone.body)))
+	testing.expect(
+		t,
+		!physics.joint_valid(scene.world, gone.pogo) && !physics.joint_valid(scene.world, gone.move_joint),
+	)
+}
+
+// A min_speed of 0 (snap to rest off) at rest: no 0 / 0, so no NaN in the character or its body.
+@(test)
+character_min_speed_zero_stands :: proc(t: ^testing.T) {
+	world := new_world()
+	defer physics.destroy(world)
+	ground(world)
+	def := character_def()
+	def.min_speed = 0
+	character: physics.Character
+	physics.character_create(world, &character, def, {0, 1.2, 0})
+	for _ in 0 ..< 128 {
+		physics.character_update(world, &character, def, {}, false, 1)
+		steps(world, 1)
+	}
+	pos := physics.body_position(world, character.body)
+	testing.expectf(t, pos == pos && abs(pos.y - 1.3) < 0.3, "at %v", pos)
+	velocity := character.velocity
+	testing.expectf(t, velocity.x == 0 && velocity.z == 0 && velocity.y == velocity.y, "velocity %v", velocity)
+	testing.expect(t, physics.character_grounded(&character))
+}
+
+// ---- the ground dies under a character after its update (another system destroys it later in the tick)
+
+Ground_Death :: enum {
+	Kinematic, // a platform: the mover joint and the pogo hang on it
+	Dynamic, // a crate: the pogo hangs on it
+	Limp_On_Kinematic, // limp on a platform (its mover joint stays there, nothing repairs it while limp)
+}
+
+ground_death: Ground_Death
+
+GROUND_DEATH_TICK :: 100
+GROUND_DEATH_LIMP :: [2]u32{90, 140} // limp from, to
+
+Ground_State :: struct {
+	character: physics.Character,
+	base:      physics.Body_Ref,
+	players:   sim.Players(u32, sim.No_Profile, Rig_Input, 2),
+}
+
+Ground_Game :: sim.Game(
+	Ground_State,
+	Rig_Input,
+	Rig_World,
+	Library_Events,
+	sim.No_Commands,
+	sim.No_Setup,
+	sim.No_Profile,
+	2,
+)
+
+GROUND_GAME := Ground_Game {
+	name = "ground death",
+	version = "1",
+	tick_hz = HZ,
+	world_create = proc(_: u64, _: []sim.Level_File, _: sim.No_Setup) -> ^Rig_World {
+		rig_world := new(Rig_World)
+		rig_world.phys = new_world()
+		ground(rig_world.phys)
+		return rig_world
+	},
+	world_destroy = RIG.world_destroy,
+	extra = proc(rig_world: ^Rig_World) -> sim.Extra {return physics.extra(rig_world.phys, Ground_State)},
+	init = proc(t: ^sim.Tick(Ground_Game)) {
+		world := t.world.phys
+		type: physics.Body_Type = ground_death == .Dynamic ? .Dynamic : .Kinematic
+		t.state.base, _ = box(world, {0, 0.25, 0}, {1.5, 0.25, 1.5}, type, category = CAT_PLATFORM, density = 500)
+		physics.character_create(world, &t.state.character, character_def(), {0, 1.7, 0})
+	},
+	tick = proc(t: ^sim.Tick(Ground_Game)) {
+		world := t.world.phys
+		if ground_death == .Limp_On_Kinematic {
+			limp := GROUND_DEATH_LIMP
+			if t.number == limp[0] do physics.character_set_limp(world, &t.state.character, true)
+			if t.number == limp[1] do physics.character_set_limp(world, &t.state.character, false)
+		}
+		physics.character_update(world, &t.state.character, character_def(), {}, false, 1)
+		if t.number == GROUND_DEATH_TICK do physics.destroy_body(world, &t.state.base) // after the update
+		physics.step(world)
+	},
+}
+
+ground_death_inputs :: proc(tick: u32) -> sim.Inputs(Ground_Game) {
+	return {}
+}
+
+// The death tick's block holds a stale joint ref (the pogo, and on a platform the mover joint): a snapshot of it loads,
+// the sync-test's check_refs after every restore passes, and the character finds the floor again.
+@(test)
+a_character_whose_ground_dies_after_its_update :: proc(t: ^testing.T) {
+	for death in Ground_Death {
+		ground_death = death
+		synctest_and_resume(t, &GROUND_GAME, 1, 160, ground_death_inputs, each = proc(t: ^testing.T, simulation: ^sim.Sim(Ground_Game)) {
+				if simulation.tick != GROUND_DEATH_TICK do return
+				character := simulation.state.character
+				world := simulation.world.phys
+				stale_pogo := character.pogo != {} && !physics.joint_valid(world, character.pogo)
+				stale_move := character.move_joint != {} && !physics.joint_valid(world, character.move_joint)
+				testing.expectf(t, stale_pogo || stale_move, "%v: no joint is stale on the death tick", ground_death)
+				snap := sim.snapshot_encode(simulation, simulation.tick)
+				defer delete(snap)
+				resumed, err := sim.from_snapshot(&GROUND_GAME, snap)
+				testing.expectf(t, err == .None, "%v: the death tick's snapshot: %v", ground_death, err)
+				if resumed != nil do sim.destroy(resumed)
+			}, after = proc(t: ^testing.T, simulation: ^sim.Sim(Ground_Game)) {
+				character := &simulation.state.character
+				testing.expectf(t, physics.character_grounded(character), "%v: not back on the floor", ground_death)
+				testing.expect(t, physics.joint_valid(simulation.world.phys, character.pogo))
+			})
+	}
+}
+
 // ---- paths
 
 @(test)

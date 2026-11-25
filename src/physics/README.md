@@ -26,9 +26,9 @@ State)`, which makes the Box3D world part of the rollback state:
 
 A rollback at the prediction cap re-steps the whole world, so physics bounds what a tick may hold: the awake bodies in
 dense contact (a pile) that fit a step plus that rollback in the frame budget. `uni bench`'s physics row says how many
-fit, on 1 and 4 workers (the cost per body is about flat). One worker is the default (`Settings.workers`): more take
-CPU from Godot and the netcode and help only worlds several times that size, so a physics-heavy game measures before
-it raises it.
+fit, on 1 and 4 workers. A world steps on the caller's thread unless `Settings.workers` asks for more: more workers
+take CPU from Godot and the netcode and help only worlds several times that size, so a physics-heavy game measures
+before it raises it.
 
 Each static body costs every tick's save like any other body, sleeping or not. A level's shapes cost one body per
 cell (Levels), so a large level pays little in every save and re-sim; `uni bench`'s physics row measures one, and a
@@ -52,6 +52,8 @@ the game helpers below.
 - **Creation** takes defs by value and the references as arguments, and fills the def's ids itself (a joint's bodies
   are links, so a joint can attach to the anchor or a platform). It asserts the def's `user_data` unset: a pointer has
   no place in rollback state.
+- **Helpers** for what every game repeats (a def from a few values, a body with its one shape, a density from a mass,
+  a teleport) sit beside Box3D's own creation procs, which stay for full control.
 - **Debug draw** (`debug_draw`): Box3D's own draw for joints, contacts, bounds and the rest, shapes drawn by physics
   (Box3D draws a shape only through a host object it keeps in the world). It never changes what `hash`, a save or an
   image holds: a flag outside `DEBUG_DRAW_PURE` is drawn between a snapshot save and restore, and the tests hold
@@ -71,11 +73,16 @@ The block names what it owns, and links to what it doesn't:
   `resolve` gives a ref to use **now**, never to keep; `link` goes back.
 - Joints have a typed ref per Box3D joint type, so a setter of another type does not compile; each is a `Joint_Ref`,
   which the generic `joint_*` procs take.
+- **Joint refs are weak.** A joint dies with either of its bodies, and one of them is usually someone else's (the
+  ground a character stands on, a held prop, the old level's statics), destroyed by another system at any point of a
+  tick. So a joint ref in the block may be stale, in any save and any image: the block keeps it, `joint_valid` says
+  whether it is live, and every proc on a joint asserts that it is, so a forgotten ref is found where it is used. A
+  stale ref is zeroed by the call that drops it (`destroy_joint`, `stop_ignoring`, `destroy_refs`), never by Box3D.
 - **No body is an orphan.** Bodies made before `extra` (the anchor, a game's own made in `world_create`) are the
   World's, the active level's static bodies are the level's (Levels); every other one must be owned by a `Body_Ref`
-  in the block. `check_refs`, the
-  Extra's check after every restore in sync-tests, fails on an orphan or a ref to something dead. Freeing an entity's
-  physics is `destroy_refs` on its value, or `despawn` for a table item.
+  in the block. `check_refs`, the Extra's check after every restore in sync-tests and after every snapshot load, fails
+  on an orphan, a body or shape ref to something dead, or a live joint of another type than its typed ref's. Freeing
+  an entity's physics is `destroy_refs` on its value, or `despawn` for a table item.
 
 ## Entity tags
 
@@ -83,11 +90,6 @@ Each body carries a **tag**, a u64 the game chooses (`sim.handle_key(handle)`, `
 creation. Every result and event carries the tag of the body hit and the category bits of the shape hit, so a game
 knows what it hit without decoding anything. Tags are physics' table by body index: rolled back, imaged and
 deep-hashed with the world.
-
-## Creating bodies
-
-`body_def`, `shape_def`, `create_box` / `create_sphere` / `create_capsule`, the `*_density` procs and `body_teleport`
-are what every game repeats; Box3D's own creation procs stay beside them for full control.
 
 ## What physics covers
 
@@ -101,7 +103,8 @@ the block (`geometry.odin`'s header): a game keeps a mesh, height field or compo
   body and shape index); events come in Box3D's order, which is world state.
 - **Collecting procs replace `out`'s contents.** A game keeps the array in its World as scratch, and a forgotten
   `clear` can't carry a result into another tick.
-- Casts take an origin and a translation (the whole length).
+- Casts take an origin and a translation (the whole length). World casts and mover queries skip sensors; world
+  overlaps and the per-body queries include them. Every world query can skip one body (`ignore`, the asker's own).
 - **A shot asks the past.** `world_cast_ray_closest_rewound` answers what a ray hit on the picture its shooter saw a
   few ticks ago, from velocities alone: a body driven by velocity (or a target transform) is moved back, one placed
   by `body_set_transform` has none and is hit where it is. So a game whose shots should lead its movers moves them by
@@ -151,9 +154,10 @@ after it and a replay of it need nothing of their own:
   World (made before `extra`: the anchor, a game's own bodies made in `world_create`), the active level, and the
   block's refs; any other live body is an orphan.
 - **What hangs on a level goes with it.** Box3D destroys a body's joints with it (a character's pogo joint to the
-  ground it stands on, the level's static bodies included, and its mover joint to a platform it rides), so a game
-  destroys or detaches what holds on to the old level first (a character standing on the level or riding a platform:
-  destroy it, as a leave does); a forgotten joint ref is stale, and `check_refs` names it after the next restore.
+  ground it stands on, the level's static bodies included, and its mover joint to a platform it rides), so a joint
+  ref to the old level is stale after the change, like any joint ref whose body died (References): a character's
+  next update finds its ground again, and a game's own ref is dropped or checked with `joint_valid` before its next
+  use.
 - **The world holds the active level only**: snapshots, images and checksums cover its bodies, and the hull database
   stops growing once each level has been visited (Box3D shares hulls by content).
 

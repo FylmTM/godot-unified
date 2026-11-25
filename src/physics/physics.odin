@@ -82,8 +82,9 @@ World :: struct {
 world_mutex: sync.Mutex
 
 // Creates a world set up for determinism (Settings); `destroy` frees it. Mutex-guarded (Box3D's world table is global).
-create :: proc(settings := Settings{}) -> ^World {
-	assert(settings.tick_hz > 0, "physics: Settings.tick_hz is the game's tick rate (Game.tick_hz)")
+// Box3D holds at most box3d.MAX_WORLDS worlds alive at once in a process (asserted).
+create :: proc(settings := Settings{}, loc := #caller_location) -> ^World {
+	assert(settings.tick_hz > 0, "physics: Settings.tick_hz is the game's tick rate (Game.tick_hz)", loc)
 	world := new(World)
 	world.tick_hz = settings.tick_hz
 	world.dt = 1 / f32(settings.tick_hz)
@@ -99,6 +100,7 @@ create :: proc(settings := Settings{}) -> ^World {
 		world_def.hitEventThreshold = settings.hit_event_threshold
 	}
 	world.id = box3d.CreateWorld(&world_def)
+	assert(box3d.World_IsValid(world.id), "physics: Box3D has no free world (box3d.MAX_WORLDS are alive at once)", loc)
 	// The static body joints attach to when they hold a body to the world (world_anchor; every character's): the
 	// World's first body, body 0.
 	anchor_def := box3d.DefaultBodyDef()
@@ -259,9 +261,9 @@ extra :: proc(world: ^World, $State: typeid) -> sim.Extra {
 		},
 		// A corrupt image can be found halfway through the load and leave the world half-written, so the world is
 		// saved first and put back on failure. Loads are rare (late join). The body table comes from another machine
-		// too: an entry with unknown flags or padding, a dead entry that isn't zero, or a live body Box3D doesn't hold
-		// at its generation (level_change and the rewound ray name bodies by it) refuses the image, never a crash
-		// later.
+		// too: an entry with unknown flags or padding, a dead entry that isn't zero, a live body Box3D doesn't hold at
+		// its generation (level_change and the rewound ray name bodies by it), or a table that leaves out a body Box3D
+		// holds refuses the image, never a crash later.
 		load = proc(data: rawptr, bytes: []u8) -> bool {
 			world := (^World)(data)
 			if len(bytes) < 4 do return false
@@ -287,10 +289,12 @@ extra :: proc(world: ^World, $State: typeid) -> sim.Extra {
 }
 
 // Whether a loaded body table fits the loaded Box3D world (the image's load): known flags, zero padding, a dead entry
-// zero, every live body alive in Box3D at its generation, a level body a static one. (One the block also owns:
-// check_refs.)
+// zero, every live body alive in Box3D at its generation, a level body a static one, and as many live entries as Box3D
+// has bodies (each is a distinct live body, so the table names every one: a table cut short would leave bodies with no
+// tag, no owner and no warp entry). (One the block also owns: check_refs.)
 @(private)
 entries_valid :: proc(world: ^World, entries: []Body_Entry) -> bool {
+	alive: i32 = 0
 	for entry, index in entries {
 		if transmute(u8)entry.flags >> len(Body_Flag) != 0 || entry._pad2 != {} { 	// a bit of no flag, padding
 			return false
@@ -302,8 +306,9 @@ entries_valid :: proc(world: ^World, entries: []Body_Entry) -> bool {
 		id := body_id(world, Body_Ref{index1 = i32(index + 1), generation = entry.generation})
 		if !box3d.Body_IsValid(id) do return false
 		if .Level in entry.flags && box3d.Body_GetType(id) != .staticBody do return false
+		alive += 1
 	}
-	return true
+	return alive == box3d.World_GetCounters(world.id).bodyCount
 }
 
 // The body table's entries as bytes (plain data, little-endian, padding zeroed by every write).
