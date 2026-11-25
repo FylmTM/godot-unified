@@ -698,6 +698,7 @@ Coop_Opts :: struct {
 	rejoin:       bool `usage:"the joiner leaves mid-match and joins again"`,
 	crash:        bool `usage:"the joiner's process dies mid-match (no goodbye) and the same player joins again (by its EOS account, or its LAN token with --lan): timed"`,
 	lan:          bool `usage:"direct UDP on 127.0.0.1 instead of EOS"`,
+	menus:        bool `usage:"no session flags: each side starts through the game's coop script (_start_host, _start_join: its own menus)"`,
 	host_profile: string `hint:"<k=v,..>" usage:"the host's Profile (--profile's syntax: class=Knight), over one after --"`,
 	join_profile: string `hint:"<k=v,..>" usage:"the joiner's Profile likewise: two players arriving with different choices"`,
 	overflow:     [dynamic]string `hint:"[-- args]" usage:"after --: game arguments for both processes (dev flags such as --lag, --verified-players)"`,
@@ -728,6 +729,7 @@ cmd_coop :: proc(args: []string) -> Result {
 	append(&common, "--code-file=res://.out/coop_code.txt")
 	if opts.rejoin do append(&common, "--rejoin")
 	if opts.crash do append(&common, "--crash")
+	if opts.menus do append(&common, "--menus")
 	append(&common, ..opts.overflow[:])
 	// --lan: a free port, so two runs at once (parallel agents) never meet in each other's lobby
 	port := opts.lan ? free_udp_port() : 0
@@ -736,7 +738,9 @@ cmd_coop :: proc(args: []string) -> Result {
 	append(&host_args, ..common[:])
 	// after the common arguments: a session reads the last --profile, so a role's own wins over one after --
 	if opts.host_profile != "" do append(&host_args, "--profile", opts.host_profile)
-	if opts.lan {
+	if opts.menus {
+		if opts.lan do append(&host_args, "--menu-port", aprintf("%d", port)) // online: the script hosts online
+	} else if opts.lan {
 		append(&host_args, "--host-port", aprintf("%d", port))
 	} else {
 		append(&host_args, "--host-online")
@@ -774,7 +778,9 @@ cmd_coop :: proc(args: []string) -> Result {
 	append(&joiner_args, "--role=join")
 	append(&joiner_args, ..common[:])
 	if opts.join_profile != "" do append(&joiner_args, "--profile", opts.join_profile)
-	if opts.lan {
+	if opts.menus {
+		append(&joiner_args, "--menu-code", code) // the code, or the LAN address
+	} else if opts.lan {
 		append(&joiner_args, "--join", code)
 	} else {
 		append(&joiner_args, "--join-code", code)

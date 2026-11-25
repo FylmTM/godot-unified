@@ -1,9 +1,13 @@
 class_name UnifiedCoop
 extends UnifiedTool
-## Real co-op, one process per role (`uni coop <game>` starts both). No menus: each side's session starts from the
-## session flags on its command line (src/godot/README.md, How it works: Command-line flags), which uni passes:
+## Real co-op, one process per role (`uni coop <game>` starts both). Each side's session starts from the session flags
+## on its command line (src/godot/README.md, How it works: Command-line flags), which uni passes:
 ##   host:   -- --role=host --code-file=<f> --host-online           (--lan: --host-port N)
 ##   joiner: -- --role=join --code-file=<f> --join-code <code>      (--lan: --join 127.0.0.1:N)
+## With `uni coop --menus` no session flag is passed: each side starts through `_start_host()` and `_start_join(code)`,
+## which a game's coop.gd overrides to go through its own menus (the defaults start the session directly):
+##   host:   -- --role=host --code-file=<f> --menus                  (--lan: --menu-port N)
+##   joiner: -- --role=join --code-file=<f> --menus --menu-code <code or 127.0.0.1:N>
 ## The host writes its lobby code (or address) to the code file once it has one, and uni starts the joiner with it.
 ## Both wait for two players; then the game's own play (`_host_play()`, `_join_play()`, in a game's
 ## game/tools/coop.gd that extends this), and the host leaves: the joiner's session must end (`_host_left()`: what
@@ -21,6 +25,8 @@ var code_file := ""
 var rejoin := false
 var crash := false
 var after_crash := false
+## Each side starts through `_start_host()` / `_start_join(code)` (uni coop --menus), not from session flags.
+var menus := false
 ## Why the session's status last changed (status_changed's detail).
 var status_detail := ""
 
@@ -31,6 +37,7 @@ func _run() -> void:
 	rejoin = flag("rejoin")
 	crash = flag("crash")
 	after_crash = flag("after-crash")
+	menus = flag("menus")
 	tag = "[%s]" % role
 	result["role"] = role
 	if role not in ["host", "join"] or code_file == "":
@@ -68,11 +75,35 @@ func _host_left() -> void:
 	pass
 
 
+## Starts the host's session (uni coop --menus): a game goes through its own menus here. Default: hosts directly, on
+## `port` (LAN), or online when it is 0.
+func _start_host(port: int) -> void:
+	if port > 0:
+		session.host_direct(port)
+	else:
+		session.host_online()
+
+
+## Starts the joiner's session with the host's `code` (uni coop --menus; again for --rejoin and after --crash): a game
+## goes through its own menus here. Default: joins directly when `code` is an address, else online.
+func _start_join(code: String) -> void:
+	if code.contains(":"):
+		session.join_direct(code)
+	else:
+		session.join_online(code)
+
+
 func _host() -> void:
 	DirAccess.remove_absolute(_played_file())
+	var port := arg("host-port") if not menus else arg("menu-port")
+	if menus:
+		@warning_ignore("redundant_await")  # a stub here: a game's override awaits
+		await _start_host(int(port) if port != "" else 0)
+		if failed():
+			return
 	var code := ""
-	if arg("host-port") != "":
-		code = "127.0.0.1:%s" % arg("host-port")  # the joiner runs on this machine
+	if port != "":
+		code = "127.0.0.1:%s" % port  # the joiner runs on this machine
 	else:
 		await wait_for(func() -> bool: return session.join_code != "", 30.0, "a lobby code")
 		code = session.join_code
@@ -118,6 +149,11 @@ func _host() -> void:
 
 
 func _join() -> void:
+	if menus:
+		@warning_ignore("redundant_await")  # a stub here: a game's override awaits
+		await _start_join(arg("menu-code"))
+		if failed():
+			return
 	if after_crash:
 		# The same player, back after its game crashed: the play is under way already.
 		var t := Time.get_ticks_msec()
@@ -145,7 +181,10 @@ func _join() -> void:
 		await wait_for(func() -> bool: return not _connected(), 10.0, "the joiner's session ends")
 		step("left")
 		await seconds(1.0)
-		if arg("join-code") != "":
+		if menus:
+			@warning_ignore("redundant_await")  # a stub here: a game's override awaits
+			await _start_join(arg("menu-code"))
+		elif arg("join-code") != "":
 			session.join_online(arg("join-code"))
 		else:
 			session.join_direct(arg("join"))
