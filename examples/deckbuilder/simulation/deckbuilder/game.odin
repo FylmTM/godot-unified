@@ -29,6 +29,7 @@ GAME := Game {
 	init                  = init,
 	tick                  = tick,
 	save                  = save,
+	setup_check           = setup_check,
 	scripted_commands     = scripted_commands,
 	scripted_profile      = scripted_profile,
 	input_delay_min_ticks = 2, // a card game: a play lands 62 ms later, and almost never a tick late
@@ -45,6 +46,7 @@ GAME_QUICK := Game {
 	init = init,
 	tick = tick,
 	save = save,
+	setup_check = setup_check,
 	scripted_commands = scripted_commands,
 	scripted_profile = scripted_profile,
 	benches = {{what = "deckbuilder (quick tuning), 4 heroes against the boss", entities = 4, ticks = 600}},

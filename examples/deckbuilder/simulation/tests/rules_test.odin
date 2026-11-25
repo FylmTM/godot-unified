@@ -278,3 +278,35 @@ a_save_continues_the_run :: proc(t: ^testing.T) {
 		}
 	}
 }
+
+// A save this build can't continue (Game.setup_check) reads as a problem, so the menu offers no Continue and create
+// refuses it, instead of the run indexing past its map: another SAVE_VERSION, a node past the act or beside the boss,
+// a hero's HP out of range.
+@(test)
+a_save_this_build_cant_continue_is_refused :: proc(t: ^testing.T) {
+	good := run_of([]g.Card_Id{.Strike})
+	testing.expect_value(t, sim.setup_violation(&g.GAME, &good), "")
+	none := g.Setup{}
+	testing.expect_value(t, sim.setup_violation(&g.GAME, &none), "")
+	Case :: struct {
+		what:  string,
+		craft: proc(setup: ^g.Setup),
+	}
+	cases := []Case {
+		{"another version", proc(setup: ^g.Setup) {setup.version = g.SAVE_VERSION + 1}},
+		{"a floor past the act", proc(setup: ^g.Setup) {setup.floor = 200}},
+		{"the first vote's floor", proc(setup: ^g.Setup) {setup.floor = g.NO_FLOOR}},
+		{"a lane past the map", proc(setup: ^g.Setup) {setup.lane = g.LANES}},
+		{"the last floor beside the boss", proc(setup: ^g.Setup) {setup.floor, setup.lane = g.FLOORS - 1, 0}},
+		{"a hero with no HP", proc(setup: ^g.Setup) {setup.heroes[0].hp = 0}},
+		{"a hero past their maximum", proc(setup: ^g.Setup) {setup.heroes[0].hp = setup.heroes[0].max_hp + 1}},
+		{"no hero in the run", proc(setup: ^g.Setup) {setup.heroes[0].in_run = false}},
+	}
+	for test_case in cases {
+		setup := run_of([]g.Card_Id{.Strike})
+		test_case.craft(&setup)
+		testing.expectf(t, sim.setup_violation(&g.GAME, &setup) != "", "%s: accepted", test_case.what)
+		_, problem := sim.setup_from_json(&g.GAME, sim.setup_to_json(&setup, context.temp_allocator))
+		testing.expectf(t, problem != "", "%s: read from JSON", test_case.what)
+	}
+}
