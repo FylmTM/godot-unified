@@ -1027,7 +1027,9 @@ bind_dynamic_method :: proc(
 		variants := make([]Variant, method.nargs, context.temp_allocator)
 		pointers := make([]^Variant, method.nargs, context.temp_allocator)
 		for kind, i in method.types {
-			if kind == .NIL {
+			if args[i] == nil {
+				// a typed call's null object (GDScript passes no slot for it): the Variant stays nil
+			} else if kind == .NIL {
 				gdi.variant_new_copy(&variants[i], cast(^Variant)args[i])
 			} else {
 				from_type(kind, &variants[i], args[i])

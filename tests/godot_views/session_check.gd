@@ -250,7 +250,10 @@ func _setup_and_locals() -> bool:
 	s.leave()
 	if not await _wait_for(func() -> bool: return not s.running, 5.0, "the Setup's session ends"):
 		return false
-	check("a session started without one plays the default again", s.start_single())
+	# a typed call (ptrcall) with a null Setup: GDScript passes no argument slot for it
+	var typed_session: UnifiedSession = s
+	var no_setup: UnifiedSetup = null
+	check("a session started with a typed null plays the default again", typed_session.start_single(no_setup))
 	if not await _wait_for(func() -> bool: return s.local_player != 0, 5.0, "the default session runs"):
 		return false
 	check("its Setup is the default", s.setup.life_bonus == 0, s.setup.life_bonus)

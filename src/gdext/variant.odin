@@ -391,6 +391,7 @@ from_ptr :: proc($T: typeid, ptr: rawptr) -> T {
 	} else when T == string {
 		return string_to_odin((^String)(ptr))
 	} else when intrinsics.type_is_subtype_of(T, Object) {
+		if ptr == nil do return {} // a typed call's null object: GDScript passes no slot for it
 		return transmute(T)(^rawptr)(ptr)^
 	} else {
 		return (^T)(ptr)^ // Variant and builtins: a borrowed bitwise view
