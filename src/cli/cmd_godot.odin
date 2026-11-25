@@ -693,12 +693,14 @@ os_data_dir :: proc(base := "") -> string {
 
 @(private)
 Coop_Opts :: struct {
-	game:     string `args:"pos=0" usage:"the game (default: the only one)"`,
-	window:   bool `usage:"the host in a window (muted, on the leftmost screen, never taking focus), with screenshots"`,
-	rejoin:   bool `usage:"the joiner leaves mid-match and joins again"`,
-	crash:    bool `usage:"the joiner's process dies mid-match (no goodbye) and the same player joins again (by its EOS account, or its LAN token with --lan): timed"`,
-	lan:      bool `usage:"direct UDP on 127.0.0.1 instead of EOS"`,
-	overflow: [dynamic]string `hint:"[-- args]" usage:"after --: game arguments for both processes (dev flags such as --lag, --verified-players)"`,
+	game:         string `args:"pos=0" usage:"the game (default: the only one)"`,
+	window:       bool `usage:"the host in a window (muted, on the leftmost screen, never taking focus), with screenshots"`,
+	rejoin:       bool `usage:"the joiner leaves mid-match and joins again"`,
+	crash:        bool `usage:"the joiner's process dies mid-match (no goodbye) and the same player joins again (by its EOS account, or its LAN token with --lan): timed"`,
+	lan:          bool `usage:"direct UDP on 127.0.0.1 instead of EOS"`,
+	host_profile: string `hint:"<k=v,..>" usage:"the host's Profile (--profile's syntax: class=Knight), over one after --"`,
+	join_profile: string `hint:"<k=v,..>" usage:"the joiner's Profile likewise: two players arriving with different choices"`,
+	overflow:     [dynamic]string `hint:"[-- args]" usage:"after --: game arguments for both processes (dev flags such as --lag, --verified-players)"`,
 }
 
 // A host (windowed with --window, else headless) and a headless joiner, as two Godot processes running the coop tool
@@ -732,6 +734,8 @@ cmd_coop :: proc(args: []string) -> Result {
 	host_args: [dynamic]string
 	append(&host_args, "--role=host")
 	append(&host_args, ..common[:])
+	// after the common arguments: a session reads the last --profile, so a role's own wins over one after --
+	if opts.host_profile != "" do append(&host_args, "--profile", opts.host_profile)
 	if opts.lan {
 		append(&host_args, "--host-port", aprintf("%d", port))
 	} else {
@@ -769,6 +773,7 @@ cmd_coop :: proc(args: []string) -> Result {
 	joiner_args: [dynamic]string
 	append(&joiner_args, "--role=join")
 	append(&joiner_args, ..common[:])
+	if opts.join_profile != "" do append(&joiner_args, "--profile", opts.join_profile)
 	if opts.lan {
 		append(&joiner_args, "--join", code)
 	} else {
