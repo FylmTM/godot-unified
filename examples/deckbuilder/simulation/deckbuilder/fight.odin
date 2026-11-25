@@ -63,8 +63,9 @@ end_turn :: proc(t: ^Tick, index: int, ready: bool) {
 	t.state.heroes[index].ready = ready
 }
 
-// The heroes' turn ends once every awake hero still standing is ready (a sleeping one counts as ready; nobody here:
-// it waits): the enemies' block goes, and each living enemy queues its action, in table order.
+// The heroes' turn ends once every awake hero still standing is ready (a sleeping one counts as ready): the enemies'
+// block goes, and each living enemy queues its action, in table order. With no awake hero standing it ends as the
+// enemies' turn would: every awake hero down (the last standing one's player left) loses the run; nobody here waits.
 heroes_turn :: proc(t: ^Tick) {
 	present := 0
 	for &hero, index in t.state.heroes {
@@ -72,7 +73,10 @@ heroes_turn :: proc(t: ^Tick) {
 		present += 1
 		if !hero.ready do return
 	}
-	if present == 0 do return
+	if present == 0 {
+		check_fight_lost(t)
+		return
+	}
 	t.state.phase = .Enemies
 	sim.clear(&t.state.actions)
 	enemies := sim.iterate(&t.state.enemies)

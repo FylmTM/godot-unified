@@ -13,7 +13,7 @@ TICK_HZ :: 32 // nothing moves: the rate only sets how soon a play lands, and th
 
 // The game's version (sim.Game.version, part of the netcode's compat): bump it when a rule or constant changes what a
 // tick computes without changing the State or Input layout, or two builds desync instead of refusing each other.
-VERSION :: "1"
+VERSION :: "2"
 
 // The game's types for unified:sim: no World (nothing outside the block).
 Game :: sim.Game(State, Input, sim.No_World, Event, Command, Setup, Profile, PLAYERS)
