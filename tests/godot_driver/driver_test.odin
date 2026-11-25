@@ -36,6 +36,8 @@ seen: struct {
 	second_color: u32, // atomic: the colour of whoever holds slot 1
 	local_dx:     i32, // atomic: the last Frame's local_inputs[0].dx + 100 when local player 0 plays (0: never)
 	nobody_dx:    i32, // atomic: the last Frame's local_inputs[1].dx (nobody plays local index 1)
+	second_bumps: u32, // atomic: the bumps of local player 1's player, in the last Frame
+	scribble:     bool, // atomic: fill_frame writes the Setup it reads (a fill must never write)
 }
 
 @(private = "file")
@@ -71,6 +73,9 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 			sync.atomic_store(&seen.bump_fold, local.bump_fold)
 			sync.atomic_store(&seen.color, local.color)
 			if second := sim.slot_data(&frame.state.players, 1); second != nil do sync.atomic_store(&seen.second_color, second.color)
+			if second := sim.player_data(&frame.state.players, frame.local_players[1]); second != nil {
+				sync.atomic_store(&seen.second_bumps, second.bumps)
+			}
 			// the join tick's events are queued, its Frame not published yet: hold here while the test looks
 			if sync.atomic_load(&seen.hold) == 1 {
 				seen.held_tick = frame.tick
@@ -79,6 +84,7 @@ GLUE := godot.Glue(toy.Game, View, MultiView) {
 			}
 		}
 		for sync.atomic_load(&seen.spin) == 1 do time.sleep(time.Millisecond)
+		if sync.atomic_load(&seen.scribble) do frame.setup.life_bonus += 1
 		if frame.setup != nil do sync.atomic_store(&seen.setup, u32(frame.setup.life_bonus) + 1)
 		sync.atomic_add(&seen.extracted, 1)
 	},
@@ -136,11 +142,11 @@ text :: proc(message: godot.Message) -> string {
 @(private = "file")
 is_result :: proc(message: godot.Message) -> bool {return message.kind == .Result}
 
-// Takes every queued event whose tick is at most `shown`.
+// Takes every queued event of the timeline `epoch` whose tick is at most `shown`.
 @(private = "file")
-take_events :: proc(out: ^[dynamic]godot.Event_Message, shown: u32) {
+take_events :: proc(out: ^[dynamic]godot.Event_Message, shown: u32, epoch: u32 = 0) {
 	for {
-		event := godot.api.next_event(shown) or_break
+		event := godot.api.next_event(shown, epoch) or_break
 		append(out, event)
 	}
 }
@@ -338,6 +344,11 @@ driver_sessions :: proc(t: ^testing.T) {
 		replay_plays(t)
 	}
 
+	replay_events_after_a_seek(t)
+	sessions_start_paused(t)
+	local_commands_stay_their_players(t)
+	fill_frame_writing_is_reported(t)
+
 	// A tick's events are queued before its Frame is published: the main thread, showing an older Frame, must not get
 	// them yet (they are about views it doesn't show), and gets them once the Frame of their tick is shown.
 	{
@@ -388,7 +399,7 @@ driver_sessions :: proc(t: ^testing.T) {
 	// Unified.profile's.
 	{
 		sync.atomic_store(&seen.color, 0)
-		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 8, name = "solo", scripted = true, slot = -1})
+		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 8, name = "solo", scripted = true})
 		testing.expect(t, ok, err)
 		messages := make([dynamic]godot.Message, context.temp_allocator)
 		testing.expect(t, drain(&messages, 5000, is_result), "the scripted session ends with a result")
@@ -401,7 +412,7 @@ driver_sessions :: proc(t: ^testing.T) {
 	// refused, Slot_Taken: tests/netcode, a_refused_local_player_taken_back_keeps_the_connection.)
 	{
 		sync.atomic_store(&seen.second_color, 0)
-		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 48, name = "solo", scripted = true, slot = -1})
+		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 48, name = "solo", scripted = true})
 		testing.expect(t, ok, err)
 		for frame, _ := godot.api.front(); frame == nil || frame.tick < 4; frame, _ = godot.api.front() {
 			time.sleep(time.Millisecond)
@@ -457,7 +468,6 @@ driver_sessions :: proc(t: ^testing.T) {
 		testing.expect(t, got_code, "the lobby code is posted")
 		time.sleep(50 * time.Millisecond)
 		godot.api.stop()
-		testing.expect(t, godot.api.stopping())
 		testing.expect(t, drain(&messages, 5000, is_result), "a stopped session ends with a result")
 		for godot.api.running() do time.sleep(time.Millisecond)
 		godot.api.wait()
@@ -630,6 +640,206 @@ watchdog_freezes :: proc(t: ^testing.T) {
 		sim.step(simulation, &inputs)
 	}
 	testing.expect_value(t, simulation.tick, freeze.tick)
+}
+
+// A replay's events across a seek (a scripted session's recording, which spawns things): the events queued before the
+// seek, never shown, are dropped once the seek's Frame is on screen; playing on from there, each event of the ticks the
+// replay moves into arrives once in each state, in tick order, on the new timeline only.
+@(private = "file")
+replay_events_after_a_seek :: proc(t: ^testing.T) {
+	ok, err := godot.api.start({mode = .Single, seed = 11, ticks = 96, name = "recorder", scripted = true})
+	if !testing.expectf(t, ok, "start: %s", err) do return
+	messages := make([dynamic]godot.Message, context.temp_allocator)
+	testing.expect(t, drain(&messages, 5000, is_result), "the recorded session ends")
+	snapshot, log_bytes: [dynamic]u8
+	defer delete(snapshot)
+	defer delete(log_bytes)
+	info, recorded := godot.api.recording(&snapshot, &log_bytes)
+	for godot.api.running() do time.sleep(time.Millisecond)
+	godot.api.wait()
+	if !testing.expect(t, recorded && info.to > info.from + 40, "a recording to replay") do return
+	dir :: #directory + "/../../.out/test/replay_events"
+	_ = os.remove_all(dir)
+	_ = os.make_directory_all(dir)
+	_ = os.write_entire_file(dir + "/snapshot.unis", snapshot[:])
+	_ = os.write_entire_file(dir + "/inputs.unil", log_bytes[:])
+
+	ok, err = godot.api.start({mode = .Replay, arg = dir, name = "viewer"})
+	if !testing.expectf(t, ok, "replay start: %s", err) do return
+	defer godot.api.wait()
+	testing.expect(t, godot.api.replay_control({kind = .Speed, speed = 4}))
+	_, at_end := replay_wait(5000, proc(frame: ^godot.Frame_Data) -> bool {
+		return frame.replay.paused && frame.tick == frame.replay.last
+	})
+	if !testing.expect(t, at_end, "the replay plays to its end (its events queued, none taken)") do return
+	first := info.from
+	testing.expect(t, godot.api.replay_control({kind = .Seek, value = i64(first + 1)}))
+	seek_frame, seek_ok := replay_wait(2000, proc(frame: ^godot.Frame_Data) -> bool {
+		return frame.tick == frame.replay.first + 1
+	})
+	if !testing.expect(t, seek_ok, "the seek lands") do return
+	epoch := seek_frame.epoch
+	stale := make([dynamic]godot.Event_Message, context.temp_allocator)
+	take_events(&stale, seek_frame.tick, epoch)
+	testing.expectf(t, len(stale) == 0, "nothing from before the seek: %d events", len(stale))
+	testing.expect(t, godot.api.replay_control({kind = .Play}))
+	events := make([dynamic]godot.Event_Message, context.temp_allocator)
+	start := time.tick_now()
+	for time.duration_seconds(time.tick_since(start)) < 5 {
+		frame, _ := godot.api.front()
+		if frame == nil do continue
+		take_events(&events, frame.tick, frame.epoch)
+		if frame.replay.paused && frame.tick == frame.replay.last do break
+		time.sleep(time.Millisecond)
+	}
+	testing.expectf(t, len(events) >= 2, "the ticks played again have events: %d", len(events))
+	Seen_Event :: struct {
+		id:     u64,
+		action: godot.Event_Action,
+	}
+	once := make(map[Seen_Event]bool, context.temp_allocator)
+	last_tick := first + 1
+	for event in events {
+		testing.expect_value(t, event.epoch, epoch)
+		testing.expectf(t, event.tick > first + 1 && event.tick >= last_tick, "tick %d in order", event.tick)
+		last_tick = event.tick
+		key := Seen_Event{event.id, event.action}
+		testing.expectf(t, !once[key], "event %d %v arrives once", event.id, event.action)
+		once[key] = true
+	}
+	for event in events do testing.expectf(t, once[{event.id, .Emitted}] && once[{event.id, .Confirmed}], "%d both states", event.id)
+	godot.api.stop()
+	_ = drain(&messages, 3000, is_result)
+}
+
+// Start.paused: a session started paused shows its first tick and waits (the GDScript `start_single(); paused = true`
+// in one frame: Start.hold keeps its first step for the next frame, which the pause reaches first); it steps exactly
+// what is asked (the control socket's step), and goes on when unpaused.
+@(private = "file")
+sessions_start_paused :: proc(t: ^testing.T) {
+	ok, err := godot.api.start({mode = .Single, seed = 7, name = "solo", hold = true})
+	if !testing.expectf(t, ok, "start: %s", err) do return
+	time.sleep(60 * time.Millisecond)
+	frame, _ := godot.api.front()
+	testing.expect(t, frame == nil || frame.tick == 0, "a held session takes no step")
+	godot.api.set_paused(true) // what a script sets in the frame it started the session
+	godot.api.release() // the session node's next frame
+	waited := time.tick_now()
+	for !godot.api.paused() && time.duration_seconds(time.tick_since(waited)) < 5 do time.sleep(time.Millisecond)
+	testing.expect(t, godot.api.paused(), "it pauses")
+	time.sleep(100 * time.Millisecond)
+	frame, _ = godot.api.front()
+	// the first tick is the one the clock's start computes (a paused host whose clock never started could not step)
+	testing.expectf(
+		t,
+		frame == nil || frame.tick <= 1,
+		"paused on its first tick: %v",
+		frame.tick if frame != nil else 0,
+	)
+	from: u32 = frame != nil ? frame.tick : 0
+	goal, asked := godot.api.step(3)
+	testing.expect(t, asked)
+	for taken, _ := godot.api.stepped(); taken != goal; taken, _ = godot.api.stepped() {
+		if time.duration_seconds(time.tick_since(waited)) > 5 do break
+		time.sleep(time.Millisecond)
+	}
+	taken, tick := godot.api.stepped()
+	testing.expectf(t, taken == goal && tick == from + 3, "three ticks stepped: %d of %d, tick %d", taken, goal, tick)
+	godot.api.set_paused(false)
+	for frame, _ = godot.api.front(); frame == nil || frame.tick < 8; frame, _ = godot.api.front() {
+		if time.duration_seconds(time.tick_since(waited)) > 5 do break
+		time.sleep(time.Millisecond)
+	}
+	testing.expect(t, frame != nil && frame.tick >= 8, "unpaused, it goes on")
+	godot.api.wait()
+
+	// Start.paused itself (a restart's: the waiting start carries what was set meanwhile)
+	ok, err = godot.api.start({mode = .Single, seed = 7, name = "solo", paused = true})
+	if !testing.expectf(t, ok, "start: %s", err) do return
+	waited = time.tick_now()
+	for !godot.api.paused() && time.duration_seconds(time.tick_since(waited)) < 5 do time.sleep(time.Millisecond)
+	time.sleep(60 * time.Millisecond)
+	frame, _ = godot.api.front()
+	testing.expect(
+		t,
+		godot.api.paused() && (frame == nil || frame.tick <= 1),
+		"Start.paused: paused on its first tick",
+	)
+	godot.api.wait()
+}
+
+// A local player's queued commands are that player's alone: one removed and another added in its place in one frame
+// (both done, the removal first) never sends what the removed one queued.
+@(private = "file")
+local_commands_stay_their_players :: proc(t: ^testing.T) {
+	ok, err := godot.api.start({mode = .Single, seed = 7, name = "solo"})
+	if !testing.expectf(t, ok, "start: %s", err) do return
+	defer godot.api.wait()
+	godot.api.sample_input()
+	waited := time.tick_now()
+	second_key :: proc() -> u64 {
+		frame, _ := godot.api.front()
+		return frame != nil ? frame.local_players[1] : 0
+	}
+	for frame, _ := godot.api.front(); frame == nil || frame.tick < 4; frame, _ = godot.api.front() {
+		time.sleep(time.Millisecond)
+	}
+	testing.expect(t, godot.api.local_player(1, true, "Second", nil))
+	for second_key() == 0 && time.duration_seconds(time.tick_since(waited)) < 5 do time.sleep(time.Millisecond)
+	first_second := second_key()
+	if !testing.expect(t, first_second != 0, "local player 1 joins") do return
+	// hold the session thread in fill_frame: what follows is one main-thread frame, before it looks
+	sync.atomic_store(&seen.hold, 1)
+	for sync.atomic_load(&seen.hold) != 2 && time.duration_seconds(time.tick_since(waited)) < 5 do time.sleep(time.Millisecond)
+	testing.expect(t, godot.api.send(sim.command_make(toy.Command, toy.Command_Bump{5}), 1))
+	testing.expect(t, godot.api.local_player(1, false, "", nil))
+	testing.expect(t, godot.api.local_player(1, true, "Third", nil))
+	sync.atomic_store(&seen.hold, 3)
+	for {
+		key := second_key()
+		if (key != 0 && key != first_second) || time.duration_seconds(time.tick_since(waited)) > 5 do break
+		time.sleep(time.Millisecond)
+	}
+	third := second_key()
+	testing.expectf(
+		t,
+		third != 0 && third != first_second,
+		"removed, then another added: %d after %d",
+		third,
+		first_second,
+	)
+	time.sleep(100 * time.Millisecond)
+	testing.expect_value(t, sync.atomic_load(&seen.second_bumps), 0)
+	sync.atomic_store(&seen.hold, 0)
+}
+
+// A fill_frame that writes what it reads (the Setup here) is reported once (dev UI builds): the ring's state is what a
+// re-simulation restores from.
+@(private = "file")
+fill_frame_writing_is_reported :: proc(t: ^testing.T) {
+	sync.atomic_store(&seen.scribble, true)
+	defer sync.atomic_store(&seen.scribble, false)
+	ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 40, name = "solo"})
+	if !testing.expectf(t, ok, "start: %s", err) do return
+	messages := make([dynamic]godot.Message, context.temp_allocator)
+	testing.expect(t, drain(&messages, 5000, is_result), "the session ends")
+	problems := 0
+	for message in messages do if message.kind == .Problem && strings.contains(text(message), "fill_frame wrote") do problems += 1
+	testing.expect_value(t, problems, 1)
+	for godot.api.running() do time.sleep(time.Millisecond)
+	godot.api.wait()
+}
+
+// `uni drive command` finds a command by its name or its type's, in any case; not by another spelling.
+@(test)
+commands_are_named_either_way :: proc(t: ^testing.T) {
+	layouts := []string{"bump", "dev_spawn"}
+	testing.expect_value(t, godot.command_kind_named(layouts, "bump"), 0)
+	testing.expect_value(t, godot.command_kind_named(layouts, "Command_Bump"), 0)
+	testing.expect_value(t, godot.command_kind_named(layouts, "command_dev_spawn"), 1)
+	testing.expect_value(t, godot.command_kind_named(layouts, "Command_Dev_Spawn"), 1)
+	testing.expect_value(t, godot.command_kind_named(layouts, "cmd_bump"), -1)
+	testing.expect_value(t, godot.command_kind_named(layouts, "Command_"), -1)
 }
 
 // The watchdog's detector: the same odd step counter on `polls` polls in a row is a freeze; an even one (between

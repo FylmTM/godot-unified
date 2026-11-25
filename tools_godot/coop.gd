@@ -128,7 +128,7 @@ func _host() -> void:
 		# the newest connection wins); they come back as the same player, in whatever slot is free.
 		var friend := _friend_player()
 		var t := Time.get_ticks_msec()
-		await wait_for(func() -> bool: return friend not in session.get_players(), 60.0,
+		await wait_for(func() -> bool: return friend not in session.players, 60.0,
 			"the crashed friend drops out")
 		step("friend (player %d) dropped out after %.1f s: %s" % [friend, (Time.get_ticks_msec() - t) / 1000.0,
 			player_names()])
@@ -209,12 +209,12 @@ func _connected() -> bool:
 
 
 func _present() -> int:
-	return session.get_players().size()
+	return session.players.size()
 
 
 ## The first present player other than the local one (0: none).
 func _friend_player() -> int:
-	for player: int in session.get_players():
+	for player: int in session.players:
 		if player != session.local_player:
 			return player
 	return 0

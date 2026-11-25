@@ -175,7 +175,7 @@ register_sim_class :: proc(variant: ^runtime.Type_Info, kind: int, is_event: boo
 	gd.register_class(&sim_class.class)
 	sim_class.fields = struct_sim_fields(variant)
 	for &field in sim_class.fields {
-		setter: gd.Dynamic_Proc = is_event ? nil : field_set
+		setter: gd.Dynamic_Proc = is_event || !field_settable(field.kind) ? nil : field_set
 		gd.bind_dynamic_property(
 			&sim_class.class,
 			{field.name, field.kind, field.class_name},

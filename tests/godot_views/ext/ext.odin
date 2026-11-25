@@ -309,14 +309,17 @@ sample_input :: proc(_: int, input: ^toy.Input) {
 
 // What test.gd sets on Unified.input.
 Input_Values :: struct {
-	drift: f32,
-	_pad:  [4]u8,
-	pick:  sim.Entity, // a fixed thing's index, set and read back (-1: none)
-	picks: sim.List(u8, 3), // an Array of up to 3 ints, set and read back
-	_pad2: [4]u8,
-	flags: sim.Bits(10), // an Array of indices below 10, set and read back
-	order: sim.Queue(u8, 3), // set as an Array, read back from its oldest (head 0)
-	_pad3: [3]u8,
+	drift:    f32,
+	_pad:     [4]u8,
+	pick:     sim.Entity, // a fixed thing's index, set and read back (-1: none)
+	picks:    sim.List(u8, 3), // an Array of up to 3 ints, set and read back
+	_pad2:    [4]u8,
+	flags:    sim.Bits(10), // an Array of indices below 10, set and read back
+	order:    sim.Queue(u8, 3), // set as an Array, read back from its oldest (head 0)
+	_pad3:    [3]u8,
+	grid:     [3]i16, // a fixed array: an Array of exactly 3 ints, set and read back
+	by_shape: [toy.Shape]u8, // an enumerated array: an Array by the enum's order, set and read back
+	_pad4:    [7]u8,
 }
 
 fill_frame :: proc(f: ^Frame) {

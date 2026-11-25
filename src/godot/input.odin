@@ -94,9 +94,13 @@ input_sample_begin :: proc(dev_keyboard: bool) {
 
 // Main thread, an input event (the session node's _input): the state of each tracked action for each local player on
 // the event's device: a joypad's event for the local players on that pad, a key's or the mouse's for those on the
-// keyboard. A press latches (a tap shorter than a frame still reaches the sim).
+// keyboard. A press latches for the next sample (a tap shorter than a frame still reaches the sim). Nothing to do while
+// every local player reads Godot's Input (DEVICE_ANY), the common case.
 @(private)
 input_event :: proc(event: gd.InputEvent) {
+	bound := false
+	for device in input_sample.devices do bound ||= device != DEVICE_ANY
+	if !bound do return
 	keyboard :=
 		gd.Object_is_class(event, "InputEventKey") ||
 		gd.Object_is_class(event, "InputEventMouseButton") ||
@@ -112,8 +116,10 @@ input_event :: proc(event: gd.InputEvent) {
 			strength := f32(gd.InputEvent_get_action_strength(event, tracked.name, false))
 			pressed := gd.InputEvent_is_action_pressed(event, tracked.name, false, false)
 			if pressed && !tracked.pressed[local] && !input_sample.blocked {
+				// the next sample is the first that can hold it (`sampling` is the one this frame stored already, which
+				// a tick may have taken: input_sample_begin would clear it before the next sample read it)
 				latch := latch_of(tracked.action, local)
-				latch.latched, latch.seq = true, input_sample.sampling
+				latch.latched, latch.seq = true, input_sample.sampling + 1
 			}
 			tracked.strength[local], tracked.pressed[local] = strength, pressed
 		}
@@ -280,6 +286,18 @@ action_down :: proc(action: string) -> bool {
 buttons :: proc($Set: typeid/bit_set[$E;$U], actions: [E]string) -> (set: Set) {
 	for action, button in actions do if action != "" && action_down(action) do set += {button}
 	return
+}
+
+// Main thread: a joypad went away (Input.joy_connection_changed): the local players on it forget what it held and the
+// taps it latched (Godot sends no release for what was held), so a pad that dies mid-move doesn't keep its player
+// moving. Whether the game also removes the player is the game's call.
+@(private)
+input_device_gone :: proc(device: int) {
+	for on, local in input_sample.devices {
+		if on != device do continue
+		for &tracked in input_sample.tracked do tracked.strength[local], tracked.pressed[local] = 0, false
+		for &latch in input_sample.latches do if latch.local == local do latch.latched = false
+	}
 }
 
 // Main thread: plays local player `local` on `device` (DEVICE_ANY, DEVICE_KEYBOARD, a joypad's id). A change of device

@@ -125,7 +125,7 @@ func _initialize() -> void:
 	session.level_changing.connect(func(to: int) -> void: level_signals.append("changing %d" % to))
 	session.level_changed.connect(func(level: int) -> void: level_signals.append("changed %d" % level))
 	check("no session: no level", session.level == -1 and session.level_scene == null, session.level)
-	check("no session: no local player", session.local_player == 0 and session.get_players().is_empty() \
+	check("no session: no local player", session.local_player == 0 and session.players.is_empty() \
 		and session.status == UnifiedSession.STATUS_IDLE and not session.running, [session.local_player, session.status])
 	var early := CommandBump.new()
 	early.amount = 1
@@ -322,6 +322,12 @@ func _initialize() -> void:
 	check("a sim.Bits index past its size is refused", input.flags == [2, 9], input.flags)
 	input.order = [5, 6]
 	check("a sim.Queue set as an Array reads back, oldest first", input.order == [5, 6], input.order)
+	input.grid = [1, -2, 3]
+	check("a fixed array set as an Array reads back", input.grid == [1, -2, 3], input.grid)
+	input.grid = [1, 2]  # not its length: refused with an error line, the value kept
+	check("a fixed array of another length is refused", input.grid == [1, -2, 3], input.grid)
+	input.by_shape = [4, 5, 6]
+	check("an enumerated array set as an Array reads back, by its enum's order", input.by_shape == [4, 5, 6], input.by_shape)
 	var areas: Array[DataMarkArea] = toy.areas  # typed by its class: assigning it would fail otherwise
 	check("a sim.List of nested structs: an Array of their class", areas.size() == 2 and areas[1].layer == 6 \
 		and areas[1].corner == Vector2(4, 5), areas)
@@ -689,9 +695,9 @@ func check_setup_json() -> void:
 # The session's players, by key: the local one in slot 0, present and remembered, named from the roster; no platform
 # account in single player; an unknown key answers nothing.
 func check_players(session: UnifiedSession, me: int, roster_changes: int) -> void:
-	check("get_players / get_known_players: the local player", session.get_players() == [me] \
-		and session.get_known_players() == [me], [session.get_players(), session.get_known_players()])
-	var players: Array[int] = session.get_players()  # typed: assigning it to Array[int] would fail otherwise
+	check("players / known_players: the local player", session.players == [me] \
+		and session.known_players == [me], [session.players, session.known_players])
+	var players: Array[int] = session.players  # typed: assigning it to Array[int] would fail otherwise
 	check("get_player_slot", players == [me] and session.get_player_slot(me) == 0 \
 		and session.get_player_slot(me + 1) == -1 and session.get_player_slot(0) == -1,
 		[session.get_player_slot(me), session.get_player_slot(me + 1)])

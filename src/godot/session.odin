@@ -14,40 +14,46 @@ import "unified:sim"
 
 @(private)
 Session_Node :: struct {
-	using hdr:   gd.Instance_Header,
-	view_root:   gd.Node, // where scene views are spawned, as its children (once root_set; before: the session's parent)
-	root_id:     u64,
-	root_set:    bool, // view_root was assigned (null included: no scene views)
-	synced_root: u64, // the instance id of the root the scene views live under (views_root_changed when it changes)
-	seed:        i64,
-	ticks:       i64,
-	name:        string,
-	status:      Status_Kind,
-	detail:      string,
-	join_code:   string, // UnifiedSession.join_code ("": none)
-	args:        Args,
-	args_read:   bool,
-	frame:       ^Frame_Data, // newest frame taken this process step (valid until the next one; nil once over)
-	ended:       bool, // the session's Result came: one more frame is taken (its last), then none
-	recorded:    bool, // the session's recording was saved (dev builds: at its Result, or when the node ends it)
-	over:        bool, // that last frame was shown: views keep their pose, nothing is synced until the next start
-	last_tick:   u32,
-	shown_time:  f64, // UnifiedSession.shown_time: the game time the views are posed at, in ticks
-	shown_epoch: u32, // the epoch shown_time last followed (Frame_Data.epoch)
-	quit_at_end: bool,
-	sync_us:     f32,
-	pending:     Start, // a start that waits for the previous session's goodbye (has_pending)
-	has_pending: bool,
-	left_mode:   Mode, // while a start waits (has_pending): the mode of the session it left, whose Result is to come
-	roster_seen: u32, // roster.changes when roster_changed was last emitted
-	slots_seen:  [sim.MAX_PLAYERS]u64, // the shown frame's slots when roster_changed was last emitted
-	known_seen:  int, // the shown frame's n_members then
-	mode:        Mode, // the session started last (UnifiedSession.mode; the dev UI: no netsim in single player)
-	level:       Level_Host, // the level on screen and its scene (level_host.odin)
-	locals_seen: [LOCAL_MAX]u64, // the local players' keys when local_players_changed was last emitted
-	quitting:    Quit_Wait, // a quit the session asked for, waiting for the sounds it stopped (quit.odin)
-	link_slow:   bool, // UnifiedSession.link_slow
-	saves_seen:  u32, // the shown frame's save count when save_changed was last emitted
+	using hdr:     gd.Instance_Header,
+	view_root:     gd.Node, // where scene views are spawned, as its children (once root_set; before: the session's parent)
+	root_id:       u64,
+	root_set:      bool, // view_root was assigned (null included: no scene views)
+	synced_root:   u64, // the instance id of the root the scene views live under (views_root_changed when it changes)
+	seed:          i64,
+	ticks:         i64,
+	name:          string,
+	status:        Status_Kind,
+	detail:        string,
+	join_code:     string, // UnifiedSession.join_code ("": none)
+	args:          Args,
+	args_read:     bool,
+	frame:         ^Frame_Data, // newest frame taken this process step (valid until the next one; nil once over)
+	ended:         bool, // the session's Result came: one more frame is taken (its last), then none
+	recorded:      bool, // the session's recording was saved (dev builds: at its Result, or when the node ends it)
+	over:          bool, // that last frame was shown: views keep their pose, nothing is synced until the next start
+	last_tick:     u32,
+	shown_time:    f64, // UnifiedSession.shown_time: the game time the views are posed at, in ticks
+	shown_epoch:   u32, // the epoch shown_time last followed (Frame_Data.epoch)
+	quit_at_end:   bool,
+	sync_us:       f32,
+	pending:       Start, // a start that waits for the previous session's goodbye (has_pending)
+	has_pending:   bool,
+	left_mode:     Mode, // while a start waits (has_pending): the mode of the session it left, whose Result is to come
+	roster_seen:   u32, // roster.changes when roster_changed was last emitted
+	slots_seen:    [sim.MAX_PLAYERS]u64, // the shown frame's slots when roster_changed was last emitted
+	known_seen:    int, // the shown frame's n_members then
+	mode:          Mode, // the session started last (UnifiedSession.mode; the dev UI: no netsim in single player)
+	level:         Level_Host, // the level on screen and its scene (level_host.odin)
+	locals_seen:   [LOCAL_MAX]u64, // the local players' keys when local_players_changed was last emitted
+	quitting:      Quit_Wait, // a quit the session asked for, waiting for the sounds it stopped (quit.odin)
+	link_slow:     bool, // UnifiedSession.link_slow
+	saves_seen:    u32, // the shown frame's save count when save_changed was last emitted
+	readied:       bool, // its _ready ran: back in the tree, it takes the session over again (session_activate)
+	joy_hooked:    bool, // Input's joy_connection_changed reaches it (input_device_gone)
+	// session_process is between taking the newest Frame and its last script call: nothing frees that Frame, the views
+	// or the session meanwhile (session_launch is never reached; the node leaving the tree is put off: exit_deferred)
+	syncing:       bool,
+	exit_deferred: bool, // the node left the tree while syncing: the session ends once session_process unwinds
 }
 
 @(private)
@@ -87,7 +93,7 @@ register_session_class :: proc() {
 		parent = "Node",
 		size = size_of(Session_Node),
 		doc_brief = "Runs a unified session (single player, host or join) and shows it: views, events, commands.",
-		doc = "One per app. The session runs the game's deterministic sim on its own thread; this node takes the newest frame every process step (at priority -1000, before every other node), moves the scene views under [member view_root], fills the MultiMesh views, and routes the sim's events to their views and to [signal sim_event]. The game's extension decides what the views are (src/godot/README.md). Reach it typed: [code]@onready var session: UnifiedSession = %UnifiedSession[/code], or [code]Unified.session[/code]. Players are ints: a player's key, the same while they are in the session whatever slot they hold (0: nobody).",
+		doc = "One per app. The session runs the game's deterministic sim on its own thread; this node takes the newest frame every process step (at priority -1000, before every other node), moves the scene views under [member view_root], fills the MultiMesh views, and routes the sim's events to their views and to [signal sim_event]. The game's extension decides what the views are (src/godot/README.md). It processes always ([constant Node.PROCESS_MODE_ALWAYS], set when it enters the tree): it pumps the session, which runs on network time, so a paused SceneTree (a pause menu) never stalls it; a single player's pause is [member paused]. Taken out of the tree it ends its session; put back, it runs sessions again. Reach it typed: [code]@onready var session: UnifiedSession = %UnifiedSession[/code], or [code]Unified.session[/code]. Players are ints: a player's key, the same while they are in the session whatever slot they hold (0: nobody).",
 		init = proc(instance: rawptr) {
 			session := (^Session_Node)(instance)
 			session.seed = 1 // local_name stays "": the roster shows "P" and the slot from 1
@@ -116,13 +122,19 @@ register_session_class :: proc() {
 		notification = proc(instance: rawptr, what: i32) {
 			session := (^Session_Node)(instance)
 			switch what {
+			case gd.Node_NOTIFICATION_ENTER_TREE:
+				// back in the tree (removed and added again, reparented): it runs sessions again (_ready runs once)
+				if !is_editor() && session.readied && active == nil do session_activate(session)
 			case gd.Node_NOTIFICATION_EXIT_TREE:
-				if active == session {
-					session_end(session)
-					views_clear()
-					dev_shutdown()
-					active = nil
+				if active != session do break
+				if session.syncing {
+					// a script it called is removing it: the Frame and the views it is going through stay until it is
+					// done (session_process ends it then); the session starts ending now
+					session.exit_deferred = true
+					if api.installed do api.stop()
+					break
 				}
+				session_exit(session)
 			case gd.Object_NOTIFICATION_EXTENSION_RELOADED:
 				// New code, same Godot object: Odin state is fresh; Godot restored the saved properties.
 				if !is_editor() && gd.Node_is_inside_tree(node_of(session)) do session_ready(session)
@@ -163,13 +175,27 @@ register_session_class :: proc() {
 		proc(session: ^Session_Node, on: bool) {set_game_input(on)},
 		doc = "Off, the game's input helpers read nothing (a pause menu, a chat field: their keys and clicks don't reach the sim); [member Unified.input] still flows. When it is turned back on, a button still held (action_down, buttons) counts only once it is released, while a held direction or strength (action_vector, action_strength) reads at once: the key that closed a menu never fires, and a stick held through it keeps moving.",
 	)
-	gd.bind_property(class, "paused", proc(session: ^Session_Node) -> bool {
+	gd.bind_property(
+		class,
+		"paused",
+		proc(session: ^Session_Node) -> bool {
+			if session.has_pending do return false // the session it asks for has not started
 			if session.mode == .Replay do return session.frame != nil && session.frame.replay.paused
-			return sync.atomic_load(&pause_on)
-		}, proc(session: ^Session_Node, paused: bool) {
-			if session.mode == .Replay do replay_control({kind = paused ? .Pause : .Play})
-			else do sync.atomic_store(&pause_want, paused)
-		}, doc = "Stops a single-player session's clock: no tick is sampled or stepped until it is false again, and the session goes on as if no time had passed (exact: nobody else waits). Reads true once the session thread paused it, false while a session has other players (online a pause is the game's own state: a command) and when a session starts, so a pause menu can set it in every mode. Views hold their last pose meanwhile. A replay's playhead stops the same way (playing again from its last tick starts over).")
+			return api.installed && api.paused()
+		},
+		proc(session: ^Session_Node, paused: bool) {
+			if !api.installed do return
+			switch {
+			case session.has_pending:
+				session.pending.paused = paused // the waiting start begins paused (or not)
+			case session.mode == .Replay:
+				replay_control({kind = paused ? .Pause : .Play})
+			case:
+				api.set_paused(paused)
+			}
+		},
+		doc = "Stops a single-player session's clock: no tick is sampled or stepped until it is false again, and the session goes on as if no time had passed (exact: nobody else waits). Set in the frame a start method was called (a restart included), the session starts paused on its first tick. Reads true once the session thread paused it, false while a session has other players (online a pause is the game's own state: a command), so a pause menu can set it in every mode; a session starts unpaused unless asked. Views hold their last pose meanwhile. A replay's playhead stops the same way (playing again from its last tick starts over).",
+	)
 	gd.bind_property(class, "view_root", view_root_of, proc(session: ^Session_Node, node: gd.Node) {
 			session.view_root = node
 			session.root_id = node.ptr != nil ? gdi.object_get_instance_id(node.ptr) : 0
@@ -308,22 +334,22 @@ register_session_class :: proc() {
 	gd.bind_property(class, "local_player", proc(session: ^Session_Node) -> i64 {
 			return session.frame != nil ? i64(session.frame.local_player) : 0
 		}, doc = "The first local player's key at the shown tick (0 until it joins, and once the session is over): a game of one local player reads this; [member local_players] has them all.")
-	gd.bind_dynamic_method(class, "get_players", proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
+	gd.bind_dynamic_property(class, {"players", .ARRAY, "int"}, proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
 			session := (^Session_Node)(instance)
 			players := player_array()
 			if session.frame != nil {
 				for key in session.frame.slots do if key != 0 do gd.array_push(&players, i64(key))
 			}
 			return array_variant(&players)
-		}, nil, nil, gd.Dynamic_Arg{"", .ARRAY, "int"}, doc = "The keys of the players present at the shown tick, in slot order.")
-	gd.bind_dynamic_method(class, "get_known_players", proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
+		}, nil, doc = "The keys of the players present at the shown tick, in slot order (a new Array on each read).")
+	gd.bind_dynamic_property(class, {"known_players", .ARRAY, "int"}, proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
 			session := (^Session_Node)(instance)
 			players := player_array()
 			if session.frame != nil {
 				for key in session.frame.members[:session.frame.n_members] do gd.array_push(&players, i64(key))
 			}
 			return array_variant(&players)
-		}, nil, nil, gd.Dynamic_Arg{"", .ARRAY, "int"}, doc = "The keys of every player the session remembers at the shown tick, present or not.")
+		}, nil, doc = "The keys of every player the session remembers at the shown tick, present or not (a new Array on each read).")
 	gd.bind_method(class, "get_player_slot", proc(session: ^Session_Node, player: i64) -> i64 {
 			return i64(shown_slot(session, player))
 		}, {"player"}, doc = "The slot (input index) [param player] holds at the shown tick; -1 when absent.")
@@ -380,7 +406,8 @@ register_session_class :: proc() {
 		nil,
 		{setup_arg},
 		gd.Dynamic_Arg{"", .BOOL, ""},
-		doc = "Starts a single player session playing [param setup] (null: the game's default Setup). False, with an error, when it can't start or the setup does not read on this build. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced); a host's restart ends the session for every player who joined: they get its goodbye and must join again.",
+		doc = "Starts a single player session playing [param setup] (null: the game's default Setup). False, with an error, when it can't start or the setup does not read on this build. " +
+		START_LEAVES_DOC,
 		defaults = no_setup,
 	)
 	gd.bind_dynamic_method(class, "host_online", proc(_: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
@@ -389,7 +416,7 @@ register_session_class :: proc() {
 			}
 			ok := setup_of(args[0], &request, "host_online") && session_start((^Session_Node)(instance), request)
 			return gd.to_variant(ok)
-		}, nil, {setup_arg}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Hosts an online session through the game's lobby service, playing [param setup] (null: the game's default); [member join_code] is the code to share once it is known. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced); a host's restart ends the session for every player who joined: they get its goodbye and must join again.", defaults = no_setup)
+		}, nil, {setup_arg}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Hosts an online session through the game's lobby service, playing [param setup] (null: the game's default); [member join_code] is the code to share once it is known. " + START_LEAVES_DOC, defaults = no_setup)
 	gd.bind_dynamic_method(class, "host_direct", proc(_: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
 			port, _ := gd.from_variant(i64, args[0])
 			request := Start {
@@ -398,7 +425,7 @@ register_session_class :: proc() {
 			}
 			ok := setup_of(args[1], &request, "host_direct") && session_start((^Session_Node)(instance), request)
 			return gd.to_variant(ok)
-		}, nil, {{"port", .INT, ""}, setup_arg}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Hosts on a UDP port (LAN), playing [param setup] (null: the game's default); 127.0.0.1 only when the process got [code]--local-net[/code]. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced); a host's restart ends the session for every player who joined: they get its goodbye and must join again.", defaults = no_setup)
+		}, nil, {{"port", .INT, ""}, setup_arg}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Hosts on a UDP port (LAN), playing [param setup] (null: the game's default); 127.0.0.1 only when the process got [code]--local-net[/code]. " + START_LEAVES_DOC, defaults = no_setup)
 	gd.bind_dynamic_property(class, {"setup", .OBJECT, SETUP_CLASS}, proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
 			session := (^Session_Node)(instance)
 			if D.setup == nil do return gd.variant_nil()
@@ -409,18 +436,19 @@ register_session_class :: proc() {
 			return session_start(session, {mode = .Join_Online, arg = code})
 		}, {
 			"code",
-		}, doc = "Joins an online session by its lobby code. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced); a host's restart ends the session for every player who joined: they get its goodbye and must join again.")
+		}, doc = "Joins an online session by its lobby code. " + START_LEAVES_DOC)
 	gd.bind_method(class, "join_direct", proc(session: ^Session_Node, address: string) -> bool {
 			return session_start(session, {mode = .Join_Direct, arg = address})
 		}, {
 			"address",
-		}, doc = "Joins a directly hosted session at [code]host:port[/code]. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced); a host's restart ends the session for every player who joined: they get its goodbye and must join again.")
+		}, doc = "Joins a directly hosted session at [code]host:port[/code]. " + START_LEAVES_DOC)
 	// replays
 	gd.bind_method(class, "replay", proc(session: ^Session_Node, folder: string) -> bool {
 			return session_start(session, {mode = .Replay, arg = globalize(folder)})
 		}, {
 			"folder",
-		}, doc = "Replays a recording: an F3 note's folder, a session's under [code]user://recordings[/code], or a freeze's (its [code]inputs.unil[/code], and the [code]snapshot.unis[/code] it continues, if any). The game's views, events and session data work as live; every tick is final (events arrive EVENT_EMITTED and EVENT_CONFIRMED together); [member local_player] is [member replay_player]. A note starts some seconds before its noted tick and pauses on it; a recording of another build plays, checked against its checkpoints. False, with a failed status, when the folder holds no recording of this game. A running session is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced); a host's restart ends the session for every player who joined: they get its goodbye and must join again.")
+		}, doc = "Replays a recording: an F3 note's folder, a session's under [code]user://recordings[/code], or a freeze's (its [code]inputs.unil[/code], and the [code]snapshot.unis[/code] it continues, if any). The game's views, events and session data work as live; every tick is final (events arrive EVENT_EMITTED and EVENT_CONFIRMED together); [member local_player] is [member replay_player]. A note starts some seconds before its noted tick and pauses on it; a recording of another build plays, checked against its checkpoints. False, with a failed status, when the folder holds no recording of this game. " +
+		START_LEAVES_DOC)
 	gd.bind_property(
 		class,
 		"replay_speed",
@@ -490,7 +518,7 @@ register_session_class :: proc() {
 			local, _ := gd.from_variant(i64, args[1])
 			if local < 0 || local >= LOCAL_MAX do return gd.to_variant(false)
 			return gd.to_variant(send_command(command, int(local)))
-		}, nil, {{"command", .OBJECT, "UnifiedCommand"}, {"local", .INT, ""}}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Sends one of the game's commands from local player [param local] (make one with its class, e.g. [code]CommandDrop.new()[/code]); the sim gets it exactly once, from that player. False, with an error naming why, when it can't be sent: not one of the game's commands, a property set to a wrong value, no running session, or a full queue.", defaults = {gd.to_variant(i64(0))})
+		}, nil, {{"command", .OBJECT, "UnifiedCommand"}, {"local", .INT, ""}}, gd.Dynamic_Arg{"", .BOOL, ""}, doc = "Sends one of the game's commands from local player [param local] (make one with its class, e.g. [code]CommandDrop.new()[/code]); the sim gets it exactly once, from that player. False, with an error naming why, when it can't be sent: not one of the game's commands, a property set to a wrong value, no running session, no local player [param local] in it, or a full queue.", defaults = {gd.to_variant(i64(0))})
 	bind_local_players(class)
 	bind_open_to_friends(class)
 	gd.bind_method(
@@ -557,7 +585,7 @@ register_session_class :: proc() {
 	gd.bind_signal(
 		class,
 		"roster_changed",
-		doc = "Who is in the session at the shown tick changed ([method get_players], [method get_known_players], [method get_player_slot]: a player joined, left or moved slots), or a player's name, connection or account did (the get_player_* methods): redraw a player list here.",
+		doc = "Who is in the session at the shown tick changed ([member players], [member known_players], [method get_player_slot]: a player joined, left or moved slots), or a player's name, connection or account did (the get_player_* methods): redraw a player list here.",
 	)
 	for name, status in STATUS_NAMES {
 		gd.bind_constant(
@@ -599,6 +627,10 @@ register_session_class :: proc() {
 	)
 	for name, state in EVENT_STATE_NAMES do gd.bind_constant(class, "EventState", name, i64(state), doc = EVENT_STATE_DOCS[state])
 }
+
+// What every start method's doc ends with: how a start meets the session before it.
+@(private)
+START_LEAVES_DOC :: "A session before it is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced; one that ended already is replaced at the end of the frame, its result kept); a host's restart ends the session for every player who joined: they get its goodbye and must join again."
 
 // The link's slow flag changed (Message.Link_Slow), or went with the session: link_slow_changed, and a mark in the dev
 // UI's timeline.
@@ -731,9 +763,7 @@ session_ready :: proc(session: ^Session_Node) {
 		gd.print_warning("unified: a second UnifiedSession; only the first one runs")
 		return
 	}
-	active = session
-	gd.Node_set_process_priority(node_of(session), -1000) // views are written before any other _process
-	gd.Node_set_process(node_of(session), true)
+	session.readied = true
 	if !session.args_read {
 		session.args_read = true
 		problems: []string
@@ -761,11 +791,7 @@ session_ready :: proc(session: ^Session_Node) {
 		}
 		read_app_version()
 	}
-	dev_init(
-		session.args.devui,
-		session.args.lag_ms > 0 ? lag_settings(session.args.lag_ms) : {},
-		session.args.verified_players,
-	)
+	session_activate(session)
 	switch {
 	case session.args.autostart:
 		session_start(session, {mode = .Single, scripted = session.args.scripted})
@@ -798,6 +824,52 @@ session_ready :: proc(session: ^Session_Node) {
 	session.args.replay = ""
 	session.args.autostart, session.args.host_port, session.args.join, session.args.online, session.args.join_code =
 		false, 0, "", false, ""
+}
+
+// The node takes the session over (its _ready, and every time it is back in the tree): it processes first, always (the
+// session's pump runs on network time: a paused SceneTree must not stall it), and the dev UI is up.
+@(private)
+session_activate :: proc(session: ^Session_Node) {
+	if active == session do return
+	if active != nil {
+		gd.print_warning("unified: a second UnifiedSession; only the first one runs")
+		return
+	}
+	active = session
+	node := node_of(session)
+	gd.Node_set_process_priority(node, -1000) // views are written before any other _process
+	gd.Node_set_process_mode(node, .PROCESS_MODE_ALWAYS)
+	gd.Node_set_process(node, true)
+	if !session.joy_hooked {
+		session.joy_hooked = true
+		joypads := gd.Object{gd.Input_singleton().ptr}
+		gd.connect(joypads, "joy_connection_changed", gd.callable_create(joy_connection_changed, nil, session.obj))
+	}
+	dev_init(
+		session.args.devui,
+		session.args.lag_ms > 0 ? lag_settings(session.args.lag_ms) : {},
+		session.args.verified_players,
+	)
+}
+
+// Input.joy_connection_changed(device, connected): a pad that went away forgets what it held (input_device_gone).
+@(private)
+joy_connection_changed :: proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
+	if len(args) < 2 do return {}
+	device, _ := gd.from_variant(i64, args[0])
+	connected, _ := gd.from_variant(bool, args[1])
+	if !connected do input_device_gone(int(device))
+	return {}
+}
+
+// The node left the tree (or the extension unloads it): its session ends, its views and the dev UI go, and it no longer
+// runs sessions until it is back.
+@(private)
+session_exit :: proc(session: ^Session_Node) {
+	session_end(session)
+	views_clear()
+	dev_shutdown()
+	active = nil
 }
 
 // UnifiedSession's open to friends: a running single-player session becomes a hosted one, nobody waits and no timer
@@ -846,11 +918,15 @@ bind_open_to_friends :: proc(class: ^gd.Class) {
 // its own player with its own device, joining and leaving the running session on its own.
 @(private)
 bind_local_players :: proc(class: ^gd.Class) {
-	gd.bind_dynamic_method(class, "add_local_player", proc(_: rawptr, _: rawptr, args: []^gd.Variant) -> gd.Variant {
+	gd.bind_dynamic_method(
+		class,
+		"add_local_player",
+		proc(_: rawptr, instance: rawptr, args: []^gd.Variant) -> gd.Variant {
 			device, _ := gd.from_variant(i64, args[0])
 			name, _ := gd.from_variant(string, args[1])
 			profile_object, _ := gd.from_variant(gd.Object, args[2])
-			if !api.installed || !api.running() do return gd.to_variant(i64(-1))
+			// (a session being left for a start that waits takes nobody new)
+			if !api.installed || !api.running() || (^Session_Node)(instance).has_pending do return gd.to_variant(i64(-1))
 			local := -1
 			for active, k in input_sample.active do if !active && local < 0 do local = k
 			if local < 0 do return gd.to_variant(i64(-1))
@@ -867,7 +943,13 @@ bind_local_players :: proc(class: ^gd.Class) {
 			input_sample.active[local] = true
 			set_device(local, int(device))
 			return gd.to_variant(i64(local))
-		}, nil, {{"device", .INT, ""}, {"name", .STRING, ""}, {"profile", .OBJECT, PROFILE_CLASS}}, gd.Dynamic_Arg{"", .INT, ""}, doc = "Adds a local player to the running session, played on [param device] ([constant DEVICE_ANY], [constant DEVICE_KEYBOARD], a joypad's id), named [param name], arriving with [param profile] (null: [code]Unified.profile[/code]'s). Returns its local index (1 and up; 0 is the first player), or -1 when no session runs or [constant LOCAL_MAX] play already. It joins like a late joiner, without a snapshot; [signal local_players_changed] says when it is in.", defaults = {gd.to_variant(i64(DEVICE_ANY)), gd.to_variant(""), gd.variant_nil()})
+		},
+		nil,
+		{{"device", .INT, ""}, {"name", .STRING, ""}, {"profile", .OBJECT, PROFILE_CLASS}},
+		gd.Dynamic_Arg{"", .INT, ""},
+		doc = "Adds a local player to the running session, played on [param device] ([constant DEVICE_ANY], [constant DEVICE_KEYBOARD], a joypad's id), named [param name], arriving with [param profile] (null: [code]Unified.profile[/code]'s). Returns its local index (1 and up; 0 is the first player), or -1 when no session runs (or a start waits for the last one's goodbye) or [constant LOCAL_MAX] play already. It joins like a late joiner, without a snapshot; [signal local_players_changed] says when it is in.",
+		defaults = {gd.to_variant(i64(DEVICE_ANY)), gd.to_variant(""), gd.variant_nil()},
+	)
 	gd.bind_method(class, "remove_local_player", proc(session: ^Session_Node, local: i64) -> bool {
 			if local <= 0 || local >= LOCAL_MAX || !input_sample.active[local] do return false
 			input_sample.active[local] = false
@@ -882,11 +964,11 @@ bind_local_players :: proc(class: ^gd.Class) {
 			}
 			return array_variant(&players)
 		}, nil, doc = "The keys of this game's players in the session at the shown tick, in local order (the first player's first), compacted: not indexed by local index ([method get_local_player_key] is).")
-	gd.bind_dynamic_method(class, "get_local_indices", proc(_: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
+	gd.bind_dynamic_property(class, {"local_indices", .ARRAY, "int"}, proc(_: rawptr, _: rawptr, _: []^gd.Variant) -> gd.Variant {
 			indices := player_array()
 			for active, local in input_sample.active do if active do gd.array_push(&indices, i64(local))
 			return array_variant(&indices)
-		}, nil, {}, gd.Dynamic_Arg{"", .ARRAY, "int"}, doc = "The local indices of this game's local players (0, then the ones [method add_local_player] added), whether or not they are in yet.")
+		}, nil, doc = "The local indices of this game's local players (0, then the ones [method add_local_player] added), whether or not they are in yet (a new Array on each read).")
 	gd.bind_method(class, "get_local_player_key", proc(session: ^Session_Node, local: i64) -> i64 {
 			if session.frame == nil || local < 0 || local >= LOCAL_MAX do return 0
 			return i64(session.frame.local_players[local])
@@ -948,20 +1030,20 @@ session_start :: proc(session: ^Session_Node, request: Start) -> bool {
 	if !api.installed {
 		reason := "no game installed in this extension"
 		if len(api.problems) > 0 do reason = fmt.tprintf("the game %s failed to install: %s", api.game_name, api.problems[0])
-		emit_status(session, .Failed, reason)
-		if session.quit_at_end {
-			// a run that ends by itself (a headless check) has no result to wait for: say why and quit
-			fmt.eprintfln("unified: no session: %s", reason)
-			quit_when_quiet(session, 1)
-		}
-		return false
+		return fail_start(session, reason)
 	}
-	if api.running() {
-		// A start on a running session leaves it first, as leave does (a restart, a host after single player): the
-		// left session says goodbye (<= 1 s once hurried) and the new one starts when it is gone (session_process);
-		// its own messages are dropped meanwhile. A start already waiting is replaced: the newest one wins. The left
-		// session's mode is kept for its Result (its recording: dev_save_recording).
+	if api.exists() {
+		// A start while a session exists leaves it first, as leave does (a restart, a host after single player): the
+		// left session says goodbye (<= 1 s once hurried) and the new one starts when it is gone, at the end of a
+		// session_process (start_pending); its own messages are dropped meanwhile, its Result kept. A start already
+		// waiting is replaced: the newest one wins. The left session's mode is kept for its Result (its recording:
+		// dev_save_recording). A session that ended already waits the same way: its last Frame may be the one a script
+		// is called from, so it is never freed under it.
 		if !session.has_pending do session.left_mode = session.mode
+		if !api.running() {
+			// one that ended shows nothing more (its Frame stays in memory, for a caller that holds it, until start_pending)
+			session.frame, session.over = nil, true
+		}
 		api.stop()
 		clear_pending(session)
 		session.pending = request
@@ -972,19 +1054,31 @@ session_start :: proc(session: ^Session_Node, request: Start) -> bool {
 		emit_status(session, .Connecting, "")
 		return true
 	}
-	// The left session may have ended after this frame's start_pending: its waiting start is replaced by this one
-	// (else it would launch after this session, and this one's messages be dropped as the left one's).
-	clear_pending(session)
 	return session_launch(session, request)
 }
 
+// A start that can't begin: its status is Failed with `reason`, and a --quit-at-end run (a headless check, which has no
+// result to wait for) says why and quits with 1. False, for the start method to return.
+@(private)
+fail_start :: proc(session: ^Session_Node, reason: string) -> bool {
+	emit_status(session, .Failed, reason)
+	if session.quit_at_end {
+		fmt.eprintfln("unified: the session failed: %s", reason)
+		quit_when_quiet(session, 1)
+	}
+	return false
+}
+
+// Starts a session with no other in the way (none ever ran, or start_pending freed the last one).
 @(private)
 session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
+	assert(!session.syncing, "a session launched while session_process holds a Frame")
 	session.frame = nil // it points into the finished session, which wait frees
 	session.ended, session.over, session.recorded = false, false, false
 	session.saves_seen = 0
-	api.wait() // a finished session's thread
+	api.wait() // a finished session's thread (start_pending took its Result)
 	request := request
+	request.hold = true // its first step waits for this frame to end: a pause asked now holds from the first tick
 	if request.mode == .Single do request.bench = session.args.bench
 	request.local = session.args.local_net
 	request.seed = u64(session.seed)
@@ -993,12 +1087,11 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	request.token = client_token()
 	if D.profile != nil && D.profile.instance != nil do copy(request.profile[:], D.profile.instance.bytes)
 	request.profile_text = session.args.profile
-	request.slot = -1
+	request.slot = nil
 	if session.args.slot != "" {
 		slot, slot_ok := strconv.parse_int(session.args.slot, 10)
 		if !slot_ok || slot < 0 || slot >= sim.MAX_PLAYERS {
-			emit_status(session, .Failed, fmt.tprintf("--slot %s: not a slot", session.args.slot))
-			return false
+			return fail_start(session, fmt.tprintf("--slot %s: not a slot", session.args.slot))
 		}
 		request.slot = slot
 	}
@@ -1007,8 +1100,7 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 		copy(request.setup[:], api.setup_default)
 		request.has_setup = true
 		if problem := api.setup_text(request.setup[:len(api.setup_default)], session.args.setup); problem != "" {
-			emit_status(session, .Failed, fmt.tprintf("--setup %s: %s", session.args.setup, problem))
-			return false
+			return fail_start(session, fmt.tprintf("--setup %s: %s", session.args.setup, problem))
 		}
 	}
 	request.quit = session.quit_at_end
@@ -1017,6 +1109,7 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 		request.dumps = fmt.tprintf("%s/feedback", gd.OS_get_user_data_dir(gd.OS_singleton()))
 	}
 	views_check_index()
+	views_session_reset() // the last session's views belong to it, even where this one has the same keys
 	data_reset()
 	// A new session starts with local player 0 alone: the others join it with add_local_player.
 	for local in 1 ..< LOCAL_MAX {
@@ -1029,10 +1122,7 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	set_join_code(session, "")
 	dev_session_started()
 	ok, err := api.start(request)
-	if !ok {
-		emit_status(session, .Failed, err)
-		return false
-	}
+	if !ok do return fail_start(session, err)
 	emit_status(session, .Connecting, "")
 	return true
 }
@@ -1043,10 +1133,12 @@ clear_pending :: proc(session: ^Session_Node) {
 	session.pending, session.has_pending = {}, false
 }
 
-// Starts the waiting session once the previous one has finished.
+// Starts the waiting session once the previous one has finished (session_process, last: no script holds its Frame),
+// after that one's Result, which may have come since this frame's drain_messages.
 @(private)
 start_pending :: proc(session: ^Session_Node) {
 	if !session.has_pending || api.running() do return
+	result_drain(session) // (while has_pending: the recording's mode is the left session's)
 	request := session.pending
 	session.has_pending = false
 	session.pending = {}
@@ -1054,20 +1146,42 @@ start_pending :: proc(session: ^Session_Node) {
 	session_launch(session, request)
 }
 
+// Ends the session for good (the node leaves the tree, the app quits): its goodbye on the main thread, its Result if it
+// came (else its recording from the verified ticks so far), then its memory. A waiting start never begins.
 @(private)
 session_end :: proc(session: ^Session_Node) {
-	// The app quits or the node leaves the tree before the Result: its recording is saved now (from the verified
-	// ticks so far), before the session's goodbye and wait free it. Before clear_pending, which the mode depends on.
+	if api.installed {
+		api.hurry() // a goodbye of at most 1 s on the main thread, not 3 (an unreachable peer)
+		api.join()
+		result_drain(session, quit = false) // (before clear_pending: the recording's mode depends on it)
+	}
 	if !session.recorded do dev_save_recording(session)
 	session.recorded = true
 	clear_pending(session)
-	if api.installed {
-		api.hurry() // a goodbye of at most 1 s on the main thread, not 3 (an unreachable peer)
-		api.stop()
-		api.wait()
-	}
+	if api.installed do api.wait()
 	session.frame = nil
 	data_reset()
+}
+
+// The Result of a session whose thread ended (api.join), if it is still queued: its line, its recording and a
+// --quit-at-end quit, as drain_messages handles it, with no signal (the session is being replaced or ended); its other
+// last words are dropped. `quit` false: the node is going (session_end), and the app with it.
+@(private)
+result_drain :: proc(session: ^Session_Node, quit := true) {
+	for {
+		message := api.pop() or_break
+		if message.kind == .Result do result_came(session, quit)
+	}
+}
+
+// A session's Result came: its line (`unified: result {...}`, what uni's checks read), its recording, and the quit at
+// the end of a --quit-at-end run (`quit`; with exit code 0 unless a failure asked for 1 first).
+@(private)
+result_came :: proc(session: ^Session_Node, quit: bool) {
+	fmt.printfln("unified: result %s", api.result())
+	if !session.recorded do dev_save_recording(session)
+	session.recorded = true
+	if quit && session.quit_at_end do quit_when_quiet(session, 0)
 }
 
 // Ends the active session, joins its thread and frees every view and the dev UI. Called when the extension
@@ -1123,7 +1237,11 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 		api.sample_input()
 	}
 	if lobby != nil && lobby.main_frame != nil && api.running() do lobby.main_frame()
+	if api.installed do api.release() // a session started last frame (Start.hold) takes its first step
 	started := time.tick_now()
+	// From the newest Frame to the last signal, scripts are called while the Frame, the views and the session are in use:
+	// a start only queues (session_start), the node leaving the tree is put off (exit_deferred).
+	session.syncing = true
 	// the newest frame: views first, then the events of the ticks it covers
 	fresh := false
 	if api.installed && !session.over {
@@ -1181,6 +1299,14 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 		session.locals_seen = session.frame.local_players
 		gd.emit_signal(session.obj, gd.sn("local_players_changed"))
 	}
+	session.syncing = false
+	if session.exit_deferred {
+		// a script took the node out of the tree meanwhile: it ends now, and runs again if it is back already
+		session.exit_deferred = false
+		session_exit(session)
+		if gd.Node_is_inside_tree(node_of(session)) do session_activate(session)
+		return
+	}
 	start_pending(session)
 	took := time.tick_since(started)
 	session.sync_us = f32(time.duration_microseconds(took))
@@ -1190,7 +1316,7 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 		V.stats.total += took
 		V.stats.total_max = max(V.stats.total_max, took)
 	}
-	sync.atomic_store(&want_state, dev_wants_state() || control_listening())
+	if api.installed do api.set_want_state(dev_wants_state() || control_listening())
 	dev_frame(session, dt)
 	control_poll(session) // last: a reply sees this frame's views and events
 }
@@ -1201,7 +1327,7 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 drain_events :: proc(session: ^Session_Node) {
 	if !api.installed do return
 	for session.frame != nil {
-		event := api.next_event(session.frame.tick) or_break
+		event := api.next_event(session.frame.tick, session.frame.epoch) or_break
 		if !session.has_pending do route_event(session, event) // else: the left session's; the new one is connecting
 	}
 	if dropped := api.events_dropped(); dropped > 0 {
@@ -1226,12 +1352,9 @@ drain_messages :: proc(session: ^Session_Node) {
 		if session.has_pending && message.kind != .Result do continue // the left session's last words; the new one is connecting
 		switch message.kind {
 		case .Status:
-			emit_status(session, message.status, text)
-			if message.status == .Failed && session.quit_at_end && session.mode == .Replay {
-				// a replay that can't start has no result to wait for: say why and quit (a tool run fails)
-				fmt.eprintfln("unified: the replay failed: %s", text)
-				quit_when_quiet(session, 1)
-			}
+			// a session that fails (to open, or later: a join refused) fails a --quit-at-end run: exit code 1
+			if message.status == .Failed do fail_start(session, text)
+			else do emit_status(session, message.status, text)
 		case .Join_Code:
 			fmt.printfln("unified: join code %s", text)
 			set_join_code(session, text)
@@ -1253,17 +1376,16 @@ drain_messages :: proc(session: ^Session_Node) {
 			gd.emit_signal(session.obj, gd.sn("mode_changed"), i64(message.mode), text)
 		case .Link_Slow:
 			set_link_slow(session, message.tick != 0)
+		case .Problem:
+			report_once(text, text)
 		case .Result:
-			fmt.printfln("unified: result %s", api.result())
-			if !session.recorded do dev_save_recording(session)
-			session.recorded = true
+			result_came(session, quit = true)
 			if !session.has_pending {
 				set_link_slow(session, false)
 				data_reset()
 				set_join_code(session, "")
 				session.ended = true
 			}
-			if session.quit_at_end do quit_when_quiet(session, 0)
 		}
 	}
 }

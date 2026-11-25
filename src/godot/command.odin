@@ -34,7 +34,8 @@ command_layouts :: proc(commands: typeid) -> []Command_Layout {
 }
 
 // Main thread. False, with print_error naming what is wrong, for an object that is not one of the game's
-// commands, a property set to a wrong value, no running session, or a full queue.
+// commands, a property set to a wrong value, no running session, no local player `local` in it (never added, removed,
+// or refused: its index is free), or a full queue.
 send_command :: proc(object: gd.Object, local := 0) -> bool {
 	fail :: proc(msg: string) -> bool {
 		gd.print_error(fmt.tprintf("unified: send_command: %s", msg))
@@ -47,6 +48,9 @@ send_command :: proc(object: gd.Object, local := 0) -> bool {
 	}
 	if instance.bad do return fail(fmt.tprintf("%s has a property set to a wrong value", sim_class.name))
 	if !api.running() do return fail("no session is running")
+	if local < 0 || local >= LOCAL_MAX || !input_sample.active[local] {
+		return fail(fmt.tprintf("local player %d is not in this session (add_local_player)", local))
+	}
 	// the object holds positions in view units (what a script reads back); the sim gets sim units
 	bytes := instance.data
 	for offset in api.commands[sim_class.kind].positions {
@@ -75,7 +79,7 @@ position_to_sim :: proc(position: sim.Position) -> sim.Position {
 // or i32), a Color (godot.Color), a Quaternion (godot.Quat), a sim.Position (Vector2 in a 2D game, else Vector3; in
 // view units until send_command), a handle (its key: sim.handle_key, 0: none), a player (its key), a nested struct
 // (an object of its class: DataArea.new()), a sim.List or Queue (an Array of its items), a sim.Bits (an Array of its
-// indices).
+// indices), a fixed array or an enumerated array (an Array of exactly its items, each written as its element is).
 write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -> string {
 	variant_type := gd.variant_type(variant)
 	got :: proc(variant_type: gdi.VariantType) -> string {return fmt.tprintf("got %v", variant_type)}
@@ -181,10 +185,39 @@ write_value :: proc(type: ^runtime.Type_Info, out: []u8, variant: ^gd.Variant) -
 			bits |= 1 << u64(value - info.lower)
 		}
 		put_int(out, i64(bits))
+	case runtime.Type_Info_Array:
+		return elements_write(info.elem, info.elem_size, info.count, out, variant)
+	case runtime.Type_Info_Enumerated_Array:
+		return elements_write(info.elem, info.elem_size, info.count, out, variant) // by the enum's order
 	case:
 		return fmt.tprintf("unsupported field type %v", type.id)
 	}
 	return ""
+}
+
+// A fixed array's items from an Array a script set (`count` of them, no fewer and no more), each written as its
+// element is, into a copy first: a wrong item leaves `out` as it was.
+elements_write :: proc(elem: ^runtime.Type_Info, elem_size, count: int, out: []u8, variant: ^gd.Variant) -> string {
+	if gd.variant_type(variant) != .ARRAY do return fmt.tprintf("want an Array, got %v", gd.variant_type(variant))
+	array, _ := gd.from_variant(gd.Array, variant)
+	defer gd.Array_destroy(&array)
+	if got := gd.array_len(&array); got != count do return fmt.tprintf("%d items: it holds exactly %d", got, count)
+	written := make([]u8, len(out), context.temp_allocator)
+	copy(written, out) // (the padding between items, if any, as it was)
+	for i in 0 ..< count {
+		if problem := write_value(elem, written[i * elem_size:][:elem.size], gd.array_at(&array, i)); problem != "" {
+			return fmt.tprintf("item %d: %s", i, problem)
+		}
+	}
+	copy(out, written)
+	return ""
+}
+
+// Whether a script may set a field of this kind (field_kind): every kind write_value takes, which is all but a
+// string (a constant's) and an anonymous struct (a Dictionary, which has no class to check it by). The others are
+// read-only properties.
+field_settable :: proc(kind: gdi.VariantType) -> bool {
+	return kind != .STRING && kind != .DICTIONARY
 }
 
 // An enum member's value (an int, one of the members: the Enum* class's constants).
