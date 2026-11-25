@@ -24,6 +24,7 @@ Hud_Hero :: struct {
 	xp_next:          i32,
 	level:            i32,
 	pending_levelups: i32,
+	offer_level:      i32, // the level `offers` are for, which a pick names (CommandPick.level; 0: none pending)
 	respawn_s:        f32, // seconds until a downed hero stands up (0 when alive)
 }
 
@@ -67,7 +68,8 @@ hud_of :: proc(f: ^Frame) -> (hud: Data_Hud) {
 		}
 		if hero.pending_levelups > 0 { 	// the roll the sim makes for the pick, peeked: nothing in the block changes
 			player := sim.player_in_slot(&f.state.players, slot)
-			hud.heroes[slot].offers = g.upgrade_offers(f.seed, player, g.oldest_pending_level(hero))
+			hud.heroes[slot].offer_level = g.oldest_pending_level(hero)
+			hud.heroes[slot].offers = g.upgrade_offers(f.seed, player, hud.heroes[slot].offer_level)
 		}
 	}
 	return

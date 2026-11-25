@@ -44,7 +44,7 @@ xp_to_next :: proc(level: i32) -> i32 {
 level_up :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for hero, player in sim.next(&players) {
-		if !hero.started || hero.xp < xp_to_next(hero.level) do continue
+		if hero.xp < xp_to_next(hero.level) do continue
 		hero.xp -= xp_to_next(hero.level)
 		hero.level += 1
 		hero.pending_levelups += 1
