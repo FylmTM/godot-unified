@@ -1660,15 +1660,17 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 	case .Join_Direct:
 		endpoint, ok := cnet.parse_endpoint(request.arg)
 		if !ok {
-			if host, port, split := split_host_port(request.arg); split {
-				if resolved, resolve_err := cnet.resolve_ip4(fmt.tprintf("%s:%d", host, port)); resolve_err == nil {
-					endpoint, ok = resolved, true
-				}
+			host, port, split := split_host_port(request.arg)
+			if !split {
+				post_status(driver, .Failed, fmt.tprintf("bad address %q (want host:port)", request.arg))
+				return false
 			}
-		}
-		if !ok {
-			post_status(driver, .Failed, fmt.tprintf("bad address %q (want host:port)", request.arg))
-			return false
+			resolved, resolve_err := cnet.resolve_ip4(fmt.tprintf("%s:%d", host, port))
+			if resolve_err != nil {
+				post_status(driver, .Failed, fmt.tprintf("no computer named %q was found", host))
+				return false
+			}
+			endpoint = resolved
 		}
 		link, link_ok := netcode.udp_connect(endpoint)
 		if !link_ok {
