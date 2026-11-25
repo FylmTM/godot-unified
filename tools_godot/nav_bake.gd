@@ -23,7 +23,13 @@ func _initialize() -> void:
 			baked.append(result)
 	var ok := errors.is_empty()
 	print("UNIFIED_RESULT " + JSON.stringify({"ok": ok, "scenes": baked, "errors": errors}))
-	quit(0 if ok else 1)
+	# Through the game's own quit when it has one (as UnifiedTool.finish): its autoloads ran during the bake's frames
+	# and may have work under way (a background load of its play scene), which a bare quit would cut mid-parse.
+	var game: Node = root.get_node_or_null(^"Game")
+	if game != null and game.is_inside_tree() and game.has_method(&"quit_app"):
+		game.call(&"quit_app", 0 if ok else 1)
+	else:
+		quit(0 if ok else 1)  # also before the autoloads are in the tree (nothing baked: no frame ran)
 
 
 ## Bakes the scene's NavigationRegion3D when it opts in, and saves the scene: what it baked ({}: nothing to bake, or
