@@ -205,6 +205,7 @@ func _setup_and_locals() -> bool:
 	# A Profile is a value: a couch guest's own is freed once no script holds it; Unified.profile lives on.
 	var guest_profile := UnifiedProfile.new()
 	check("a new UnifiedProfile is a RefCounted value", guest_profile is RefCounted)
+	check("NAME_MAX: a name's bytes", UnifiedSession.NAME_MAX == 31, UnifiedSession.NAME_MAX)
 	var dropped_id := UnifiedProfile.new().get_instance_id()
 	check("a UnifiedProfile no script holds is freed", not is_instance_id_valid(dropped_id))
 	var held: UnifiedProfile = Unified.profile

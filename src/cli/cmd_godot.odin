@@ -779,8 +779,8 @@ cmd_coop :: proc(args: []string) -> Result {
 	} else {
 		append(&joiner_args, "--join-code", code)
 	}
-	friend := user_env(selected.dir, "USER=Friend", "USERNAME=Friend") // the second player's default name
-	fresh := opts.lan ? friend : user_env(selected.dir, "USER=Friend", "USERNAME=Friend", "UNIFIED_EOS_FRESH_DEVICE=1")
+	friend := user_env(selected.dir)
+	fresh := opts.lan ? friend : user_env(selected.dir, "UNIFIED_EOS_FRESH_DEVICE=1")
 	joiner := start_joiner(selected, script, joiner_args[:], fresh, "coop_join")
 	if !opts.crash {
 		join_ran := wait(&joiner)

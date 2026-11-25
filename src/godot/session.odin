@@ -568,6 +568,13 @@ register_session_class :: proc() {
 		LOCAL_MAX,
 		doc = "The most local players one game has (couch co-op, guests of a remote-play stream).",
 	)
+	gd.bind_constant(
+		class,
+		"",
+		"NAME_MAX",
+		netcode.NAME_MAX,
+		doc = "The most UTF-8 bytes of a player's name ([member local_name], add_local_player's): a longer one is cut on a character boundary, so a name field that keeps to it shows what the other players see.",
+	)
 	for name, state in EVENT_STATE_NAMES do gd.bind_constant(class, "EventState", name, i64(state), doc = EVENT_STATE_DOCS[state])
 }
 

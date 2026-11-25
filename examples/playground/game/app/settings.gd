@@ -155,7 +155,6 @@ static func _set_bus_volume(bus: StringName, linear: float) -> void:
 	AudioServer.set_bus_mute(i, linear <= 0.001)
 
 
+## The name before the player picks one: never the OS user name, which every peer would see (often a real name).
 static func _default_name() -> String:
-	var user := OS.get_environment("USER") if OS.has_environment("USER") else OS.get_environment("USERNAME")
-	user = user.strip_edges().left(16)
-	return user if user != "" else "Player"
+	return "Player"
