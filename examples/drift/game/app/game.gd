@@ -132,9 +132,11 @@ func join_direct(address: String) -> void:
 	session.join_direct(address)
 
 
-## Leaves the match (or cancels connecting) and returns to the main menu, showing `error` there when given.
+## Leaves the match (or cancels connecting) and returns to the main menu, showing `error` there when given. The mouse
+## is free there, whatever the play scene had it doing.
 func leave_to_menu(error := "") -> void:
 	last_error = error
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if status != UnifiedSession.STATUS_IDLE:
 		session.leave()
 	_hide_connect_overlay()
@@ -300,7 +302,9 @@ static func _event_label(event: InputEvent, grouped: bool) -> String:
 	return event.as_text()
 
 
+## The connecting overlay, over the menu or the play scene (reconnecting), with the mouse free for its Cancel.
 func _show_connect_overlay() -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if _connect_overlay == null:
 		_connect_overlay = CONNECT_OVERLAY.instantiate()
 		_overlay_layer.add_child(_connect_overlay)

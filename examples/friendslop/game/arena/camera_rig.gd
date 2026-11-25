@@ -1,7 +1,8 @@
 class_name CameraRig
 extends Node3D
 ## The third-person orbit camera behind the local player: the mouse (captured while playing) or the right stick turn
-## it, it pulls in when the level is in the way, and every frame, just before the session samples the input
+## it (at the settings' sensitivity and invert look; the stick not under the pause menu), it pulls in when the level is
+## in the way, and every frame, just before the session samples the input
 ## (input_wanted), it tells the session where it looks (Unified.input: `look` = the look direction, `right` = flat
 ## right), which the input sampler turns into camera-relative movement and the aim.
 
@@ -28,12 +29,19 @@ func _ready() -> void:
 	Unified.session.input_wanted.connect(_turn)
 
 
+func _exit_tree() -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE  # however the play scene ends, the menu gets a free mouse
+
+
 ## Before the session samples this frame's input: the stick turns the camera, and the session learns where it looks.
 func _turn() -> void:
 	var delta := get_process_delta_time()
-	var stick := Input.get_vector(&"look_left", &"look_right", &"look_up", &"look_down")
+	var stick := Vector2.ZERO
+	if Unified.session.game_input:  # not under the pause menu
+		stick = Input.get_vector(&"look_left", &"look_right", &"look_up", &"look_down")
+	var invert := -1.0 if Settings.invert_y else 1.0
 	yaw -= stick.x * 2.6 * delta
-	pitch = clampf(pitch - stick.y * 1.8 * delta, PITCH_MIN, PITCH_MAX)
+	pitch = clampf(pitch - stick.y * 1.8 * invert * delta, PITCH_MIN, PITCH_MAX)
 	Unified.input.look = _look()
 	Unified.input.right = Vector3(-cos(yaw), 0, sin(yaw))  # flat right of the look
 
@@ -75,9 +83,10 @@ func shake(amount: float) -> void:
 	_shake = maxf(_shake, amount)
 
 
-## The mouse is captured while playing, free under the Esc menu (and never captured headless).
+## The mouse is captured while playing, free under the Esc menu and the connect overlay (reconnecting: its Cancel is
+## clicked), and never captured headless.
 func _capture_mouse() -> void:
-	var free := _pause_menu.visible or DisplayServer.get_name() == "headless"
+	var free := _pause_menu.visible or Game.status != UnifiedSession.STATUS_CONNECTED or DisplayServer.get_name() == "headless"
 	var want := Input.MOUSE_MODE_VISIBLE if free else Input.MOUSE_MODE_CAPTURED
 	if Input.mouse_mode != want and Game.flow == Game.Flow.PLAYING:
 		Input.mouse_mode = want
