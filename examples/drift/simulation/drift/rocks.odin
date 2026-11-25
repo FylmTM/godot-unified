@@ -47,7 +47,8 @@ break_rocks :: proc(t: ^Tick) {
 // During a match: wave k (0, 1, ...) every WAVE_EVERY_TICKS brings WAVE_ROCKS + WAVE_ROCKS_MORE * k large rocks, one
 // every ROCK_EVERY_TICKS from the rock_spawn markers in turn, at ROCK_SPEED + ROCK_SPEED_PER_WAVE * k along the
 // marker's direction turned up to ROCK_SPREAD_TURNS (dmath.rotate2); the turn, the spin (up to ROCK_SPIN_MAX) and the
-// shape are keyed rolls.
+// shape are keyed rolls naming the rock's number (State.spawner), never the tick: the match a command starts deals the
+// same rocks whichever tick the relay places it on (src/sim/README.md, Random numbers).
 spawn_waves :: proc(t: ^Tick) {
 	if t.state.phase != .Match do return
 	if sim.timer_done(t, t.state.next_wave) {
@@ -60,11 +61,12 @@ spawn_waves :: proc(t: ^Tick) {
 	if t.state.rocks_left == 0 || sim.timer_running(t, t.state.next_rock) do return
 	spawner := &sim.slice(&t.world.spawners)[t.state.spawner % t.world.spawners.count]
 	speed := ROCK_SPEED + ROCK_SPEED_PER_WAVE * f32(t.state.waves - 1)
+	rock := int(t.state.spawner)
 	// the drift direction turned by up to ROCK_SPREAD_TURNS either way
-	turn := (sim.roll_f32(t, Roll.Rock_Turn) * 2 - 1) * ROCK_SPREAD_TURNS
+	turn := (sim.roll_f32_at(t.seed, 0, Roll.Rock_Turn, index = rock) * 2 - 1) * ROCK_SPREAD_TURNS
 	direction := dmath.rotate2(spawner.dir, turn)
-	spin := (sim.roll_f32(t, Roll.Rock_Spin) * 2 - 1) * ROCK_SPIN_MAX
-	variant := int(sim.roll_below(t, ROCK_VARIANTS, Roll.Rock_Variant))
+	spin := (sim.roll_f32_at(t.seed, 0, Roll.Rock_Spin, index = rock) * 2 - 1) * ROCK_SPIN_MAX
+	variant := int(sim.roll_below_at(t.seed, 0, ROCK_VARIANTS, Roll.Rock_Variant, index = rock))
 	if _, ok := create_rock(t, .Large, variant, spawner.pos, direction * speed, spin); ok {
 		t.state.spawner += 1
 		t.state.rocks_left -= 1

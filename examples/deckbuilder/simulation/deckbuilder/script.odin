@@ -1,8 +1,10 @@
-// The scripted player for the headless modes and test sessions: a pure function of (seed, slot, tick), so any tick can
-// be asked for in any order and a Godot scripted session sends what the offline binary does. It can't look at its
-// hand: it names cards by where a run's starter decks are dealt in the card table (hero h's starters at h *
-// STARTER_SIZE ..), the enemies of a fight by their first places, and many of its plays are refused, which the
-// refusal path wants anyway.
+// The scripted player for the headless modes and test sessions. What it does is a function of (seed, slot, tick); which
+// card or enemy that names, the state it is given: it doesn't look at its hand, but names cards by where a run's
+// starter decks are dealt in the card table (hero h's starters at h * STARTER_SIZE ..) and the enemies of a fight by
+// their first places, with the handles that live there in that state (sim.item_at: a new run or fight deals the same
+// places under new handles). So it steers by the state (the suite's script_reads_state): a client asked with its own
+// prediction may name a handle the verified state no longer has, and the play is refused, as many of its plays are,
+// which the refusal path wants anyway.
 package deckbuilder
 
 import "unified:sim"
@@ -24,15 +26,17 @@ scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^
 	bits := sim.script_bits(seed, slot, tick, 1)
 	if slot == 0 && tick % SCRIPT_START_EVERY == 9 do sim.send_command(out, Command_Start_Run{})
 	phase := (tick + u32(slot) * 3) % SCRIPT_CHOOSE_EVERY
+	starter :: proc(state: ^State, slot: int, pick: u32) -> sim.Handle(Card) {
+		_, handle, _ := sim.item_at(&state.cards, slot * STARTER_SIZE + int(pick % STARTER_SIZE))
+		return handle
+	}
 	if phase % SCRIPT_PLAY_EVERY == 0 {
-		starter :: proc(slot: int, pick: u32) -> sim.Handle(Card) {
-			return {index = u32(slot * STARTER_SIZE) + pick % STARTER_SIZE, generation = 1}
-		}
+		_, enemy, _ := sim.item_at(&state.enemies, int((bits >> 8) % 3))
 		sim.send_command(out, Command_Play_Card {
-			card = starter(slot, bits),
-			enemy = {index = (bits >> 8) % 3, generation = 1},
-			extra = starter(slot, bits >> 16),
-			ally = u8((bits >> 12) % PLAYERS) + 1,
+			card  = starter(state, slot, bits),
+			enemy = enemy,
+			extra = starter(state, slot, bits >> 16),
+			ally  = u8((bits >> 12) % PLAYERS) + 1,
 		})
 	}
 	switch phase {
@@ -41,10 +45,7 @@ scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^
 	case 3:
 		sim.send_command(out, Command_Pick_Reward{offer = u8(bits % (OFFERS + 1)) if bits % 5 != 0 else SKIP})
 	case 5:
-		sim.send_command(out, Command_Rest {
-			choice = Rest_Choice(bits % 2),
-			card = {index = u32(slot * STARTER_SIZE) + (bits >> 4) % STARTER_SIZE, generation = 1},
-		})
+		sim.send_command(out, Command_Rest{choice = Rest_Choice(bits % 2), card = starter(state, slot, bits >> 4)})
 	case 7:
 		if (tick + u32(slot) * 16) % SCRIPT_END_TURN_EVERY < SCRIPT_CHOOSE_EVERY do sim.send_command(out, Command_End_Turn{ready = true})
 	}

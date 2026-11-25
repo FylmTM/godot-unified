@@ -207,6 +207,51 @@ an_absent_players_hero_sleeps :: proc(t: ^testing.T) {
 	scenarios.expect_synced(t, &run)
 }
 
+// With one hero down, the last standing hero's player leaving loses the run whichever turn it lands in: the heroes'
+// turn doesn't wait for a hero who sleeps when every awake one is down.
+@(test)
+the_last_standing_player_leaving_loses_the_run_in_either_turn :: proc(t: ^testing.T) {
+	for in_enemies_turn in ([]bool{false, true}) {
+		run := fight_of(run_of(STRIKES, STRIKES))
+		defer headless.run_end(&run)
+		state := &run.simulation.state
+		state.heroes[0].down, state.heroes[0].hp = true, 0
+		headless.run_pin(&run)
+		if in_enemies_turn {
+			headless.run_command(&run, 1, g.Command_End_Turn{ready = true})
+			testing.expect_value(t, state.phase, g.Phase.Enemies)
+		}
+		headless.run_seat(&run, 1, 0) // the last standing hero's player leaves
+		for _ in 0 ..< 4 * g.TICK_HZ {
+			headless.run_step(&run)
+			if state.phase == .Over do break
+		}
+		testing.expect_value(t, state.phase, g.Phase.Over)
+		over, found := headless.run_last_event(&run, g.Event_Run_Over)
+		testing.expect(t, found && !over.won, "the run is lost")
+		scenarios.expect_synced(t, &run)
+	}
+}
+
+// A player who arrives with no hero free watches, and takes a hero the moment its player leaves.
+@(test)
+a_watcher_takes_a_hero_that_frees :: proc(t: ^testing.T) {
+	run := fight_of(run_of(STRIKES, STRIKES))
+	defer headless.run_end(&run)
+	state := &run.simulation.state
+	headless.run_seat(&run, 2, 3) // a third player: no hero free
+	headless.run_step(&run)
+	watcher := sim.player_in_slot(run.simulation, 2)
+	testing.expect(t, sim.player_data(run.simulation, watcher).watching, "watching")
+	headless.run_seat(&run, 1, 0) // hero 1's player leaves
+	headless.run_step(&run)
+	testing.expect_value(t, g.hero_of(state, watcher), 1)
+	testing.expect(t, !sim.player_data(run.simulation, watcher).watching, "playing")
+	claimed, found := headless.run_last_event(&run, g.Event_Hero_Claimed)
+	testing.expect(t, found && claimed.hero == 1 && claimed.player == watcher, "claimed")
+	scenarios.expect_synced(t, &run)
+}
+
 // A shuffle comes from the hero's stream for the floor, never the tick: the same run entering its first node on
 // another tick (the votes later) deals the same hands.
 @(test)

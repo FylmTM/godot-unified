@@ -15,7 +15,7 @@ TICK_HZ :: 64
 
 // The game's version (sim.Game.version, part of the netcode's compat): bump it when a rule or constant changes what a
 // tick computes without changing the State or Input layout, or two builds desync instead of refusing each other.
-VERSION :: "2"
+VERSION :: "3"
 
 Game :: sim.Game(State, Input, World, Event, sim.No_Commands, sim.No_Setup, sim.No_Profile, PLAYERS)
 // What every system gets: the state, the world, the inputs, the tick's player changes.

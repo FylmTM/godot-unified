@@ -1,14 +1,14 @@
-// friendslop's end-to-end suite: the standard scenarios of unified:headless/scenarios on the game, its hub and its
-// route (dynamic characters, joints, platforms, carries, throws and level changes under rollback), and its reference
-// run. The game's own scenarios are in the other files of this package (friendslop_test.odin, route_test.odin).
+// friendslop's end-to-end suite: the standard scenarios of unified:headless/scenarios (src/headless/README.md) on the
+// game, its hub and its route (dynamic characters, joints, platforms, carries, throws and level changes under
+// rollback), its replay regressions (the recorded sessions in replays/), unified's determinism lint and the
+// extension's install check. The reference run is in reference_test.odin, the game's own scenarios in the other files
+// of this package (friendslop_test.odin, route_test.odin).
 package test_friendslop
 
 import "core:testing"
-
 import "unified:godot"
 import "unified:headless/scenarios"
-@(require) import "unified:physics" // the workers check (in the long tier while the game ships one worker)
-@(require) import "unified:sim"
+import "unified:lint"
 
 import ext "../extension"
 import g "../friendslop"
@@ -20,22 +20,9 @@ SUITE := scenarios.Suite(g.Game) {
 	ticks   = scenarios.LONG ? 3600 : 600,
 }
 
-// The reference run (src/headless/README.md, Reference runs).
-REFERENCE :: scenarios.Reference {
-	seed          = 7,
-	players       = 4,
-	ticks         = 1800,
-	snapshot_tick = 900,
-	checkpoints   = {0xa8d58e3ed5fc5495, 0x7069dfe607b701bd, 0x5f92c49def72fc7d, 0x8b6e1565d4d2f280},
-	trace         = 0x5e9e0056addb0da1,
-	snapshot      = 0x7e6ff042f56bd030,
-	log           = 0x3a1a1a9baaadf27f,
-	compat        = 0xa2cda247133ae1c5,
-}
-
 // By default the minimal set, each scenario proving something about this game (the toy's suite proves the
 // library): rollback every tick, players coming and going under rollback (presence churn), a bad-network session, a
-// session whose inputs change every tick, a late joiner and the reference run, on short runs.
+// session whose inputs change every tick and a late joiner, on short runs.
 // `uni test --long` adds the other standard scenarios and runs them all at full length.
 @(test)
 rollback_every_tick :: proc(t: ^testing.T) {scenarios.rollback_every_tick(t, &SUITE)}
@@ -59,27 +46,12 @@ a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(
 		3,
 		scenarios.LONG ? 900 : 300,
 	)}
-
+// Every recorded session in replays/ (one replay folder each) computes what was blessed, tick by tick; after a meant
+// rules change, `uni test friendslop --bless` (src/headless/README.md, Replay regressions).
 @(test)
-the_reference_run_reproduces :: proc(t: ^testing.T) {scenarios.reference_reproduces(t, &g.GAME, REFERENCE)}
-
-// Box3D steps the same on any worker count (src/physics/README.md, Capacity): the reference run on the other count too
-// (4, or 1 for a game that ships more; the_reference_run_reproduces runs PHYSICS_WORKERS). In every `uni test --long`,
-// and in every `uni test` once the game ships more than one worker.
-when scenarios.LONG || g.PHYSICS_WORKERS > 1 {
-	OTHER_WORKERS :: 4 when g.PHYSICS_WORKERS == 1 else 1
-
-	@(test)
-	the_reference_run_matches_on_other_workers :: proc(t: ^testing.T) {
-		game := g.GAME
-		game.world_create = proc(seed: u64, levels: []sim.Level_File, setup: sim.No_Setup) -> ^g.World {
-			world := g.world_create(seed, levels, setup)
-			physics.world_set_worker_count(world.phys, OTHER_WORKERS)
-			return world
-		}
-		scenarios.reference_reproduces(t, &game, REFERENCE)
-	}
-}
+the_replays_reproduce :: proc(t: ^testing.T) {scenarios.replays_reproduce(t, &g.GAME, #directory + "/replays")}
+@(test)
+determinism_lint :: proc(t: ^testing.T) {lint.check_game(t, #directory + "/..")}
 
 when scenarios.LONG {
 	@(test)

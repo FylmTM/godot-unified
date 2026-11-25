@@ -3,22 +3,26 @@ package horde
 import "unified:dmath"
 import "unified:sim"
 
-// Someone new starts at level 1 near the centre, HERO_SPAWN_SPACING apart by slot; someone who comes back keeps their
-// hero (a downed one stays down until the respawn). In the bench every hero starts with every weapon high.
+// Someone new starts at level 1 at their slot's start spot; someone who comes back keeps their hero (a downed one
+// stands up once their respawn has run out). In the bench every hero starts with every weapon high.
 place_new_heroes :: proc(t: ^Tick) {
 	for player in t.player_changes.joined {
-		hero := sim.player_data(t, player)
-		if hero.started do continue
 		slot := sim.player_slot(t, player)
-		hero_start(t, hero, slot)
+		hero_start(t, sim.player_data(t, player), start_spot(slot), slot)
 	}
 }
 
-// A hero at level 1 (the bench's: at its level), alive at its slot's start spot.
-hero_start :: proc(t: ^Tick, hero: ^Hero, slot: int) {
+// A slot's start spot: near the centre, HERO_SPAWN_SPACING apart by slot.
+start_spot :: proc(slot: int) -> [2]f32 {
+	return {(f32(slot) - 1.5) * HERO_SPAWN_SPACING, 0}
+}
+
+// A hero at level 1 (the bench's: at its level), alive at `pos`; `slot` sets its weapons out of step with the other
+// heroes'.
+hero_start :: proc(t: ^Tick, hero: ^Hero, pos: [2]f32, slot: int) {
 	warp := hero.warp
 	hero^ = {
-		pos           = {(f32(slot) - 1.5) * HERO_SPAWN_SPACING, 0},
+		pos           = pos,
 		hp            = HERO_HP,
 		hp_max        = HERO_HP,
 		speed         = HERO_SPEED,
@@ -29,7 +33,6 @@ hero_start :: proc(t: ^Tick, hero: ^Hero, slot: int) {
 		bolt_pierce   = 1,
 		chains        = LIGHTNING_CHAINS,
 		alive         = true,
-		started       = true,
 		warp          = warp + 1,
 	}
 	if t.state.bench_hold > 0 {
@@ -52,7 +55,7 @@ apply_commands :: proc(t: ^Tick) {
 		for sent in sim.commands(t, player) {
 			switch command in sent {
 			case Command_Pick:
-				pick_upgrade(t, hero, player, command.upgrade)
+				pick_upgrade(t, hero, player, command)
 			case Command_Dev_Spawn:
 				for i in 0 ..< int(command.count) {
 					if !spawn_enemy(t, command.kind, dmath.DIR8[i % 8] * SPAWN_RING) do break
@@ -74,12 +77,15 @@ oldest_pending_level :: proc(hero: ^Hero) -> i32 {
 	return hero.level - hero.pending_levelups + 1
 }
 
-// A pick takes the oldest pending level-up when it is one of its offers.
-pick_upgrade :: proc(t: ^Tick, hero: ^Hero, player: sim.Player, upgrade: Upgrade) {
+// A pick takes the oldest pending level-up when it names that level (or none) and its upgrade is one of the level's
+// offers.
+pick_upgrade :: proc(t: ^Tick, hero: ^Hero, player: sim.Player, pick: Command_Pick) {
 	if hero.pending_levelups <= 0 do return
-	offers := upgrade_offers(t.seed, player, oldest_pending_level(hero))
-	if upgrade != offers[0] && upgrade != offers[1] && upgrade != offers[2] do return
-	switch upgrade {
+	level := oldest_pending_level(hero)
+	if pick.level != 0 && i32(pick.level) != level do return // a pick for a level already taken: a double press
+	offers := upgrade_offers(t.seed, player, level)
+	if pick.upgrade != offers[0] && pick.upgrade != offers[1] && pick.upgrade != offers[2] do return
+	switch pick.upgrade {
 	case .Bolt_Count:
 		hero.bolt_count += 1
 	case .Bolt_Pierce:
@@ -148,12 +154,13 @@ touching_damage :: proc(t: ^Tick, pos: [2]f32) -> i32 {
 	return 0
 }
 
-// A downed hero stands up at full HP where they fell when their respawn runs out (while the match runs).
+// A downed hero stands up at full HP where they fell once their respawn has run out (while the match runs): on the
+// tick it runs out, or on their first tick back when they were away then.
 respawn_heroes :: proc(t: ^Tick) {
 	if t.state.phase != .Match do return
 	players := sim.iterate_present(t)
 	for hero, _ in sim.next(&players) {
-		if hero.alive || !hero.started || !sim.timer_fired(t, hero.respawn) do continue
+		if hero.alive || sim.timer_running(t, hero.respawn) do continue
 		hero.alive = true
 		hero.hp = hero.hp_max
 		hero.warp += 1
@@ -175,8 +182,9 @@ nearest_hero :: proc(t: ^Tick, pos: [2]f32) -> ^Hero {
 	return best
 }
 
-// Every present hero down while the match runs: over, and after OVER_HOLD_S the arena resets (the heroes start again
-// at level 1, every table empties) and a new match begins.
+// Every present hero down while the match runs: over, and after OVER_HOLD_S the arena resets and a new match begins:
+// every table empties and every hero starts again at level 1, the present at their start spots, the absent where they
+// were (as they will find it when they come back).
 advance_phase :: proc(t: ^Tick) {
 	switch t.state.phase {
 	case .Match:
@@ -202,12 +210,18 @@ advance_phase :: proc(t: ^Tick) {
 		t.state.match_tick = t.time
 		t.state.wave = 0
 		t.state.kills = 0
-		t.state.enemies = {}
-		t.state.bolts = {}
-		t.state.bombs = {}
-		t.state.blasts = {}
-		t.state.gems = {}
-		players := sim.iterate_present(t)
-		for hero, player in sim.next(&players) do hero_start(t, hero, sim.player_slot(t, player))
+		sim.despawn_all(&t.state.enemies)
+		sim.despawn_all(&t.state.bolts)
+		sim.despawn_all(&t.state.bombs)
+		sim.despawn_all(&t.state.blasts)
+		sim.despawn_all(&t.state.gems)
+		known := sim.iterate_known(t)
+		for hero, player in sim.next(&known) {
+			if slot, present := sim.player_slot(t, player); present {
+				hero_start(t, hero, start_spot(slot), slot)
+			} else {
+				hero_start(t, hero, hero.pos, 0)
+			}
+		}
 	}
 }

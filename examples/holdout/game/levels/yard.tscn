@@ -1,6 +1,7 @@
 [gd_scene format=4]
 
 [ext_resource type="Script" path="res://game/levels/wedge_mesh.gd" id="1_wedge"]
+[ext_resource type="Script" path="res://game/levels/markers/spawn.gd" id="2_spawn"]
 
 [sub_resource type="Environment" id="env"]
 background_mode = 1
@@ -554,21 +555,24 @@ material_override = SubResource("mat_ramp")
 mesh = SubResource("ArrayMesh_qbfkd")
 script = ExtResource("1_wedge")
 
-[node name="Spawn0" type="Node3D" parent="." unique_id=844171190]
+[node name="Spawn0" type="Marker3D" parent="." unique_id=844171190]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -3, 0, 5)
-metadata/unified_kind = "spawn"
+script = ExtResource("2_spawn")
 
-[node name="Spawn1" type="Node3D" parent="." unique_id=1804958990]
+[node name="Spawn1" type="Marker3D" parent="." unique_id=1804958990]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, -1, 0, 5)
-metadata/unified_kind = "spawn"
+script = ExtResource("2_spawn")
+slot = 1
 
-[node name="Spawn2" type="Node3D" parent="." unique_id=812720130]
+[node name="Spawn2" type="Marker3D" parent="." unique_id=812720130]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 1, 0, 5)
-metadata/unified_kind = "spawn"
+script = ExtResource("2_spawn")
+slot = 2
 
-[node name="Spawn3" type="Node3D" parent="." unique_id=1340745476]
+[node name="Spawn3" type="Marker3D" parent="." unique_id=1340745476]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 3, 0, 5)
-metadata/unified_kind = "spawn"
+script = ExtResource("2_spawn")
+slot = 3
 
 [node name="GateNorth" type="Node3D" parent="." unique_id=1928614599]
 transform = Transform3D(1, 0, 0, 0, 1, 0, 0, 0, 1, 0, 0, -33)

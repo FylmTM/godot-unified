@@ -11,7 +11,7 @@ start_run :: proc(t: ^Tick) {
 	t.state.runs += 1
 	t.state.run_seed = sim.rng_next(&stream) | 1 // never 0: 0 is no run
 	t.state.heroes = {}
-	t.state.cards = {}
+	sim.despawn_all(&t.state.cards)
 	count := 0
 	players := sim.iterate_present(t)
 	for data, player in sim.next(&players) {
@@ -298,7 +298,7 @@ over_hold :: proc(t: ^Tick) {
 	t.state.phase = .Camp
 	t.state.run_seed = 0
 	t.state.heroes = {}
-	t.state.cards = {}
-	t.state.enemies = {}
+	sim.despawn_all(&t.state.cards)
+	sim.despawn_all(&t.state.enemies)
 	sim.clear(&t.state.actions)
 }

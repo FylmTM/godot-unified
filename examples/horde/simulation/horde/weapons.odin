@@ -27,12 +27,11 @@ fire_bolts :: proc(t: ^Tick, hero: ^Hero, player: sim.Player, slot: u8) {
 		bolt, _ := sim.spawn(&t.state.bolts) or_break
 		offset := (f32(i) - f32(hero.bolt_count - 1) / 2) * BOLT_SPREAD_TURNS
 		bolt^ = {
-			pos      = hero.pos,
-			vel      = dmath.rotate2(aim, offset) * BOLT_SPEED,
-			life     = sim.ticks(BOLT_LIFE_S, TICK_HZ),
-			last_hit = -1,
-			pierce   = hero.bolt_pierce,
-			slot     = slot,
+			pos    = hero.pos,
+			vel    = dmath.rotate2(aim, offset) * BOLT_SPEED,
+			life   = sim.ticks(BOLT_LIFE_S, TICK_HZ),
+			pierce = hero.bolt_pierce,
+			slot   = slot,
 		}
 	}
 	sim.timer_start_ticks(t, &hero.bolt_ready, hero.bolt_interval)
@@ -87,8 +86,7 @@ move_bolts :: proc(t: ^Tick) {
 		bolt.life -= 1
 		hit := bolt_hit(t, bolt)
 		if hit >= 0 {
-			hit_enemy(t, hit, BOLT_DAMAGE, .Bolt)
-			bolt.last_hit = hit
+			bolt.last_hit = hit_enemy(t, hit, BOLT_DAMAGE, .Bolt)
 			bolt.pierce -= 1
 		}
 		outside := abs(bolt.pos.x) > ARENA_HALF || abs(bolt.pos.y) > ARENA_HALF
@@ -96,12 +94,13 @@ move_bolts :: proc(t: ^Tick) {
 	}
 }
 
-// The first alive enemy (grid order) a bolt overlaps, other than the one it hit last (-1: none).
+// The table index of the first alive enemy (grid order) a bolt overlaps, other than the one it hit last (-1: none).
 bolt_hit :: proc(t: ^Tick, bolt: ^Bolt) -> i32 {
+	last := sim.get(&t.state.enemies, bolt.last_hit) // nil: none, or gone (a new enemy in its slot is another)
 	for row in sim.grid_near(&t.world.grid, bolt.pos) {
 		for index in row {
 			enemy := &t.state.enemies.items[index]
-			if index == bolt.last_hit || enemy.hp <= 0 do continue
+			if enemy == last || enemy.hp <= 0 do continue
 			reach := BOLT_RADIUS + ENEMY_STATS[enemy.kind].radius
 			if dmath.length_sq(enemy.pos - bolt.pos) < reach * reach do return index
 		}

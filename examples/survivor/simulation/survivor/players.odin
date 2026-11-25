@@ -51,7 +51,8 @@ oldest_pending_level :: proc(character: ^Character) -> i32 {
 	return character.level - character.pending_levelups + 1
 }
 
-// Level-up picks (Command_Pick, each delivered once): each takes the oldest pending level-up if it is one of its offers.
+// Level-up picks (Command_Pick, each delivered once): each takes the oldest pending level-up when it names that level
+// (or none) and its upgrade is one of the level's offers.
 pick_upgrades :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
@@ -60,7 +61,11 @@ pick_upgrades :: proc(t: ^Tick) {
 			if character.pending_levelups <= 0 {
 				continue // nothing to pick
 			}
-			offers := upgrade_offers(t.seed, player, oldest_pending_level(character))
+			level := oldest_pending_level(character)
+			if pick.level != 0 && i32(pick.level) != level {
+				continue // a pick for a level already taken: a double press
+			}
+			offers := upgrade_offers(t.seed, player, level)
 			if pick.upgrade != offers[0] && pick.upgrade != offers[1] {
 				continue // not offered
 			}
