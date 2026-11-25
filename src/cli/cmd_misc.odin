@@ -163,7 +163,26 @@ cmd_bench :: proc(args: []string) -> Result {
 			append(&games, game(name))
 		}
 	}
-	build_headless(.release)
+	// every binary a row runs, built at once before the first row: the games', then the project's bench programs
+	builds: Headless_Builds
+	for game in games {
+		more := start_headless(.release, only = game.name)
+		append(&builds.running, ..more.running[:])
+	}
+	programs := make([]string, len(state.config.bench))
+	for row, i in state.config.bench {
+		if row.bindings do ensure_bindings()
+		pkg := join(state.project.root, row.program.pkg)
+		program := Headless{row.program.name, pkg, sources_import(pkg, `"unified:physics"`, `"box3d:`)}
+		build := headless_build(program, .release)
+		programs[i] = build.out
+		if program.box3d {
+			ensure_box3d()
+			stage_box3d(os.dir(build.out))
+		}
+		if stale(build) do append(&builds.running, Headless_Build{program, build, start_build(build)})
+	}
+	finish_headless(&builds)
 	work := join(state.project.out, "bench")
 	remove_tree(work)
 	make_dirs(work)
@@ -292,8 +311,8 @@ cmd_bench :: proc(args: []string) -> Result {
 		}
 		if net_ok do summary.net[game.name] = rows
 	}
-	for row in state.config.bench {
-		data, ok := row.run(work)
+	for row, i in state.config.bench {
+		data, ok := row.run(work, programs[i])
 		// a row's report as JSON: json.marshal refuses a map of `any`
 		row_json, marshal_err := json.marshal(data)
 		value, parse_err := json.parse(row_json)
@@ -522,7 +541,7 @@ cmd_clean :: proc(args: []string) -> Result {
 		if !os.exists(target) {
 			continue
 		}
-		name, _ := strings.replace_all(rel(target), "\\", "/")
+		name := slashed(rel(target))
 		append(&removed, name)
 		// remove_all can return no error and leave files a running process holds (Windows: a Godot this project
 		// started, its loaded extension, an older uni still running), so what is left decides.

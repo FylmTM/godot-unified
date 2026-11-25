@@ -37,7 +37,7 @@ List_Info :: struct {
 	table:     bool, // a sim.Table: alive by its slots
 	slots:     uintptr,
 	slot_size: int,
-	alive:     uintptr, // the `alive` flag's offset in sim.Slot
+	next_free: uintptr, // sim.Slot's `next_free` offset: sim.SLOT_ALIVE (-1) while the item is live (sim.slot_alive)
 	counted:   bool, // a sim.List or sim.Queue: alive below its count (a Queue's from its head, wrapping)
 	count_at:  uintptr,
 	head_at:   uintptr,
@@ -196,7 +196,7 @@ set_value :: proc(inspector: ^Inspector, node_index: int, text: string) {
 
 @(private)
 is_live :: proc(list: List_Info, addr: uintptr, index: int) -> bool {
-	if list.table do return (^bool)(addr + list.slots + uintptr(index * list.slot_size) + list.alive)^
+	if list.table do return (^i32)(addr + list.slots + uintptr(index * list.slot_size) + list.next_free)^ == -1
 	if list.counted {
 		count := read_uint(addr + list.count_at, list.width)
 		if !list.ring do return index < count
@@ -352,8 +352,8 @@ table_info :: proc(type: typeid) -> (list: List_Info, ok: bool) {
 	slots_array, slots_ok := runtime.type_info_base(slots.type).variant.(runtime.Type_Info_Array)
 	named, named_ok := slots_array.elem.variant.(runtime.Type_Info_Named)
 	if !items_ok || !slots_ok || !named_ok || named.name != "Slot" || named.pkg != "sim" || slots_array.count != items_array.count do return
-	alive := reflect.struct_field_by_name(slots_array.elem.id, "alive")
-	if alive.type == nil do return
+	next_free := reflect.struct_field_by_name(slots_array.elem.id, "next_free")
+	if next_free.type == nil || next_free.type.id != i32 do return
 	return {
 			items     = items.offset,
 			elem      = items_array.elem.id,
@@ -362,7 +362,7 @@ table_info :: proc(type: typeid) -> (list: List_Info, ok: bool) {
 			table     = true,
 			slots     = slots.offset,
 			slot_size = slots_array.elem_size,
-			alive     = alive.offset,
+			next_free = next_free.offset,
 		}, true
 }
 

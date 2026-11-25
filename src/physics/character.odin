@@ -21,11 +21,13 @@ Character_Flag :: enum u8 {
 // A character's state flags (Character.flags).
 Character_Flags :: bit_set[Character_Flag;u8]
 
-// One character, in the block. Zero value: no character.
+// One character, in the block. Zero value: no character. Its joints hang on bodies it doesn't own (a platform, the
+// ground), so either may be stale after another system destroys that body: character_update makes them again (not
+// while limp).
 Character :: struct {
 	body:          Body_Ref,
-	move_joint:    Mover_Joint_Ref,
-	pogo:          Pogo_Joint_Ref,
+	move_joint:    Mover_Joint_Ref, // to the World's anchor, or the kinematic platform it stands on
+	pogo:          Pogo_Joint_Ref, // to the ground (zero: in the air)
 	ground:        Body_Link, // what the pogo stands on (zero: air)
 	velocity:      [3]f32, // the drive's target, relative to the body it is attached to
 	pogo_impulse:  f32,
@@ -50,7 +52,7 @@ Character_Def :: struct {
 	hit_events:             bool, // the capsule reports contact hit events
 	sensor_events:          bool, // sensors see the capsule (Shape_Def.enable_sensor_events)
 	max_speed:              f32,
-	min_speed:              f32,
+	min_speed:              f32, // on the ground, a horizontal speed below it stops dead (0: only a standstill)
 	stop_speed:             f32,
 	accelerate:             f32,
 	friction:               f32, // ground friction, 1/s
@@ -98,8 +100,17 @@ CHARACTER_DEFAULT :: Character_Def {
 	jump_buffer_s          = 0.125,
 }
 
-// Creates the character's body (tagged `tag`, as create_body's) and drive joint at `pos` (the capsule's centre).
-character_create :: proc(world: ^World, character: ^Character, def: Character_Def, pos: [3]f32, tag: u64 = 0) {
+// Creates the character's body (tagged `tag`, as create_body's) and drive joint at `pos` (the capsule's centre). The
+// def's radius and pogo_rest must be positive (asserted).
+character_create :: proc(
+	world: ^World,
+	character: ^Character,
+	def: Character_Def,
+	pos: [3]f32,
+	tag: u64 = 0,
+	loc := #caller_location,
+) {
+	assert(def.radius > 0 && def.pogo_rest > 0, "physics: a Character_Def's radius and pogo_rest are positive", loc)
 	character^ = {}
 	body_def := transmute(Body_Def)box3d.DefaultBodyDef()
 	body_def.type = .Dynamic
@@ -353,7 +364,8 @@ character_update :: proc(
 	// Friction in the horizontal plane; the pogo owns the vertical motion.
 	if .On_Ground in character.flags {
 		speed := dmath.sqrt(character.velocity.x * character.velocity.x + character.velocity.z * character.velocity.z)
-		if speed < def.min_speed {
+		// At rest too: with a min_speed of 0, the ratio below would be 0 / 0.
+		if speed < def.min_speed || speed == 0 {
 			character.velocity.x = 0
 			character.velocity.z = 0
 		} else {

@@ -22,6 +22,9 @@ LOG_MAGIC :: "UNIL"
 // Bump on any change to what the bytes hold.
 LOG_VERSION :: 1
 LOG_HEADER :: 44 // the header's fixed part: the session's Setup follows it
+// The most ticks log_decode reserves before reading them (log_decode).
+@(private)
+LOG_RESERVE_TICKS :: 1 << 16
 // The record kinds after the header.
 @(private)
 RECORD_TICK :: 0
@@ -376,7 +379,13 @@ log_decode :: proc(data: []u8, $G: typeid) -> (input_log: Input_Log(G), ok: bool
 	input_log.content = header.content
 	input_log.compat = header.compat
 	input_log.from = header.from
-	input_log.ticks = make([dynamic]Log_Tick(G), 0, header.ticks)
+	// A Log_Tick holds every slot's Profile, so it can be far larger than its record: reserve at most a quarter hour
+	// at 64 Hz up front and let a longer log grow, so a crafted tick count costs no more than an honest log would.
+	input_log.ticks = make(
+		[dynamic]Log_Tick(G),
+		0,
+		header.ticks if header.ticks < LOG_RESERVE_TICKS else LOG_RESERVE_TICKS,
+	)
 	reader := wire.reader_make(body)
 	inputs: Inputs(G)
 	// A recording whose writer never patched the count (it stopped without ending): every whole record to the end.

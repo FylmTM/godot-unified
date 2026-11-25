@@ -95,7 +95,9 @@ View_Out :: struct {
 	subject:     typeid, // the subject's type: sim.Player, sim.Entity, a sim.Handle(T); nil: none (push_view)
 	has_prev:    bool,
 	warp:        u8,
-	since:       u32, // the earliest tick its key is known to be in the current timeline (appear-on-verified)
+	// The earliest tick its key is known to be in the current timeline: the first fill that had it, moved on when a
+	// rollback re-simulated that tick (appear-on-verified; a view's spawn tick, which decides a cancelled spawn).
+	since:       u32,
 	player:      u64, // the player's key (sim.player_key; 0: none)
 	pos:         [3]f32,
 	rot:         [4]f32,
@@ -138,6 +140,10 @@ Data_Out :: struct {
 Frame_Data :: struct {
 	tick:            u32, // the newest predicted tick
 	verified:        u32,
+	// The lowest tick re-simulated since the main thread last took a Frame (every fill's netcode.Frame_Info.resim_from,
+	// the minimum over the Frames it never took): a view gone from this Frame was a cancelled spawn only when this
+	// reaches its spawn tick (view_cancelled).
+	resim_from:      u32,
 	// The active level at `tick` and at the newest verified tick (the State's sim.Active_Level; id -1: none): the
 	// main thread shows the verified one's scene and syncs views only from frames of the level on screen.
 	level:           Level_Stamp,
@@ -376,7 +382,13 @@ Start :: struct {
 	setup:        [sim.SETUP_MAX]u8,
 	has_setup:    bool,
 	profile:      [sim.PROFILE_MAX]u8, // local player 0's Profile's bytes (Unified.profile at the start; scripted: Game.scripted_profile's)
-	slot:         int, // a joiner's slot to ask for (-1: any; --slot)
+	slot:         Maybe(int), // a joiner's slot to ask for (nil: any; --slot)
+	// Starts paused (UnifiedSession.paused set before its first step): a single player or a replay shows its first
+	// tick and waits.
+	paused:       bool,
+	// The session thread takes its first step only once api.release is called (the session node's next process step),
+	// so what a script asks in the frame it started the session (paused) applies from the first tick.
+	hold:         bool,
 	// --profile's assignments: laid over a scripted player's Profile too (Unified.profile has them already)
 	profile_text: string,
 	// Dev UI builds: watch the session thread for a freeze (watchdog.odin), dumping into `dumps` (<user data>/feedback)
@@ -426,6 +438,7 @@ STATUS_NAMES := [Status_Kind]string {
 Event_Message :: struct {
 	action: Event_Action, // Emitted, Confirmed or Cancelled
 	tick:   u32,
+	epoch:  u32, // the timeline's when it was queued (Frame_Data.epoch): an older one's events are never delivered
 	id:     u64, // the same in its Emitted and its Confirmed or Cancelled; unique in the process (UnifiedEvent.id)
 	event:  sim.Raw_Event, // positions in sim units (the main thread maps them as scripts read them)
 }
@@ -441,6 +454,7 @@ Message :: struct {
 		Mode, // a single-player session opened to friends (or failed to: text says why): UnifiedSession.mode
 		Local_Refused, // the relay refused local player `local`'s Join (text: why): local_player_refused
 		Link_Slow, // the link's round trip went past the game's ceiling (tick 1) or came back under it (tick 0)
+		Problem, // a misuse the session thread found (text: what), reported once (dev UI builds: fill_frame wrote state)
 	},
 	status: Status_Kind,
 	mode:   Mode,

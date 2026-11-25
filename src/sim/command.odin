@@ -100,7 +100,8 @@ commands_decode :: proc(commands: ^Commands($Command), inputs: ^Inputs($G), dev 
 	}
 }
 
-// The decoded commands of `slot`.
+// The decoded commands of `slot`: slot_commands' scan over the decoded list, which commands_decode may leave shorter
+// than the raw one (an undecodable or dev command), so the raw list's range can't index it.
 @(private)
 commands_of_slot :: proc(commands: ^Commands($Command), slot: int) -> []Command {
 	low := 0

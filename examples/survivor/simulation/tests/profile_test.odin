@@ -61,9 +61,8 @@ when scenarios.LONG {
 	the_systems_profile :: proc(t: ^testing.T) {
 		game := g.GAME_STRESS
 		game.tick = profiled_tick
-		simulation := sim.create(&game, 1)
+		simulation := sim.create_bench(&game, 1, game.setup, 1000)
 		defer sim.destroy(simulation)
-		g.bench_prepare(&simulation.state, simulation.world, 1000)
 		inputs: g.Inputs
 		for slot in 0 ..< g.PLAYERS do sim.seat(&inputs, simulation, slot, slot + 1)
 		sim.step(simulation, &inputs) // the joins

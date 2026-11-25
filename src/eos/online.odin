@@ -10,11 +10,13 @@
 // Every EOS call happens under one mutex, from whichever thread calls `pump` or uses the link; EOS callbacks run
 // inside Platform_Tick, so they never lock. Callbacks build a fresh context on the thread that ticks (a session thread
 // may be gone by the next session). The thread running the netcode drives EOS (the link's recv ticks the platform,
-// `pump` too). Status is read with `status`, from any thread. lobby.odin makes these a netcode.Lobby.
+// `pump` too). Status is read with `status`, from any thread. lobby.odin makes these a netcode.Lobby. What the package
+// and the SDK say goes to the logger of the context `init` ran in (stderr when it set none).
 package eos
 
 import "base:runtime"
 import "core:fmt"
+import "core:log"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -205,13 +207,15 @@ default_lib_dirs :: proc(allocator := context.temp_allocator) -> []string {
 }
 
 // Loads the SDK and creates the platform. Safe to call again (returns the first result). On
-// failure, `status` says why and online play stays off.
+// failure, `status` says why and online play stays off. The first call's context.logger takes every line the package
+// and the SDK log from then on, on any thread (none set: stderr), so it must outlive the platform (shutdown).
 init :: proc(opts: Init_Options) -> bool {
 	online := &session
 	sync.guard(&online.mu)
 	if online.stage != .Off {
 		return true
 	}
+	eos_logger = context.logger
 	if online.platform != nil || online.detail_len > 0 {
 		return false // a previous init failed
 	}
@@ -503,6 +507,10 @@ leave :: proc() {
 @(private)
 LEAVE_FLUSH_MS :: 500
 
+// forget_device's deletion completed (set by its EOS callback, which may come after forget_device gave up waiting).
+@(private)
+device_forgotten: bool
+
 // Deletes this machine's device ID (the next login makes a new anonymous user). For test tools,
 // so runs leave nothing behind; blocks up to ~5 s while EOS completes it.
 @(private)
@@ -512,16 +520,17 @@ forget_device :: proc() {
 	if online.platform == nil {
 		return
 	}
-	done := false
+	// The callback's flag outlives this call (a package global, not a local): EOS may complete it after the wait gave up.
+	sync.atomic_store(&device_forgotten, false)
 	delete_options := Connect_Delete_Device_Id_Options {
 		api_version = CONNECT_DELETEDEVICEID_API_LATEST,
 	}
-	online.api.Connect_DeleteDeviceId(online.connect, &delete_options, &done, proc "c" (info: ^Result_Callback_Info) {
-		(^bool)(info.client_data)^ = true
+	online.api.Connect_DeleteDeviceId(online.connect, &delete_options, nil, proc "c" (info: ^Result_Callback_Info) {
+		sync.atomic_store(&device_forgotten, true)
 	})
 	for _ in 0 ..< 500 {
 		tick(online)
-		if done {
+		if sync.atomic_load(&device_forgotten) {
 			return
 		}
 		time.sleep(10 * time.Millisecond)
@@ -1664,10 +1673,26 @@ set_detail :: proc(online: ^Online, format: string, args: ..any) {
 	online.detail_len = len(text)
 }
 
+// Where the package's and the SDK's lines go: the logger of the context `init` ran in (the SDK's log callback carries
+// no user data; there is one platform per process). With none set there (runtime's default drops every line: the Godot
+// session thread), stderr, so UNIFIED_EOS_LOG's lines reach someone.
+@(private)
+eos_logger: log.Logger
+
 @(private)
 log_line :: proc(format: string, args: ..any) {
-	fmt.eprint("[eos] ")
-	fmt.eprintfln(format, ..args)
+	eos_log(.Info, fmt.tprintf(format, ..args))
+}
+
+// One line to eos_logger (or stderr), at `level`.
+@(private)
+eos_log :: proc(level: log.Level, text: string) {
+	if eos_logger.procedure == nil || eos_logger.procedure == runtime.default_logger_proc {
+		fmt.eprintfln("[eos] %s", text)
+		return
+	}
+	context.logger = eos_logger
+	log.logf(level, "[eos] %s", text)
 }
 
 @(private)
@@ -1691,5 +1716,16 @@ log_level_from_env :: proc() -> Log_Level {
 on_log :: proc "c" (msg: ^Log_Message) {
 	context = runtime.default_context()
 	runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD()
-	fmt.eprintfln("[eos sdk %v] %s: %s", msg.level, msg.category, msg.message)
+	level := log.Level.Debug
+	#partial switch msg.level {
+	case .Fatal:
+		level = .Fatal
+	case .Error:
+		level = .Error
+	case .Warning:
+		level = .Warning
+	case .Info:
+		level = .Info
+	}
+	eos_log(level, fmt.tprintf("sdk %s: %s", msg.category, msg.message))
 }

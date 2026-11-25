@@ -38,6 +38,14 @@ ticks are the sim's keep slots.
   state, `src/sim/README.md`, Game time). A paused host steps by exact ticks (`host_advance`, what an agent's `uni drive
   step` asks): its session time moves on in steps shorter than a tick until the client scheduled that many, so the
   log is the one an unpaused run with the same inputs records.
+- **A host that stalls** (the whole process stopped while its clock ran on: a debugger break, a laptop asleep) never
+  loses its own player: its two links are in-process (`Link.in_process`), so the channel never times them out. With no
+  remote player in, the gap is folded into the pause time, exactly as a pause (nobody else waited): the session goes
+  on where it stopped, catching nothing up. With remote players in, their clocks ran: a gap under the channel's
+  timeout is played on (its ticks finalized with the inputs held, as for any late input), every wait on a peer the
+  relay keeps moved by it (nobody's silence in the gap can be measured); a longer one, which the remotes have taken
+  for a lost connection already, is folded and every remote connection ended, so each comes back through the
+  reconnect at the tick the host stopped on, with a fresh clock.
 
 ## The wire
 
@@ -78,7 +86,9 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
   a home uplink or a default socket buffer. A sender keeps a fixed window of reliable messages past its oldest unacked
   one, and a receiver drops anything further ahead, so a peer can't grow the out-of-order buffer at will.
 - **Timeouts.** A keepalive keeps idle peers connected. A peer is dropped after a few seconds of silence, or a longer
-  wait for one that never answered (a transport like EOS sets up its path after the first hello).
+  wait for one that never answered (a transport like EOS sets up its path after the first hello). A link both of
+  whose ends one caller steps (`Link.in_process`) never times out: silence there means the caller stopped, not that
+  the peer went.
 - **Epochs.** Each side's connection has an epoch (a fresh value each time it opens one, never one an earlier
   connection of the process had: a client made again must not read as the old one), sent in every datagram with the
   peer's last one seen. A datagram echoing an epoch other than ours was meant for an earlier connection: it is dropped
@@ -94,10 +104,10 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
 - **Goodbye.** A connection dropped after a goodbye, or replaced (by the relay, or by the peer starting over), never
   comes back: its last datagram acks the goodbye, and a datagram of it arriving later (a Hello resent before the
   Leave, a duplicate) is never read.
-- **Connections.** A channel holds one per seat of the largest game and a few that seat nobody (`MAX_PEERS`): a peer
-  being refused, one opened only to tell a peer its connection ended. Without them a full session answers nobody
-  else.
-- A datagram whose header doesn't validate never gets a connection (or a transport peer number).
+- **Connections** are few (`MAX_PEERS`), so a stranger's cost is bounded. A datagram whose header doesn't validate
+  never gets one (or a transport peer number). One only the peer opened gets a few datagrams from us until we send it
+  a message, not keepalives: a forged source's datagram is never multiplied. The relay drops a connection whose Hello
+  it has not seated soon after it opened (`HELLO_WAIT_US`), so forged sources hold no connection a real Hello needs.
 
 ## Relay
 
@@ -167,8 +177,8 @@ A player is a session **member**, the person, not a slot (the sim's side: `src/s
 - The relay gives each distinct person a **member id** for the session (1, 2, ...; never reused; once the ids run
   out a newcomer is refused as `Full`) and keeps account-or-token -> member. The **account** comes from the link
   (`Link.account`), never from the client. On a link that vouches for none (LAN, direct UDP) the client's **token** is
-  used instead (`Client_Config.token`; the Godot host keeps it in `user://`), never forwarded. Neither: a new member
-  every time.
+  used instead (`Client_Config.token`; the Godot host keeps it in `user://`), never forwarded. With neither, every
+  connection is a new member (an in-process host's own link never times out, so its player stays).
 - A connection's local player 0 is its account or token; local player k is `<key>#k`, so each comes back as
   themselves, and each roster entry says which local player it is (`Roster_Entry.local`; a second local player shows
   the first one's account). Newest wins per person: a Hello whose players are seated on a live connection replaces
@@ -183,7 +193,10 @@ A player is a session **member**, the person, not a slot (the sim's side: `src/s
   arrives last: a cancelled try whose Hello comes late (lost once, or on a slower path) is refused
   (`Newer_Connection`) while the seated connection is live, instead of replacing the try its player made next. A
   silent seated connection is replaced whatever the order (a crashed game): one person's tries on one machine share a
-  clock, tries from two machines don't, so between two live ones there the order says nothing.
+  clock, tries from two machines don't, so between two live ones there the order says nothing. A resuming Hello (a
+  lost connection's, the sim kept) never replaces a live one either: the same program's old connection ended before
+  its new one says Hello, so a live seat of the same person is another program's, and two programs with one identity
+  would replace each other without end; the resuming one is refused (`Newer_Connection`).
 - **The roster** is one reliable `Roster` message per member change (`Roster_Entry`: the vouched account, never a
   token). Everyone connected gets each change; a joiner gets every entry. Departed members' entries stay (not
   connected, no slot): a "left" message can name them after they are gone. The client keeps them by member id
@@ -208,11 +221,11 @@ A player is a session **member**, the person, not a slot (the sim's side: `src/s
 - **Stamp lead** `s = ceil((RTT/2 + margin) / tick)` (`stamp_ahead`, the margin `DELAY_MARGIN_US`): an input reaches
   the relay a margin before its tick is due.
 - **Input delay** (the lag a player feels) `k = clamp(ceil((RTT⁺ + margin) / tick) + 1 − cap, 1, max delay)`
-  (`want_delay`, the ceiling `MAX_DELAY_MS`): the least delay that keeps the prediction depth inside the cap. RTT⁺ =
-  RTT + 4 × its mean deviation (jitter). It rises at once and falls a tick per second.
-- **The clock**: L runs `s − k` ticks ahead of the relay clock (behind, when negative), slewed ±2% towards it. More
-  than 4 ticks behind it catches up at once, a tick at a time (their inputs sampled), and in one jump for anything
-  before the last `OWN_RING` ticks; more than 4 ticks ahead it holds. It starts at the first Finalized after Welcome
+  (`want_delay`, the ceiling `MAX_DELAY_MS`): the least delay that keeps the prediction depth inside the cap. RTT⁺ is
+  the round trip's high end, its jitter included (`client_want_delay`). It rises at once and falls slowly.
+- **The clock** (`schedule`): L runs `s − k` ticks ahead of the relay clock (behind, when negative), slewed towards
+  it. Well behind it catches up at once, a tick at a time (their inputs sampled), and in one jump for anything
+  before the last `OWN_RING` ticks; well ahead it holds. It starts at the first Finalized after Welcome
   (once the relay's start lead is over), timed by the channel's round trip (measured from the Hello's ack on), so a
   joiner's inputs for its join tick arrive in time. Own inputs are sampled for L + k on every clock tick, also while
   the sim is held back: they count, and the view hitches.
@@ -265,7 +278,9 @@ Every hook is called from `client_step`, on the caller's thread. In one step: `s
 `restored` as the relay's messages arrive; then `verified` for each newly verified tick, in order (the client takes
 the game's save of each first: `client_save`), and `verified_state` at most once, while the sim stands on the newest
 of them; then `sample` and `commands` for each tick the clock generates, once per
-seated local player (`local` says which); then `frame` once, when the step computed ticks.
+seated local player (`local` says which); then `frame` once, when the step computed ticks. `sample` and `commands` read
+the newest predicted state, never one no peer vouched for: they get nil before the sim exists and while a restored
+snapshot (a joiner's, a resync's) waits for the relay's check.
 
 ## Commands
 
@@ -290,7 +305,9 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
 - The joiner's join tick J is the first tick at or after max(asked, clock + `JOIN_LEAD_MS`, finalized + 2) on which no
   other seat joins. The connection holding the lowest slot that can (and didn't send it a bad one) is asked for a
   snapshot of the first checksum tick S ≥ J − 1 it verifies. It goes through the relay compressed (below), in
-  reliable chunks, only from the player asked; the finalized ticks from S on are streamed to the joiner. A provider that leaves, sends nothing for `SNAP_STALL_US`, or sends a snapshot the relay can't use is
+  reliable chunks, only from the player asked; the finalized ticks from S on are streamed to the joiner. A provider
+  that leaves, sends nothing for `SNAP_STALL_US` (an empty chunk is nothing, and an answer is begun once), takes past
+  its begun snapshot's deadline (`Relay_Conn.snap_deadline`), or sends a snapshot the relay can't use is
   replaced by another, asked for a snapshot no older than the one begun (the joiner keeps the finalized ticks it
   holds from it on, and acks of them may reach the relay after the new Snap_Begin). A provider asked again for a seat
   may still be sending its answer to the seat's previous occupant: what it sends before its new answer's Snap_Begin is
@@ -308,15 +325,17 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
 - **The check**: the joiner restores and sends its checksum of S; the relay compares it with the majority of the
   other players' checksums of S and answers `Snap_Ok` (the joiner plays) or asks another player. The checksum covers
   the state, not the seed or the Setup: a snapshot whose header carries others than the Welcome's fails the check on
-  purpose (the joiner sends a checksum no honest restore gives). With nobody left to
+  purpose (the joiner sends a checksum no honest restore gives), and so does one that does not restore. With nobody
+  left to
   ask the joiner is refused: `Bad_Snapshot` after a failed check, `No_Snapshot` when nobody could send one. There is
   no replay from tick 0.
 - When no other player's checksum of S comes within twice the relay's checksum wait (its only other player, the provider,
   never reports S or leaves after sending it), there is nothing independent to compare with: the joiner plays
   unchecked, and the relay counts it (`Relay.unchecked_snapshots`). Refusing instead would turn away joiners who
   would have played fine; a snapshot that diverges is caught at the next checksum tick both report.
-- A crafted snapshot can do no more than fail to load: Box3D images load safely from any bytes, and a snapshot that
-  loads but differs from the majority fails the check.
+- A crafted snapshot can do no more than fail to load or fail the check: restoring checks the block and the extra's
+  image (`sim.from_snapshot`; Box3D images load safely from any bytes), a snapshot that does not load is answered like
+  one that differs, and one that loads but differs from the majority fails the check, before any hook reads it.
 - A rejoin is a late join, in the lowest free slot; a restarted program on the same address is recognized by its new
   epoch. Over EOS the product user id keeps the Peer (not the slot) while the user stays in the lobby, and makes the
   joiner the same member; over direct UDP a restarted program has a new port and is a new peer, the same member when
@@ -340,7 +359,8 @@ The types and how `tick` reads them: `src/sim/README.md`. Each player's commands
 - Every client sends the checksum of every `CHECKSUM_EVERY`th verified tick (`sim.DEEP_CHECKSUM_EVERY`: they cover
   every extra's whole state); a joiner from its first checksum tick after S on.
 - The relay judges a checksum tick once every connection expected to report it has, or a fixed wait after it is
-  due. A connection waiting to be resynced, or one the ring no longer reaches, is not expected (its reports are no
+  due (after the host's last stall, at the earliest), and only on a vote: a tick only connections waiting for a
+  resync reported waits for its first vote, never judged against a majority of nothing. A connection waiting to be resynced, or one the ring no longer reaches, is not expected (its reports are no
   votes): the ticks around a resync are judged as soon as the others' reports are in. The majority value, one vote
   per connection, since a connection is one sim whatever its seats (a tie goes to the connection holding the lowest
   slot: with 2 players, the host). The slots of the connections that differ from it are a **desync**: counted, logged, and reported to every client (`Desync_Report`); the `desync` hook gets it, the dev UI

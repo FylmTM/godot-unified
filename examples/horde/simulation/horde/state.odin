@@ -49,9 +49,8 @@ Hero :: struct {
 	bolt_pierce:      u8, // enemies one bolt hits
 	chains:           u8, // enemies one lightning strike reaches
 	alive:            bool,
-	started:          bool, // set up once (place_new_heroes): a returning hero keeps their progress
 	warp:             u8, // bumped by each respawn: a view snaps to the new spot
-	_pad:             [2]u8,
+	_pad:             [3]u8,
 }
 
 Enemy_Kind :: enum u8 {
@@ -62,14 +61,13 @@ Enemy_Kind :: enum u8 {
 
 // An enemy on the arena's plane.
 Enemy :: struct {
-	pos:        [2]f32,
-	vel:        [2]f32,
-	hp:         i32,
-	hp_max:     i32,
-	spawn_tick: sim.Game_Time, // for the views (a pop-in)
-	hit_tick:   sim.Game_Time, // the last tick it took damage (0: never): a view's hit flash
-	kind:       Enemy_Kind,
-	_pad:       [3]u8,
+	pos:      [2]f32,
+	vel:      [2]f32,
+	hp:       i32,
+	hp_max:   i32,
+	hit_tick: sim.Game_Time, // the last tick it took damage (0: never): a view's hit flash
+	kind:     Enemy_Kind,
+	_pad:     [3]u8,
 }
 
 // A bolt in flight: it moves BOLT_SPEED along its direction until its life runs out or it has pierced its last enemy.
@@ -77,7 +75,7 @@ Bolt :: struct {
 	pos:      [2]f32,
 	vel:      [2]f32,
 	life:     u32, // ticks left
-	last_hit: i32, // the enemy index it hit last (-1: none), so it never hits one twice in a row
+	last_hit: sim.Handle(Enemy), // the enemy it hit last ({}: none), so it never hits one twice in a row
 	pierce:   u8, // enemies it may still hit
 	slot:     u8, // the hero's slot when fired, for its colour
 	_pad:     [2]u8,
@@ -104,16 +102,23 @@ Blast :: struct {
 
 // An XP gem dropped by an enemy.
 Gem :: struct {
-	pos:        [2]f32,
-	value:      i32,
-	spawn_tick: sim.Game_Time,
+	pos:   [2]f32,
+	value: i32,
 }
 
 // The world outside the block: scratch, rebuilt every tick and never snapshotted.
 World :: struct {
 	grid:    Enemy_Grid,
+	near:    [MAX_ENEMIES]Near_Enemy, // in the grid's order (grid.ids): what the separation pass reads
+	push:    [MAX_ENEMIES][2]f32, // in the grid's order: each enemy's separation, summed by the pass
 	new_vel: [MAX_ENEMIES][2]f32,
 	struck:  [CHAIN_MAX]i32, // one lightning strike's enemies so far
+}
+
+// An enemy as its neighbours' separation sees it: a copy, rebuilt every tick by steer_enemies.
+Near_Enemy :: struct {
+	pos:    [2]f32,
+	radius: f32,
 }
 
 // What the keyed rolls are for (sim.roll_below, sim.roll_f32).

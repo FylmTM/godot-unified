@@ -33,7 +33,7 @@ tap_session :: proc(t: ^testing.T, game: ^toy.Game) -> (result: Tap_Session) {
 	net_make_relay(&session, 3, 1280, record = true, game = game)
 	defer net_destroy(&session)
 	for endpoint in 1 ..= 3 {
-		net_join(&session, game = game, config = Client_Config{slot = -1}, hooks = tap_hooks(&session.watch[endpoint]))
+		net_join(&session, game = game, config = Client_Config{}, hooks = tap_hooks(&session.watch[endpoint]))
 	}
 	result.delay_min = max(u32)
 	delays := proc(session: ^Net, user: rawptr) -> bool {

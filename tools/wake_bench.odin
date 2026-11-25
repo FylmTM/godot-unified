@@ -27,12 +27,7 @@ Wake_Lateness :: struct {
 	over_tick: int,
 }
 
-wake_bench :: proc(work: string) -> (data: any, ok: bool) {
-	cli.ensure_bindings() // unified:godot's Godot API bindings, generated when stale
-	binary := cli.ensure_headless(
-		cli.Headless{"wake_bench", cli.join(cli.state.project.root, "tests", "godot_driver", "bench"), false},
-		.release,
-	)
+wake_bench :: proc(work, binary: string) -> (data: any, ok: bool) {
 	report := new(Wake_Report)
 	if !cli.run_report(binary, {}, cli.join(work, "wake"), 60, report) {
 		return nil, false

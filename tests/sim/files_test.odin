@@ -341,12 +341,17 @@ snapshot_errors_are_values :: proc(t: ^testing.T) {
 			&toy.GAME,
 			proc(data: []u8) {
 				another := transmute([8]u8)u64le(sim.compat_of(&toy.GAME, {version = sim.LIBRARY_VERSION + 1}))
-				copy(data[sim.SNAP_HEADER - 16:], another[:]) // the compat, before the payload digest
+				copy(data[sim.SNAP_HEADER - 16:], another[:]) // the compat, before the digest
+				sim.snapshot_seal(data)
 			},
 			nil,
 			.Build_Differs,
 		},
 		{"a damaged payload", &toy.GAME, proc(data: []u8) {data[len(data) - 1] ~= 1}, nil, .Checksum_Mismatch},
+		// The digest covers the header too: a damaged seed, tick or compat is refused, not loaded.
+		{"a damaged seed", &toy.GAME, proc(data: []u8) {data[6] ~= 1}, nil, .Checksum_Mismatch},
+		{"a damaged tick", &toy.GAME, proc(data: []u8) {data[22] ~= 1}, nil, .Checksum_Mismatch},
+		{"a damaged compat", &toy.GAME, proc(data: []u8) {data[sim.SNAP_HEADER - 16] ~= 1}, nil, .Checksum_Mismatch},
 		{"an image the game has no Extra for", &toy.GAME, nil, image_snapshot, .Extra_Rejected},
 	}
 	for test_case in cases {

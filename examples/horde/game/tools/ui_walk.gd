@@ -58,6 +58,10 @@ func _run() -> void:
 	if failed():
 		return
 	edit.clear()  # a windowed run may have prefilled it from the real clipboard
+	await type_text("ab0o1l")  # 0, O, 1 and L look like other characters: the code alphabet has none of them
+	await frames(2)
+	expect(edit.text == "AB", "the code field keeps only the code's characters (got '%s')" % edit.text)
+	edit.clear()
 	await type_text("zz-zz zz")  # messy input: cleaned to ZZZZZZ
 	await frames(2)  # LineEdit emits text_changed deferred
 	expect(edit.text == "ZZZZZZ", "the code field cleans and uppercases its input (got '%s')" % edit.text)
@@ -93,10 +97,23 @@ func _walk_play() -> void:
 	var card: DataUpgradeCard = Unified.constants.upgrades[row.offers[0]]
 	expect(first != null and first.text.begins_with(card.name), "the first card is the first offer (%s)" % card.name)
 	await shot("04_levelup")
-	var pending := row.pending_levelups
+	var picked := row.level - row.pending_levelups  # the level-ups picked so far: only a pick raises it
+	await press_action(&"menu")
 	await press_action(&"levelup_1")
-	await wait_for(func() -> bool: return local_row().pending_levelups < pending, 2.0, "a pick by key takes the offer")
+	await press_action(&"menu")
+	await seconds(0.3)
+	expect(_picks() == picked, "a pick key under the pause menu picks nothing")
+	await press_action(&"levelup_1")
+	await press_action(&"levelup_1")  # a double press
+	await wait_for(func() -> bool: return _picks() > picked, 2.0, "a pick by key takes the offer")
+	await seconds(0.5)
+	expect(_picks() == picked + 1, "a double press picks once (%d picks)" % (_picks() - picked))
 	step("level-up picked: %s" % card.name)
+
+
+## The level-ups the local hero has picked, give or take a constant: its level less those still pending.
+func _picks() -> int:
+	return local_row().level - local_row().pending_levelups
 
 
 ## The Esc menu opens over the play and closes; in single player it pauses the session meanwhile.
@@ -116,6 +133,10 @@ func _walk_pause_menu() -> void:
 	expect(not pause.visible, "Esc closes the menu")
 	await seconds(0.3)
 	expect(not session.paused and session.tick > held, "the ticks go on once it closes")
+	await pad_button(JOY_BUTTON_START, 1)
+	expect(pause.visible, "a second pad's Start opens the menu (the menu action hears every pad)")
+	await pad_button(JOY_BUTTON_START, 1)
+	expect(not pause.visible, "and closes it")
 	await press_action(&"menu")
 	step("Esc menu")
 

@@ -13,8 +13,9 @@ For every upgrade:
 
 1. Bump the pins listed below together, in one commit. Every build stamp covers its pins, so the next command
    rebuilds or refetches what changed.
-2. `./uni verify --long` (every suite's long variant). Every game's reference run must still reproduce byte for byte: if one changes, the simulation
-   changed, and the `library-sim-change` skill applies. Say in the commit why it changed.
+2. `./uni verify --long` (every suite's long variant). Every game's reference run must still reproduce byte for
+   byte: if one changes, the simulation changed, and the `library-sim-change` skill applies. Say in the commit why it
+   changed.
 3. `./uni selftest` (a fresh clone and a new game repo, end to end).
 4. The PR's own CI (Linux x64 and arm64, Windows x64) is the check before merging; `main`'s run after the merge
    covers macOS (AGENTS.md, Workflow).
@@ -39,8 +40,8 @@ For every upgrade:
   `GOLDEN_LIBRARY`, with the bump; what moved says whether the results did (`unified/src/headless/README.md`,
   Re-pinning).
 - CI proves each platform's library (they must agree on every golden value and reference run): the PR's own run
-  before merging, `main`'s after it for macOS (`library-sim-change`, CI). `verify` also runs the odin suite against the release's debug library
-  (the `box3d-debug` suite), whose asserts catch misused ids.
+  before merging, `main`'s after it for macOS (AGENTS.md, Workflow). `verify` also runs the odin suite against the
+  release's debug library (the `box3d-debug` suite), whose asserts catch misused ids.
 - Speed: compare `./uni bench`'s `physics` row (`.out/bench.json`'s `rows.physics`: through the plug-in, step, save,
   restore, both hashes, image and load, and rays on a pile of 512 awake boxes, plus 64 character updates;
   `tests/physics/bench`) on the old pin and the new one, on the same
@@ -52,10 +53,11 @@ For every upgrade:
 
 ## Godot
 
-- **Editor and export templates** (a patch release, same baseline): `[godot] version` and its three editor hashes,
-  `[godot_templates]` (GitHub's asset digests for the new release:
+- **Editor and export templates** (a patch release, same baseline): `[godot] version` and its four editor hashes
+  (macOS, Windows, Linux x64 and arm64), `[godot_templates]` (GitHub's asset digests for the new release:
   `gh api repos/godotengine/godot/releases/tags/<version>-stable --jq '.assets[] | [.name, .digest]'`; the
-  templates' hashes are of the files inside the `.tpz`). Check with `./uni test --suite godot,godot-bindings` and a local release build (`release` skill).
+  templates' hashes are of the files inside the `.tpz`). Check with `./uni test --suite godot,godot-bindings` and a
+  local release build (`./uni release <game>`, the `unified-release` skill).
 - **The GDExtension API baseline** (a new minor version, e.g. 4.7 to 4.8): regenerate the committed dump in
   `src/gdext/api/` with the official standard build, from that folder, then regenerate the bindings:
 
@@ -64,8 +66,8 @@ For every upgrade:
   ./uni vet && ./uni test --suite godot,godot-bindings   # vet regenerates the bindings: the dump changed
   ```
 
-  `compatibility_minimum` in every `.gdextension` (the games' and `tests/godot*`'s) follows the baseline. `bindings.txt` lists what we bind (a test fails on unused entries).
-  Never edit the dump by hand.
+  `compatibility_minimum` in every `.gdextension` (the games' and `tests/godot*`'s) follows the baseline. `bindings.txt`
+  lists what we bind (a test fails on unused entries). Never edit the dump by hand.
 
 ## Odin
 

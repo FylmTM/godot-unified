@@ -198,7 +198,7 @@ json_element :: proc(
 			return nil, nil, 0, fmt.tprintf("[%s]: %v has %d items", index_text, type.id, array.count)
 		}
 		slot := (^Slot)(at(data, int(info.offsets[slots]) + index * size_of(Slot)))
-		return at(data, int(info.offsets[items]) + index * array.elem_size), array.elem, int(slot.alive), ""
+		return at(data, int(info.offsets[items]) + index * array.elem_size), array.elem, int(slot_alive(slot^)), ""
 	case runtime.Type_Info_Array:
 		if !is_number || index < 0 || index >= info.count {
 			return nil, nil, 0, fmt.tprintf("[%s]: %v has %d elements", index_text, type.id, info.count)
@@ -245,7 +245,7 @@ json_table :: proc(out: ^strings.Builder, info: runtime.Type_Info_Struct, items,
 	first := true
 	for k in 0 ..< array.count {
 		slot := (^Slot)(at(raw_data(bytes), int(info.offsets[slots]) + k * size_of(Slot)))
-		if !slot.alive do continue
+		if !slot_alive(slot^) do continue
 		if !first do strings.write_byte(out, ',')
 		first = false
 		fmt.sbprintf(out, `"%d":`, k)

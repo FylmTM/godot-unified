@@ -2,12 +2,20 @@
 // owns typed tables inside its State; tooling reads them like the rest of the block, by RTTI.
 package sim
 
-// Per-slot bookkeeping, kept apart from the items so `items` holds only game data.
+// Per-slot bookkeeping, kept apart from the items so `items` holds only game data. A zeroed slot is free and was never
+// used, so a zeroed table is empty.
 Slot :: struct {
-	next_free:  i32, // free list link: index + 1 of the next free slot (0: end)
+	next_free:  i32, // SLOT_ALIVE while its item is live; else the free list link: index + 1 of the next free slot (0: end)
 	generation: u32, // bumped on every spawn; 0 is never live, so Handle{} is the null handle
-	alive:      bool,
-	_pad:       [3]u8,
+}
+
+// Slot.next_free of a slot that holds a live item (slot_alive).
+SLOT_ALIVE :: -1
+
+// Whether a table slot holds a live item: how tooling that reads a Table by RTTI (the JSON, the diff) tells its live
+// items from its free slots.
+slot_alive :: #force_inline proc(slot: Slot) -> bool {
+	return slot.next_free == SLOT_ALIVE
 }
 
 // A reference kept across ticks (in the block, in an event, by a view). Typed: a Handle(Enemy) can't
@@ -19,14 +27,16 @@ Handle :: struct($T: typeid) {
 }
 
 // Indices are stable (no swap-remove); freed slots are reused LIFO and zeroed (equal states hash equal).
-// The zero value is an empty table (no init call needed).
-Table :: struct($T: typeid, $N: int) where N > 0 && N <= 1 << 30 {
+// The zero value is an empty table (no init call needed). Padding-free for any T of alignment up to 8 (a 16-aligned
+// T, a u128, does not compile), as the state block requires: the pads are computed from T and N.
+Table :: struct($T: typeid, $N: int) where N > 0 && N <= 1 << 30 && align_of(T) <= 8 {
 	items:      [N]T,
+	_pad_items: [(4 - N * size_of(T) % 4) % 4]u8, // keeps `slots` 4-aligned
 	slots:      [N]Slot,
 	free_head:  i32, // index + 1 of the first free slot below high_water (0: none)
 	high_water: i32, // one past the highest slot used since the table was last empty by despawn_all or zeroing
 	count:      i32,
-	_pad:       i32,
+	_pad:       i32, // keeps the size a multiple of 8
 }
 
 // Allocates a zeroed item. ok = false when the table is full.
@@ -46,8 +56,7 @@ spawn :: proc(table: ^Table($T, $N)) -> (item: ^T, handle: Handle(T), ok: bool) 
 	if slot.generation == 0 {
 		slot.generation = 1
 	}
-	slot.alive = true
-	slot.next_free = 0
+	slot.next_free = SLOT_ALIVE
 	table.count += 1
 	return &table.items[index], {u32(index), slot.generation}, true
 }
@@ -60,7 +69,6 @@ despawn :: proc(table: ^Table($T, $N), handle: Handle(T)) -> bool {
 	index := int(handle.index)
 	slot := &table.slots[index]
 	table.items[index] = {}
-	slot.alive = false
 	slot.next_free = table.free_head
 	table.free_head = i32(index) + 1
 	table.count -= 1
@@ -72,8 +80,7 @@ despawn :: proc(table: ^Table($T, $N), handle: Handle(T)) -> bool {
 // instead resets the generations, so handles and keys repeat.
 despawn_all :: proc(table: ^Table($T, $N)) {
 	for &slot, index in table.slots[:table.high_water] {
-		if slot.alive do table.items[index] = {}
-		slot.alive = false
+		if slot_alive(slot) do table.items[index] = {}
 		slot.next_free = 0
 	}
 	table.free_head = 0
@@ -87,14 +94,14 @@ get :: proc(table: ^Table($T, $N), handle: Handle(T)) -> ^T {
 		return nil
 	}
 	slot := &table.slots[handle.index]
-	return &table.items[handle.index] if slot.alive && slot.generation == handle.generation else nil
+	return &table.items[handle.index] if slot_alive(slot^) && slot.generation == handle.generation else nil
 }
 
 // The live item at table index `index` and its handle; ok is false for a free slot or an index out of range. For an
 // index structure the tick builds in scratch (items bucketed by cell, a chain of hits), which holds indices rather
 // than handles: despawn the item through the handle. Across ticks hold the handle, never the index.
 item_at :: proc(table: ^Table($T, $N), index: int) -> (item: ^T, handle: Handle(T), ok: bool) {
-	if index < 0 || index >= N || !table.slots[index].alive {
+	if index < 0 || index >= N || !slot_alive(table.slots[index]) {
 		return
 	}
 	return &table.items[index], {u32(index), table.slots[index].generation}, true
@@ -144,7 +151,7 @@ table_next :: #force_inline proc(iterator: ^Table_Iterator($T, $N)) -> (item: ^T
 	table := iterator.table
 	for index := iterator.index; index < iterator.end; index += 1 {
 		slot := &table.slots[index]
-		if slot.alive {
+		if slot_alive(slot^) {
 			iterator.index = index + 1
 			return &table.items[index], {u32(index), slot.generation}, true
 		}

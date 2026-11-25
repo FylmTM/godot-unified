@@ -123,6 +123,10 @@ build_refuses_what_it_cannot_walk :: proc(t: ^testing.T) {
 		want:     nav.Build_Error,
 	}
 	vertical := [][3]f32{{0, 0, 0}, {1, 0, 0}, {1, 1, 0}, {0, 1, 0}}
+	// an L seen from above: locate's half-plane test would miss most of it
+	l_shape := [][3]f32{{0, 0, 0}, {2, 0, 0}, {2, 0, 1}, {1, 0, 1}, {1, 0, 2}, {0, 0, 2}}
+	// a square with a collinear corner on one edge (a baked mesh has them): convex
+	collinear := [][3]f32{{0, 0, 0}, {1, 0, 0}, {2, 0, 0}, {2, 0, 2}, {0, 0, 2}}
 	bad_vertex := [][3]f32{{0, 0, 0}, {1, 0, 0}, {1, nan, 1}}
 	cases := []Case {
 		{STRIP_VERTICES, {{0, 1}}, 2, .Small_Polygon},
@@ -132,6 +136,10 @@ build_refuses_what_it_cannot_walk :: proc(t: ^testing.T) {
 		{STRIP_VERTICES, {{0, 1, 2}, {1, 0, 3}, {0, 1, 5}}, 2, .Crowded_Edge},
 		{STRIP_VERTICES, {{0, 1, 2}}, 0, .Bad_Cell},
 		{STRIP_VERTICES, {{0, 1, 2}}, 1e-9, .Bad_Cell},
+		{l_shape, {{0, 1, 2, 3, 4, 5}}, 2, .Concave},
+		{l_shape, {{5, 4, 3, 2, 1, 0}}, 2, .Concave}, // either winding
+		{collinear, {{0, 1, 2, 3, 4}}, 2, .None},
+		{collinear, {{4, 3, 2, 1, 0}}, 2, .None},
 	}
 	for c, i in cases {
 		mesh, err := nav.build(c.vertices, c.polygons, c.cell)
@@ -231,6 +239,14 @@ fields_cached_equal_fresh :: proc(t: ^testing.T) {
 	}
 	testing.expectf(t, mismatches == 0, "%v entries differ between cached and fresh fields", mismatches)
 	testing.expect(t, nav.field(&fields, nav.NO_POLY) == nil)
+	// any index outside the mesh (a crafted or stale Poly in a State) is no polygon, never an index out of range
+	outside := []nav.Poly{-2, min(nav.Poly), nav.Poly(nav.poly_count(&mesh)), max(nav.Poly)}
+	for poly in outside {
+		testing.expectf(t, nav.field(&fields, poly) == nil, "a field toward %d", poly)
+		testing.expectf(t, nav.island_of(&mesh, poly) == -1, "an island of %d", poly)
+		testing.expectf(t, !nav.connected(&mesh, 0, poly) && !nav.connected(&mesh, poly, 0), "%d connected", poly)
+	}
+	testing.expect(t, nav.connected(&mesh, 0, 0))
 }
 
 // A walker on a field: steer, then move at most `speed * dt` toward where it heads.

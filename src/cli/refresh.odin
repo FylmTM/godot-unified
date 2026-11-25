@@ -161,11 +161,7 @@ refresh_problems :: proc(unified, root: string) -> []string {
 	   !found || lf(have) != lf(must_read(join(unified, ODINFMT_CONFIG))) {
 		append(&problems, aprintf("%s: not unified's (the formatter's style)", ODINFMT_CONFIG))
 	}
-	for retired in RETIRED {
-		if is_retired_copy(root, retired) {
-			append(&problems, aprintf("%s: an older unified's copy (%s now)", retired.path, retired.now))
-		}
-	}
+	append(&problems, ..retired_copies(root))
 	if !os.exists(join(root, "GUIDE.md")) || is_retired_copy(root, RETIRED[0]) {
 		for file in game_files(root) {
 			if !strings.has_suffix(file, ".odin") && !strings.has_suffix(file, ".gd") do continue
@@ -213,6 +209,18 @@ write_shim_mode :: proc(root: string) {
 	}
 }
 
+// The files an older unified copied into the game at `root` that refresh deletes (RETIRED), a line each with what
+// replaced it (none: no such copy). This repo's examples hold none either (tests/cli).
+retired_copies :: proc(root: string) -> []string {
+	out: [dynamic]string
+	for retired in RETIRED {
+		if is_retired_copy(root, retired) {
+			append(&out, aprintf("%s: an older unified's copy (%s now)", retired.path, retired.now))
+		}
+	}
+	return out[:]
+}
+
 // Whether the game repo at `root` holds `retired`'s file and it is unified's copy (it holds the mark).
 @(private = "file")
 is_retired_copy :: proc(root: string, retired: Retired) -> bool {
@@ -245,7 +253,7 @@ game_files :: proc(root: string) -> []string {
 // `path` relative to `root`, with / separators.
 @(private = "file")
 rel_to :: proc(root, path: string) -> string {
-	relative, _ := strings.replace_all(strings.trim_left(path[len(root):], "/\\"), "\\", "/")
+	relative := slashed(strings.trim_left(path[len(root):], "/\\"))
 	return relative
 }
 

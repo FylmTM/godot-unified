@@ -237,7 +237,8 @@ Decoder :: struct {
 	ok:        bool,
 }
 
-// A float of geometry: a NaN or an infinity refuses the file (it would build invisible geometry, or hang Box3D).
+// A float of geometry or of a property: a NaN or an infinity refuses the file (it would build invisible geometry, hang
+// Box3D, or reach the state block through prop_f32 or prop_curve).
 @(private)
 read_finite :: proc(decoder: ^Decoder) -> f32 {
 	value := wire.r_f32(&decoder.reader)
@@ -465,14 +466,14 @@ load :: proc(data: []u8, allocator := context.allocator) -> (level: Level, ok: b
 			case .Ref:
 				property.value = Marker_Ref(wire.r_u32(&decoder.reader))
 			case .Float:
-				property.value = wire.r_f32(&decoder.reader)
+				property.value = read_finite(&decoder)
 			case .Vec3:
 				property.value = read_vec3(&decoder)
 			case .String:
 				property.value = read_string(&decoder)
 			case .Curve:
 				samples: [CURVE_SAMPLES]f32
-				for &sample in samples do sample = wire.r_f32(&decoder.reader)
+				for &sample in samples do sample = read_finite(&decoder)
 				append(&curve_props, [2]int{len(decoder.props), len(decoder.curves)}) // resolved once read
 				append(&decoder.curves, samples)
 			case:

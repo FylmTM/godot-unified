@@ -178,7 +178,7 @@ a_late_inputs_command_moves_to_a_later_tick_and_the_sender_rolls_back :: proc(t:
 	sender: Sender
 	client := net_join(
 		&session,
-		config = Client_Config{slot = -1},
+		config = Client_Config{},
 		link = link,
 		hooks = sender_hooks(&sender, &session.watch[1]),
 	)
@@ -278,7 +278,7 @@ an_empty_command_crosses_the_relay :: proc(t: ^testing.T) {
 			sim.send_command(out, toy.Command_Bump{5})
 		}
 	}
-	client := net_join(&session, profile = .Ideal, config = Client_Config{slot = -1}, hooks = hooks)
+	client := net_join(&session, profile = .Ideal, config = Client_Config{}, hooks = hooks)
 	net_run(&session, 2)
 	testing.expect_value(t, client.status, netcode.Status.Connected)
 	testing.expect(t, ticks_in > 30, "the remote sent all three")

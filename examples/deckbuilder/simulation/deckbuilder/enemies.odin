@@ -30,11 +30,11 @@ ENEMIES := [Enemy_Kind]Enemy_Def {
 	},
 }
 
-// Puts up the fight of a node (zeroed table: its handles start over each fight), from the fight's stream: two of
-// Gnasher and Spitter on the first floors, a Bulwark with them later; an elite is a Bulwark and two Gnashers; the
+// Puts up the fight of a node (the table emptied, its slots dealt again from the first), from the fight's stream: two
+// of Gnasher and Spitter on the first floors, a Bulwark with them later; an elite is a Bulwark and two Gnashers; the
 // boss is alone.
 spawn_fight :: proc(t: ^Tick) {
-	t.state.enemies = {}
+	sim.despawn_all(&t.state.enemies)
 	t.state.boss_summoned = false
 	switch t.state.node {
 	case .Boss:

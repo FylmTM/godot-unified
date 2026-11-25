@@ -20,6 +20,15 @@
 # 10. the session node leaves the tree mid-session (an app that quits the tree itself, or frees its play scene): the
 #    session's recording is kept all the same; back in the tree, the node runs sessions again.
 # 11. a start that fails as the one before it did says so again (a second press of a menu's Join gets its answer).
+# 12. a session that ends on its own, restarted from a script the session calls in its last frame (Unified.data's
+#    `changed`): the restart waits for the end of the frame (its last Frame is in use), and the ended session's result
+#    is kept (its recording).
+# 13. the session node taken out of the tree from a script the session calls: its session ends once that frame is
+#    done with it; put back, it runs sessions again; a paused SceneTree doesn't stop it.
+# 14. `paused` set in the frame a start method was called starts the session paused on its first tick, a restart's
+#    too.
+# 15. a second local player on the keyboard: a tap pressed and released within one frame reaches the sim; on a pad,
+#    the pad going away releases what it held (the next press is a press).
 # Every run ends with UnifiedSession.quit while a sound plays: the quit stops it first, so no playback leaks at exit
 # (the suite fails on a leak).
 # (The LAN token's claim, each copy of a game a slot and a token of its own, is tested in tests/godot_driver.)
@@ -32,11 +41,13 @@ extends SceneTree
 
 ## The replay section's session length: no other section records one as long, so its recording is told from theirs.
 const REPLAY_TICKS := 48
+## Section 12's session length, told from the others' the same way.
+const RESTARTED_TICKS := 44
 
 var s: Node
 var failed := 0
 var idle_end := 0.0
-var sections: Array[int] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11]
+var sections: Array[int] = [1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15]
 var _statuses: Array[String] = []
 var _started := false
 var _port := 0  # the port section 2 hosted on (section 3 hosts there again)
@@ -99,6 +110,14 @@ func _run() -> void:
 				went_on = await _left_the_tree()
 			11:
 				went_on = await _failed_twice()
+			12:
+				went_on = await _restart_from_a_callback()
+			13:
+				went_on = await _removed_from_a_callback()
+			14:
+				went_on = await _started_paused()
+			15:
+				went_on = await _device_taps()
 			_:
 				check("section %d exists" % section, false)
 				went_on = false
@@ -224,27 +243,27 @@ func _setup_and_locals() -> bool:
 	s.local_players_changed.connect(count_change)
 	# A player list redrawn on roster_changed alone (as the games' HUDs do) lists whoever is present: the roster's
 	# entry comes before the tick that seats the player is shown, and roster_changed comes again when it is.
-	var listed: Array = [s.get_players()]
-	var redraw := func() -> void: listed[0] = s.get_players()
+	var listed: Array = [s.players]
+	var redraw := func() -> void: listed[0] = s.players
 	s.roster_changed.connect(redraw)
 	var second: int = s.add_local_player(UnifiedSession.DEVICE_KEYBOARD, "Second", guest_profile)
 	check("add_local_player gives local 1", second == 1, second)
-	if not await _wait_for(func() -> bool: return s.local_players.size() == 2 and s.get_players().size() == 2, 5.0,
+	if not await _wait_for(func() -> bool: return s.local_players.size() == 2 and s.players.size() == 2, 5.0,
 			"the second local player joins"):
 		return false
 	check("local_players_changed said it joined", changes[0] >= 1, changes[0])
-	check("roster_changed came once both were present", listed[0] == s.get_players(), [listed[0], s.get_players()])
+	check("roster_changed came once both were present", listed[0] == s.players, [listed[0], s.players])
 	var second_player: int = s.get_local_player_key(1)
 	check("get_local_index names local 1", s.get_local_index(second_player) == 1, second_player)
 	check("its device is the keyboard", s.get_local_device(1) == UnifiedSession.DEVICE_KEYBOARD)
 	check("send_command from local 1", s.send_command(CommandBump.new(), 1))
 	check("remove_local_player(1)", s.remove_local_player(1))
 	var joined_changes: int = changes[0]
-	if not await _wait_for(func() -> bool: return s.local_players.size() == 1 and s.get_players().size() == 1, 5.0,
+	if not await _wait_for(func() -> bool: return s.local_players.size() == 1 and s.players.size() == 1, 5.0,
 			"the second local player leaves"):
 		return false
 	check("local_players_changed said it left", changes[0] > joined_changes, changes[0])
-	check("roster_changed came once it was gone", listed[0] == s.get_players(), [listed[0], s.get_players()])
+	check("roster_changed came once it was gone", listed[0] == s.players, [listed[0], s.players])
 	s.local_players_changed.disconnect(count_change)
 	s.roster_changed.disconnect(redraw)
 	s.leave()
@@ -305,7 +324,7 @@ func _replay() -> bool:
 		return false
 	s.ticks = 0
 	await _sleep(0.2)  # a recording another process saves at once is whole by now
-	var folder := _newest_recording(REPLAY_TICKS)
+	var folder := _private_copy(_newest_recording(REPLAY_TICKS))
 	check("its recording was kept", folder != "", folder)
 	check("replay it", s.replay(folder))
 	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.replay_last_tick > 0, 5.0, "the replay runs"):
@@ -414,6 +433,18 @@ func _newest_recording(to_tick: int) -> String:
 	return ""
 
 
+# A copy of a recording folder of this process's own ("" for none): the other sections' processes record sessions in the
+# same user folder, and the oldest recordings go as new ones come.
+func _private_copy(folder: String) -> String:
+	if folder == "":
+		return ""
+	var copy := OS.get_user_data_dir() + "/replay_check_%d" % OS.get_process_id()
+	DirAccess.make_dir_recursive_absolute(copy)
+	for name: String in DirAccess.get_files_at(folder):
+		DirAccess.copy_absolute(folder + "/" + name, copy + "/" + name)
+	return copy
+
+
 # 11. the same failed start twice: each one's FAILED reaches the game
 func _failed_twice() -> bool:
 	# the menus could have known: this build passes no lobby, and online_problem says so before any start
@@ -421,9 +452,10 @@ func _failed_twice() -> bool:
 	check("no lobby, no join code format", s.join_code_alphabet == "" and s.join_code_length == 0 		and s.clean_join_code("ABCDEF") == "", [s.join_code_alphabet, s.join_code_length])
 	for attempt: int in 2:
 		_statuses.clear()
-		s.join_online("ZZZZZZ")  # this test build has no online play: the start fails at once
-		await process_frame
-		check("failed join %d says so" % (attempt + 1), _statuses.size() == 1 and _statuses[0].begins_with("failed"), _statuses)
+		s.join_online("ZZZZZZ")  # this test build has no online play: the start fails (at the end of the frame)
+		if not await _wait_for(func() -> bool: return _statuses.any(func(x: String) -> bool: return x.begins_with("failed")), 2.0, "failed join %d" % (attempt + 1)):
+			return false
+		check("failed join %d says so, once" % (attempt + 1), _statuses.filter(func(x: String) -> bool: return x.begins_with("failed")).size() == 1, _statuses)
 	# a host name nothing resolves is told as such, not as a malformed address
 	_statuses.clear()
 	s.join_direct("nohost.invalid:7777")
@@ -435,14 +467,14 @@ func _failed_twice() -> bool:
 	# lists its player once it is present.
 	for game: int in 2:
 		var listed: Array = [[]]
-		var redraw := func() -> void: listed[0] = s.get_players()
+		var redraw := func() -> void: listed[0] = s.players
 		s.roster_changed.connect(redraw)
 		check("game %d starts" % (game + 1), s.start_single())
 		if not await _wait_for(func() -> bool: return s.local_player != 0 and s.tick > 10, 5.0, "a game runs"):
 			return false
 		await _sleep(0.2)
 		s.roster_changed.disconnect(redraw)
-		check("game %d: roster_changed lists its player" % (game + 1), listed[0].size() == 1 			and listed[0] == s.get_players(), [listed[0], s.get_players()])
+		check("game %d: roster_changed lists its player" % (game + 1), listed[0].size() == 1 			and listed[0] == s.players, [listed[0], s.players])
 		s.leave()
 		if not await _wait_for(func() -> bool: return not s.running, 5.0, "the game ends"):
 			return false
@@ -468,13 +500,145 @@ func _left_the_tree() -> bool:
 		if not before.has(name) and info is Dictionary and absi(int((info as Dictionary).get("to_tick", 0)) - paused_on) <= 2:
 			kept = name
 	check("a session ended by its node leaving the tree kept its recording", kept != "", "paused on %d" % paused_on)
-	s.request_ready()
-	root.add_child(s)
+	root.add_child(s)  # (its _ready ran already: back in the tree, it takes the session over again by itself)
 	check("back in the tree, start single player", s.start_single())
 	if not await _wait_for(func() -> bool: return s.local_player != 0 and s.tick > 10, 5.0, "the node runs a session again"):
 		return false
 	s.leave()
 	return await _wait_for(func() -> bool: return not s.running, 5.0, "the session ends")
+
+
+# 12. a ticks session restarted from Unified.data's `changed` in its last frame (the session thread ended meanwhile): the
+# start waits for the end of the frame, the new session runs, and the ended one's result is kept (its recording)
+func _restart_from_a_callback() -> bool:
+	s.ticks = RESTARTED_TICKS
+	var restarted: Array[bool] = [false]
+	var restart := func() -> void:
+		if restarted[0] or s.tick < RESTARTED_TICKS - 3:  # (the very last Frame may come with the result: no data)
+			return
+		restarted[0] = true
+		OS.delay_msec(300)  # the session thread ends meanwhile: the Frame being shown is one of its last
+		s.ticks = 0
+		check("a restart from the last frame's callback is accepted", s.start_single())
+	Unified.data.toy.changed.connect(restart)
+	check("start a %d-tick single player" % RESTARTED_TICKS, s.start_single())
+	if not await _wait_for(func() -> bool: return restarted[0], 5.0, "the last frame's callback restarts"):
+		return false
+	Unified.data.toy.changed.disconnect(restart)
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.running and s.tick > 5 and s.tick < RESTARTED_TICKS, 5.0, "the restarted session runs"):
+		return false
+	await _sleep(0.2)
+	check("the ended session's result was kept: its recording", _newest_recording(RESTARTED_TICKS) != "")
+	s.leave()
+	return await _wait_for(func() -> bool: return not s.running, 5.0, "the restarted session ends")
+
+
+# 13. the node taken out of the tree by a script the session calls (Unified.data's `changed`): the Frame and views it is
+# going through stay until the frame is done, then the session ends; back in the tree it runs sessions again, also under
+# a paused SceneTree (its process mode is always)
+func _removed_from_a_callback() -> bool:
+	var removed: Array[bool] = [false]
+	var remove := func() -> void:
+		if removed[0] or s.tick < 20:
+			return
+		removed[0] = true
+		root.remove_child(s)
+	Unified.data.toy.changed.connect(remove)
+	check("start single player", s.start_single())
+	if not await _wait_for(func() -> bool: return removed[0], 5.0, "a callback takes the node out"):
+		return false
+	Unified.data.toy.changed.disconnect(remove)
+	await process_frame
+	check("out of the tree, its session ended", not s.running)
+	root.add_child(s)
+	check("back in the tree, start single player", s.start_single())
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.local_player != 0 and s.tick > 5, 5.0, "the node runs a session again"):
+		return false
+	paused = true  # the SceneTree's own pause (a pause menu's): the session's pump goes on
+	var before: int = s.tick
+	await _sleep(0.3)
+	var after: int = s.tick
+	paused = false
+	check("a paused SceneTree doesn't stop the session", after > before + 5, [before, after])
+	s.leave()
+	return await _wait_for(func() -> bool: return not s.running, 5.0, "the session ends")
+
+
+# 14. `paused` set right after a start: the session starts paused on its first tick, a restart's too
+func _started_paused() -> bool:
+	check("start single player", s.start_single())
+	s.paused = true
+	if not await _wait_for(func() -> bool: return s.paused, 5.0, "it pauses"):
+		return false
+	await _sleep(0.2)
+	check("paused on its first tick", s.tick <= 1, s.tick)
+	s.paused = false
+	if not await _wait_for(func() -> bool: return s.tick > 10, 5.0, "unpaused, it runs"):
+		return false
+	check("restart on the running session", s.start_single())
+	s.paused = true  # the waiting start's
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.paused, 5.0, "the restart pauses"):
+		return false
+	await _sleep(0.2)
+	check("the restart is paused on its first tick", s.tick <= 1, s.tick)
+	s.leave()
+	return await _wait_for(func() -> bool: return not s.running, 5.0, "the session ends")
+
+
+# 15. a second local player on its own device: a keyboard tap within one frame reaches the sim; a pad that goes away
+# releases what it held. Local player 0 plays a pad no one has meanwhile, so only the second one reads these.
+func _device_taps() -> bool:
+	check("start single player", s.start_single())
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.local_player != 0 and s.tick > 5, 5.0, "single player runs"):
+		return false
+	s.set_local_device(0, 7)
+	var a_button := InputEventJoypadButton.new()  # ui_accept on pad 0's A, whatever the built-in map holds
+	a_button.device = 0
+	a_button.button_index = JOY_BUTTON_A
+	InputMap.action_add_event("ui_accept", a_button)
+	var second: int = s.add_local_player(UnifiedSession.DEVICE_KEYBOARD, "Keys")
+	check("a second local player on the keyboard", second == 1, second)
+	if not await _wait_for(func() -> bool: return s.local_players.size() == 2, 5.0, "it joins"):
+		return false
+	var spawned: int = Unified.data.toy.spawned
+	_key(true)
+	_key(false)  # released within the frame: only the latch carries it
+	if not await _wait_for(func() -> bool: return Unified.data.toy.spawned > spawned, 2.0, "a keyboard tap spawns"):
+		return false
+	await _ticks_pass(4)  # the tap's release reaches the sim: the next press is a press
+	s.set_local_device(1, 0)  # now pad 0's
+	spawned = Unified.data.toy.spawned
+	_pad(true)
+	if not await _wait_for(func() -> bool: return Unified.data.toy.spawned > spawned, 2.0, "a pad press spawns"):
+		return false
+	Input.joy_connection_changed.emit(0, false)  # the pad goes away while held: Godot sends no release
+	await _ticks_pass(4)
+	spawned = Unified.data.toy.spawned
+	_pad(true)  # back, pressed again
+	if not await _wait_for(func() -> bool: return Unified.data.toy.spawned > spawned, 2.0, "pressed again after the pad went away, it spawns"):
+		return false
+	_pad(false)
+	s.set_local_device(0, UnifiedSession.DEVICE_ANY)
+	s.leave()
+	return await _wait_for(func() -> bool: return not s.running, 5.0, "the session ends")
+
+
+# ui_accept on the keyboard (Enter), pressed or released.
+func _key(pressed: bool) -> void:
+	var event := InputEventKey.new()
+	event.keycode = KEY_ENTER
+	event.physical_keycode = KEY_ENTER
+	event.pressed = pressed
+	root.push_input(event)  # straight to the nodes' _input, as a device's event comes
+
+
+# ui_accept on pad 0 (its A button), pressed or released.
+func _pad(pressed: bool) -> void:
+	var event := InputEventJoypadButton.new()
+	event.device = 0
+	event.button_index = JOY_BUTTON_A
+	event.pressed = pressed
+	root.push_input(event)  # straight to the nodes' _input, as a device's event comes
 
 
 # 8. starting on a running session, without a leave: the start leaves it first; the newest start wins

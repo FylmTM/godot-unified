@@ -171,7 +171,7 @@ diff_value :: proc(diff: ^Diff, path: string, type: ^runtime.Type_Info, a, b: []
 						field_b[k *
 						array.elem_size:][:array.elem_size]
 					if i == slots && string(item_a) != string(item_b) {
-						diff_note(diff, "%s[%d]: its slot (alive, generation) differs", path, k)
+						diff_note(diff, "%s[%d]: its slot (liveness, free list link or generation) differs", path, k)
 					} else if i == items {
 						diff_value(diff, fmt.tprintf("%s[%d]", path, k), array.elem, item_a, item_b)
 					}

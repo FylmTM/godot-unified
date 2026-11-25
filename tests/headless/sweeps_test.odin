@@ -81,12 +81,11 @@ sweep_join :: proc(
 		link = netcode.netsim_wrap(inner, netcode.PROFILES[network], seed, &net.clock)
 	}
 	if tap != nil do link = tap_link(tap, link, &net.clock)
-	client := netcode.client_create(
-		&net.game,
-		{slot = slot, token = token},
-		link,
-		headless.scripted_hooks(&net.scripted),
-	)
+	config := netcode.Client_Config(G) {
+		token = token,
+	}
+	if slot >= 0 do config.slot = slot
+	client := netcode.client_create(&net.game, config, link, headless.scripted_hooks(&net.scripted))
 	append(&net.clients, client)
 	return client
 }

@@ -68,6 +68,8 @@ snapshot_provider_leaves_another_steps_in :: proc(t: ^testing.T) {
 // ... and with nobody else to ask, the joiner is refused and its seat is free again.
 @(test)
 snapshot_provider_leaves_joiner_is_refused :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	net_make_relay(&session, 1, 0)
 	defer net_destroy(&session)
@@ -81,6 +83,7 @@ snapshot_provider_leaves_joiner_is_refused :: proc(t: ^testing.T) {
 	testing.expect_value(t, joiner.status, netcode.Status.Failed)
 	testing.expect_value(t, joiner.detail, "no player can send this player a snapshot")
 	testing.expect(t, session.relay.seats[1].conn < 0)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // A raw channel standing in for the relay, to send a client exactly the messages a test wants.
@@ -221,9 +224,7 @@ stale_finalized_is_ignored :: proc(t: ^testing.T) {
 	fake_make(&fake, hub)
 	defer fake_destroy(&fake)
 	watch: Watch
-	client := netcode.client_create(&toy.GAME, {
-			slot = -1,
-		}, netcode.loopback_link(hub, 1), hooks_for(&watch))
+	client := netcode.client_create(&toy.GAME, {}, netcode.loopback_link(hub, 1), hooks_for(&watch))
 	defer netcode.client_destroy(client)
 	defer delete(watch.statuses)
 	fake_welcome(&fake, client)
@@ -439,9 +440,7 @@ other_build_is_refused :: proc(t: ^testing.T) {
 	other := toy.GAME
 	other.version = "a version the toy never has"
 	link := netcode.loopback_link(session.hub, 6)
-	client := netcode.client_create(&other, {
-			slot = -1,
-		}, link, hooks_for(&session.watch[6]))
+	client := netcode.client_create(&other, {}, link, hooks_for(&session.watch[6]))
 	append(&session.clients, client)
 	net_run(&session, 1)
 	testing.expect_value(t, client.status, netcode.Status.Failed)
@@ -464,10 +463,7 @@ other_library_build_is_refused :: proc(t: ^testing.T) {
 		net_join(&session, 0)
 		net_run(&session, 1)
 		link := netcode.loopback_link(session.hub, 6)
-		client := netcode.client_create(&toy.GAME, {
-				slot   = -1,
-				compat = compat,
-			}, link, hooks_for(&session.watch[6]))
+		client := netcode.client_create(&toy.GAME, {compat = compat}, link, hooks_for(&session.watch[6]))
 		append(&session.clients, client)
 		net_run(&session, 1)
 		testing.expectf(t, client.status == .Failed, "build %d: %v", i, client.status)
@@ -625,7 +621,7 @@ joiner_in_a_reused_slot_ignores_the_old_echo :: proc(t: ^testing.T) {
 		now = session.clock.now + AHEAD,
 	}
 	link := netcode.netsim_wrap(netcode.loopback_link(session.hub, 5), netcode.PROFILES[.Wan], 5 * 7919, &joiner_clock)
-	joiner := netcode.client_create(&toy.GAME, {slot = -1}, link, hooks_for(&session.watch[5]))
+	joiner := netcode.client_create(&toy.GAME, {}, link, hooks_for(&session.watch[5]))
 	defer netcode.client_destroy(joiner)
 	for _ in 0 ..< 3 * 4000 {
 		session.clock.now += 250
@@ -750,7 +746,7 @@ client_ignores_strangers_and_cut_rejects :: proc(t: ^testing.T) {
 	fake_make(&fake, hub)
 	defer fake_destroy(&fake)
 	watch: Watch
-	client := netcode.client_create(&toy.GAME, {slot = -1}, netcode.loopback_link(hub, 1), hooks_for(&watch))
+	client := netcode.client_create(&toy.GAME, {}, netcode.loopback_link(hub, 1), hooks_for(&watch))
 	defer netcode.client_destroy(client)
 	defer delete(watch.statuses)
 	fake_welcome(&fake, client)
@@ -848,7 +844,7 @@ another_protocol_version_is_told_at_once :: proc(t: ^testing.T) {
 	defer netcode.link_close(&relay_end)
 	watch: Watch
 	defer delete(watch.statuses)
-	client := netcode.client_create(&toy.GAME, {slot = -1}, netcode.loopback_link(hub, 1), hooks_for(&watch))
+	client := netcode.client_create(&toy.GAME, {}, netcode.loopback_link(hub, 1), hooks_for(&watch))
 	defer netcode.client_destroy(client)
 	netcode.client_step(client, 1_000_000) // its Hello
 	notice := [netcode.NOTICE_BYTES]u8{0x80 | u8(netcode.PROTOCOL_VERSION + 1), 0, 0, 0, 0}
@@ -908,7 +904,7 @@ a_replaced_input_does_not_hold_the_input_ack_back :: proc(t: ^testing.T) {
 	session: Net
 	net_make(&session, 0, 0)
 	defer net_destroy(&session)
-	client := net_join(&session, -1, .Wan)
+	client := net_join(&session, profile = .Wan)
 	net_run(&session, 5)
 	net_run(&session, 0.3, hitched = 0) // the client's machine hitches: the relay replaces the inputs it misses
 	net_run(&session, 20)
@@ -930,6 +926,8 @@ a_replaced_input_does_not_hold_the_input_ack_back :: proc(t: ^testing.T) {
 // answers with what it restored is refused (Desynced) after IMAGE_GIVE_UP_MS. The others play on.
 @(test)
 a_client_that_stops_acking_is_reanchored_then_refused :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	net_make_relay(&session, 2, 0)
 	defer net_destroy(&session)
@@ -946,6 +944,7 @@ a_client_that_stops_acking_is_reanchored_then_refused :: proc(t: ^testing.T) {
 	testing.expect(t, session.relay.seats[1].conn < 0)
 	net_run(&session, 1)
 	testing.expect_value(t, honest.status, netcode.Status.Connected)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // A relay time far off (a mangled first Finalized, a relay that is no relay) throws the client's clock far ahead, but
@@ -966,7 +965,7 @@ a_relay_time_far_off_costs_a_ring_of_inputs :: proc(t: ^testing.T) {
 			return {}
 		},
 	}
-	client := netcode.client_create(&toy.GAME, {slot = -1}, netcode.loopback_link(hub, 1), hooks)
+	client := netcode.client_create(&toy.GAME, {}, netcode.loopback_link(hub, 1), hooks)
 	defer netcode.client_destroy(client)
 	fake_welcome(&fake, client)
 	far := [1]toy.Inputs{finalized_of(1, 1)}

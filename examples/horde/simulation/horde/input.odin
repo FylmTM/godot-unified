@@ -23,9 +23,13 @@ Upgrade :: enum u8 {
 }
 
 // `pick` (GDScript: CommandPick): the oldest pending level-up goes to `upgrade` when it is one of that level's offers
-// (upgrade_offers). A pick with nothing pending, or not offered, is ignored.
+// (upgrade_offers). A HUD names the level whose offers it showed, so a second press that lands after the first was
+// taken is refused instead of spending the next level-up on a card the player never saw. A pick with nothing pending,
+// for another level, or not offered, is ignored.
 Command_Pick :: struct {
 	upgrade: Upgrade,
+	_pad:    u8,
+	level:   u16, // the pending level-up it answers (oldest_pending_level); 0: the oldest, whichever (the script's)
 }
 
 // Dev command (sim.DEV_COMMAND_PREFIX): `count` enemies of a kind on the spawn ring.

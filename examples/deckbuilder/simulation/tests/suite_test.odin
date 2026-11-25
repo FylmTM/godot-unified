@@ -13,10 +13,11 @@ import g "../deckbuilder"
 import ext "../extension"
 
 SUITE := scenarios.Suite(g.Game) {
-	game    = &g.GAME_QUICK,
-	players = g.PLAYERS,
-	seed    = 42,
-	ticks   = scenarios.LONG ? 3600 : 600,
+	game               = &g.GAME_QUICK,
+	players            = g.PLAYERS,
+	seed               = 42,
+	ticks              = scenarios.LONG ? 3600 : 600,
+	script_reads_state = true, // its handles (script.odin)
 }
 
 // By default the minimal set, each scenario proving something about this game: rollback every tick, players coming

@@ -84,6 +84,12 @@ func card_clicked(card: DeckCard) -> void:
 			_select(card)
 
 
+## A card leaves the hand (played, discarded at the turn's end): held up, it is put down before its view is freed.
+func card_gone(card: DeckCard) -> void:
+	if card == _selected or card == _extra:
+		_select(null)
+
+
 ## A whisper of the card under the mouse, when the local hero could play it.
 func card_hovered(card: DeckCard) -> void:
 	if card.is_local() and card.data.playable:
@@ -153,6 +159,7 @@ func _on_end_turn() -> void:
 	if local < 0:
 		return
 	Sfx.play(&"click")
+	_select(null)  # a card held up stays in the hand: put down
 	var end := CommandEndTurn.new()
 	end.ready = not (Unified.data.heroes.heroes[local] as DataHeroRow).ready  # a value, not a toggle
 	Unified.session.send_command(end)
@@ -436,15 +443,15 @@ func _hero_panel(hero: int) -> HeroPanel:
 
 
 ## The session panel's rows: who is here, and whether their hero ended their turn.
-func _session_rows() -> Array[Dictionary]:
-	var rows: Array[Dictionary] = []
-	for player: int in Unified.session.get_players():
+func _session_rows() -> Array[SessionPanel.Row]:
+	var rows: Array[SessionPanel.Row] = []
+	for player: int in Unified.session.players:
 		var status := ""
 		for hero in 4:
 			var row: DataHeroRow = Unified.data.heroes.heroes[hero]
 			if row.in_run and row.player == player:
 				status = EnumHeroClass.name(row.hero_class).capitalize() + (", ready" if row.ready else "")
-		rows.append({"player": player, "name": Unified.session.get_player_name(player), "status": status})
+		rows.append(SessionPanel.Row.new(player, Unified.session.get_player_name(player), status))
 	return rows
 
 

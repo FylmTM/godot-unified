@@ -1,13 +1,14 @@
 # horde: a co-op horde arena in 2D, at scale
 
-A top-down co-op horde arena, unified's example of 2D at scale: 1–4 heroes hold out against thousands of enemies
-with weapons that fire on their own (volleys of bolts, chain lightning, lobbed bombs), pick up the gems the dead drop
-and choose an upgrade at each level. When every hero is down the arena resets. A Godot project (this folder is
-`res://`): the sim, its tests, the headless binary and the GDExtension in `simulation/` (Odin), everything Godot in
-`game/`. `uni run horde` plays it.
+A top-down co-op horde arena, unified's example of 2D at scale with no physics: 1–4 heroes hold out against
+thousands of enemies with weapons that fire on their own (volleys of bolts, chain lightning, lobbed bombs), pick up the
+gems the dead drop and choose an upgrade at each level. When every hero is down the arena resets. What only horde
+shows is the 2D rendering path for crowds: thousands of enemies as MultiMesh instances, effects as event-driven shader
+ring buffers, and pooled scene views (bombs in flight, blasts) only for the few. survivor plays the same kind of game
+in 3D, with Box3D physics and a level. A Godot project (this folder is `res://`): the sim, its tests, the headless
+binary and the GDExtension in `simulation/` (Odin), everything Godot in `game/`. `uni run horde` plays it.
 
-What it shows is how a 2D game draws thousands of things a tick and hundreds of events a second without a node per
-thing:
+How a 2D game draws thousands of things a tick and hundreds of events a second without a node per thing:
 
 - **The crowds are MultiMesh instances.** Enemies, their HP bars, bolts and gems are MultiMesh views: the host writes
   each kind's instances in one buffer per frame, and a shader per kind draws them from their custom data
@@ -39,8 +40,10 @@ next velocities and one lightning strike's targets.
 - `Input`: a stick. A hero moves at up to its speed (`HERO_SPEED`, raised by `Upgrade.Move_Speed`).
 - Heroes are session members' data: someone new starts at level 1 near the centre, `HERO_SPAWN_SPACING` apart by
   slot; someone who comes back keeps their hero, level and upgrades.
-- `Command_Pick`: the oldest pending level-up takes the upgrade when it is one of the three that level offers
-  (`upgrade_offers`), else the pick is ignored.
+- `Command_Pick`: the oldest pending level-up takes the upgrade when the pick names that level and the upgrade is one
+  of the three that level offers (`upgrade_offers`), else the pick is ignored. The HUD names the level whose cards it
+  showed, so a doubled press is refused rather than spent on the next level; the scripted players name none (any
+  level), since a script reads no state.
 - `Command_Dev_Spawn`: the dev UI's spawn of a count of one kind on `SPAWN_RING` (a public build never applies it).
 
 ## Systems (`tick`, in this order)
@@ -50,7 +53,8 @@ next velocities and one lightning strike's targets.
    `SPAWN_CAP`) on `SPAWN_RING` around the centre plus up to `SPAWN_JITTER` each way, kinds from `SPAWN_KINDS`
    (`ENEMY_STATS`), no burst past `ENEMY_CAP` alive. A wave is `WAVE_S`; each adds `HP_PCT_PER_WAVE`% enemy HP.
 3. **Steering.** The grid is rebuilt; each enemy seeks the nearest alive hero and pushes off its overlapping
-   neighbours (`SEPARATION`), blended in by `ENEMY_STEER` and capped at `ENEMY_OVERSPEED` times its kind's speed. An
+   neighbours (`SEPARATION`, each pair once, in the grid's order), blended in by `ENEMY_STEER` and capped at
+   `ENEMY_OVERSPEED` times its kind's speed. An
    enemy touching a hero whose `HERO_HURT_COOLDOWN_S` is over deals its kind's damage (`Event_Hero_Hurt`); at 0 HP the
    hero is down (`Event_Hero_Down`) for `HERO_RESPAWN_S`.
 4. **Weapons.** Each alive hero's timers fire while a target is in range, else wait for one: a volley of `bolt_count`
@@ -65,9 +69,10 @@ next velocities and one lightning strike's targets.
 6. **Gems.** A gem within `GEM_MAGNET` of an alive hero flies to the nearest at `GEM_SPEED`; within `GEM_PICKUP` it
    is theirs (`Event_Gem_Collected`). `XP_BASE` + `XP_PER_LEVEL` per level is a level-up and a pending pick
    (`Event_Level_Up`), one a tick.
-7. **Phase.** Downed heroes whose respawn ran out stand up where they fell, at full HP. When every present hero is
-   down the match is over (`Event_Match_Over`: its length, wave and kills); after `OVER_HOLD_S` the arena empties and
-   every present hero starts again at level 1.
+7. **Phase.** Downed heroes whose respawn ran out stand up where they fell, at full HP; one whose player was away
+   when it ran out stands up on their first tick back. When every present hero is down the match is over
+   (`Event_Match_Over`: its length, wave and kills); after `OVER_HOLD_S` the arena empties and every hero starts again
+   at level 1, an absent player's too (they come back to the new match fresh).
 
 The upgrades (`Upgrade`): one more bolt per volley, one more pierce, volleys `BOLT_INTERVAL_LEVELUP_TICKS` sooner
 (down to `BOLT_INTERVAL_MIN_TICKS`), one more chain (up to `CHAIN_MAX`), blasts `BLAST_RADIUS_LEVELUP` wider,
@@ -90,13 +95,13 @@ at full load.
 - MultiMesh views: `enemy`, `bar` (one per damaged enemy, keyed like it), `bolt`, `gem`; what each one's custom data
   means is on `MultiView`.
 - Session data `Data_Hud` (`Unified.data.hud`): the phase, time, wave, enemies, kills, the time until the reset, and
-  each slot's hero with its oldest pending level-up's offers.
+  each slot's hero with its oldest pending level-up's offers and their level (which a pick names).
 - Constants (`Unified.constants`): the arena's and the heroes' and enemies' sizes, and a level-up card per upgrade.
 - Events: effects, sounds, shake and rumble on EMITTED (`game/arena/arena.gd`); banners, notices and the record on
   CONFIRMED (`game/ui/hud.gd`). Enemies and gems are MultiMesh instances, so their events reach no view: only the
   session's `sim_event`.
-- Input: the stick from the InputMap's move actions; the HUD sends the pick (`CommandPick`) on a key, pad button or
-  click.
+- Input: the stick from the InputMap's move actions; the HUD sends the pick (`CommandPick`, with the offers' level)
+  on a key, pad button or click.
 
 The Godot side's app layer (`game/app/`, the menus and panels in `game/ui/`) is the one every example shares
 (`.claude/skills/godot-examples/SKILL.md`); horde's own are its sounds, its settings (the furthest wave reached is

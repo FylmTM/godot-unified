@@ -241,3 +241,32 @@ seconds_and_ticks :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.seconds(u16(32), 128), 0.25)
 	testing.expect_value(t, sim.seconds(i32(-64), 64), -1)
 }
+
+// K distinct of n by a keyed roll: always distinct and in range, the same for the same names, moved by each name, and
+// uniform over the ordered choices (each of the 6 orders of 3 values, 3 of 3, about a sixth of the time; each value
+// first about a seventh of the time, 3 of 7).
+@(test)
+distinct_rolls :: proc(t: ^testing.T) {
+	first_counts: [7]int
+	orders: [6]int
+	for key in 0 ..< u64(7000) {
+		picks := sim.roll_distinct_at(42, 7, 3, Purpose.Loot, key, 2)
+		testing.expect_value(t, sim.roll_distinct_at(42, 7, 3, Purpose.Loot, key, 2), picks)
+		for pick, j in picks {
+			testing.expect(t, pick >= 0 && pick < 7)
+			for other in picks[:j] do testing.expect(t, other != pick, "two picks alike")
+		}
+		first_counts[picks[0]] += 1
+		all := sim.roll_distinct_at(42, 3, 3, Purpose.Spread, key)
+		orders[all[0] * 2 + (1 if all[1] > all[2] else 0)] += 1
+	}
+	for count in first_counts do testing.expectf(t, count > 850 && count < 1150, "a value first %d of 7000 times", count)
+	for count in orders do testing.expectf(t, count > 1000 && count < 1340, "an order %d of 7000 times", count)
+	base := sim.roll_distinct_at(1, 1000, 2, Purpose.Loot, 5, 3)
+	testing.expect(t, sim.roll_distinct_at(2, 1000, 2, Purpose.Loot, 5, 3) != base, "the seed moves it")
+	testing.expect(t, sim.roll_distinct_at(1, 1000, 2, Purpose.Crit, 5, 3) != base, "the purpose moves it")
+	testing.expect(t, sim.roll_distinct_at(1, 1000, 2, Purpose.Loot, 6, 3) != base, "the key moves it")
+	testing.expect(t, sim.roll_distinct_at(1, 1000, 2, Purpose.Loot, 5, 4) != base, "the index moves it")
+	one := sim.roll_distinct_at(9, 1, 1, Purpose.Loot)
+	testing.expect_value(t, one[0], 0)
+}

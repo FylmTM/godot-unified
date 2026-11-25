@@ -13,7 +13,7 @@ TICK_HZ :: 32 // nothing moves: the rate only sets how soon a play lands, and th
 
 // The game's version (sim.Game.version, part of the netcode's compat): bump it when a rule or constant changes what a
 // tick computes without changing the State or Input layout, or two builds desync instead of refusing each other.
-VERSION :: "1"
+VERSION :: "2"
 
 // The game's types for unified:sim: no World (nothing outside the block).
 Game :: sim.Game(State, Input, sim.No_World, Event, Command, Setup, Profile, PLAYERS)
@@ -29,6 +29,7 @@ GAME := Game {
 	init                  = init,
 	tick                  = tick,
 	save                  = save,
+	setup_check           = setup_check,
 	scripted_commands     = scripted_commands,
 	scripted_profile      = scripted_profile,
 	input_delay_min_ticks = 2, // a card game: a play lands 62 ms later, and almost never a tick late
@@ -45,6 +46,7 @@ GAME_QUICK := Game {
 	init = init,
 	tick = tick,
 	save = save,
+	setup_check = setup_check,
 	scripted_commands = scripted_commands,
 	scripted_profile = scripted_profile,
 	benches = {{what = "deckbuilder (quick tuning), 4 heroes against the boss", entities = 4, ticks = 600}},

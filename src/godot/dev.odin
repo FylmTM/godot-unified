@@ -60,6 +60,12 @@ when DEVUI {
 		changes:      Changes_View, // the op log's Inspector root
 		changes_seen: u32, // the shown tick it was computed for
 		replaying:    bool, // the Timeline panel shows a replay
+		// The shown frame when the F3 note opened (dev_note_open): the moment the note is about, written at its send
+		note_at:      struct {
+			set:            bool,
+			tick, verified: u32,
+			player:         u64,
+		},
 	}
 
 	// A replay's Timeline panel (dev_frame): its state in, its requests out as the replay's controls.
@@ -121,7 +127,7 @@ when DEVUI {
 		if lag.enabled do devui.netsim = lag
 		if verified_players do devui.verified_players = true
 		if devui.is_ready() do return
-		devui.init(visible, dev_feedback)
+		devui.init(visible, dev_feedback, dev_note_open)
 		rendering_server := gd.RenderingServer_singleton()
 		dev.draw[0] = gd.callable_create(proc(_: rawptr, _: []^gd.Variant) -> gd.Variant {
 				dev.pre = time.tick_now()
@@ -592,8 +598,18 @@ when DEVUI {
 		}
 	}
 
+	// devui's on_note_open (main thread, F3): the frame shown now is what the note is about, however long it is typed.
+	dev_note_open :: proc() {
+		dev.note_at = {}
+		if active == nil || active.frame == nil do return
+		frame := active.frame
+		dev.note_at = {true, frame.tick, frame.verified, frame.local_player}
+	}
+
 	// devui's on_feedback (main thread, a note was just written to `dir`): the session's recording, so the note
-	// replays (`uni headless <game> -- replay --snapshot snapshot.unis --log inputs.unil`), and note.json.
+	// replays (`uni headless <game> -- replay --snapshot snapshot.unis --log inputs.unil`), and note.json. Its tick is
+	// the frame's when the note opened, no later than the recording's last (the recording holds verified ticks only,
+	// and a client shows predicted ones ahead of them).
 	dev_feedback :: proc(dir: string, tag_bug: bool) {
 		snapshot, input_log: [dynamic]u8
 		defer delete(snapshot)
@@ -607,7 +623,7 @@ when DEVUI {
 			bug:         bool,
 			session:     string,
 			player:      u64,
-			tick:        u32, // the newest predicted tick shown
+			tick:        u32, // the tick shown when the note opened (the newest predicted one), at most to_tick
 			verified:    u32,
 			recording:   bool, // snapshot.unis and inputs.unil are there
 			from_tick:   u32, // the snapshot's tick
@@ -627,7 +643,10 @@ when DEVUI {
 				out.player, out.tick, out.verified, out.net = frame.local_player, frame.tick, frame.verified, frame.net
 			}
 		}
+		if at := dev.note_at; at.set do out.player, out.tick, out.verified = at.player, at.tick, at.verified
+		dev.note_at = {}
 		if recorded {
+			out.tick = min(out.tick, info.to)
 			out.from_tick, out.to_tick, out.checkpoints = info.from, info.to, info.checkpoints
 			ok := os.write_entire_file(fmt.tprintf("%s/snapshot.unis", dir), snapshot[:]) == nil
 			ok &&= os.write_entire_file(fmt.tprintf("%s/inputs.unil", dir), input_log[:]) == nil

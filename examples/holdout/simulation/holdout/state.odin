@@ -49,7 +49,6 @@ Player_Data :: struct {
 	fire_ready:   sim.Timer, // no shot until it runs out (FIRE_INTERVAL_TICKS)
 	grenade:      sim.Timer, // no grenade until it runs out (GRENADE_COOLDOWN_S)
 	respawn:      sim.Timer, // downed: up at the core when it runs out (RESPAWN_S)
-	hurt_at:      sim.Game_Time, // the last hit taken (a view's flash)
 	kills:        u16,
 	warp:         u8, // bumped by every new body: the view snaps to it
 	_pad2:        u8,
@@ -66,9 +65,6 @@ Enemy :: struct {
 	sees:   bool, // it saw its target player at its last look (SIGHT_EVERY_TICKS)
 	target: sim.Player, // the player it goes for ({}: the core)
 	attack: sim.Timer, // no attack until it runs out
-	hit_at: sim.Game_Time, // the last hit it took (a view's flash)
-	warp:   u8, // bumped when it is made in a slot another had: its view snaps
-	_pad:   [3]u8,
 }
 
 // A spitter's bolt: a point flying straight, swept against the level, the core and the players each tick.

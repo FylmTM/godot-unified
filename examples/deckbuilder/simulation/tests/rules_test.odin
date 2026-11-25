@@ -207,6 +207,51 @@ an_absent_players_hero_sleeps :: proc(t: ^testing.T) {
 	scenarios.expect_synced(t, &run)
 }
 
+// With one hero down, the last standing hero's player leaving loses the run whichever turn it lands in: the heroes'
+// turn doesn't wait for a hero who sleeps when every awake one is down.
+@(test)
+the_last_standing_player_leaving_loses_the_run_in_either_turn :: proc(t: ^testing.T) {
+	for in_enemies_turn in ([]bool{false, true}) {
+		run := fight_of(run_of(STRIKES, STRIKES))
+		defer headless.run_end(&run)
+		state := &run.simulation.state
+		state.heroes[0].down, state.heroes[0].hp = true, 0
+		headless.run_pin(&run)
+		if in_enemies_turn {
+			headless.run_command(&run, 1, g.Command_End_Turn{ready = true})
+			testing.expect_value(t, state.phase, g.Phase.Enemies)
+		}
+		headless.run_seat(&run, 1, 0) // the last standing hero's player leaves
+		for _ in 0 ..< 4 * g.TICK_HZ {
+			headless.run_step(&run)
+			if state.phase == .Over do break
+		}
+		testing.expect_value(t, state.phase, g.Phase.Over)
+		over, found := headless.run_last_event(&run, g.Event_Run_Over)
+		testing.expect(t, found && !over.won, "the run is lost")
+		scenarios.expect_synced(t, &run)
+	}
+}
+
+// A player who arrives with no hero free watches, and takes a hero the moment its player leaves.
+@(test)
+a_watcher_takes_a_hero_that_frees :: proc(t: ^testing.T) {
+	run := fight_of(run_of(STRIKES, STRIKES))
+	defer headless.run_end(&run)
+	state := &run.simulation.state
+	headless.run_seat(&run, 2, 3) // a third player: no hero free
+	headless.run_step(&run)
+	watcher := sim.player_in_slot(run.simulation, 2)
+	testing.expect(t, sim.player_data(run.simulation, watcher).watching, "watching")
+	headless.run_seat(&run, 1, 0) // hero 1's player leaves
+	headless.run_step(&run)
+	testing.expect_value(t, g.hero_of(state, watcher), 1)
+	testing.expect(t, !sim.player_data(run.simulation, watcher).watching, "playing")
+	claimed, found := headless.run_last_event(&run, g.Event_Hero_Claimed)
+	testing.expect(t, found && claimed.hero == 1 && claimed.player == watcher, "claimed")
+	scenarios.expect_synced(t, &run)
+}
+
 // A shuffle comes from the hero's stream for the floor, never the tick: the same run entering its first node on
 // another tick (the votes later) deals the same hands.
 @(test)
@@ -276,5 +321,37 @@ a_save_continues_the_run :: proc(t: ^testing.T) {
 				sim.get(&state.cards, mine.hand.items[k]).id,
 			)
 		}
+	}
+}
+
+// A save this build can't continue (Game.setup_check) reads as a problem, so the menu offers no Continue and create
+// refuses it, instead of the run indexing past its map: another SAVE_VERSION, a node past the act or beside the boss,
+// a hero's HP out of range.
+@(test)
+a_save_this_build_cant_continue_is_refused :: proc(t: ^testing.T) {
+	good := run_of([]g.Card_Id{.Strike})
+	testing.expect_value(t, sim.setup_violation(&g.GAME, &good), "")
+	none := g.Setup{}
+	testing.expect_value(t, sim.setup_violation(&g.GAME, &none), "")
+	Case :: struct {
+		what:  string,
+		craft: proc(setup: ^g.Setup),
+	}
+	cases := []Case {
+		{"another version", proc(setup: ^g.Setup) {setup.version = g.SAVE_VERSION + 1}},
+		{"a floor past the act", proc(setup: ^g.Setup) {setup.floor = 200}},
+		{"the first vote's floor", proc(setup: ^g.Setup) {setup.floor = g.NO_FLOOR}},
+		{"a lane past the map", proc(setup: ^g.Setup) {setup.lane = g.LANES}},
+		{"the last floor beside the boss", proc(setup: ^g.Setup) {setup.floor, setup.lane = g.FLOORS - 1, 0}},
+		{"a hero with no HP", proc(setup: ^g.Setup) {setup.heroes[0].hp = 0}},
+		{"a hero past their maximum", proc(setup: ^g.Setup) {setup.heroes[0].hp = setup.heroes[0].max_hp + 1}},
+		{"no hero in the run", proc(setup: ^g.Setup) {setup.heroes[0].in_run = false}},
+	}
+	for test_case in cases {
+		setup := run_of([]g.Card_Id{.Strike})
+		test_case.craft(&setup)
+		testing.expectf(t, sim.setup_violation(&g.GAME, &setup) != "", "%s: accepted", test_case.what)
+		_, problem := sim.setup_from_json(&g.GAME, sim.setup_to_json(&setup, context.temp_allocator))
+		testing.expectf(t, problem != "", "%s: read from JSON", test_case.what)
 	}
 }

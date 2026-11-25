@@ -39,7 +39,7 @@ Spawner_Def :: struct {
 	dir: [2]f32, // unit
 }
 
-// What the keyed rolls are for (sim.roll_below, sim.roll_f32).
+// What the keyed rolls are for (sim.roll_below_at, sim.roll_f32_at).
 Roll :: enum u8 {
 	Rock_Turn,
 	Rock_Spin,

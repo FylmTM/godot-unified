@@ -301,8 +301,7 @@ a_snapshot_carries_the_setup :: proc(t: ^testing.T) {
 	testing.expect_value(t, sim.player_profile(restored, sim.player_in_slot(restored, 0)).kind, Pick_Kind.Tank)
 
 	data[sim.SNAP_HEADER + 2 + offset_of(Pick_Setup, mode)] = 9
-	digest := transmute([8]u8)u64le(sim.hash_bytes(data[sim.SNAP_HEADER:]))
-	copy(data[sim.SNAP_HEADER - 8:], digest[:]) // an intact digest over a Setup this build can't read
+	sim.snapshot_seal(data) // an intact digest over a Setup this build can't read
 	_, err = sim.from_snapshot(&PICK, data)
 	testing.expect_value(t, err, sim.Snap_Error.Bad_Header)
 }

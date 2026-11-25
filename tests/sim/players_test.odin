@@ -256,6 +256,28 @@ seated_inputs_keep_a_member_seated_until_unseat :: proc(t: ^testing.T) {
 	sim.step(simulation, &empty) // nobody seated by hand: nobody asked for
 }
 
+// A member seated with a Profile keeps it: a restore to before their join and the inputs seated_inputs gives replay the
+// join on its own tick, bringing the same Profile (the zero one used to come back).
+@(test)
+seated_inputs_keep_the_profile_across_a_restore :: proc(t: ^testing.T) {
+	simulation := sim.create(&toy.GAME, 3)
+	defer sim.destroy(simulation)
+	inputs := sim.seated_inputs(simulation)
+	sim.seat(&inputs, simulation, 0, 1, toy.Profile{color = 9})
+	sim.step(simulation, &inputs)
+	player := sim.player_in_slot(simulation, 0)
+	testing.expect_value(t, sim.player_profile(simulation, player).color, 9)
+	testing.expect(t, sim.restore(simulation, 0))
+	testing.expect_value(t, sim.seated_inputs(simulation).joins[0], 1) // tick 1 again: the join record
+	for _ in 0 ..< 3 {
+		again := sim.seated_inputs(simulation)
+		sim.step(simulation, &again)
+	}
+	player = sim.player_in_slot(simulation, 0)
+	testing.expect_value(t, player.id, 1)
+	testing.expect_value(t, sim.player_profile(simulation, player).color, 9)
+}
+
 // A member seated once, then a tick's inputs made without them (a zero Inputs): step names the slot and the cause
 // rather than letting them leave unseen.
 @(test)

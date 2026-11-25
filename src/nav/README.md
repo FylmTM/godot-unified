@@ -28,12 +28,14 @@ like any tick package.
   enters and slides along a wall it meets, then takes the floor's height: a walker moved only by `move` never leaves
   the mesh, and needs no physics query to walk. A game drives its walker's kinematic body to that pose.
 - **Determinism**: f32 with `+ − × ÷ sqrt`, fixed iteration orders, ties broken by index, and no allocation after
-  `build` and `fields_make` (a miss of the memo computes into a slot it already has). `tests/nav` pins a walker run
-  every CI platform must reproduce bit for bit.
+  `build` and `fields_make` (a miss of the memo computes into a slot it already has).
+- **Every lookup is total.** A `Poly` a game keeps in its State can be stale or crafted, and no library check sees the
+  game's fields, so a polygon outside the mesh is no polygon to every query (no field, no island), never an index out
+  of range.
 
 ## Decisions
 
-- **Godot bakes triangles** (Recast's detail mesh), two to three times the polygons a merged mesh would have. Fields
+- **Godot bakes triangles** (Recast's detail mesh), several times the polygons a merged mesh would have. Fields
   and steering are cheap enough at a yard's size (`uni bench`'s nav row) that the mesh is used as baked; merging
   triangles into convex polygons at build is the step to take if a larger level's field cost asks for it.
 - **No avoidance between walkers.** A crowd that must not overlap separates itself in the game (a neighbour pass on

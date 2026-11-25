@@ -179,7 +179,7 @@ doc_with_sources :: proc(doc: ^Doc, dir: string) {
 		}
 		text, found := read_text(info.fullpath)
 		if !found do continue
-		path, _ := strings.replace_all(rel(info.fullpath), "\\", "/")
+		path := slashed(rel(info.fullpath))
 		append(&sources, Source{path, strings.split_lines(text)})
 	}
 	for &entry in doc.entries {
@@ -459,8 +459,8 @@ doc_with_locations :: proc(text: string, dir: string) -> string {
 		}
 		line, _ := slice.binary_search(line_starts[path], offset)
 		if line < len(line_starts[path]) && line_starts[path][line] == offset do line += 1
-		slashed, _ := strings.replace_all(rel(path), "\\", "/")
-		strings.write_string(&out, aprintf("  // %s:%d", slashed, line))
+		location := slashed(rel(path))
+		strings.write_string(&out, aprintf("  // %s:%d", location, line))
 		rest = rest[start + end + 3:]
 	}
 	strings.write_string(&out, rest)
@@ -481,7 +481,7 @@ doc_list :: proc() -> Result {
 	doc_collect_packages(src, &pkgs)
 	slice.sort(pkgs[:])
 	for dir in pkgs {
-		name, _ := strings.replace_all(dir[len(src) + 1:], "\\", "/")
+		name := slashed(dir[len(src) + 1:])
 		append(&rows, Row{aprintf("unified:%s", name), readme_title(dir)})
 	}
 	for game in state.project.games {

@@ -1,20 +1,23 @@
 // Portable snapshot: "UNIS", version u16, seed u64, content hash u64 (the level, 0: none), tick u32, block size u32,
-// layout hash u64 (layout_hash of the State), compat u64 (compat_of of the build that took it), payload XXH3 u64,
-// then the payload: the session's Setup (its size u16 and bytes), the block bytes, then the Extra's image: its size
-// u32 (0: the game has no Extra) and bytes. All of it is fixed-width little-endian data without pointers, so a
-// snapshot restores on another OS or CPU (late join, `resume`), and a late joiner builds its World from the Setup
-// everyone built theirs from.
+// layout hash u64 (layout_hash of the State), compat u64 (compat_of of the build that took it), digest u64, then the
+// payload: the session's Setup (its size u16 and bytes), the block bytes, then the Extra's image: its size u32 (0: the
+// game has no Extra) and bytes. The digest covers the header before it and the payload (snap_digest), so a damaged
+// seed, tick or compat is refused as a damaged payload is. All of it is fixed-width little-endian data without
+// pointers, so a snapshot restores on another OS or CPU (late join, `resume`), and a late joiner builds its World from
+// the Setup everyone built theirs from.
 package sim
 
 import "base:builtin"
 import "base:intrinsics"
+import "core:hash/xxhash"
 
 import "unified:wire"
 
 @(private)
 SNAP_MAGIC :: "UNIS"
 // Bump on any change to the format or to what an image holds.
-SNAP_VERSION :: 1
+SNAP_VERSION :: 2
+// The header's size in bytes: the payload starts there, and the digest is its last 8 bytes.
 SNAP_HEADER :: 54
 
 // Why a snapshot doesn't restore (nil: it does). The library never prints; callers log the value.
@@ -24,8 +27,9 @@ Snap_Error :: enum u8 {
 	Layout_Differs, // another build's state: another layout or block size
 	Content_Differs, // the snapshot was taken with other levels (Game.levels)
 	Build_Differs, // another build's: the same state layout, another compat (game version, library, Box3D, ...)
-	Checksum_Mismatch, // the payload is damaged
+	Checksum_Mismatch, // the header or the payload is damaged
 	Extra_Rejected, // the extra state (physics) rejected its image, or the snapshot has one and the game none
+	Block_Rejected, // the block is no state the library can hold (block_violation): a crafted or corrupt snapshot
 }
 
 @(private)
@@ -158,24 +162,39 @@ snap_begin :: proc(writer: ^wire.Writer, header: Snap_Header, block: []u8) {
 	wire.w_u32(writer, u32(header.block))
 	wire.w_u64(writer, header.layout)
 	wire.w_u64(writer, header.compat)
-	wire.w_u64(writer, 0) // payload digest, patched by snap_end
+	wire.w_u64(writer, 0) // digest, patched by snap_end
 	wire.w_u16(writer, u16(len(header.setup)))
 	wire.w_bytes(writer, header.setup)
 	wire.w_bytes(writer, block)
 }
 
 
-// Patches the payload digest into the header and returns the snapshot's bytes (the writer's buffer).
+// Patches the digest into the header and returns the snapshot's bytes (the writer's buffer).
 @(private)
 snap_end :: proc(writer: ^wire.Writer) -> []u8 {
-	digest := transmute([8]u8)u64le(hash_bytes(writer.buf[SNAP_HEADER:]))
-	copy(writer.buf[SNAP_HEADER - 8:], digest[:])
+	snapshot_seal(writer.buf[:])
 	return writer.buf[:]
 }
 
-// Parses and verifies the header and payload digest; `reader` is left at the Extra's image. The magic and
+// A snapshot's digest: XXH3-64 of the payload, seeded with XXH3-64 of the header before the digest field. The data must
+// hold at least the header.
+@(private)
+snap_digest :: proc(data: []u8) -> u64 {
+	return xxhash.XXH3_64_with_seed(data[SNAP_HEADER:], hash_bytes(data[:SNAP_HEADER - 8]))
+}
+
+// Writes the digest of snapshot bytes into their header, in place: what snapshot_encode does last, and what a test
+// that edits a snapshot's bytes calls to make them pass the digest check (a crafted snapshot from another program).
+// Bytes shorter than a header are left as they are.
+snapshot_seal :: proc(data: []u8) {
+	if len(data) < SNAP_HEADER do return
+	digest := transmute([8]u8)u64le(snap_digest(data))
+	copy(data[SNAP_HEADER - 8:], digest[:])
+}
+
+// Parses and verifies the header and digest; `reader` is left at the Extra's image. The magic and
 // version come first (Bad_Header), then this build's block size and layout (Layout_Differs), then the
-// payload digest (Checksum_Mismatch); the Setup's bytes are the caller's to check.
+// digest over the header and payload (Checksum_Mismatch); the Setup's bytes are the caller's to check.
 @(private)
 snap_read :: proc(
 	data: []u8,
@@ -208,7 +227,7 @@ snap_read :: proc(
 		err = .Bad_Header
 	case header.block != block_size || header.layout != layout:
 		err = .Layout_Differs
-	case hash_bytes(data[payload:]) != digest:
+	case payload != SNAP_HEADER || snap_digest(data) != digest:
 		err = .Checksum_Mismatch
 	}
 	if err == .None {
@@ -229,8 +248,10 @@ snap_extra :: proc(reader: ^wire.Reader) -> (image: []u8, ok: bool) {
 // Builds a new Sim from a portable snapshot, with the session's Setup it carries, or says why the bytes are not a
 // valid snapshot for this game build and its levels (the Sim is nil then): snap_read's errors, then Content_Differs,
 // then Build_Differs (unless `any_build`: a replay of another build's recording, checked against its checkpoints),
-// then Bad_Header for a Setup that does not read on this build (setup_violation), then Extra_Rejected for an extra
-// image that doesn't load or a block whose refs the extra's check refuses (a crafted snapshot: check_extra).
+// then Bad_Header for a Setup that does not read on this build (setup_violation), then Block_Rejected for a block no
+// state of the game can be (block_violation), then Extra_Rejected for an extra image that doesn't load or a block
+// whose refs the extra's check refuses (a crafted snapshot: check_extra). Panics, as create does, for a game that
+// can't run (game_violation).
 from_snapshot :: proc(
 	game: ^$G,
 	data: []u8,
@@ -241,15 +262,17 @@ from_snapshot :: proc(
 ) where intrinsics.type_is_specialization_of(G, Game) {
 	State :: part(G, GAME_STATE)
 	Setup :: part(G, GAME_SETUP)
-	layout := layout_hash(State)
-	header, block, reader, err := snap_read(data, size_of(State), layout)
+	identity := Sim_Identity {
+		layout = layout_hash(State),
+	}
+	header, block, reader, err := snap_read(data, size_of(State), identity.layout)
 	if err != .None {
 		return nil, err
 	}
-	if header.content != content_hash(game.levels) {
+	if identity.content = content_hash(game.levels); header.content != identity.content {
 		return nil, .Content_Differs
 	}
-	if header.compat != compat_with(game, layout, {}) && !any_build {
+	if identity.compat = compat_with(game, identity.layout, {}); header.compat != identity.compat && !any_build {
 		return nil, .Build_Differs
 	}
 	setup: Setup
@@ -260,9 +283,16 @@ from_snapshot :: proc(
 	if setup_violation(game, &setup) != "" {
 		return nil, .Bad_Header
 	}
-	simulation := create_with_setup(game, header.seed, setup)
+	if reason := game_violation(game); reason != "" {
+		panic(reason)
+	}
+	simulation := create_checked(game, header.seed, setup, identity)
 	intrinsics.mem_copy_non_overlapping(&simulation.state, raw_data(block), size_of(State))
 	simulation.tick = header.tick
+	if block_violation(&simulation.state) != "" {
+		destroy(simulation)
+		return nil, .Block_Rejected
+	}
 	image, image_ok := snap_extra(&reader)
 	extra := &simulation.extra
 	if !image_ok ||

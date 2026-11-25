@@ -25,6 +25,7 @@ Still_State :: struct {
 Still_Game :: sim.Game(Still_State, sim.No_Input, World, Event, Command, Setup, Profile, PLAYERS)
 Still_Tick :: sim.Tick(Still_Game)
 
+@(rodata)
 STILL := Still_Game {
 	name = "toy_still",
 	version = "1",

@@ -12,6 +12,8 @@ import "unified:wire"
 // The relay's desync reports reach the `desync` hook, with the tick, who diverged and the detail.
 @(test)
 desync_report_reaches_the_hook :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	hub := netcode.hub_create(2)
 	defer netcode.hub_destroy(hub)
 	fake: Fake_Relay
@@ -34,9 +36,7 @@ desync_report_reaches_the_hook :: proc(t: ^testing.T) {
 			seen.len = copy(seen.detail[:], report.detail)
 		},
 	}
-	client := netcode.client_create(&toy.GAME, {
-			slot = -1,
-		}, netcode.loopback_link(hub, 1), hooks)
+	client := netcode.client_create(&toy.GAME, {}, netcode.loopback_link(hub, 1), hooks)
 	defer netcode.client_destroy(client)
 	fake_welcome(&fake, client)
 	writer := fake_begin(&fake, .Desync)
@@ -55,12 +55,15 @@ desync_report_reaches_the_hook :: proc(t: ^testing.T) {
 	testing.expect_value(t, string(seen.detail[:seen.len]), detail)
 	testing.expect_value(t, client.stats.desyncs, 1)
 	testing.expect(t, !netcode.client_result(client, context.temp_allocator).ok)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // With two players a checksum vote is a tie: the lowest slot's value is the majority (with 2 players, the host's), and
 // the other slot is the one that diverged, whichever of them computed wrong.
 @(test)
 a_checksum_tie_goes_to_the_lowest_slot :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	for evil_slot in ([]u8{0, 1}) {
 		session: Net
 		net_make_relay(&session, 2, 0)
@@ -82,12 +85,15 @@ a_checksum_tie_goes_to_the_lowest_slot :: proc(t: ^testing.T) {
 		testing.expect_value(t, session.relay.first_desync.tick, tick)
 		testing.expect_value(t, session.relay.first_desync.diverged, sim.Slots{1})
 	}
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // A typed report waits for its snapshots while they make progress, not a fixed time from asking: the diverged
 // player's image is 4 MB, which takes ~4 s at the reliable pace (past IMAGE_WAIT_MS), and the report still diffs it.
 @(test)
 a_typed_report_waits_for_a_large_image :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	net_make_relay(&session, 2, 0, desync_detail = true)
 	defer net_destroy(&session)
@@ -116,6 +122,7 @@ a_typed_report_waits_for_a_large_image :: proc(t: ^testing.T) {
 		"the report says %q",
 		detail,
 	)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // The typed report's setup up to the relay's request for the diverged slot's image (slot 1, a raw channel; slot 0
@@ -141,6 +148,8 @@ diverged_image_asked :: proc(t: ^testing.T, session: ^Net, evil: ^Evil) -> (hone
 // again) holds the report IMAGE_WAIT_MS after its answer, not for as long as it keeps sending them.
 @(test)
 empty_chunks_do_not_hold_the_desync_report :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	evil: Evil
 	defer net_destroy(&session)
@@ -162,12 +171,15 @@ empty_chunks_do_not_hold_the_desync_report :: proc(t: ^testing.T) {
 	testing.expect_value(t, session.relay.desyncs, 1)
 	testing.expectf(t, honest.stats.desyncs > 0, "6 s after the answer the honest client was told of no desync")
 	testing.expect_value(t, session.relay.first_desync.detail, "the snapshots of that tick were not available")
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // The wait has an end: a slot that sends its image a byte at a time (each one progress) holds the report for
 // IMAGE_GIVE_UP_MS at most.
 @(test)
 a_dripping_image_holds_the_desync_report_until_the_wait_gives_up :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	evil: Evil
 	defer net_destroy(&session)
@@ -197,4 +209,5 @@ a_dripping_image_holds_the_desync_report_until_the_wait_gives_up :: proc(t: ^tes
 		waited_ms,
 		netcode.IMAGE_GIVE_UP_MS,
 	)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }

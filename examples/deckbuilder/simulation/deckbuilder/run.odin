@@ -11,7 +11,7 @@ start_run :: proc(t: ^Tick) {
 	t.state.runs += 1
 	t.state.run_seed = sim.rng_next(&stream) | 1 // never 0: 0 is no run
 	t.state.heroes = {}
-	t.state.cards = {}
+	sim.despawn_all(&t.state.cards)
 	count := 0
 	players := sim.iterate_present(t)
 	for data, player in sim.next(&players) {
@@ -33,6 +33,25 @@ start_run :: proc(t: ^Tick) {
 	generate_map(t)
 	t.state.floor, t.state.lane = NO_FLOOR, LANES / 2
 	open_map(t)
+}
+
+// Why a Setup can't be a session (Game.setup_check): a saved run this build can't continue, so the menu says so
+// instead of Continue, and create refuses it. A save of another SAVE_VERSION; a node past the act, or on the last
+// floor beside the boss (it holds no node: the map vote would find no lane); a hero in the run with no HP, or more
+// than their maximum.
+setup_check :: proc(setup: ^Setup) -> string {
+	if setup.version == 0 do return ""
+	if setup.version != SAVE_VERSION do return "a save of another version of the game"
+	if setup.floor >= FLOORS || setup.lane >= LANES do return "a save at a node past the act"
+	if setup.floor == FLOORS - 1 && setup.lane != LANES / 2 do return "a save at a node the act's last floor lacks"
+	heroes := 0
+	for hero in setup.heroes {
+		if !hero.in_run do continue
+		if hero.hp <= 0 || hero.hp > hero.max_hp do return "a save with a hero's HP out of range"
+		heroes += 1
+	}
+	if heroes == 0 do return "a save with no hero in the run"
+	return ""
 }
 
 // Continues the run a save holds (the session's Setup, at tick 0): its heroes, asleep until their players come,
@@ -279,7 +298,7 @@ over_hold :: proc(t: ^Tick) {
 	t.state.phase = .Camp
 	t.state.run_seed = 0
 	t.state.heroes = {}
-	t.state.cards = {}
-	t.state.enemies = {}
+	sim.despawn_all(&t.state.cards)
+	sim.despawn_all(&t.state.enemies)
 	sim.clear(&t.state.actions)
 }

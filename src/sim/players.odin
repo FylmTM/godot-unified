@@ -30,14 +30,18 @@ Member :: struct {
 // entry of the longest-absent member, whose handles go stale and who is new if they come back. `before` is each slot's
 // Input of the tick before (input_before: presses are the difference), kept in the state so a rollback, a snapshot and
 // a replay carry it. `profile` is each member's Profile, the one its last join brought (player_profile; zero bytes for
-// sim.No_Profile). The pads keep `before`, `profile` and `data` 8-aligned.
+// sim.No_Profile). The pads keep `before`, `profile` and `data` 8-aligned and the size a multiple of 8, so a Players is
+// padding-free for any T, Profile and Input of alignment up to 8 (a 16-aligned one, a u128, does not compile).
 Players :: struct(
 	$T: typeid,
 	$Profile: typeid,
 	$Input: typeid,
 	$PLAYERS: int,
 ) where PLAYERS >= 1 &&
-	PLAYERS <= MAX_PLAYERS {
+	PLAYERS <= MAX_PLAYERS &&
+	align_of(T) <= 8 &&
+	align_of(Profile) <= 8 &&
+	align_of(Input) <= 8 {
 	members: [PLAYERS * MEMBERS_PER_SLOT]Member,
 	slots:   [PLAYERS]Player, // who holds each slot (Player{}: nobody)
 	_pad:    [PLAYERS % 2 * 4]u8,
@@ -46,6 +50,7 @@ Players :: struct(
 	profile: [PLAYERS * MEMBERS_PER_SLOT]Profile, // by member index: what its last join brought
 	_pad3:   [(8 - PLAYERS * MEMBERS_PER_SLOT * size_of(Profile) % 8) % 8]u8,
 	data:    [PLAYERS * MEMBERS_PER_SLOT]T, // the game's per-player struct, by member index: zeroed for a new member
+	_pad4:   [(8 - PLAYERS * MEMBERS_PER_SLOT * size_of(T) % 8) % 8]u8,
 }
 
 MEMBERS_PER_SLOT :: 2 // how many people a session remembers per slot (Players.members)
@@ -472,7 +477,7 @@ seat_of_sim :: proc(inputs: ^Inputs($G), simulation: ^Sim(G), slot: int, member:
 seat_of_sim_with_profile :: proc(inputs: ^Inputs($G), simulation: ^Sim(G), slot: int, member: int, profile: $P) {
 	seat_of_players_with_profile(inputs, &simulation.state.players, slot, member, profile)
 	if int(simulation.seats[slot].member) != member {
-		simulation.seats[slot] = {u16(member), simulation.tick + 1}
+		simulation.seats[slot] = {u16(member), simulation.tick + 1, profile}
 	}
 }
 
@@ -483,20 +488,25 @@ unseat :: proc(simulation: ^Sim($G), slot: int) {
 	simulation.seats[slot] = {}
 }
 
-// The next tick's Inputs with every member seat remembers seated again (present; a join record where someone else
-// holds the slot), and nothing else: where a hand-driven tick's inputs start.
+// The next tick's Inputs with every member seat remembers seated again (present; a join record, bringing the Profile
+// seat was given, where someone else holds the slot), and nothing else: where a hand-driven tick's inputs start. A
+// member seated from a later tick (the sim was restored to before their join) is left out until that tick, so the
+// join is replayed on its own tick.
 seated_inputs :: proc(simulation: ^Sim($G)) -> (inputs: Inputs(G)) {
 	for seated, slot in simulation.seats {
-		if seated.member != 0 do seat_of_players(&inputs, &simulation.state.players, slot, int(seated.member))
+		if seated.member == 0 || seated.since > simulation.tick + 1 do continue
+		seat_of_players_with_profile(&inputs, &simulation.state.players, slot, int(seated.member), seated.profile)
 	}
 	return
 }
 
-// A member seat seated, remembered so `step` can name a tick that leaves them out (Sim.seats; member 0: none).
+// A member seat seated, remembered so `step` can name a tick that leaves them out (Sim.seats; member 0: none), with
+// the Profile they joined with.
 @(private)
-Hand_Seat :: struct {
-	member: u16,
-	since:  u32, // the first tick seat had them in
+Hand_Seat :: struct($Profile: typeid) {
+	member:  u16,
+	since:   u32, // the first tick seat had them in
+	profile: Profile,
 }
 
 // Panics when the tick `number`'s inputs leave out a member seat remembers (seated from an earlier tick): Inputs are
@@ -505,20 +515,20 @@ Hand_Seat :: struct {
 seats_check :: proc(simulation: ^Sim($G), inputs: ^Inputs(G), number: u32) {
 	for seated, slot in simulation.seats {
 		if seated.member == 0 || number <= seated.since || slot in inputs.present do continue
-		seat_left_out(number, slot, seated)
+		seat_left_out(number, slot, seated.member, seated.since)
 	}
 }
 
 // seats_check's panic, naming the cause (a non-generic home for its import: -vet).
 @(private)
-seat_left_out :: proc(number: u32, slot: int, seated: Hand_Seat) -> ! {
+seat_left_out :: proc(number: u32, slot: int, member: u16, since: u32) -> ! {
 	panic(
 		fmt.tprintf(
 			"sim.step: tick %d's inputs leave out slot %d, where sim.seat seated member %d from tick %d. Inputs are one tick's: start each tick's from sim.seated_inputs (or seat the member every tick), and sim.unseat a member to have them leave",
 			number,
 			slot,
-			seated.member,
-			seated.since,
+			member,
+			since,
 		),
 	)
 }

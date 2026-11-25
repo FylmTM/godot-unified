@@ -16,7 +16,7 @@ Grid :: struct($CELLS: int, $CAP: int) where CELLS > 0 && CAP > 0 {
 	columns:    i32,
 	rows:       i32,
 	count:      i32, // ids added since grid_begin
-	sorted:     bool, // grid_end ran since the last grid_begin
+	sorted:     bool, // grid_end ran since the last grid_begin or grid_add
 	cell_start: [CELLS + 1]i32, // cell c's ids are ids[cell_start[c] ..< cell_start[c + 1]]
 	ids:        [CAP]i32, // by cell, each cell's in the order added
 	added_id:   [CAP]i32,
@@ -41,8 +41,10 @@ grid_cell :: #force_inline proc(grid: ^Grid($CELLS, $CAP), pos: [2]f32) -> (colu
 	return
 }
 
-// Adds an id at a position (between grid_begin and grid_end); false when CAP ids were added already.
+// Adds an id at a position (between grid_begin and grid_end); false when CAP ids were added already. An add after
+// grid_end makes the grid unsorted again: a query asserts until the next grid_end, which sorts everything added.
 grid_add :: proc(grid: ^Grid($CELLS, $CAP), id: i32, pos: [2]f32) -> bool {
+	grid.sorted = false
 	if grid.count >= i32(CAP) do return false
 	column, row := grid_cell(grid, pos)
 	grid.added_id[grid.count] = id

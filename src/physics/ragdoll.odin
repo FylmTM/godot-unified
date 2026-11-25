@@ -15,7 +15,7 @@ package physics
 
 import "unified:dmath"
 
-// A ragdoll's bones, parents before children (each bone's joint holds it to its parent: Ragdoll.joints).
+// A ragdoll's bones, parents before children (each bone's joint holds it to its parent: Ragdoll.sockets and .hinges).
 Ragdoll_Bone :: enum u8 {
 	Pelvis, // the root: no joint
 	Spine, // on the pelvis
@@ -35,15 +35,37 @@ Ragdoll_Bone :: enum u8 {
 // jointed (the thighs, the spine and each thigh, the head and each upper arm).
 RAGDOLL_FILTERS :: 5
 
-// One ragdoll, in the block: its bodies, each bone's joint to its parent (a typed ref by ragdoll_joint_type: revolute
-// at the knees and elbows, spherical elsewhere; zero for the pelvis) and the filter joints between bones. Zero value: no
-// ragdoll. check_refs and destroy_refs find every ref in it, as in any value of the block.
+// The bones a spherical joint holds to their parents (Ragdoll.sockets), named by the bone: the spine on the pelvis, the
+// chest on the spine, the head on the chest, the thighs on the pelvis and the upper arms on the chest.
+Ragdoll_Socket :: enum u8 {
+	Spine,
+	Chest,
+	Head,
+	Left_Thigh,
+	Right_Thigh,
+	Left_Upper_Arm,
+	Right_Upper_Arm,
+}
+
+// The bones a revolute joint holds to their parents (Ragdoll.hinges), named by the bone: the calves (the knees) and the
+// forearms (the elbows).
+Ragdoll_Hinge :: enum u8 {
+	Left_Calf,
+	Right_Calf,
+	Left_Forearm,
+	Right_Forearm,
+}
+
+// One ragdoll, in the block: its bodies, each bone's joint to its parent by type (the pelvis, the root, has none; a
+// bone's untyped one: ragdoll_joint) and the filter joints between bones. Zero value: no ragdoll. check_refs and
+// destroy_refs find every ref in it, as in any value of the block.
 Ragdoll :: struct {
 	bones:   [Ragdoll_Bone]Body_Ref,
-	joints:  [Ragdoll_Bone]Joint_Ref,
+	sockets: [Ragdoll_Socket]Spherical_Joint_Ref,
+	hinges:  [Ragdoll_Hinge]Revolute_Joint_Ref,
 	filters: [RAGDOLL_FILTERS]Filter_Joint_Ref,
 }
-#assert(size_of(Ragdoll) == 232)
+#assert(size_of(Ragdoll) == 224)
 
 // Tuning; constants in game code, not in the block. Newton-metres, hertz, kg/m³, metres.
 Ragdoll_Def :: struct {
@@ -137,7 +159,8 @@ ragdoll_create :: proc(
 		frame_a_world := dmath.quat_mul(transforms[spec.parent].q, frame_a.q)
 		frame_b_world := dmath.quat_mul(transforms[bone].q, frame_b.q)
 		relative := dmath.quat_mul(quat_conjugate(frame_a_world), frame_b_world)
-		if spec.revolute {
+		slot, revolute, _ := joint_slot(bone)
+		if revolute {
 			joint_def := default_revolute_joint_def()
 			joint_def.base.local_frame_a, joint_def.base.local_frame_b = frame_a, frame_b
 			joint_def.enable_limit = true
@@ -149,7 +172,7 @@ ragdoll_create :: proc(
 			joint := create_revolute_joint(world, parent, child, joint_def, loc)
 			// The made pose's angle, as Box3D measures it (about frame A's z, from the bodies as they are).
 			revolute_joint_set_target_angle(world, joint, revolute_joint_angle(world, joint))
-			ragdoll.joints[bone] = joint
+			ragdoll.hinges[Ragdoll_Hinge(slot)] = joint
 		} else {
 			joint_def := default_spherical_joint_def()
 			joint_def.base.local_frame_a, joint_def.base.local_frame_b = frame_a, frame_b
@@ -162,7 +185,7 @@ ragdoll_create :: proc(
 			joint_def.target_rotation = unit_quat(relative)
 			joint_def.enable_motor = true
 			joint_def.max_motor_torque = spec.friction_share * def.friction_torque
-			ragdoll.joints[bone] = create_spherical_joint(world, parent, child, joint_def, loc)
+			ragdoll.sockets[Ragdoll_Socket(slot)] = create_spherical_joint(world, parent, child, joint_def, loc)
 		}
 	}
 	for pair, i in RAGDOLL_FILTER_PAIRS {
@@ -176,18 +199,32 @@ ragdoll_create :: proc(
 	}
 }
 
-// Destroys the ragdoll's joints and bodies (whatever of them is still alive) and clears it.
+// Destroys the ragdoll's joints and bodies (whatever of them is still alive) and clears it: its joints in bone order,
+// then its filter joints, then its bodies.
 ragdoll_destroy :: proc(world: ^World, ragdoll: ^Ragdoll) {
+	for bone in Ragdoll_Bone {
+		slot, revolute, has_joint := joint_slot(bone)
+		if !has_joint do continue
+		if revolute do destroy_joint(world, &ragdoll.hinges[Ragdoll_Hinge(slot)])
+		else do destroy_joint(world, &ragdoll.sockets[Ragdoll_Socket(slot)])
+	}
 	destroy_refs(world, ragdoll)
 	ragdoll^ = {}
 }
 
-// The type of a bone's joint to its parent: .Revolute at the knees and elbows, .Spherical elsewhere; `has_joint` false
-// for the pelvis, the root. A joint ref converts to its typed ref:
-// `physics.Revolute_Joint_Ref{ragdoll.joints[.Left_Calf]}`.
+// The type of a bone's joint to its parent: .Revolute at the knees and elbows (Ragdoll.hinges), .Spherical elsewhere
+// (Ragdoll.sockets); `has_joint` false for the pelvis, the root.
 ragdoll_joint_type :: proc "contextless" (bone: Ragdoll_Bone) -> (type: Joint_Type, has_joint: bool) {
-	if bone == .Pelvis do return {}, false
-	return RAGDOLL_BONES[bone].revolute ? .Revolute : .Spherical, true
+	_, revolute, ok := joint_slot(bone)
+	if !ok do return {}, false
+	return revolute ? .Revolute : .Spherical, true
+}
+
+// A bone's joint to its parent as an untyped ref, for the generic joint_* procs (zero for the pelvis, the root).
+ragdoll_joint :: proc "contextless" (ragdoll: ^Ragdoll, bone: Ragdoll_Bone) -> Joint_Ref {
+	slot, revolute, has_joint := joint_slot(bone)
+	if !has_joint do return {}
+	return revolute ? ragdoll.hinges[Ragdoll_Hinge(slot)].joint : ragdoll.sockets[Ragdoll_Socket(slot)].joint
 }
 
 // A bone's capsules at `scale` (Ragdoll_Def.scale), body-local (what a view draws at the bone's body): its own, and a
@@ -205,12 +242,13 @@ ragdoll_capsules :: proc "contextless" (bone: Ragdoll_Bone, scale: f32 = 1) -> (
 // gone (a ragdoll partly destroyed, or none) are skipped.
 ragdoll_set_friction_torque :: proc(world: ^World, ragdoll: ^Ragdoll, torque: f32) {
 	for bone in Ragdoll_Bone {
-		if bone == .Pelvis || !joint_valid(world, ragdoll.joints[bone]) do continue
+		slot, revolute, has_joint := joint_slot(bone)
+		if !has_joint || !joint_valid(world, ragdoll_joint(ragdoll, bone)) do continue
 		share := RAGDOLL_BONES[bone].friction_share * torque
-		if RAGDOLL_BONES[bone].revolute {
-			revolute_joint_set_max_motor_torque(world, {ragdoll.joints[bone]}, share)
+		if revolute {
+			revolute_joint_set_max_motor_torque(world, ragdoll.hinges[Ragdoll_Hinge(slot)], share)
 		} else {
-			spherical_joint_set_max_motor_torque(world, {ragdoll.joints[bone]}, share)
+			spherical_joint_set_max_motor_torque(world, ragdoll.sockets[Ragdoll_Socket(slot)], share)
 		}
 	}
 }
@@ -219,13 +257,16 @@ ragdoll_set_friction_torque :: proc(world: ^World, ragdoll: ^Ragdoll, torque: f3
 // are skipped.
 ragdoll_set_spring_hertz :: proc(world: ^World, ragdoll: ^Ragdoll, hertz: f32) {
 	for bone in Ragdoll_Bone {
-		if bone == .Pelvis || !joint_valid(world, ragdoll.joints[bone]) do continue
-		if RAGDOLL_BONES[bone].revolute {
-			revolute_joint_enable_spring(world, {ragdoll.joints[bone]}, hertz > 0)
-			revolute_joint_set_spring_hertz(world, {ragdoll.joints[bone]}, hertz)
+		slot, revolute, has_joint := joint_slot(bone)
+		if !has_joint || !joint_valid(world, ragdoll_joint(ragdoll, bone)) do continue
+		if revolute {
+			hinge := ragdoll.hinges[Ragdoll_Hinge(slot)]
+			revolute_joint_enable_spring(world, hinge, hertz > 0)
+			revolute_joint_set_spring_hertz(world, hinge, hertz)
 		} else {
-			spherical_joint_enable_spring(world, {ragdoll.joints[bone]}, hertz > 0)
-			spherical_joint_set_spring_hertz(world, {ragdoll.joints[bone]}, hertz)
+			socket := ragdoll.sockets[Ragdoll_Socket(slot)]
+			spherical_joint_enable_spring(world, socket, hertz > 0)
+			spherical_joint_set_spring_hertz(world, socket, hertz)
 		}
 	}
 }
@@ -233,11 +274,12 @@ ragdoll_set_spring_hertz :: proc(world: ^World, ragdoll: ^Ragdoll, hertz: f32) {
 // Sets the springs' damping ratio (Ragdoll_Def.damping_ratio). Joints gone are skipped.
 ragdoll_set_spring_damping_ratio :: proc(world: ^World, ragdoll: ^Ragdoll, damping_ratio: f32) {
 	for bone in Ragdoll_Bone {
-		if bone == .Pelvis || !joint_valid(world, ragdoll.joints[bone]) do continue
-		if RAGDOLL_BONES[bone].revolute {
-			revolute_joint_set_spring_damping_ratio(world, {ragdoll.joints[bone]}, damping_ratio)
+		slot, revolute, has_joint := joint_slot(bone)
+		if !has_joint || !joint_valid(world, ragdoll_joint(ragdoll, bone)) do continue
+		if revolute {
+			revolute_joint_set_spring_damping_ratio(world, ragdoll.hinges[Ragdoll_Hinge(slot)], damping_ratio)
 		} else {
-			spherical_joint_set_spring_damping_ratio(world, {ragdoll.joints[bone]}, damping_ratio)
+			spherical_joint_set_spring_damping_ratio(world, ragdoll.sockets[Ragdoll_Socket(slot)], damping_ratio)
 		}
 	}
 }
@@ -279,7 +321,6 @@ Ragdoll_Bone_Spec :: struct {
 	capsules:           [2]Capsule, // the second (a foot) when its radius isn't 0
 	friction:           f32,
 	rolling_resistance: f32,
-	revolute:           bool,
 	joint_a, joint_b:   Transform, // normalized at creation (unit_quat), as the sample does
 	swing:              f32,
 	twist:              [2]f32,
@@ -362,7 +403,6 @@ RAGDOLL_BONES := [Ragdoll_Bone]Ragdoll_Bone_Spec {
 			{{-0.456371, 0.129321, 0.000013}, {-0.359977, 0.014394, 0.000013}, 0.07},
 		},
 		friction       = 0.1,
-		revolute       = true,
 		joint_a        = {{-0.438494, -0.000175, 0}, {0.344866, -0.938652, 0.000002, -0.000008}},
 		joint_b        = {{0, 0, 0}, {-0.008182, -0.999967, 0.000001, -0.000007}},
 		twist          = {-30 * DEG, 30 * DEG},
@@ -390,7 +430,6 @@ RAGDOLL_BONES := [Ragdoll_Bone]Ragdoll_Bone_Spec {
 			{{0.369113, -0.00683, 0.000017}, {0.465507, -0.121757, 0.000017}, 0.07},
 		},
 		friction       = 0.1,
-		revolute       = true,
 		joint_a        = {{0.438494, 0.000175, 0}, {0.000007, 0.000005, -0.34486, -0.938654}},
 		joint_b        = {{0, 0, 0}, {0.000006, 0.000005, 0.008188, -0.999966}},
 		twist          = {-30 * DEG, 30 * DEG},
@@ -416,7 +455,6 @@ RAGDOLL_BONES := [Ragdoll_Bone]Ragdoll_Bone_Spec {
 		capsules = {0 = {{0.312329, -0.008256, -0.016454}, {0.033153, 0.008259, -0.002741}, 0.06}},
 		friction = 0.3,
 		rolling_resistance = 0.1,
-		revolute = true,
 		joint_a = {{0.297979, 0.000361, 0}, {0.916726, 0.399352, 0.000839, -0.011456}},
 		joint_b = {{0, 0, 0}, {0.999922, -0.003857, 0.004659, -0.010908}},
 		twist = {-35 * DEG, 35 * DEG},
@@ -442,7 +480,6 @@ RAGDOLL_BONES := [Ragdoll_Bone]Ragdoll_Bone_Spec {
 		capsules = {0 = {{-0.312649, -0.000003, 0.016471}, {-0.032986, 0, 0.002732}, 0.06}},
 		friction = 0.3,
 		rolling_resistance = 0.1,
-		revolute = true,
 		joint_a = {{-0.297979, -0.000361, 0}, {-0.405444, 0.914059, 0.010541, 0.000852}},
 		joint_b = {{0, 0, 0}, {-0.002794, 0.999936, 0.010042, 0.004364}},
 		twist = {-35 * DEG, 35 * DEG},
@@ -462,6 +499,39 @@ RAGDOLL_FILTER_PAIRS := [RAGDOLL_FILTERS][2]Ragdoll_Bone {
 	{.Head, .Right_Upper_Arm},
 	{.Spine, .Left_Thigh}, // the sample's collision group
 	{.Spine, .Right_Thigh},
+}
+
+// The bone each socket and each hinge holds to its parent.
+@(private, rodata)
+RAGDOLL_SOCKET_BONES := [Ragdoll_Socket]Ragdoll_Bone {
+	.Spine           = .Spine,
+	.Chest           = .Chest,
+	.Head            = .Head,
+	.Left_Thigh      = .Left_Thigh,
+	.Right_Thigh     = .Right_Thigh,
+	.Left_Upper_Arm  = .Left_Upper_Arm,
+	.Right_Upper_Arm = .Right_Upper_Arm,
+}
+
+@(private, rodata)
+RAGDOLL_HINGE_BONES := [Ragdoll_Hinge]Ragdoll_Bone {
+	.Left_Calf     = .Left_Calf,
+	.Right_Calf    = .Right_Calf,
+	.Left_Forearm  = .Left_Forearm,
+	.Right_Forearm = .Right_Forearm,
+}
+
+// Where a bone's joint to its parent is in a Ragdoll: its index in .hinges (`revolute`) or in .sockets; `has_joint`
+// false for the pelvis.
+@(private)
+joint_slot :: proc "contextless" (bone: Ragdoll_Bone) -> (slot: int, revolute: bool, has_joint: bool) {
+	for hinge_bone, hinge in RAGDOLL_HINGE_BONES {
+		if hinge_bone == bone do return int(hinge), true, true
+	}
+	for socket_bone, socket in RAGDOLL_SOCKET_BONES {
+		if socket_bone == bone do return int(socket), false, true
+	}
+	return 0, false, false
 }
 
 // `quat` scaled to unit length (times 1 / sqrt of its squared length, as b3NormalizeQuat does).

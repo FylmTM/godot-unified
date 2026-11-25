@@ -8,8 +8,8 @@ import "unified:sim"
 
 BENCH_SEED :: 0x5eed_dec4
 
-bench_prepare :: proc(state: ^State, world: ^sim.No_World, count: int) {
-	run := Setup {
+bench_prepare :: proc(t: ^Tick, count: int) {
+	t.setup = {
 		tuning   = .Quick,
 		version  = SAVE_VERSION,
 		floor    = FLOORS - 1,
@@ -18,7 +18,7 @@ bench_prepare :: proc(state: ^State, world: ^sim.No_World, count: int) {
 	}
 	for index in 0 ..< dmath.clamp(count, 1, PLAYERS) {
 		class := Hero_Class(index % 2)
-		hero := &run.heroes[index]
+		hero := &t.setup.heroes[index]
 		hero^ = {
 			hero_class = class,
 			in_run     = true,
@@ -29,14 +29,5 @@ bench_prepare :: proc(state: ^State, world: ^sim.No_World, count: int) {
 		for id in starter do sim.append(&hero.deck, Saved_Card{id = id})
 		for id in ([]Card_Id{.Cleave, .Heavy_Blow, .Linked_Guard}) do sim.append(&hero.deck, Saved_Card{id = id})
 	}
-	events := sim.Events {
-		list = make([dynamic]sim.Raw_Event, context.temp_allocator),
-	}
-	t := Tick {
-		state   = state,
-		setup   = run,
-		events  = &events,
-		tick_hz = TICK_HZ,
-	}
-	continue_run(&t)
+	continue_run(t)
 }

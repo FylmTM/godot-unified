@@ -14,7 +14,7 @@ import usim "unified:sim" // the field Client.sim shadows the package name
 import "unified:wire"
 
 // What a client of game G asks the relay for and who it says it is (client_create): written as a literal at the call
-// (`client_create(&GAME, {slot = -1, profile = {character = .Tank}}, link, hooks)`).
+// (`client_create(&GAME, {profile = {character = .Tank}}, link, hooks)`).
 Client_Config :: struct($G: typeid) {
 	using local:   Local_Config(G), // local player 0's: its slot, join tick, name and Profile
 	compat:        u64, // build/game id the relay checks (0: sim.compat_of(game))
@@ -60,7 +60,8 @@ Frame_Info :: struct {
 Hooks :: struct($G: typeid) {
 	user:           rawptr,
 	// Local player `local`'s input for `tick` (it holds `slot`), sampled when the client's clock reaches it, once per
-	// seated local player. `state` is the latest predicted state (nil before the sim exists).
+	// seated local player. `state` is the latest predicted state: nil before the sim exists and while it waits for the
+	// relay's check (a snapshot restored for a join or a resync: no peer has vouched for it yet).
 	sample:         proc(
 		user: rawptr,
 		local, slot: int,
@@ -68,7 +69,8 @@ Hooks :: struct($G: typeid) {
 		state: ^usim.part(G, usim.GAME_STATE),
 	) -> usim.part(G, usim.GAME_INPUT),
 	// Optional: local player `local`'s commands for `tick`, called right after its `sample` for every tick the
-	// client generates. usim.send_command(out, command) returns false once COMMAND_QUEUE commands wait.
+	// client generates (`state` as sample's). usim.send_command(out, command) returns false once COMMAND_QUEUE
+	// commands wait.
 	commands:       proc(
 		user: rawptr,
 		local, slot: int,
@@ -121,7 +123,7 @@ Local_State :: enum u8 {
 
 // What a local player asks for (client_add_player; local player 0's is Client_Config.local).
 Local_Config :: struct($G: typeid) {
-	slot:        int, // the slot to ask for; -1: any free one
+	slot:        Maybe(int), // the slot to ask for (nil: any free one)
 	join_tick:   u32, // the earliest tick to become present (0: as soon as possible)
 	player_name: string, // its display name (sent to the relay, shared with everyone)
 	profile:     usim.part(G, usim.GAME_PROFILE), // what it chose before joining: on its join tick, everywhere
@@ -141,7 +143,7 @@ Local_Info :: struct {
 Local_Seat :: struct($G: typeid) {
 	state:      Local_State,
 	asked:      bool, // its Hello or Join went out
-	want_slot:  int,
+	want_slot:  int, // -1: any free one
 	join_tick:  u32,
 	name:       Player_Name,
 	profile:    usim.part(G, usim.GAME_PROFILE),
@@ -300,6 +302,7 @@ Client :: struct($G: typeid) {
 	snap_begin_us:  i64, // when the snapshot's Snap_Begin came
 	checking:       bool, // our restored snapshot waits for the relay's check (Snap_Ok)
 	snap_foreign:   bool, // ... and is of another session (load_snapshot): a Snap_Ok for it ends the join
+	snap_bad:       usim.Snap_Error, // why the snapshot of snap_tick did not restore: its Snap_Ok ends the join
 	received_work:  bool, // this step's messages restored a snapshot or encoded a kept tick (client_steps times it)
 	// The checksum ticks kept for a desync report (Welcome's Keep_Images), by the sim's keep slot (0: none): a copy
 	// of the tick (usim.snapshot_keep), encoded only when the relay asks for it.
@@ -343,7 +346,7 @@ client_member :: proc(client: ^Client($G), id: u16) -> ^Roster_Entry {
 }
 
 // Creates a client talking to a relay over `link` (the client owns it). Nothing is sent until the
-// first client_step.
+// first client_step. Asserts that cfg.slot is not negative.
 client_create :: proc(game: ^$G, cfg: Client_Config(G), link: Link, hooks: Hooks(G)) -> ^Client(G) {
 	Input :: usim.part(G, usim.GAME_INPUT)
 	usim.check_wire(Input)
@@ -366,15 +369,22 @@ client_create :: proc(game: ^$G, cfg: Client_Config(G), link: Link, hooks: Hooks
 	}
 	client.delay = client.tm.min_delay
 	client.slot = -1
-	client_add_player(client, 0, cfg.local)
+	ok := client_add_player(client, 0, cfg.local)
+	assert(ok, "client_create: a negative Client_Config.slot (nil asks for any free slot)")
 	return client
 }
 
 // Adds local player `local` (1 ..< LOCAL_MAX; 0 is the Client_Config's): before the first step it goes in the Hello
 // (all of the Hello's seats are seated or none), later in a Join once the client is welcomed: it gets a join tick as a
-// late joiner's and needs no snapshot. Hooks.seat says how it went. False when `local` is out of range or in use.
+// late joiner's and needs no snapshot. Hooks.seat says how it went. False when `local` is out of range or in use, or
+// the slot asked for is negative.
 client_add_player :: proc(client: ^Client($G), local: int, cfg: Local_Config(G)) -> bool {
-	if local < 0 || local >= LOCAL_MAX || client.locals[local].state != .None || client.leaving {
+	want_slot := cfg.slot.? or_else -1
+	if local < 0 ||
+	   local >= LOCAL_MAX ||
+	   client.locals[local].state != .None ||
+	   client.leaving ||
+	   (cfg.slot != nil && want_slot < 0) {
 		return false
 	}
 	seat := &client.locals[local]
@@ -382,7 +392,7 @@ client_add_player :: proc(client: ^Client($G), local: int, cfg: Local_Config(G))
 	clear(&commands)
 	seat^ = {
 		state     = .Asked,
-		want_slot = cfg.slot,
+		want_slot = want_slot,
 		join_tick = cfg.join_tick,
 		name      = text_of(NAME_MAX, cfg.player_name),
 		profile   = cfg.profile,
@@ -479,10 +489,11 @@ client_seen :: proc(client: ^Client($G), tick: u32) -> usim.Seen {
 	return usim.seen_of(tick, client.predicted) if client.sim != nil && client.predicted > 0 else 0
 }
 
-// The latest predicted state (nil before the sim exists).
+// The latest predicted state the game's sample and commands hooks read: nil before the sim exists, and while it waits
+// for the relay's check (a restored snapshot no peer vouched for yet: a hostile one could hold anything).
 @(private)
 client_state :: proc(client: ^Client($G)) -> ^usim.part(G, usim.GAME_STATE) {
-	return &client.sim.state if client.sim != nil else nil
+	return &client.sim.state if client.sim != nil && !client.checking else nil
 }
 
 // The inputs of `tick`: the finalized ones once the relay finalized it (a verified tick's), else the predicted ones
@@ -794,6 +805,7 @@ on_snap_begin :: proc(client: ^Client($G), reader: ^wire.Reader, now: i64) {
 		client.snap_foreign = false
 		client.verified, client.predicted = 0, 0
 	}
+	client.snap_bad = .None // one that did not restore: this one, from another player, replaces it
 	// The relay streams finalized ticks (again) from the snapshot tick on. Those an earlier snapshot's stream left in
 	// the ring are the same facts and stay: the relay forwards no snapshot older than the one before (an ack the
 	// relay gets after this Snap_Begin may name them). An older one, from no honest relay, starts the ring over (a
@@ -973,6 +985,11 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 		}
 	case .Snap_Ok:
 		tick := wire.r_u32(&reader)
+		if reader.ok && client.sim == nil && client.snap_bad != .None && tick == client.snap_tick {
+			// Taken unchecked (nobody else reported its tick): the only snapshot there is does not restore.
+			set_status(client, .Failed, fmt.tprintf("received snapshot does not restore: %v", client.snap_bad))
+			return
+		}
 		if reader.ok && client.checking && client.sim != nil && tick == client.sim.tick {
 			if client.snap_foreign {
 				set_status(client, .Failed, "the only snapshot for this player was of another session")
@@ -1005,9 +1022,9 @@ handle_client_msg :: proc(client: ^Client($G), data: []u8, now: i64) {
 
 // Restores the received snapshot and sends its checksum: the relay compares it with the other players' checksum of
 // that tick (a checksum tick) and says Snap_Ok, or sends a snapshot from someone else. Until then the sim waits. A
-// snapshot of another session (its seed or Setup unlike the Welcome's, which the checksum does not cover: a hostile
-// provider) is answered with a checksum no honest restore gives, so the relay asks another player; if the relay takes
-// it unchecked (nobody else reported the tick), its Snap_Ok ends the join.
+// snapshot that does not restore, or of another session (its seed or Setup unlike the Welcome's, which the checksum
+// does not cover: a hostile provider), is answered with a checksum no honest restore gives, so the relay asks another
+// player; if the relay takes it unchecked (nobody else reported the tick), its Snap_Ok ends the join.
 @(private)
 load_snapshot :: proc(client: ^Client($G), now: i64) {
 	client.received_work = true
@@ -1017,7 +1034,13 @@ load_snapshot :: proc(client: ^Client($G), now: i64) {
 		if sim != nil {
 			usim.destroy(sim)
 		}
-		set_status(client, .Failed, fmt.tprintf("received snapshot does not restore: %v", err))
+		client.snap_bad = err != .None ? err : .Bad_Header
+		log.warnf("the snapshot of tick %d does not restore (%v): refused", client.snap_tick, client.snap_bad)
+		writer := msg_begin(&client.w, .Checksum)
+		wire.w_u32(writer, client.snap_tick)
+		wire.w_u64(writer, UNRESTORED_CHECKSUM)
+		csend(client, writer, .Reliable, now)
+		drop_received(client)
 		return
 	}
 	client.sim = sim
@@ -1058,6 +1081,11 @@ load_snapshot :: proc(client: ^Client($G), now: i64) {
 	}
 	drop_received(client) // a snapshot's size, needed again only if this one fails the check
 }
+
+// The checksum a joiner reports for a snapshot that does not restore (load_snapshot): the relay finds it differs
+// from the others' and asks another player for one.
+@(private)
+UNRESTORED_CHECKSUM :: ~u64(0)
 
 // The received snapshot (snap_buf, compressed), decompressed into snap_raw and restored into a new Sim; one that does
 // not decompress is no snapshot (Bad_Header).
@@ -1845,6 +1873,7 @@ reconnect :: proc(client: ^Client($G), lost_us: i64) {
 	client.snap_total = 0
 	clear(&client.snap_buf)
 	client.resync_tick = 0
+	client.snap_bad = .None
 	if client.checking {
 		usim.destroy(client.sim) // a snapshot not checked yet is no state to resume from
 		client.sim = nil

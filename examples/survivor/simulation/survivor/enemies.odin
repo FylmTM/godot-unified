@@ -193,15 +193,15 @@ kill_enemies :: proc(t: ^Tick) {
 
 // The bench's setup: the match running endless with the `bench` tuning, its population held at `count`, pre-spawned
 // at random positions over the arena from a fixed stream (setup outside any tick).
-bench_prepare :: proc(state: ^State, world: ^World, count: int) {
-	state.tuning = TUNINGS[.Bench]
-	state.tuning.enemy_cap = u32(count)
-	state.phase = .Match // the spawner refills to `count` from tick 1 on
+bench_prepare :: proc(t: ^Tick, count: int) {
+	t.state.tuning = TUNINGS[.Bench]
+	t.state.tuning.enemy_cap = u32(count)
+	t.state.phase = .Match // the spawner refills to `count` from tick 1 on
 	rng := sim.rng_seed(u64(count))
 	for _ in 0 ..< count {
 		x := f32(sim.rng_below(&rng, BENCH_HALF * 200)) / 100 - BENCH_HALF // whole centimetres
 		z := f32(sim.rng_below(&rng, BENCH_HALF * 200)) / 100 - BENCH_HALF
-		if !spawn_enemy(state, SPAWN_KINDS[sim.rng_below(&rng, len(SPAWN_KINDS))], {x, z}, 0) {
+		if !spawn_enemy(t.state, SPAWN_KINDS[sim.rng_below(&rng, len(SPAWN_KINDS))], {x, z}, 0) {
 			break
 		}
 	}

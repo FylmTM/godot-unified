@@ -13,11 +13,11 @@ REFERENCE :: scenarios.Reference {
 	players       = 4,
 	ticks         = 2000, // three scene changes (SCRIPT_SCENE_TICKS)
 	snapshot_tick = 1000,
-	checkpoints   = {0xbad04b9fd0d86c72, 0x87292d91f1f24cda, 0xda13a725c7b26f7f, 0x293cfb0582f922a6},
-	trace         = 0x66029839dfa3627e,
-	snapshot      = 0x6e5039793838174d,
-	log           = 0x3c7ca787ca4d4b93,
-	compat        = 0x726a7ad022d62c2e,
+	checkpoints   = {0xdc31974faa5a5419, 0xe401c1b4d6f83e3e, 0x64750dcb1f2ded75, 0xb4a2326da61743be},
+	trace         = 0x7ae62dfa057aaa93,
+	snapshot      = 0x45e5d5a373064b0b,
+	log           = 0xa02b54627f284888,
+	compat        = 0x7f8e99c0b4ae71ef,
 }
 
 @(test)

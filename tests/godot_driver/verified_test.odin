@@ -134,7 +134,7 @@ verified_sampler_on_a_session :: proc(t: ^testing.T) {
 			u32(i + 1) * 7919,
 			&clock,
 		)
-		clients[i] = netcode.client_create(&toy.GAME, {slot = -1, player_name = "p"}, link, sampling_hooks(&sampling))
+		clients[i] = netcode.client_create(&toy.GAME, {player_name = "p"}, link, sampling_hooks(&sampling))
 	}
 	defer for &sampling, i in samplings {
 		netcode.client_destroy(clients[i])

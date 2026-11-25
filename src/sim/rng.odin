@@ -139,6 +139,47 @@ roll_below_at :: proc(
 	})
 }
 
+// `K` distinct values of 0 ..< n (K <= n, asserted), in a uniformly random order, as a keyed roll names them: by the
+// session's seed, `purpose`, `key` and `index`, never by the tick, so it reads no state and is the same whenever it is
+// made (a level-up's K offers of n upgrades, computed by the tick and by the HUD alike). Every ordered choice of K is
+// equally likely: each value is a roll below the count of those not yet drawn, mapped past the ones drawn. Two
+// choices that should differ must differ in something.
+//
+//   offers := sim.roll_distinct_at(t.seed, len(Upgrade), 3, Roll.Upgrade_Offer, sim.player_key(player), level)
+roll_distinct_at :: proc(
+	seed: u64,
+	n: int,
+	$K: int,
+	purpose: $Purpose,
+	key: u64 = 0,
+	index: int = 0,
+) -> (
+	picks: [K]int,
+) where K >= 1 &&
+	intrinsics.type_is_enum(Purpose) {
+	assert(K <= n && n <= int(max(u32)), "roll_distinct_at: more values asked than there are")
+	stream := Rng{roll_bits(seed, 0, u64(purpose) ~ DISTINCT_DOMAIN, key, u64(index))}
+	drawn: [K]int // the picks so far, ascending
+	for j in 0 ..< K {
+		value := int(rng_below(&stream, u32(n - j)))
+		at := j
+		for earlier, i in drawn[:j] {
+			if earlier > value {
+				at = i
+				break
+			}
+			value += 1 // the value-th of those left: step past each pick at or below it
+		}
+		picks[j] = value
+		copy(drawn[at + 1:j + 1], drawn[at:j])
+		drawn[at] = value
+	}
+	return
+}
+
+@(private)
+DISTINCT_DOMAIN :: 0xA0761D6478BD642F // roll_distinct_at's, so its stream never starts where a keyed roll's hash does
+
 // 32 bits for a scripted player (Game.scripted_input): a hash of (seed, slot, block), where the block is the
 // `period`-tick stretch `tick` (>= 1) falls in, so a script that maps them to an input holds it for a block and
 // answers any tick in any order.

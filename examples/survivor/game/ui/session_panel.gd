@@ -7,8 +7,34 @@ extends PanelContainer
 ## trip past what the game plays smoothly at). Hidden when solo and offline.
 ## The game passes its rows; the panel owns the look. Built in code.
 
-## One per present player, in player order: {player: int, name: String, status: String, bar: float (0..1, < 0 hides)}.
-var _rows: Array[Dictionary] = []
+
+## A present player's row, as the game's HUD passes it (refresh).
+class Row:
+	var player: int
+	var player_name: String
+	## Beside the name: "ready", "LV 3", "down 4s" ("": none).
+	var status: String
+	## A bar under the name, 0..1 (HP, say); below 0 there is none.
+	var bar: float
+
+	func _init(player_key: int, shown_name: String, status_text := "", bar_fill := -1.0) -> void:
+		player = player_key
+		player_name = shown_name
+		status = status_text
+		bar = bar_fill
+
+
+## The nodes that show one Row.
+class RowNodes:
+	var box: VBoxContainer
+	var dot: ColorRect
+	var label: Label
+	var status: Label
+	var bar: ProgressBar
+
+
+## One per present player shown so far, in player order (hidden past the rows passed).
+var _rows: Array[RowNodes] = []
 var _heading: Label
 var _code_row: HBoxContainer
 var _code_label: Label
@@ -71,8 +97,9 @@ func _ready() -> void:
 	visible = false
 
 
-## Called by the game's HUD when its data, the roster or the code changes. `rows`: see `_rows`. `start_hint`: how a full lobby starts playing.
-func refresh(rows: Array, lobby: bool, start_hint: String) -> void:
+## Called by the game's HUD when its data, the roster or the code changes: `rows` one per present player, in player
+## order. `start_hint`: how a full lobby starts playing.
+func refresh(rows: Array[Row], lobby: bool, start_hint: String) -> void:
 	visible = Game.is_online() or (lobby and rows.size() > 1)
 	if not visible:
 		return
@@ -105,19 +132,16 @@ func refresh(rows: Array, lobby: bool, start_hint: String) -> void:
 		_rows.append(_make_row())
 	var local_player := Unified.session.local_player
 	for i in _rows.size():
-		var row := _rows[i]
-		row.box.visible = i < rows.size()
-		if not row.box.visible:
+		var nodes := _rows[i]
+		nodes.box.visible = i < rows.size()
+		if not nodes.box.visible:
 			continue
-		var r: Dictionary = rows[i]
-		var player: int = r["player"]
-		var player_name: String = r["name"]
-		row.dot.color = UiTheme.player_color(Unified.session.get_player_slot(player))
-		row.name.text = player_name + (" (you)" if player == local_player else "")
-		row.status.text = r.get("status", "")
-		var bar: float = r.get("bar", -1.0)
-		row.bar.visible = bar >= 0.0
-		row.bar.value = bar
+		var row := rows[i]
+		nodes.dot.color = UiTheme.player_color(Unified.session.get_player_slot(row.player))
+		nodes.label.text = row.player_name + (" (you)" if row.player == local_player else "")
+		nodes.status.text = row.status
+		nodes.bar.visible = row.bar >= 0.0
+		nodes.bar.value = row.bar
 
 
 ## The slow link's line: the round trip against the game's ceiling, shown while the session says the link is slow.
@@ -136,26 +160,27 @@ func _label(parent: Control, variation: StringName) -> Label:
 	return l
 
 
-func _make_row() -> Dictionary:
-	var box := VBoxContainer.new()
-	box.add_theme_constant_override(&"separation", 2)
+func _make_row() -> RowNodes:
+	var nodes := RowNodes.new()
+	nodes.box = VBoxContainer.new()
+	nodes.box.add_theme_constant_override(&"separation", 2)
 	var line := HBoxContainer.new()
 	line.add_theme_constant_override(&"separation", 8)
-	var dot := ColorRect.new()
-	dot.custom_minimum_size = Vector2(12, 12)
-	dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
-	dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	line.add_child(dot)
-	var label := _label(line, &"")
-	label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
-	label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
-	var status := _label(line, &"Dim")
-	var bar := ProgressBar.new()
-	bar.custom_minimum_size = Vector2(0, 6)
-	bar.show_percentage = false
-	bar.max_value = 1.0
-	bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
-	box.add_child(line)
-	box.add_child(bar)
-	_list.add_child(box)
-	return {"box": box, "dot": dot, "name": label, "status": status, "bar": bar}
+	nodes.dot = ColorRect.new()
+	nodes.dot.custom_minimum_size = Vector2(12, 12)
+	nodes.dot.size_flags_vertical = Control.SIZE_SHRINK_CENTER
+	nodes.dot.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	line.add_child(nodes.dot)
+	nodes.label = _label(line, &"")
+	nodes.label.size_flags_horizontal = Control.SIZE_EXPAND_FILL
+	nodes.label.text_overrun_behavior = TextServer.OVERRUN_TRIM_ELLIPSIS
+	nodes.status = _label(line, &"Dim")
+	nodes.bar = ProgressBar.new()
+	nodes.bar.custom_minimum_size = Vector2(0, 6)
+	nodes.bar.show_percentage = false
+	nodes.bar.max_value = 1.0
+	nodes.bar.mouse_filter = Control.MOUSE_FILTER_IGNORE
+	nodes.box.add_child(line)
+	nodes.box.add_child(nodes.bar)
+	_list.add_child(nodes.box)
+	return nodes

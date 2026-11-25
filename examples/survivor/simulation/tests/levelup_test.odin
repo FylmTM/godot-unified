@@ -13,11 +13,11 @@ import "unified:sim"
 
 SEED :: 5
 
-// One sync-tested tick in which slot 0 picks `upgrades`, in order.
+// One sync-tested tick in which slot 0 picks `upgrades`, in order, each for whichever level is oldest (level 0).
 pick :: proc(run: ^headless.Run(g.Game), upgrades: ..g.Upgrade) {
 	inputs := headless.run_inputs(run)
 	for upgrade in upgrades {
-		sent := sim.add_command(&inputs, 0, g.Command_Pick{upgrade})
+		sent := sim.add_command(&inputs, 0, g.Command_Pick{upgrade = upgrade})
 		assert(sent)
 	}
 	headless.run_step(run, &inputs)
@@ -60,5 +60,43 @@ each_pick_takes_one_pending_level_up :: proc(t: ^testing.T) {
 		g.DAMAGE_LEVELUP *
 		i32(int(offers[2][1] == .Damage) + int(offers[3][0] == .Damage) + int(offers[4][1] == .Damage)),
 	)
+	scenarios.expect_synced(t, &run)
+}
+
+// A pick names the level whose offers the HUD showed: the same card pressed twice spends one level-up, in one tick or
+// the next, even when the next level offers that card too; a pick naming a level not pending is ignored.
+@(test)
+a_double_press_spends_one_level_up :: proc(t: ^testing.T) {
+	run := headless.run_begin(&g.GAME, SEED, seated = 1)
+	defer headless.run_end(&run)
+	character := sim.slot_data(run.simulation, 0)
+	player := sim.player_in_slot(run.simulation, 0)
+	// A level whose offers share a card with the next one's.
+	level := i32(2)
+	shared: g.Upgrade
+	found: for ; level < 100; level += 1 {
+		next := g.upgrade_offers(SEED, player, level + 1)
+		for upgrade in g.upgrade_offers(SEED, player, level) {
+			if upgrade == next[0] || upgrade == next[1] {
+				shared = upgrade
+				break found
+			}
+		}
+	}
+	character.level, character.pending_levelups = level + 1, 2 // `level` and the next pending
+	headless.run_pin(&run)
+	press := g.Command_Pick {
+		upgrade = shared,
+		level   = u16(level),
+	}
+	inputs := headless.run_inputs(&run)
+	testing.expect(t, sim.add_command(&inputs, 0, press) && sim.add_command(&inputs, 0, press))
+	headless.run_step(&run, &inputs)
+	testing.expect_value(t, character.pending_levelups, 1)
+	headless.run_command(&run, 0, press) // a tick later
+	testing.expect_value(t, character.pending_levelups, 1)
+	headless.run_command(&run, 0, g.Command_Pick{upgrade = shared, level = u16(level + 2)})
+	testing.expect_value(t, character.pending_levelups, 1) // not pending
+	for _ in 0 ..< 16 do headless.run_step(&run)
 	scenarios.expect_synced(t, &run)
 }

@@ -122,7 +122,7 @@ a_duplicate_hello_of_a_replaced_connection_on_one_link_peer :: proc(t: ^testing.
 	ENDPOINT :: 5
 	capture: Capture
 	defer capture_destroy(&capture)
-	first := netcode.client_create(&toy.GAME, {slot = -1, player_name = "Linus"}, capture_link(&capture), {})
+	first := netcode.client_create(&toy.GAME, {player_name = "Linus"}, capture_link(&capture), {})
 	defer netcode.client_destroy(first)
 	wire_from_5 := netcode.loopback_link(session.hub, ENDPOINT) // sends only
 	defer netcode.link_close(&wire_from_5)
@@ -166,7 +166,7 @@ a_stale_hello_on_one_link_peer_never_ends_the_live_connection :: proc(t: ^testin
 	ENDPOINT :: 5
 	capture: Capture
 	defer capture_destroy(&capture)
-	first := netcode.client_create(&toy.GAME, {slot = -1, player_name = "Linus"}, capture_link(&capture), {})
+	first := netcode.client_create(&toy.GAME, {player_name = "Linus"}, capture_link(&capture), {})
 	defer netcode.client_destroy(first)
 	wire_from_5 := netcode.loopback_link(session.hub, ENDPOINT) // sends only
 	defer netcode.link_close(&wire_from_5)

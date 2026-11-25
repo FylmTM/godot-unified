@@ -62,6 +62,7 @@ func _ready() -> void:
 		InputMap.action_add_event(&"menu", esc)
 		var start := InputEventJoypadButton.new()
 		start.button_index = JOY_BUTTON_START
+		start.device = -1  # every pad: an event left at device 0 hears the first pad only
 		InputMap.action_add_event(&"menu", start)
 	get_tree().auto_accept_quit = false  # the window's close button goes through quit_app too
 	_overlay_layer = CanvasLayer.new()
@@ -143,9 +144,11 @@ func join_direct(address: String) -> void:
 	session.join_direct(address)
 
 
-## Leaves the match (or cancels connecting) and returns to the main menu, showing `error` there when given.
+## Leaves the match (or cancels connecting) and returns to the main menu, showing `error` there when given. The mouse
+## is free there, whatever the play scene had it doing.
 func leave_to_menu(error := "") -> void:
 	last_error = error
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if status != UnifiedSession.STATUS_IDLE:
 		session.leave()
 	_hide_connect_overlay()
@@ -333,7 +336,9 @@ static func _event_label(event: InputEvent, grouped: bool) -> String:
 	return event.as_text()
 
 
+## The connecting overlay, over the menu or the play scene (reconnecting), with the mouse free for its Cancel.
 func _show_connect_overlay() -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE
 	if _connect_overlay == null:
 		_connect_overlay = CONNECT_OVERLAY.instantiate()
 		_overlay_layer.add_child(_connect_overlay)

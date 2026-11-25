@@ -68,10 +68,10 @@ fields_destroy :: proc(fields: ^Fields, allocator := context.allocator) {
 }
 
 // The field toward `goal`: the memo's when it holds it, else computed into the least recently used slot (allocating
-// nothing). The pointer stays valid until `len(fields.slots)` other goals have been asked for. A NO_POLY goal gives
-// nil.
+// nothing). The pointer stays valid until `len(fields.slots)` other goals have been asked for. A goal outside the mesh
+// (NO_POLY, or any index a crafted or stale value holds) gives nil.
 field :: proc(fields: ^Fields, goal: Poly) -> ^Field {
-	if goal == NO_POLY || int(goal) >= poly_count(fields.mesh) do return nil
+	if goal < 0 || int(goal) >= poly_count(fields.mesh) do return nil
 	fields.clock += 1
 	oldest := 0
 	for &slot, i in fields.slots {

@@ -5,13 +5,17 @@ import "unified:dmath"
 import "unified:sim"
 
 // Every player who arrives takes a hero: the one they played before when it is still theirs, else the lowest hero of
-// the run whose player is away (a sleeping one, or one whose player the session forgot). With none free they watch.
+// the run whose player is away (a sleeping one, or one whose player the session forgot). With none free they watch,
+// and a watcher takes a hero the moment one frees (its player leaves): the present watchers in slot order, each the
+// lowest free hero.
 claim_heroes :: proc(t: ^Tick) {
 	for player in t.player_changes.arrived {
 		data := sim.player_data(t, player)
-		data.watching = false
-		if hero_of(t.state, player) >= 0 do continue
-		data.watching = t.state.phase != .Camp
+		data.watching = hero_of(t.state, player) < 0 && t.state.phase != .Camp
+	}
+	players := sim.iterate_present(t)
+	for data, player in sim.next(&players) {
+		if !data.watching do continue
 		for &hero, index in t.state.heroes {
 			if !hero.in_run || sim.player_present(t, hero.controller) do continue
 			hero.controller = player

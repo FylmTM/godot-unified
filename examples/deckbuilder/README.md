@@ -47,7 +47,8 @@ run outlives that. `Command_Start_Run` gives each present player a hero, in slot
 `VANGUARD_HP`, Arcanist `ARCANIST_HP`) with its starter deck (`STARTER_VANGUARD`, `STARTER_ARCANIST`). A hero whose
 player is away **sleeps**: it is skipped, never targeted, and counts as ready and as having voted and picked, so the
 others play on. A player who arrives takes their own hero back, else the lowest sleeping hero (`Event_Hero_Claimed`),
-else watches. Hands are open: every player sees every hand and every ally's aim.
+else watches; a watcher takes a hero as soon as one falls asleep. Hands are open: every player sees every hand and
+every ally's aim.
 
 ## A run
 
@@ -78,6 +79,8 @@ else watches. Hands are open: every player sees every hand and every ally's aim.
    (`Event_Card_Played`, `Event_Enemy_Hit`, `Event_Enemy_Died`, `Event_Hero_Blocked`, `Event_Hero_Healed`). A card
    that exhausts leaves the fight; the others go to the discard pile.
 3. The turn ends once every awake hero still standing is ready (`Command_End_Turn`, which can also take it back).
+   With none left standing (the last one's player left) it is lost as in the enemies' turn; with nobody here it
+   waits.
 4. **The enemies' turn**: their block goes, then each living enemy acts on its intent, one every `ENEMY_BEAT_S` of sim
    time (`Event_Enemy_Acted`, `Event_Hero_Hit`, `Event_Hero_Down`). A hero at 0 HP is down for the fight; every awake
    hero down loses the run.
@@ -142,10 +145,12 @@ and the bench run it).
 
 ## Scripted inputs
 
-The scripted player (`script.odin`) is a pure function of (seed, slot, tick). It can't see its hand: it names its own
-starter cards by where a run deals them in the card table, every `SCRIPT_PLAY_EVERY` ticks at the first enemies and an
-ally, ends its turn every `SCRIPT_END_TURN_EVERY`, votes, picks and rests every `SCRIPT_CHOOSE_EVERY`, and slot 0
-starts a run every `SCRIPT_START_EVERY` at the camp. Many of its plays are refused, which keeps the refusal path
+The scripted player (`script.odin`) acts on (seed, slot, tick) and names what it acts on by place. It can't see its
+hand: it names its own starter cards by where a run deals them in the card table, every `SCRIPT_PLAY_EVERY` ticks at
+the first enemies and an ally, ends its turn every `SCRIPT_END_TURN_EVERY`, votes, picks and rests every
+`SCRIPT_CHOOSE_EVERY`, and slot 0 starts a run every `SCRIPT_START_EVERY` at the camp. A new run or fight deals the
+same places under new handles, so it reads the handles from the state it is given: it steers by the state, and a
+session's client may send a handle its prediction had and the verified state doesn't. Many of its plays are refused, which keeps the refusal path
 exercised. Its Profile alternates the classes by slot (`scripted_profile`).
 
 ## View contract (`simulation/extension`)

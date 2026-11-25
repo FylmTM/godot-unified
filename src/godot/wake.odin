@@ -112,6 +112,7 @@ measure_wakes :: proc(tick_hz: []int, seconds: f64, allocator := context.allocat
 				wake_sleep(&measure.stats, due)
 			}
 			measure.summary = wake_take(&measure.stats, tick_us)
+			netcode.sleep_end()
 		})
 	}
 	for t in threads {

@@ -14,7 +14,7 @@ TICK_HZ :: 64 // the library's rates are powers of two (sim.Game.tick_hz): the n
 
 // The game's version (sim.Game.version, part of the netcode's compat): bump it when a rule or constant changes what a
 // tick computes without changing the State or Input layout, or two builds desync instead of refusing each other.
-VERSION :: "1"
+VERSION :: "2"
 
 // The game's types for unified:sim: a World of scratch only (no physics, no level).
 Game :: sim.Game(State, Input, World, Event, Command, sim.No_Setup, sim.No_Profile, PLAYERS)

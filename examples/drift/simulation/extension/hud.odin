@@ -10,7 +10,7 @@ Data :: union {
 	Data_Hud,
 }
 
-// A slot's player (zero for an empty slot: who holds it, UnifiedSession.get_players).
+// A slot's player (zero for an empty slot: who holds it, UnifiedSession.players).
 Hud_Player :: struct {
 	shots: u32,
 	gems:  u32,

@@ -135,7 +135,7 @@ cmd_drive :: proc(args: []string) -> Result {
 				instance.name,
 				instance.pid,
 				instance.port,
-				process_alive(instance.pid),
+				instance_alive(selected, instance),
 			)
 		}
 		strings.write_string(&out, "]}")
@@ -168,7 +168,7 @@ cmd_drive :: proc(args: []string) -> Result {
 	}
 	reply, ok := drive_request(instance.port, request)
 	if !ok {
-		if process_alive(instance.pid) do return drive_failed("instance %s did not answer: %s", instance.name, reply)
+		if instance_alive(selected, instance) do return drive_failed("instance %s did not answer: %s", instance.name, reply)
 		return drive_failed("instance %s is not running (uni drive %s stop clears it)", instance.name, selected.name)
 	}
 	if verb == "status" && strings.has_suffix(reply, "}") {
@@ -282,15 +282,36 @@ drive_forget :: proc(game: Game, name: string) {
 	os.remove(join(drive_dir(game), aprintf("%s.port", name)))
 }
 
-// Whether a process with this pid runs.
+// Whether the instance's game still runs: its pid names a running process that is that game, not one that took the
+// pid over after the game ended (a crash, a closed window, a reboot): `stop` would kill that one's whole tree.
 @(private)
-process_alive :: proc(pid: int) -> bool {
+instance_alive :: proc(game: Game, instance: Drive_Instance) -> bool {
+	return process_runs(instance.pid, join(drive_dir(game), aprintf("%s.port", instance.name)))
+}
+
+// Whether the process with this pid runs and is the one started with `marker` among its arguments (one only that
+// process has, such as the drive instance's --control port file; never the executable: Linux leaves argv[0] out).
+// Arguments the OS doesn't give us count as a match: the pid is all there is to go on. (The arguments, not the command
+// line: core:os reads a Windows command line at twice its length, and the text it makes of it can come back empty.)
+// Linux and macOS can't wait on a process that isn't this one's child (another uni started it, or it is this one):
+// there an error from the wait means it runs while the OS still describes it.
+process_runs :: proc(pid: int, marker: string) -> bool {
 	if pid <= 0 do return false
 	process, err := os.process_open(pid)
 	if err != nil do return false
 	state, wait_err := os.process_wait(process, 0)
-	if wait_err == .Timeout do return true // still running: its handle stays open until the CLI exits
-	return wait_err == nil && !state.exited
+	if wait_err == nil && state.exited do return false // our child, and it ended
+	waited := wait_err == .Timeout // Timeout: still running
+	when ODIN_OS == .Windows {
+		if !waited do return false // Windows waits on any process: an error is a process that is gone
+	}
+	info, info_err := os.process_info_by_pid(pid, {.Command_Args}, context.temp_allocator)
+	if info_err != nil do return waited // gone, unless the wait saw it running
+	if .Command_Args not_in info.fields do return true
+	for arg in info.command_args {
+		if strings.contains(slashed(arg), slashed(marker)) do return true
+	}
+	return false
 }
 
 // Launches the game with its control socket (a window as AGENT_WINDOW places it, or headless) and waits until it
@@ -301,7 +322,7 @@ drive_start :: proc(game: Game, opts: Drive_Opts, game_args: []string) -> Result
 	name := opts.name
 	taken := drive_instances(game)
 	for instance in taken {
-		if !process_alive(instance.pid) {
+		if !instance_alive(game, instance) {
 			drive_forget(game, instance.name) // a crashed or killed one
 		} else if instance.name == name {
 			usage("%s's instance %s is running (uni drive %s --name %s stop)", game.name, name, game.name, name)
@@ -424,7 +445,7 @@ drive_script_errors :: proc(instance: Drive_Instance) -> string {
 @(private)
 drive_stop :: proc(game: Game, instance: Drive_Instance) -> Result {
 	defer drive_forget(game, instance.name)
-	if !process_alive(instance.pid) {
+	if !instance_alive(game, instance) {
 		return drive_failed("instance %s was not running (its log: %s)", instance.name, instance.log)
 	}
 	drive_request(instance.port, {op = "quit", timeout = 5})
@@ -459,9 +480,9 @@ drive_stop :: proc(game: Game, instance: Drive_Instance) -> Result {
 // node path from there. Anything else comes back as it is.
 node_path_unmangled :: proc(arg: string) -> string {
 	if len(arg) < 3 || arg[1] != ':' || (arg[2] != '/' && arg[2] != '\\') do return arg
-	slashed, _ := strings.replace_all(arg, "\\", "/")
-	if i := strings.index(slashed, "/root/"); i >= 0 do return slashed[i:]
-	if strings.has_suffix(slashed, "/root") do return "/root"
+	forward := slashed(arg)
+	if i := strings.index(forward, "/root/"); i >= 0 do return forward[i:]
+	if strings.has_suffix(forward, "/root") do return "/root"
 	return arg
 }
 
@@ -504,7 +525,7 @@ drive_failed :: proc(format: string, args: ..any) -> Result {
 // unless it fails.
 drive_check :: proc(game: Game) -> bool {
 	NAME :: "suite-check"
-	if instance, ok := drive_find(game, NAME); ok && process_alive(instance.pid) {
+	if instance, ok := drive_find(game, NAME); ok && instance_alive(game, instance) {
 		drive_stop(game, instance) // a run that was cut short left it
 	}
 	started := drive_start(game, {name = NAME, headless = true}, {"--autostart"})

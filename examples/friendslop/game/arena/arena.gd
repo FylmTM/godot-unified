@@ -2,7 +2,9 @@ class_name Arena
 extends Node3D
 ## The play scene: the level root the session instances the active level under (the hub or the route; their meshes are
 ## the visuals, their markers lend theirs to the sim's views), the views root handed to the session, the third-person
-## camera, the HUD and a loading view while a level's scene loads. Routes sim events to sounds and camera shake.
+## camera, the HUD and a loading view while a level's scene loads. Routes sim events to sounds and camera shake: what
+## goes with a view's own effect (a bell's, plate's or switch's pulse, a hit's squash) at once, as the view plays it
+## (emitted); the run's start, finish and checkpoints once confirmed.
 
 @onready var camera_rig: CameraRig = $CameraRig
 @onready var _views: Node3D = $Views
@@ -18,9 +20,10 @@ func _ready() -> void:
 	Unified.session.sim_event.connect(_on_sim_event)
 
 
-## Verified events only (predictions are the views' business).
 func _on_sim_event(event: UnifiedEvent, state: UnifiedSession.EventState) -> void:
-	if state != UnifiedSession.EVENT_CONFIRMED:
+	var with_view := (event is EventBellRung or event is EventPlateOn or event is EventSwitchOn or event is EventPlateOff
+		or event is EventHit)
+	if state != (UnifiedSession.EVENT_EMITTED if with_view else UnifiedSession.EVENT_CONFIRMED):
 		return
 	if event is EventRunStarted:
 		Sfx.play(&"start")

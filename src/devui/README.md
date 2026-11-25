@@ -30,6 +30,7 @@ playtest (F3 notes are how they report a problem); a public build turns it off. 
   text fields take the keyboard (`wants_keyboard`, which the host's game input obeys). F1 (toggle) and F3 (the note)
   are taken from the root window's `window_input`, before the scene sees anything, also while the dev UI is hidden.
 - **F3.** Opens the note on its own, without F1; F3 again closes it. The frame is read back before the note covers
-  it and shown in the note; closing without sending drops it. Enter sends: the note is written into a new directory
+  it and shown in the note, and `on_note_open` lets the host note the moment (the tick the note is about, not the one
+  it is sent at); closing without sending drops it. Enter sends: the note is written into a new directory
   under `<user data>/feedback/`, then `on_feedback` lets the host add the session's recording, so the note replays
   (`src/godot/README.md`, How it works). Notes are a local tool: nothing is sent anywhere.

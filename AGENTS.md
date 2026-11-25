@@ -47,10 +47,11 @@ example games in `examples/` prove it.
 
 - Iterate locally first. CI is the final check, and the cross-check of every reference run (the top of
   `.github/workflows/ci.yml`): a PR's own run (Linux x64, Linux arm64, Windows x64, godot) is the check before
-  merging, and every push to `main` runs all four platforms, macOS ARM64 included (again nightly when `main` moved).
-  Don't dispatch extra runs as routine: `gh workflow run ci.yml --ref <branch>` is only for re-checking something on
-  demand. macOS never blocks a merge (its runners are often out of capacity): the run on `main` after the merge is
-  the macOS check, and a red macOS on `main` is fixed before anything else merges.
+  merging. A push to `main` runs all four platforms, macOS ARM64 included, and a newer push cancels a run still
+  going: what CI checks is the head of `main`, plus the nightly (macOS again when `main` moved). Don't dispatch extra
+  runs as routine: `gh workflow run ci.yml --ref <branch>` is only for re-checking something on demand. macOS never
+  blocks a merge (its runners are often out of capacity): the run on `main`'s head after the merge is the macOS check,
+  and a red macOS on `main` is fixed before anything else merges.
 - **The demo game is the testing ground.** A change a game can see (`src/`, `tools_godot/`, `pins.cfg`, the shims,
   `odinfmt.json`, the `unified-*` skills, the docs a game reads) is checked against Crypt Crew
   (`FylmTM/godot-unified-demo`) before it is done, and the demo's submodule is bumped once it is on `main`: the
@@ -85,19 +86,21 @@ procedure and when a finding is filed.
 - This repo's games are examples of building on `unified`, in `examples/<game>/` (a real game lives in its own repo,
   made with `uni init <dir>`). A game is a Godot project; its Odin code is in `simulation/`: the sim package (linted
   like the core), its headless binary, its GDExtension and its sim tests.
-- Library tests are black-box packages in `tests/<module>/`, importing `unified:<pkg>` like a game does. A game's
-  sim tests, end-to-end suite and reference run live with the game, in `simulation/tests/`. `uni test` runs them all, from two compiles at once (`tests/tooling` unoptimised).
+- Library tests are black-box packages in `tests/<module>/`, importing `unified:<pkg>` like a game does. A game's sim
+  tests, end-to-end suite and reference run live with the game, in `simulation/tests/`. `uni test` runs them all, from
+  two compiles at once (`tests/tooling` unoptimised).
 - The code is the spec. Each package (`src/<pkg>/`) and game (`examples/<game>/`) has a `README.md`: what it is, why,
   where it fits, how it works, and the decisions a reader could get wrong that no single declaration shows. The API
   is the code: each file's header comment and a doc comment on every public proc and type (the lint fails on one
   without), printed by `uni doc <pkg>`. A fact about one declaration lives on it. No API listings, history,
   measurements, test lists, options or anything unbuilt in a README (`.claude/rules/readme.md`).
 - Generated output goes to `.out/` (the root's and each game's), git-ignored and safe to delete.
-- Each fact has one home. README.md: what, why, the design and its reasons. `docs/getting-started.md`: setup. This
-  file: roles, rules, workflow. Commands and options: `./uni help`. Packages and games: their `README.md` and doc
-  comments (`./uni doc`). Procedures (how to do a recurring task): `.claude/skills/<name>/SKILL.md`. Agents in a game
-  repo: `docs/agent-guide.md`; the `unified-*` skills ship to game repos, so they are written for one: here, drop
-  `unified/` from their paths and name the example game. Rules for one kind of file: `.claude/rules/` (they load when Claude touches a matching file). No layout trees, test counts or measured times in docs: the tools print them.
+- Each fact has one home. README.md: what, why, the design and its reasons. `docs/getting-started.md`: setup. This file:
+  roles, rules, workflow. Commands and options: `./uni help`. Packages and games: their `README.md` and doc comments
+  (`./uni doc`). Procedures (how to do a recurring task): `.claude/skills/<name>/SKILL.md`. Agents in a game repo:
+  `docs/agent-guide.md`; the `unified-*` skills ship to game repos, so they are written for one: here, drop `unified/`
+  from their paths and name the example game. Rules for one kind of file: `.claude/rules/` (they load when Claude
+  touches a matching file). No layout trees, test counts or measured times in docs: the tools print them.
 
 ## Commands
 
@@ -112,7 +115,7 @@ command and `-h` on a command its options. Every command rejects unknown argumen
 ./uni test <package>           # one library test package alone (tests/<package>, e.g. dmath); --only <test,...>
 ./uni test --suite net         # when netcode or the headless modes changed (real UDP, separate processes)
 ./uni bench                    # when the sim, physics or rollback changed: step and re-sim times
-./uni test --suite godot       # when Godot-side code or GDScript changed (`--only <step>`, `uni tool` for one script)
+./uni test --suite godot,godot-bindings  # Godot-side code (src/godot, src/gdext) or GDScript changed (`--only <step>`)
 ./uni verify                   # fmt --check, vet and every test suite (CI also runs bench); before merging
 ./uni test --long              # when a game's rules, physics, netcode or rollback changed: the full-length suites
 ```

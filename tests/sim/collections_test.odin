@@ -222,6 +222,25 @@ snapshot_diff_reads_collections :: proc(t: ^testing.T) {
 	testing.expect(t, !strings.contains(diff, "count"), diff)
 }
 
+// An add after grid_end leaves the grid unsorted (a query asserts) until the next grid_end, which sorts everything
+// added since grid_begin.
+@(test)
+grid_add_after_end_needs_another_end :: proc(t: ^testing.T) {
+	grid: sim.Grid(4, 8)
+	sim.grid_begin(&grid, {0, 0}, 2, 2, 2)
+	sim.grid_add(&grid, 1, {1, 1})
+	sim.grid_end(&grid)
+	testing.expect(t, grid.sorted)
+	sim.grid_add(&grid, 2, {1, 1})
+	testing.expect(t, !grid.sorted, "an add after grid_end leaves it sorted")
+	sim.grid_end(&grid)
+	near := sim.grid_near(&grid, {1, 1})
+	ids: [dynamic]i32
+	defer delete(ids)
+	for row in near do for id in row do append(&ids, id)
+	testing.expect(t, len(ids) == 2 && ids[0] == 1 && ids[1] == 2, "both adds sorted")
+}
+
 // Each cell holds exactly its ids in the order added; grid_near is the 3 × 3 cells by row, then column, then the
 // order added; grid_box the same over a rectangle; positions outside count in the edge cells.
 @(test)

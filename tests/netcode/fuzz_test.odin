@@ -61,15 +61,17 @@ fuzz_bytes :: proc(fuzz: ^Fuzz, out: ^[dynamic]u8, valid: []u8) {
 	}
 }
 
-// A valid client -> relay message of each kind, for mutation.
+// A valid client -> relay message of kind `msg`, for mutation, from a client holding `token` in a session that
+// finalized `finalized`: inputs for the ticks after it (local player 0), a checksum of the checksum tick at or before
+// it.
+// A kind only the relay sends is its kind byte and a few bytes.
 @(private = "file")
-relay_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
+relay_sample :: proc(writer: ^wire.Writer, msg: netcode.Msg, token: netcode.Token, finalized: u32) -> []u8 {
 	clear(&writer.buf)
-	msg := netcode.Msg(1 + k % 13)
 	if msg == .Hello {
 		hello := netcode.Hello {
 			compat     = sim.compat_of(&toy.GAME),
-			token      = {1, 2, 3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16},
+			token      = token,
 			seat_count = 1,
 		}
 		hello.seats[0] = {
@@ -83,25 +85,34 @@ relay_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 	wire.w_u8(writer, u8(msg))
 	#partial switch msg {
 	case .Inputs:
-		wire.w_u32(writer, 10)
-		wire.w_u32(writer, 11)
+		wire.w_u8(writer, 0) // local player 0
+		wire.w_u32(writer, finalized) // finalized ack
+		wire.w_u32(writer, finalized + 1)
 		wire.w_u8(writer, 2)
 		wire.w_bytes(writer, {0b0111, 1, 2, 3, 0b0111, 4, 5, 6}) // {1, 2, 3, 0} from zero, then {4, 5, 6, 0}
-		// commands: seq 1, 2 (a bump for tick 11, a mark for tick 12)
+		// commands: seq 1, 2 (a bump for the first tick, a mark for the next)
 		wire.w_u32(writer, 1)
 		wire.w_u8(writer, 2)
-		wire.w_u32(writer, 11)
+		wire.w_u32(writer, finalized + 1)
 		wire.w_u8(writer, 0)
 		wire.w_u8(writer, size_of(toy.Command_Bump))
 		wire.w_bytes(writer, {9, 0, 0, 0})
-		wire.w_u32(writer, 12)
+		wire.w_u32(writer, finalized + 2)
 		wire.w_u8(writer, 1)
 		wire.w_u8(writer, size_of(toy.Command_Mark))
 		for i in 0 ..< size_of(toy.Command_Mark) {
 			wire.w_u8(writer, u8(i))
 		}
+	case .Join:
+		wire.w_u8(writer, 1 + u8(finalized % 3)) // another local player
+		wire.w_u8(writer, netcode.ANY_SLOT)
+		wire.w_u32(writer, 0) // as soon as possible
+		wire.w_u8(writer, 3)
+		wire.w_bytes(writer, {'b', 'o', 't'})
+		wire.w_u8(writer, size_of(toy.Profile))
+		for _ in 0 ..< size_of(toy.Profile) do wire.w_u8(writer, 0)
 	case .Checksum:
-		wire.w_u32(writer, 32)
+		wire.w_u32(writer, max(finalized - finalized % 16, 16))
 		wire.w_u64(writer, 99)
 	case .Snap_Begin:
 		wire.w_u8(writer, 0)
@@ -111,15 +122,20 @@ relay_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 		wire.w_u8(writer, 0)
 		wire.w_u32(writer, 0)
 		wire.w_bytes(writer, {1, 2, 3, 4})
+	case .Leave:
+		wire.w_u8(writer, 1 + u8(finalized % 3)) // a local player beside local 0
+	case .Done:
+	case:
+		wire.w_bytes(writer, {1, 2, 3, 4, 5, 6, 7, 8})
 	}
 	return writer.buf[:]
 }
 
-// A valid relay -> client message of each kind, for mutation.
+// A valid relay -> client message of each kind, for mutation (a kind only clients send: its kind byte and a few bytes).
 @(private = "file")
 client_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 	clear(&writer.buf)
-	msg := netcode.Msg(1 + k % 13)
+	msg := netcode.Msg(1 + k % len(netcode.Msg))
 	if msg == .Welcome {
 		write_test_welcome(writer, 0, 1, 1)
 		return writer.buf[:]
@@ -161,6 +177,26 @@ client_samples :: proc(writer: ^wire.Writer, k: int) -> []u8 {
 		wire.w_bytes(writer, {'e', 'o', 's'})
 		wire.w_u8(writer, 2)
 		wire.w_bytes(writer, {'a', 'b'})
+	case .Snap_Ok:
+		wire.w_u32(writer, 16)
+	case .Desync:
+		wire.w_u32(writer, 16)
+		wire.w_u32(writer, 0b10) // slot 1
+		wire.w_u16(writer, 2)
+		wire.w_bytes(writer, {'h', 'p'})
+	case .Seated:
+		wire.w_u8(writer, 1) // local
+		wire.w_u8(writer, 1) // slot
+		wire.w_u16(writer, 3) // member
+		wire.w_u32(writer, 20) // first tick
+	case .Resync:
+		wire.w_u32(writer, 16)
+		wire.w_u32(writer, 100)
+		wire.w_u8(writer, 1)
+		wire.w_u8(writer, 0)
+		wire.w_u32(writer, 0)
+	case .Hello, .Inputs, .Checksum, .Done, .Leave, .Join:
+		wire.w_bytes(writer, {1, 2, 3, 4, 5, 6, 7, 8})
 	}
 	return writer.buf[:]
 }
@@ -203,10 +239,44 @@ fuzz_channel_datagrams :: proc(t: ^testing.T) {
 	testing.expect(t, client.verified > 3 * toy.HZ)
 }
 
-// Well-framed channel messages with malformed relay-protocol payloads, from clients that may be
-// players; the relay must neither crash nor stop serving the honest client.
+// A raw channel of a fuzzing client on hub endpoint `endpoint`, with its own token, and its peer number for the relay.
+@(private = "file")
+Attacker :: struct {
+	channel:  ^netcode.Channel,
+	peer:     netcode.Peer,
+	endpoint: int,
+	token:    netcode.Token,
+}
+
+// Opens a fresh connection for `attacker` (a new channel: a restarted program) and says an unmutated Hello on it.
+@(private = "file")
+attacker_hello :: proc(attacker: ^Attacker, session: ^Net, writer: ^wire.Writer) {
+	if attacker.channel != nil do netcode.channel_destroy(attacker.channel)
+	attacker.channel = netcode.channel_make()
+	link := netcode.loopback_link(session.hub, netcode.Peer(attacker.endpoint))
+	attacker.peer = netcode.channel_peer(attacker.channel, netcode.channel_add_link(attacker.channel, link), 0)
+	hello := relay_sample(writer, .Hello, attacker.token, 0)
+	netcode.channel_send(attacker.channel, attacker.peer, hello, .Reliable, session.clock.now)
+}
+
+// The relay's seats `attacker` holds (local 0's and its Joins').
+@(private = "file")
+attacker_seats :: proc(attacker: ^Attacker, session: ^Net) -> (seats: sim.Slots) {
+	relay := session.relay
+	for &seat, slot in relay.seats {
+		if seat.conn >= 0 && relay.ch.conns[seat.conn].lpeer == netcode.Peer(attacker.endpoint) do seats += {slot}
+	}
+	return
+}
+
+// Well-framed channel messages with malformed relay-protocol payloads, from clients that are players: two attackers,
+// each seated with an unmutated Hello and its own token (seated again on a fresh connection whenever a mangled message
+// unseats it), send every other kind of message, as is or mangled; a third sends mangled Hellos. The relay must
+// neither crash nor stop serving the honest client, and the fuzz must reach past the seated gate: an attacker's inputs
+// are taken, and one of its Joins seats another local player.
 @(test)
 fuzz_relay_messages :: proc(t: ^testing.T) {
+	context.logger.lowest_level = .Error // mangled checksums and snapshots warn by design
 	session: Net
 	net_make_relay(&session, 1, 0)
 	defer net_destroy(&session)
@@ -217,53 +287,70 @@ fuzz_relay_messages :: proc(t: ^testing.T) {
 	defer delete(writer.buf)
 	buf: [dynamic]u8
 	defer delete(buf)
-	// Two attackers with channels of their own, each on its own hub endpoint.
-	attackers: [2]^netcode.Channel
-	peers: [2]netcode.Peer
+	attackers: [3]Attacker
 	for &attacker, i in attackers {
-		attacker = netcode.channel_make()
-		link_index := netcode.channel_add_link(attacker, netcode.loopback_link(session.hub, netcode.Peer(6 + i)))
-		peers[i] = netcode.channel_peer(attacker, link_index, 0)
+		attacker.endpoint = 5 + i
+		attacker.token[0], attacker.token[1] = 0xA7, u8(i + 1)
+		attacker_hello(&attacker, &session, &writer)
 	}
-	defer for attacker in attackers {
-		netcode.channel_destroy(attacker)
-	}
+	defer for attacker in attackers do netcode.channel_destroy(attacker.channel)
+	inputs_taken, joins_seated := 0, 0
 	for k in 0 ..< 4000 {
-		attacker_index := k % 2
-		fuzz_bytes(&fuzz, &buf, relay_samples(&writer, fuzz_below(&fuzz, 13)))
+		attacker := &attackers[k % 3]
+		msg := netcode.Msg(.Hello)
+		if k % 3 != 2 {
+			msg = netcode.Msg(2 + fuzz_below(&fuzz, len(netcode.Msg) - 1)) // anything but a Hello
+		}
+		sample := relay_sample(&writer, msg, attacker.token, session.relay.finalized)
+		if fuzz_below(&fuzz, 3) == 0 {
+			clear(&buf)
+			append(&buf, ..sample) // as is
+		} else {
+			fuzz_bytes(&fuzz, &buf, sample)
+		}
 		netcode.channel_send(
-			attackers[attacker_index],
-			peers[attacker_index],
+			attacker.channel,
+			attacker.peer,
 			buf[:],
 			fuzz_below(&fuzz, 2) == 0 ? .Reliable : .Unreliable,
 			session.clock.now,
 		)
-		if k % 4 == 0 {
-			for attacker in attackers {
-				netcode.channel_flush(attacker, session.clock.now)
-				netcode.channel_poll(attacker, session.clock.now)
+		if k % 6 == 0 {
+			for &other in attackers {
+				netcode.channel_flush(other.channel, session.clock.now)
+				netcode.channel_poll(other.channel, session.clock.now)
 			}
 			net_run(&session, 0.002)
+			for &other in attackers[:2] {
+				seats := attacker_seats(&other, &session)
+				for slot in seats {
+					seat := &session.relay.seats[slot]
+					if seat.local != 0 do joins_seated += 1
+					for tick in seat.input_tick do inputs_taken += int(tick != 0 && tick >= seat.active_from)
+				}
+				if seats == {} && k % 60 == 0 do attacker_hello(&other, &session, &writer) // unseated: back in
+			}
 		}
 	}
 	net_run(&session, 3)
 	testing.expect_value(t, honest.status, netcode.Status.Connected)
 	testing.expect(t, honest.verified > 3 * toy.HZ)
+	testing.expectf(t, inputs_taken > 0, "no attacker's input was taken (on_inputs unreached)")
+	testing.expectf(t, joins_seated > 0, "no attacker's Join seated a player (on_join unreached)")
 }
 
 // Malformed relay messages into a client (after a real Welcome); the client must not crash, and must still verify
 // valid ticks after them.
 @(test)
 fuzz_client_messages :: proc(t: ^testing.T) {
+	context.logger.lowest_level = .Error // mangled desync reports warn by design
 	hub := netcode.hub_create(2)
 	defer netcode.hub_destroy(hub)
 	fake: Fake_Relay
 	fake_make(&fake, hub)
 	defer fake_destroy(&fake)
 	watch: Watch
-	client := netcode.client_create(&toy.GAME, {
-			slot = -1,
-		}, netcode.loopback_link(hub, 1), hooks_for(&watch))
+	client := netcode.client_create(&toy.GAME, {}, netcode.loopback_link(hub, 1), hooks_for(&watch))
 	defer netcode.client_destroy(client)
 	defer delete(watch.statuses)
 	fake_welcome(&fake, client)
@@ -276,12 +363,12 @@ fuzz_client_messages :: proc(t: ^testing.T) {
 	buf: [dynamic]u8
 	defer delete(buf)
 	for k in 0 ..< 4000 {
-		fuzz_bytes(&fuzz, &buf, client_samples(&writer, fuzz_below(&fuzz, 13)))
-		// What ends the session (End, Reject, a snapshot that does not load) is left out, mangled or not: the client
-		// would ignore everything after it.
+		fuzz_bytes(&fuzz, &buf, client_samples(&writer, fuzz_below(&fuzz, len(netcode.Msg))))
+		// What ends the session or stops its verifying (End, Reject, a snapshot that does not load, a Resync whose
+		// snapshot never comes) is left out, mangled or not: the client would ignore everything after it.
 		if len(buf) > 0 {
 			#partial switch netcode.Msg(buf[0]) {
-			case .End, .Reject, .Snap_Begin, .Snap_Chunk:
+			case .End, .Reject, .Snap_Begin, .Snap_Chunk, .Resync:
 				continue
 			}
 		}
@@ -325,6 +412,8 @@ fuzz_client_messages :: proc(t: ^testing.T) {
 // than fail to load). A client that failed is replaced by a new joiner.
 @(test)
 fuzz_joiner_snapshots :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	JOIN_TICK :: 33
 	// Genuine snapshots of checksum ticks 32 and 48 of the session the fake relay streams.
 	simulation := sim.create(&toy.GAME, SEED)
@@ -344,7 +433,7 @@ fuzz_joiner_snapshots :: proc(t: ^testing.T) {
 	watch: Watch
 	defer delete(watch.statuses)
 	join :: proc(fake: ^Fake_Relay, hub: ^netcode.Hub, watch: ^Watch) -> ^Client {
-		client := netcode.client_create(&toy.GAME, {slot = -1}, netcode.loopback_link(hub, 1), hooks_for(watch))
+		client := netcode.client_create(&toy.GAME, {}, netcode.loopback_link(hub, 1), hooks_for(watch))
 		fake.peer = -1
 		for fake.peer < 0 {
 			fake_step(fake, client)
@@ -411,4 +500,5 @@ fuzz_joiner_snapshots :: proc(t: ^testing.T) {
 		}
 	}
 	testing.expectf(t, loads > 0 && joiners > 1, "%d snapshots loaded, %d joiners", loads, joiners)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }

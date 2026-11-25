@@ -93,13 +93,15 @@ bot_input :: proc(seed: u64, slot: int, tick: u32, state: ^g.State) -> (input: g
 }
 
 // The bot's commands (a sim.Game.scripted_commands): while a level-up is pending, one of the two upgrades its oldest
-// offers (g.upgrade_offers), alternating by level. In a session it sees a predicted state a few ticks old, so it may
-// pick more than once for one level-up: the sim ignores a pick with nothing pending or not offered.
+// offers (g.upgrade_offers), alternating by level, naming that level. In a session it sees a predicted state a few
+// ticks old, so it may pick more than once for one level-up: the sim ignores a pick for a level already taken.
 bot_commands :: proc(seed: u64, slot: int, tick: u32, state: ^g.State, out: ^sim.Command_Out(g.Command)) {
 	character := sim.slot_data(&state.players, slot)
 	if character != nil && character.alive && character.pending_levelups > 0 {
 		player := sim.player_in_slot(&state.players, slot)
-		offers := g.upgrade_offers(seed, player, g.oldest_pending_level(character))
-		sim.send_command(out, g.Command_Pick{offers[(character.level + i32(slot)) % len(offers)]})
+		level := g.oldest_pending_level(character)
+		offers := g.upgrade_offers(seed, player, level)
+		upgrade := offers[(character.level + i32(slot)) % len(offers)]
+		sim.send_command(out, g.Command_Pick{upgrade = upgrade, level = u16(level)})
 	}
 }

@@ -15,23 +15,15 @@ a lobby service by handing one to `modes.run` (`eos.lobby`), so this package nev
 ## The binary
 
 A game's `simulation/headless/main.odin` calls `modes.run(&GAME, ...)`; `uni headless` builds it when stale and runs
-it, and the binary's `help` lists every mode and its options. The modes:
-
-- offline, in memory: `sim` (a run, its trace and input log), `synctest` (a rollback every tick), `replay` (an input
-  log, optionally from a portable snapshot's tick: an F3 note's recording, `src/godot/README.md`), `predict-stats`
-  (how many rollbacks `sim.Game.predict_input` would save on a log: a game adopts a hook when its own recordings of
-  real play say so, never on the scripted player's, whose inputs are held for a fixed period);
-- `session`: a relay and scripted clients in process on the virtual clock behind a network profile (`session_run`);
-  `uni bench` runs it;
-- `relay`, `client`: separate processes over local UDP on the real clock (`uni test --suite net`);
-- `bench`: the game's standard benchmarks (`sim.Game.benches`, a `uni bench` row each: one per level, scene or
-  population, each on its own Setup in `--setup`'s text form, `sim.Game.bench_prepare` holding a population);
-  `uni bench` runs them;
-- `<lobby>-host`, `<lobby>-client` when the game opts into a lobby service: a scripted session over it, two processes
-  (`src/eos/README.md`);
-- the game's own modes (`modes.Mode`): the one way a game's repo adds a mode. Each mode's options are a struct parsed
-  with `core:flags` in Unix style (`modes.parse`), the library's and a game's alike, so `help` shows what the struct
-  declares and an unknown option fails.
+it, and the binary's `help` lists every mode, what it is for and its options. They come in four kinds: offline runs
+in memory (a run and its trace, a sync-test, a replay, prediction statistics); a session of a relay and scripted
+clients in process on the virtual clock behind a network profile (`session_run`); separate processes over local UDP
+on the real clock, and over a lobby service when the game opts into one (`src/eos/README.md`); and the game's
+standard benchmarks (`sim.Game.benches`, a `uni bench` row each). A game's own modes (`modes.Mode`) are the one way
+its repo adds a mode. Each mode's options are a struct parsed with `core:flags` in Unix style (`modes.parse`), the
+library's and a game's alike, so `help` shows what the struct declares and an unknown option fails. Prediction
+statistics decide whether a game adopts `sim.Game.predict_input`: read them on its recordings of real play, never on
+the scripted player's, whose inputs are held for a fixed period.
 
 Conventions every mode keeps:
 
@@ -45,9 +37,10 @@ Conventions every mode keeps:
 
 ## Runs
 
-Every run takes the game (`^G`, a `sim.Game`) and plays it on `game.levels`. In an offline run slot i is member i + 1 from tick 1, joining with its join record (`src/sim/README.md`,
-Players), and `Seat`s change who holds a slot. Offline there is no relay to hold commands back, so a script that
-sends more than a tick takes fails the run (`Scripted_Commands`).
+Every run takes the game (`^G`, a `sim.Game`) and plays it on `game.levels`. In an offline run slot i is member i + 1
+from tick 1, joining with its join record (`src/sim/README.md`, Players), and `Seat`s change who holds a slot. Offline
+there is no relay to hold commands back, so a script that sends more than a tick takes fails the run
+(`Scripted_Commands`).
 
 The stepped `Run` is what a game's own tests start from: a run the test steps itself, sync-tested on every step,
 played by the scripted player or by the test's own inputs, with the test seating people and pinning the state it
@@ -68,9 +61,10 @@ what Godot would refuse at load, caught by `uni test`). A new game copies minima
 (`examples/minimal_3d/simulation/tests/`, what `uni init` copies). The toy's suite (`tests/scenarios/`) proves the
 library: it runs every scenario.
 
-**Two tiers.** The default run covers the toy's suite whole and each game's minimal set (a few standard scenarios,
-its reference run and its replay regressions; the game's suite says which) on short runs, each scenario its own test so the runner spreads them over the cores. The long tier (`scenarios.LONG`, `uni test
---long`) runs every standard scenario at full length, and the slow tests a game keeps behind it.
+**Two tiers.** The default run covers the toy's suite whole and each game's minimal set (a few standard scenarios, its
+reference run and its replay regressions; the game's suite says which) on short runs, each scenario its own test so the
+runner spreads them over the cores. The long tier (`scenarios.LONG`, `uni test --long`) runs every standard scenario at
+full length, and the slow tests a game keeps behind it.
 
 ## Reference runs
 

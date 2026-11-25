@@ -41,7 +41,7 @@ text = "Menu"
 [node name="Note" type="Label" parent="Center/Panel/VBox"]
 layout_mode = 2
 theme_type_variation = &"Dim"
-text = "The match keeps running while this is open."
+text = "With friends, the match keeps running while this is open."
 autowrap_mode = 3
 
 [node name="Resume" type="Button" parent="Center/Panel/VBox"]
@@ -58,7 +58,7 @@ text = "Back to hub"
 [node name="Invite" type="Button" parent="Center/Panel/VBox"]
 unique_name_in_owner = true
 layout_mode = 2
-text = "Invite friends (LAN)"
+text = "Invite friends"
 
 [node name="StopInviting" type="Button" parent="Center/Panel/VBox"]
 unique_name_in_owner = true

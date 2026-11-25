@@ -394,6 +394,7 @@ note_open :: proc() {
 	if img.ptr == nil do return
 	note_discard()
 	note.shot = img
+	if s.on_note_open != nil do s.on_note_open() // the moment the note is about: now, not when it is sent
 	if note.tex.ptr == nil {
 		note.tex = gd.ImageTexture_create_from_image(img)
 	} else {

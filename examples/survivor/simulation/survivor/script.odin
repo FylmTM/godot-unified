@@ -26,9 +26,11 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> (input
 }
 
 // The scripted commands hook: a level-up pick at the start of every SCRIPT_PERIOD-tick block, whether or not one is
-// pending (the sim ignores it then), so the script depends on (seed, slot, tick) only, like the inputs.
+// pending (the sim ignores it then), for the oldest level (level 0: the script can't read which), so the script
+// depends on (seed, slot, tick) only, like the inputs.
 scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Command)) {
 	if (tick - 1) % SCRIPT_PERIOD == 0 {
-		sim.send_command(out, Command_Pick{Upgrade(sim.script_bits(seed, slot, tick, SCRIPT_PERIOD) % len(Upgrade))})
+		upgrade := Upgrade(sim.script_bits(seed, slot, tick, SCRIPT_PERIOD) % len(Upgrade))
+		sim.send_command(out, Command_Pick{upgrade = upgrade})
 	}
 }

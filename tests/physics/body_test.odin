@@ -3,6 +3,7 @@
 // queries).
 package test_physics
 
+import "base:runtime"
 import "core:testing"
 
 import "unified:physics"
@@ -361,4 +362,37 @@ body_warp_moves_on_at_every_teleport :: proc(t: ^testing.T) {
 	physics.body_set_transform_2d(world, flat, {2, 2})
 	testing.expect_value(t, physics.body_warp(world, flat), 2)
 	testing.expect_value(t, physics.body_warp(world, {}), 0) // no body
+}
+
+// body_set_tag on a body that is gone asserts: a tag written into a dead table entry would make every later image of
+// the world fail to load at a joiner.
+@(test)
+body_set_tag_of_a_gone_body_asserts :: proc(t: ^testing.T) {
+	context.allocator = runtime.default_allocator() // the assert ends the test before the world is freed: untracked
+	world := api_world()
+	body, _ := box(world, {}, {0.5, 0.5, 0.5}, .Dynamic)
+	physics.body_set_tag(world, body, 5)
+	testing.expect_value(t, physics.body_tag(world, body), 5)
+	stale := body
+	physics.destroy_body(world, &body)
+	testing.expect_assert_message(t, "physics: body_set_tag of a body that is gone")
+	physics.body_set_tag(world, stale, 6)
+}
+
+// ... and on a zero ref, as body_id does.
+@(test)
+body_set_tag_of_a_zero_ref_asserts :: proc(t: ^testing.T) {
+	context.allocator = runtime.default_allocator()
+	world := api_world()
+	testing.expect_assert_message(t, "physics: a zero Body_Ref (no body)")
+	physics.body_set_tag(world, {}, 6)
+}
+
+// A zero Shape_Ref asserts rather than reaching Box3D's unchecked release library as shape -1.
+@(test)
+a_zero_shape_ref_asserts :: proc(t: ^testing.T) {
+	context.allocator = runtime.default_allocator()
+	world := api_world()
+	testing.expect_assert_message(t, "physics: a zero Shape_Ref (no shape)")
+	physics.shape_set_friction(world, {}, 1)
 }

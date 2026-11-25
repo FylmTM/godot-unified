@@ -1,9 +1,10 @@
 extends Node3D
-## The first-person camera: the mouse (at the settings' sensitivity and invert look) or the right stick turn it, and
-## every frame, just before the session samples the input (input_wanted), it tells the session where it looks
-## (Unified.input.yaw and .pitch, in turns: the sim's dmath.Aim). The look is the rig's own, at render rate, so a
-## rollback never moves it; a look `uni drive values` holds turns it too. The mouse is captured while playing and free
-## under the pause menu; a window that loses focus lets it go, and a click takes it back. The position is the local
+## The first-person camera: the mouse or the right stick (not under the pause menu) turn it, at the settings'
+## sensitivity (the mouse's) and invert look, and every frame, just before the session samples the input
+## (input_wanted), it tells the session where it looks (Unified.input.yaw and .pitch, in turns: the sim's dmath.Aim).
+## The look is the rig's own, at render rate, so a rollback never moves it; a look `uni drive values` holds turns it
+## too. The mouse is captured while playing and free under the pause menu and the connect overlay; a window that loses
+## focus lets it go, and a click takes it back. The position is the local
 ## player's view (predicted and smoothed) at eye height. Before the local player has a body, it looks over the yard
 ## from above. The `camera` action (Tab, pad LB) cycles through a few fixed views of the yard and back. The viewmodel
 ## kicks and flashes on a shot the sim will fire (Unified.data.hud.fire_ready): view-only, at once.
@@ -43,12 +44,18 @@ func _ready() -> void:
 	add_to_group(&"rig")
 
 
+func _exit_tree() -> void:
+	Input.mouse_mode = Input.MOUSE_MODE_VISIBLE  # however the play scene ends, the menu gets a free mouse
+
+
 ## Before the session samples this frame's input: the stick turns the rig, and the session learns where it looks.
 func _on_input_wanted() -> void:
 	var delta := get_process_delta_time()
-	var stick := Input.get_vector(&"look_left", &"look_right", &"look_up", &"look_down")
+	var stick := Vector2.ZERO
+	if Unified.session.game_input:  # not under the pause menu
+		stick = Input.get_vector(&"look_left", &"look_right", &"look_up", &"look_down")
 	yaw -= stick.x * STICK_TURNS * delta
-	pitch -= stick.y * STICK_TURNS * 0.6 * delta
+	pitch -= stick.y * STICK_TURNS * 0.6 * delta * (-1.0 if Settings.invert_y else 1.0)
 	_clamp_look()
 	_written = Vector2(fposmod(yaw, 1.0), pitch)
 	Unified.input.yaw = _written.x
@@ -131,9 +138,11 @@ func _clamp_look() -> void:
 	pitch = clampf(pitch, -limit, limit)
 
 
-## The mouse is free under the pause menu, before play (the flow not PLAYING yet), and always headless.
+## The mouse is free under the pause menu, before play (the flow not PLAYING yet), under the connect overlay
+## (reconnecting: its Cancel is clicked), and always headless.
 func _mouse_free() -> bool:
-	return _pause_menu.visible or Game.flow != Game.Flow.PLAYING or DisplayServer.get_name() == "headless"
+	return (_pause_menu.visible or Game.flow != Game.Flow.PLAYING or Game.status != UnifiedSession.STATUS_CONNECTED
+		or DisplayServer.get_name() == "headless")
 
 
 ## Whether a click may take the mouse: playing, in a window that has the focus.

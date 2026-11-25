@@ -23,6 +23,11 @@ packages it may import; a package without one fails), and every game under `exam
 - **Allowances are by name, with a reason where listed.** A Tick rule may read named fields the bans list
   (`allow_fields`: the harness fills `Inputs.replaced`) and a named `#config` (`allow_config`: the harness's dev UI
   switch, `sim.DEV`); everything else of the kind stays banned.
+- **Bans by prefix and allowlist, so later additions stay banned.** Every `ODIN_` constant but `ODIN_ENDIAN` (a
+  constant Odin adds later is a build's or a platform's too), and every `base:intrinsics` name off the tick's short
+  list, under whatever name the file imports it.
 - **What it can't see: types.** A float-to-int conversion goes through `dmath.to_i32_clamped` by convention, and
-  the ban on `x := 1.5` misses `x := 1.5 * K` with `K` an untyped constant, f64 all the same. `dmath`'s `min`, `max`
-  and `clamp` take integers too, since the lint bans the builtins whatever the type. Address-dependent values are left to the end-to-end suites' desync detection.
+  the ban on an f64 right-hand side (`x := 1.5`, `a, b := 1.0, 2.0`, `x := c ? 1.0 : 2.0`) sees literals only: it
+  misses `x := HALF` and `x := 1.5 * K` with an untyped constant, f64 all the same. `dmath`'s `min`, `max` and
+  `clamp` take integers too, since the lint bans the builtins whatever the type. Address-dependent values are left to
+  the end-to-end suites' desync detection.

@@ -39,13 +39,11 @@ update_players :: proc(t: ^Tick) {
 }
 
 // The two upgrades a player's level-up to `level` offers. A keyed roll that names no tick (tick 0), only the player
-// and the level, so the HUD computes the same offer from the state it shows, whenever it asks (sim.roll_below_at:
+// and the level, so the HUD computes the same offer from the state it shows, whenever it asks (sim.roll_distinct_at:
 // src/sim/README.md, Random numbers).
 upgrade_offers :: proc(seed: u64, player: sim.Player, level: i32) -> [2]Upgrade {
-	key := sim.player_key(player)
-	first := sim.roll_below_at(seed, 0, len(Upgrade), Roll.Upgrade_Offer, key, int(level) * 2)
-	skip := sim.roll_below_at(seed, 0, len(Upgrade) - 1, Roll.Upgrade_Offer, key, int(level) * 2 + 1)
-	return {Upgrade(first), Upgrade((first + 1 + skip) % len(Upgrade))}
+	picks := sim.roll_distinct_at(seed, len(Upgrade), 2, Roll.Upgrade_Offer, sim.player_key(player), int(level))
+	return {Upgrade(picks[0]), Upgrade(picks[1])}
 }
 
 // The level the oldest of a character's pending level-ups reached: the one a pick goes to.
@@ -53,7 +51,8 @@ oldest_pending_level :: proc(character: ^Character) -> i32 {
 	return character.level - character.pending_levelups + 1
 }
 
-// Level-up picks (Command_Pick, each delivered once): each takes the oldest pending level-up if it is one of its offers.
+// Level-up picks (Command_Pick, each delivered once): each takes the oldest pending level-up when it names that level
+// (or none) and its upgrade is one of the level's offers.
 pick_upgrades :: proc(t: ^Tick) {
 	players := sim.iterate_present(t)
 	for character, player in sim.next(&players) {
@@ -62,7 +61,11 @@ pick_upgrades :: proc(t: ^Tick) {
 			if character.pending_levelups <= 0 {
 				continue // nothing to pick
 			}
-			offers := upgrade_offers(t.seed, player, oldest_pending_level(character))
+			level := oldest_pending_level(character)
+			if pick.level != 0 && i32(pick.level) != level {
+				continue // a pick for a level already taken: a double press
+			}
+			offers := upgrade_offers(t.seed, player, level)
 			if pick.upgrade != offers[0] && pick.upgrade != offers[1] {
 				continue // not offered
 			}

@@ -115,6 +115,34 @@ the_grab_pulls_and_the_reset_rebuilds :: proc(t: ^testing.T) {
 	scenarios.expect_synced(t, &run)
 }
 
+// A scene's rolls count from its entry, never the tick: entering Rain a tick or two later drops the same bodies, only
+// later.
+@(test)
+a_late_scene_change_drops_the_same_rain :: proc(t: ^testing.T) {
+	drops :: proc(wait: int) -> (kinds: [3]g.Shape, spots: [3][3]f32) {
+		run := scene_run(.Pyramid, seated = 1)
+		defer headless.run_end(&run)
+		for _ in 0 ..< wait do headless.run_step(&run)
+		headless.run_command(&run, 0, g.Command_Scene{scene = .Rain})
+		for _ in 0 ..< 2 * g.RAIN_EVERY_TICKS do headless.run_step(&run)
+		drop := 0
+		props := sim.iterate(&run.simulation.state.props)
+		for prop in sim.next(&props) {
+			if prop.role != .Rain || drop == len(kinds) do continue
+			kinds[drop] = prop.kind
+			spots[drop] = physics.body_position(run.simulation.world.phys, prop.body)
+			drop += 1
+		}
+		return
+	}
+	kinds, spots := drops(3)
+	for wait in 4 ..= 5 {
+		late_kinds, late_spots := drops(wait)
+		testing.expect_value(t, late_kinds, kinds)
+		testing.expect_value(t, late_spots, spots)
+	}
+}
+
 // Shots fly as bullets and are gone after SHOT_TICKS; spawns come in front of the camera; an explosion throws the
 // pyramid about; the tools wait out their cooldown.
 @(test)

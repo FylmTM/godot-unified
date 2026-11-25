@@ -21,9 +21,10 @@ download :: proc(url, dest, sha256, what: string) {
 	check_sha256(part, sha256, what)
 	if os.rename(part, dest) != nil {
 		os.remove(part)
-		if !os.is_file(dest) {
+		// another process may have put the same checked file there first; anything else there is no download of ours
+		if have, ok := sha256_file(dest); !ok || have != sha256 {
 			fatal("cannot move %s into place", dest)
-		} // else another process put the same checked file there first
+		}
 	}
 }
 
@@ -148,6 +149,12 @@ ensure_box3d :: proc(build := false) {
 		return
 	}
 	dir := box3d_dir()
+	// One unpack at a time per checkout: another uni may be unpacking the same release, or using the copy in place.
+	lock := lock_acquire(aprintf("%s.lock", dir), "unified-box3d")
+	defer lock_release(lock)
+	if box3d_ready() {
+		return // the other one did it
+	}
 	repo, tag := pin("box3d", "repo"), pin("box3d", "tag")
 	start := time.tick_now()
 	name := aprintf("unified-box3d-%s-%s.zip", tag, PLATFORM)
@@ -162,16 +169,24 @@ ensure_box3d :: proc(build := false) {
 	if have, _ := sha256_file(zip); have != sha256 {
 		download(aprintf("https://github.com/%s/releases/download/%s/%s", repo, tag, name), zip, sha256, name)
 	}
+	// Unpacked beside it and checked, then renamed into place: an interrupted unpack never looks finished.
+	tmp := aprintf("%s.%d.tmp", dir, os.get_pid())
+	remove_tree(tmp)
+	archive := zip_open_file(zip)
+	zip_extract_all(&archive, tmp, strip_top = true)
+	for debug in ([]bool{false, true}) {
+		if !os.is_file(join(tmp, "lib", aprintf("%s%s", PLATFORM, debug ? "-debug" : ""), lib_name("box3d"))) {
+			remove_tree(tmp)
+			fatal("%s holds no %s for %s (release and debug)", name, lib_name("box3d"), PLATFORM)
+		}
+	}
+	write_text(join(tmp, "release.stamp"), aprintf("%s\n", box3d_release_key()))
 	remove_tree(dir)
 	if os.exists(dir) {
+		remove_tree(tmp)
 		fatal("cannot replace %s: in use? (close Godot and other uni commands)", dir)
 	}
-	archive := zip_open_file(zip)
-	zip_extract_all(&archive, dir, strip_top = true)
-	if !os.is_file(box3d_lib()) || !os.is_file(box3d_lib(debug = true)) {
-		fatal("%s holds no %s for %s (release and debug)", name, lib_name("box3d"), PLATFORM)
-	}
-	write_text(join(dir, "release.stamp"), aprintf("%s\n", box3d_release_key()))
+	rename_into_place(tmp, dir, join(dir, "release.stamp"))
 	log("uni: unified-box3d %s ready in %.1fs", tag, seconds_since(start))
 }
 
@@ -314,19 +329,27 @@ scan_imports :: proc(dir: string, imports: []string) -> bool {
 
 // --- odinfmt ----------------------------------------------------------------------------------------------------
 
-// odinfmt built from the pinned OLS commit into .out/odinfmt/ (no other odinfmt is used: CI and the format hook
-// must agree).
+// odinfmt built from the pinned OLS commit (no other odinfmt is used: CI and the format hook must agree), once per
+// machine: into the per-user cache, under the commit and the Odin that built it, so every checkout and worktree shares
+// it. Built to a temporary name and renamed: a format hook running meanwhile never runs half an executable.
 ensure_odinfmt :: proc() -> string {
-	dir := join(state.project.out, "odinfmt")
-	exe := join(dir, aprintf("odinfmt%s", EXE))
 	commit := pin("odinfmt", "commit")
-	key := aprintf("%s %s", commit, ODIN_VERSION_HASH)
-	stamp := join(dir, "odinfmt.stamp")
-	if os.is_file(exe) && stamp_ok(stamp, key) {
+	dir := join(user_cache(), "odinfmt", aprintf("%s-%s", commit[:min(12, len(commit))], ODIN_VERSION_HASH))
+	exe := join(dir, aprintf("odinfmt%s", EXE))
+	if os.is_file(exe) {
 		return exe
 	}
-	src := join(dir, "ols-src")
+	make_dirs(dir)
+	// two format hooks at once (parallel edits in a fresh checkout) build it once
+	lock := lock_acquire(join(dir, "build.lock"), "odinfmt")
+	defer lock_release(lock)
+	if os.is_file(exe) {
+		return exe
+	}
+	src := join(dir, aprintf("ols-src.%d", os.get_pid()))
+	defer remove_tree(src)
 	git_checkout(src, pin("odinfmt", "url"), commit)
+	tmp := aprintf("%s.%d.tmp%s", exe, os.get_pid(), EXE)
 	must_run({
 			cmd     = {
 				odin(),
@@ -335,12 +358,15 @@ ensure_odinfmt :: proc() -> string {
 				"-file",
 				"-collection:src=src",
 				"-o:speed",
-				aprintf("-out:%s", exe),
+				aprintf("-out:%s", tmp),
 			},
 			dir     = src,
 			capture = true,
 		}, "building odinfmt")
-	write_text(stamp, aprintf("%s\n", key))
+	if os.rename(tmp, exe) != nil {
+		os.remove(tmp)
+		fatal("cannot move odinfmt into place as %s", exe)
+	}
 	return exe
 }
 

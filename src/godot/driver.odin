@@ -56,14 +56,32 @@ Api :: struct {
 	start:           proc(request: Start) -> (ok: bool, err: string),
 	stop:            proc(), // ask the session to end (it keeps running until it has said goodbye)
 	hurry:           proc(), // a new session waits: cut the goodbye to at most HURRY_US after the stop
-	stopping:        proc() -> bool, // stop was asked (by stop or a lobby failure) and the session is ending
-	wait:            proc(), // join the session thread (after stop)
-	running:         proc() -> bool,
+	// Lets a session started with Start.hold take its first step (the main thread, once the frame that started it is
+	// over); nothing for one that isn't held.
+	release:         proc(),
+	// Ends the session thread (stopping it first) and waits for it, freeing nothing: its last messages (the Result) can
+	// still be popped, its last Frame read. Nothing when it was joined already.
+	join:            proc(),
+	wait:            proc(), // join the session thread (stopping it first), then free the session: its Frames go
+	running:         proc() -> bool, // a session's thread runs (until it ended, after a goodbye)
+	exists:          proc() -> bool, // a session exists, running or ended, until wait frees it: its Frame may be shown
 	front:           proc() -> (frame: ^Frame_Data, fresh: bool),
 	pop:             proc() -> (message: Message, ok: bool),
-	// The oldest queued event if its tick is at most `shown` (the tick of the Frame on screen), taken; newer ones stay
-	// queued for the frame that shows their tick.
-	next_event:      proc(shown: u32) -> (event: Event_Message, ok: bool),
+	// The oldest queued event of the shown timeline (`epoch`: the shown Frame's, Frame_Data.epoch) if its tick is at
+	// most `shown` (the tick of the Frame on screen), taken; newer ones stay queued for the frame that shows their tick.
+	// Events queued on an older timeline (before a replay's seek) are dropped: they were never shown and never will be.
+	next_event:      proc(shown: u32, epoch: u32) -> (event: Event_Message, ok: bool),
+	// The single-player pause (UnifiedSession.paused): asks the session thread to pause its host or go on (refused
+	// while it has other players), and whether it is paused now. Nothing, and false, with no session.
+	set_paused:      proc(paused: bool),
+	paused:          proc() -> bool,
+	// Asks a paused single-player session to step `ticks` exact ticks (the control socket's step): the goal its
+	// `stepped` count reaches when they are done (false: no session).
+	step:            proc(ticks: u32) -> (goal: u32, ok: bool),
+	// The steps the session thread took so far (of every `step` asked of this session) and the predicted tick it reached.
+	stepped:         proc() -> (taken: u32, tick: u32),
+	// The main thread wants a copy of the newest state with every Frame (the dev UI's Inspector, the control socket).
+	set_want_state:  proc(want: bool),
 	events_dropped:  proc() -> int, // events that found their queue full, this session
 	// The session thread's frame hook since the last call (events tracked, fill_frame, the Frame published), reset.
 	take_fill_stats: proc() -> Fill_Stats,
@@ -120,26 +138,9 @@ fill_stats_add :: proc(stats: ^Fill_Stats, took: time.Duration) {
 }
 lobby: ^netcode.Lobby // the game's lobby service (godot.init; online play); nil: Host_Online/Join_Online fail
 
-// The main thread asks for state copies only while the dev UI shows them (atomic).
-@(private)
-want_state: bool
-
-// UnifiedSession.paused (atomics): the main thread's request, which the session thread applies to its host
-// (netcode.host_set_paused, single player only), and whether the session is paused now, which the property reads.
-@(private)
-pause_want: bool
-@(private)
-pause_on: bool
-
-// The control socket's `step` (atomics): the ticks the main thread asked a paused single-player session to step, in all
-// (it adds to it), the ticks the session thread has taken of them (netcode.host_advance), and the predicted tick it
-// reached.
-@(private)
-step_req: u32
-@(private)
-step_taken: u32
-@(private)
-step_tick: u32
+// What one session is asked while it runs (its pause, its steps, the state copies) is its Driver's own, so nothing of
+// it crosses to the next session. The main thread's standing settings below (the debug draw groups shown, the netsim)
+// are kept across sessions, and each session reads them as it goes.
 
 // The debug draw groups the main thread shows (dev UI builds; atomic): applied to the session's sim before each step
 // (sim.dev_enable), so the following ticks keep those groups' draws.
@@ -193,6 +194,8 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	client:          ^netcode.Client(G), // the local player's client (the host's own in host modes)
 	online:          bool, // the session uses the lobby
 	thread:          ^thread.Thread,
+	joined:          bool, // the main thread joined the thread (api.join)
+	released:        bool, // atomic: it may step (Start.hold: once api.release)
 	stop_req:        bool, // atomic
 	failed:          bool, // the lobby failed and its reason was posted (session thread)
 	code_sent:       bool, // the lobby's code was posted
@@ -201,7 +204,22 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	stopping:        bool,
 	stop_at:         i64,
 	slow:            bool, // the client's link was slow when last posted (Message.Link_Slow)
+	// UnifiedSession.paused (atomics): the main thread's request, which the session thread applies to its host
+	// (netcode.host_set_paused, single player only; Start.paused before the first step), and whether it is paused now.
+	pause_want:      bool,
+	pause_on:        bool,
+	// The control socket's `step` (atomics): the ticks the main thread asked the paused session to step, in all (it adds
+	// to it), the ticks the session thread has taken of them (netcode.host_advance), and the predicted tick it reached.
+	step_req:        u32,
+	step_taken:      u32,
+	step_tick:       u32,
+	want_state:      bool, // atomic: copy the newest state with every Frame (api.set_want_state)
 	frames:          Triple(Frame_Data),
+	// The lowest tick re-simulated by a fill whose Frame the main thread has not taken yet (Frame_Data.resim_from;
+	// max(u32): none since it took one).
+	resim_low:       u32,
+	fill_wrote:      bool, // dev UI builds: fill_frame was found writing the state (reported once)
+	fills:           u64, // dev UI builds: fill_frame's runs (run_fill checks every FILL_CHECK_EVERY)
 	poses:           Pose_Memory, // every keyed item's pose at the fill before (session thread)
 	// Appear-on-verified (api.appear_verified): the keys of the last verified tick filled, and that fill's Frame
 	verified_poses:  Pose_Memory,
@@ -212,7 +230,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	dropped:         int, // atomic: events that found `events` full
 	fill:            Fill_Stats, // the frame hook's cost (atomic: the main thread takes it)
 	wakes:           Wake_Stats, // how late the loop's sleeps woke (atomic: the main thread takes it)
-	commands:        [LOCAL_MAX]Queue(sim.Raw_Command, netcode.COMMAND_QUEUE), // main thread -> hooks.commands, per local
+	commands:        [LOCAL_MAX]Queue(Local_Command, netcode.COMMAND_QUEUE), // main thread -> hooks.commands, per local
 	tracker:         Event_Tracker(Tick_Event),
 	published:       u64,
 	repeats:         Tick_Table(Event_Id, u32), // track_tick: a tick's events so far by kind and subject
@@ -474,9 +492,12 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		driver.game = game
 		driver.glue = glue
 		driver.req = request
-		if request.scripted && (!joining(request.mode) || request.slot >= 0) {
+		driver.pause_want = request.paused
+		driver.released = !request.hold
+		driver.resim_low = max(u32)
+		if slot, has_slot := request.slot.?; request.scripted && (!joining(request.mode) || has_slot) {
 			// the offline run's player in that slot: a host's local player 0 holds slot 0, a joiner its --slot
-			scripted_profile(game, request, request.slot if request.slot >= 0 else 0, driver.req.profile[:])
+			scripted_profile(game, request, slot, driver.req.profile[:])
 		}
 		driver.req.profile_text = strings.clone(request.profile_text)
 		driver.req.arg = strings.clone(request.arg)
@@ -520,14 +541,22 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		if g_driver == nil do return
 		sync.atomic_store(&(^This_Driver)(g_driver).hurry, true)
 	}
-	api.stopping = proc() -> bool {
-		return g_driver != nil && sync.atomic_load(&(^This_Driver)(g_driver).stop_req)
+	api.release = proc() {
+		if g_driver == nil do return
+		sync.atomic_store(&(^This_Driver)(g_driver).released, true)
+	}
+	api.join = proc() {
+		if g_driver == nil do return
+		driver := (^This_Driver)(g_driver)
+		if driver.joined do return
+		sync.atomic_store(&driver.stop_req, true)
+		thread.join(driver.thread)
+		driver.joined = true
 	}
 	api.wait = proc() {
 		if g_driver == nil do return
+		api.join()
 		driver := (^This_Driver)(g_driver)
-		sync.atomic_store(&driver.stop_req, true)
-		thread.join(driver.thread)
 		thread.destroy(driver.thread)
 		event_serial = driver.tracker.last_serial
 		tracker_destroy(&driver.tracker)
@@ -553,6 +582,7 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		delete(driver.req.arg)
 		delete(driver.req.name)
 		delete(driver.req.dumps)
+		delete(driver.req.profile_text)
 		delete(driver.result)
 		delete(driver.nets)
 		free(driver)
@@ -560,6 +590,9 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	}
 	api.running = proc() -> bool {
 		return g_driver != nil && !sync.atomic_load(&(^This_Driver)(g_driver).finished)
+	}
+	api.exists = proc() -> bool {
+		return g_driver != nil
 	}
 	api.front = proc() -> (^Frame_Data, bool) {
 		if g_driver == nil do return nil, false
@@ -571,11 +604,40 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		if g_driver == nil do return {}, false
 		return queue_pop(&(^This_Driver)(g_driver).queue)
 	}
-	api.next_event = proc(shown: u32) -> (Event_Message, bool) {
+	api.next_event = proc(shown: u32, epoch: u32) -> (Event_Message, bool) {
 		if g_driver == nil do return {}, false
 		events := &(^This_Driver)(g_driver).events
-		if oldest := queue_peek(events); oldest == nil || oldest.tick > shown do return {}, false
-		return queue_pop(events)
+		for {
+			oldest := queue_peek(events)
+			if oldest == nil do return {}, false
+			// an older timeline's (a replay's Emitted and Confirmed of a tick are queued together: a pair is never split)
+			if i32(oldest.epoch - epoch) < 0 {
+				_, _ = queue_pop(events)
+				continue
+			}
+			if oldest.epoch != epoch || oldest.tick > shown do return {}, false
+			return queue_pop(events)
+		}
+	}
+	api.set_paused = proc(paused: bool) {
+		if g_driver == nil do return
+		sync.atomic_store(&(^This_Driver)(g_driver).pause_want, paused)
+	}
+	api.paused = proc() -> bool {
+		return g_driver != nil && sync.atomic_load(&(^This_Driver)(g_driver).pause_on)
+	}
+	api.step = proc(ticks: u32) -> (u32, bool) {
+		if g_driver == nil do return 0, false
+		return sync.atomic_add(&(^This_Driver)(g_driver).step_req, ticks) + ticks, true
+	}
+	api.stepped = proc() -> (u32, u32) {
+		if g_driver == nil do return 0, 0
+		driver := (^This_Driver)(g_driver)
+		return sync.atomic_load(&driver.step_taken), sync.atomic_load(&driver.step_tick)
+	}
+	api.set_want_state = proc(want: bool) {
+		if g_driver == nil do return
+		sync.atomic_store(&(^This_Driver)(g_driver).want_state, want)
 	}
 	api.events_dropped = proc() -> int {
 		if g_driver == nil do return 0
@@ -602,7 +664,13 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 	}
 	api.send = proc(command: sim.Raw_Command, local: int) -> bool {
 		if g_driver == nil || local < 0 || local >= LOCAL_MAX do return false
-		return queue_push(&(^This_Driver)(g_driver).commands[local], command)
+		driver := (^This_Driver)(g_driver)
+		gen: u64
+		{
+			sync.guard(&driver.local_mu)
+			gen = driver.local_reqs[local].gen
+		}
+		return queue_push(&driver.commands[local], Local_Command{command, gen})
 	}
 	api.open = proc(mode: Mode, port: int) -> bool {
 		if g_driver == nil do return false
@@ -620,11 +688,13 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		driver := (^This_Driver)(g_driver)
 		sync.guard(&driver.local_mu)
 		request := &driver.local_reqs[local]
+		// an add that replaces a remove the session thread has not applied yet (both in one frame) does it first
+		unapplied := request.gen != driver.local_seen[local]
 		request^ = {
-			gen  = request.gen + 1,
-			add  = add,
-			name = text_of_name(name),
-			slot = -1,
+			gen          = request.gen + 1,
+			add          = add,
+			remove_first = add && unapplied && (!request.add || request.remove_first),
+			name         = text_of_name(name),
 		}
 		copy(request.profile[:], profile)
 		if add && driver.req.scripted && !joining(driver.req.mode) {
@@ -838,6 +908,17 @@ install_problems_without_constants :: proc(game: ^$G, glue: Glue(G, $View, $Mult
 	return problems_of(game, glue, nil)
 }
 
+// The kind of the game's command that `name` names (its index in `names`: the commands' names by kind, Command_Layout's),
+// -1 for none: its name (`drop`) or its type's (`Command_Drop`), in any case. `uni drive command` takes either.
+command_kind_named :: proc(names: []string, name: string) -> int {
+	bare := name
+	if len(name) > len(sim.COMMAND_PREFIX) && strings.equal_fold(name[:len(sim.COMMAND_PREFIX)], sim.COMMAND_PREFIX) {
+		bare = name[len(sim.COMMAND_PREFIX):]
+	}
+	for known, kind in names do if strings.equal_fold(known, bare) do return kind
+	return -1
+}
+
 // install_problems for any constants type (nil: none), in the context's allocator.
 @(private)
 problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: typeid) -> []string {
@@ -990,6 +1071,7 @@ flush_events :: proc(driver: ^Driver($G, $View, $MultiView)) {
 		message := Event_Message {
 			action = tracked.action,
 			tick   = tracked.event.tick,
+			epoch  = driver.epoch,
 			id     = tracked.serial,
 			event  = raw,
 		}
@@ -1132,6 +1214,14 @@ refused_reason :: proc(why: netcode.Reject_Reason) -> string {
 	return fmt.tprint(why)
 }
 
+// A command a script sent for a local player (api.send), with the generation of that local's requests then: one sent
+// before a later add or remove of that index was a player's who is gone, and nobody sends it (hooks.commands).
+@(private)
+Local_Command :: struct {
+	command: sim.Raw_Command,
+	gen:     u64,
+}
+
 // Whether a session joins another's (its slots are the relay's to give).
 @(private)
 joining :: proc(mode: Mode) -> bool {
@@ -1151,11 +1241,12 @@ scripted_profile :: proc(game: ^$G, request: Start, slot: int, out: []u8) {
 // A main thread request about a local player (UnifiedSession.add_local_player, remove_local_player).
 @(private)
 Local_Request :: struct {
-	gen:     u64,
-	add:     bool,
-	name:    netcode.Player_Name,
-	profile: [sim.PROFILE_MAX]u8,
-	slot:    int, // the slot asked for (-1: any; a scripted host's local k asks for k)
+	gen:          u64,
+	add:          bool,
+	remove_first: bool, // an add made in the frame the index's player was removed: that remove goes first
+	name:         netcode.Player_Name,
+	profile:      [sim.PROFILE_MAX]u8,
+	slot:         Maybe(int), // the slot asked for (nil: any; a scripted host's local k asks for k)
 }
 
 @(private)
@@ -1172,15 +1263,15 @@ driver_local_requests :: proc(driver: ^Driver($G, $View, $MultiView), now: i64) 
 	for &request, local in driver.local_reqs {
 		if request.gen == driver.local_seen[local] do continue
 		driver.local_seen[local] = request.gen
+		// a remove empties the seat at once (netcode.client_remove_player), so an add made after it takes the index anew
+		if !request.add || request.remove_first do netcode.client_remove_player(driver.client, local, now)
 		if request.add {
 			cfg := netcode.Local_Config(G) {
-				slot        = request.slot,
 				player_name = netcode.text_string(&request.name),
 				profile     = (^Profile)(&request.profile)^,
 			}
+			cfg.slot = request.slot // nil: any free one
 			netcode.client_add_player(driver.client, local, cfg)
-		} else {
-			netcode.client_remove_player(driver.client, local, now)
 		}
 	}
 }
@@ -1224,8 +1315,10 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 				return
 			}
 			for len(out.list) < out.cap {
-				command := queue_pop(&driver.commands[local]) or_break
-				sim.push_command(out, command)
+				queued := queue_peek(&driver.commands[local])
+				if queued == nil || queued.gen > driver.local_seen[local] do break // (the player it is for is not in yet)
+				sent, _ := queue_pop(&driver.commands[local])
+				if sent.gen == driver.local_seen[local] do sim.push_command(out, sent.command) // else a gone player's
 			}
 		},
 		frame = proc(user: rawptr, simulation: ^sim.Sim(G), info: netcode.Frame_Info) {
@@ -1337,6 +1430,10 @@ publish_frame :: proc(
 	out.published = driver.published
 	out.tick = info.tick
 	out.verified = info.verified
+	// the main thread took the last Frame: what it hasn't seen starts with this fill (else it also missed the last one's)
+	if sync.atomic_load(&driver.frames.latest) & FRESH == 0 do driver.resim_low = max(u32)
+	driver.resim_low = min(driver.resim_low, info.resim_from)
+	out.resim_from = driver.resim_low
 	out.time = sim.game_time(current, info.tick)
 	out.time_prev = out.time
 	if info.tick > 0 {
@@ -1382,7 +1479,7 @@ publish_frame :: proc(
 	if client != nil && driver.sampler != nil do verified_sampler_fill(driver.sampler, out, info)
 	triple_publish(&driver.frames)
 	fill_stats_add(&driver.fill, time.tick_since(started))
-	if sync.atomic_load(&want_state) {
+	if sync.atomic_load(&driver.want_state) {
 		pair := triple_back(&driver.states)
 		pair.tick = info.tick
 		// A State is assigned on its own, never in a multiple assignment (`a, b = x, state^`): that copies it as one
@@ -1448,12 +1545,46 @@ make_frame :: proc(
 	return
 }
 
-// Runs the game's fill_frame on a Frame, marked for the watchdog (a fill that never returns is a freeze).
+// Runs the game's fill_frame on a Frame, marked for the watchdog (a fill that never returns is a freeze). Dev UI
+// builds check, every FILL_CHECK_EVERY fills, that it left the state and the Setup as they were: its state is the
+// rollback ring's (or the sim's own), which a re-simulation restores from, so a fill that writes it desyncs online and
+// nowhere else. Reported once, with the tick (Message.Problem); the world is the fill's to query only, and no hash
+// covers it.
 @(private)
 run_fill :: proc(driver: ^Driver($G, $View, $MultiView), frame: ^Frame(G, View, MultiView)) {
+	when DEVUI {
+		driver.fills += 1
+		check := !driver.fill_wrote && driver.fills % FILL_CHECK_EVERY == 0
+		before: u64
+		if check do before = fill_hash(frame)
+	}
 	sync.atomic_store(&driver.in_fill, true)
 	driver.glue.fill_frame(frame)
 	sync.atomic_store(&driver.in_fill, false)
+	when DEVUI {
+		if check && before != fill_hash(frame) {
+			driver.fill_wrote = true
+			post_text(
+				driver,
+				.Problem,
+				fmt.tprintf(
+					"unified: fill_frame wrote the state (tick %d): it reads the state, never changes it",
+					frame.tick,
+				),
+			)
+		}
+	}
+}
+
+// How often a dev UI build checks that fill_frame left the state as it was (run_fill): a hash of the State costs
+// tens of microseconds for a big one, too much for every fill.
+@(private)
+FILL_CHECK_EVERY :: 8
+
+// The bytes a fill must leave as they are (run_fill): its State's and its Setup's, hashed.
+@(private)
+fill_hash :: proc(frame: ^Frame($G, $View, $MultiView)) -> u64 {
+	return sim.hash_bytes(sim.bytes_of(frame.state)) ~ sim.hash_bytes(sim.bytes_of(frame.setup))
 }
 
 // Appear-on-verified (netcode's verified_state hook, while some kind asks for it): the sim stands on the newest
@@ -1492,15 +1623,14 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 	context.allocator = driver.alloc // (the temp allocator stays this thread's own)
 	set_realtime_thread(driver.game.tick_hz)
 	session_power_begin()
-	sync.atomic_store(&pause_on, false) // a session starts unpaused, whatever the last one asked
-	sync.atomic_store(&pause_want, false)
-	sync.atomic_store(&step_taken, sync.atomic_load(&step_req)) // a step asked of an earlier session is over
 	if !driver_open(driver) {
 		driver_close(driver)
 		session_power_end() // before finished: the next session's thread may begin its own right after
 		sync.atomic_store(&driver.finished, true)
 		return
 	}
+	// Start.hold: no step until the frame that started the session is over (a pause asked in it holds from tick 0)
+	for !sync.atomic_load(&driver.released) && !sync.atomic_load(&driver.stop_req) do time.sleep(time.Millisecond)
 	watchdog_start(driver)
 	for {
 		runtime.DEFAULT_TEMP_ALLOCATOR_TEMP_GUARD() // this thread's temp data lives one iteration
@@ -1537,18 +1667,21 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 		wake: i64
 		if driver.host != nil {
 			// the single-player pause: refused (stays off) once the session has a remote link
-			if want := sync.atomic_load(&pause_want); want != driver.host.paused {
+			// a pause asked before the session's clock started (Start.paused) waits for it: the first steps only seat
+			// the host's own player, and a host paused before them could never step (netcode.host_advance)
+			if want := sync.atomic_load(&driver.pause_want);
+			   want != driver.host.paused && (!want || driver.client.started) {
 				netcode.host_set_paused(driver.host, want && !driver.stopping, now)
 			}
-			sync.atomic_store(&pause_on, driver.host.paused)
+			sync.atomic_store(&driver.pause_on, driver.host.paused)
 		}
 		sync.atomic_add(&driver.step_seq, 1) // odd: in a step (the watchdog)
 		if driver.host != nil {
-			if asked := sync.atomic_load(&step_req); asked != sync.atomic_load(&step_taken) {
+			if asked := sync.atomic_load(&driver.step_req); asked != sync.atomic_load(&driver.step_taken) {
 				// the control socket's step: exact ticks of a paused session (none when it is not paused)
-				netcode.host_advance(driver.host, asked - sync.atomic_load(&step_taken))
-				sync.atomic_store(&step_tick, driver.host.client.predicted)
-				sync.atomic_store(&step_taken, asked)
+				netcode.host_advance(driver.host, asked - sync.atomic_load(&driver.step_taken))
+				sync.atomic_store(&driver.step_tick, driver.host.client.predicted)
+				sync.atomic_store(&driver.step_taken, asked)
 			}
 			wake = netcode.host_step(driver.host, now)
 		} else {
@@ -1588,6 +1721,7 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 	watchdog_end(driver)
 	driver_close(driver)
 	session_power_end()
+	netcode.sleep_end() // this thread's sleep timer: the thread ends
 	sync.atomic_store(&driver.finished, true)
 }
 
@@ -1610,10 +1744,10 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 	client_config := netcode.Client_Config(G) {
 		player_name = request.name,
 		profile     = (^Profile)(&request.profile)^,
-		slot        = request.slot, // -1: any (a scripted joiner's --slot)
 		token       = request.token,
 		dev         = DEVUI,
 	}
+	client_config.slot = request.slot // nil: any (a scripted joiner's --slot)
 	switch request.mode {
 	case .Single:
 		if request.bench > 0 && game.bench_prepare != nil {
@@ -1623,7 +1757,7 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 			driver.bench.init = proc(t: ^sim.Tick(G)) {
 				game := (^G)(g_game)
 				if game.init != nil do game.init(t)
-				game.bench_prepare(t.state, t.world, g_bench_count)
+				game.bench_prepare(t, g_bench_count)
 			}
 			driver.host = netcode.host_create(&driver.bench, host_config, hooks)
 		} else {
@@ -1747,8 +1881,7 @@ lobby_failed :: proc(driver: ^Driver($G, $View, $MultiView), reason, fallback: s
 
 @(private)
 driver_close :: proc(driver: ^Driver($G, $View, $MultiView)) {
-	sync.atomic_store(&pause_on, false)
-	sync.atomic_store(&pause_want, false)
+	sync.atomic_store(&driver.pause_on, false) // an ended session is not paused
 	replay_close(driver)
 	if driver.host != nil {
 		netcode.host_destroy(driver.host)

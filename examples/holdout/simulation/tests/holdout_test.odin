@@ -207,6 +207,31 @@ use_revives_a_downed_teammate :: proc(t: ^testing.T) {
 	scenarios.expect_synced(t, &run)
 }
 
+// A helper between two downed teammates exactly as far away revives the one in the lower slot.
+@(test)
+a_revive_tie_goes_to_the_lower_slot :: proc(t: ^testing.T) {
+	run := headless.run_begin(&g.GAME, 3, seated = 3)
+	defer headless.run_end(&run)
+	for _ in 0 ..< 4 do headless.run_step(&run)
+	simulation := run.simulation
+	phys := simulation.world.phys
+	helper := sim.slot_data(simulation, 0)
+	y := physics.body_position(phys, helper.controller.body).y
+	physics.character_teleport(phys, &helper.controller, {0, y, 5})
+	for slot in 1 ..= 2 {
+		down := sim.slot_data(simulation, slot)
+		down.downed, down.hp = true, 0 // no respawn timer running: down until revived
+		physics.character_teleport(phys, &down.controller, {slot == 1 ? 1 : -1, y, 5})
+	}
+	headless.run_pin(&run)
+	inputs: [g.PLAYERS]g.Input
+	inputs[0].buttons = {.Use}
+	for _ in 0 ..< int(g.REVIVE_S * g.TICK_HZ) do headless.run_step(&run, inputs)
+	testing.expect(t, !sim.slot_data(simulation, 1).downed, "the lower slot is up")
+	testing.expect(t, sim.slot_data(simulation, 2).downed, "the other still down")
+	scenarios.expect_synced(t, &run)
+}
+
 // A player who falls out of the yard goes down; no one revives them, so RESPAWN_S later they get up at their spawn
 // with PLAYER_HP.
 @(test)

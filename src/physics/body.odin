@@ -437,10 +437,20 @@ body_tag :: proc(world: ^World, ref: Body_Ref) -> u64 {
 	return tag_of(world, ref.index1)
 }
 
-// Retags a body.
-body_set_tag :: proc(world: ^World, ref: Body_Ref, tag: u64) {
-	if int(ref.index1) > len(world.bodies) do resize(&world.bodies, int(ref.index1))
-	world.bodies[ref.index1 - 1].tag = tag
+// Retags a body. A zero ref or one whose body is gone asserts (a tag in a dead entry would make every later image of
+// this world fail to load at a joiner).
+body_set_tag :: proc(world: ^World, ref: Body_Ref, tag: u64, loc := #caller_location) {
+	assert(ref.index1 != 0, "physics: a zero Body_Ref (no body)", loc)
+	index := int(ref.index1) - 1
+	assert(
+		index >= 0 &&
+		index < len(world.bodies) &&
+		.Alive in world.bodies[index].flags &&
+		world.bodies[index].generation == ref.generation,
+		"physics: body_set_tag of a body that is gone",
+		loc,
+	)
+	world.bodies[index].tag = tag
 }
 
 // Records a body physics made (every body is made through physics: create_body, the character, the level).

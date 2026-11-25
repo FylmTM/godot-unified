@@ -70,7 +70,6 @@ hurt_player :: proc(t: ^Tick, player: sim.Player, damage: i16) {
 	data := sim.player_data(t, player)
 	if data.downed || damage <= 0 do return
 	data.hp = dmath.max(data.hp - damage, 0)
-	data.hurt_at = t.time
 	sim.emit(t, Event_Player_Hurt{player = player, damage = damage})
 	if data.hp > 0 do return
 	data.downed = true
@@ -88,12 +87,13 @@ revive_players :: proc(t: ^Tick) {
 		if helper_data.downed || .Use not_in sim.buttons(t, helper).down do continue
 		at := player_center(t, helper)
 		best: sim.Player
-		best_distance := REVIVE_RANGE * REVIVE_RANGE
+		best_distance: f32
 		downed := sim.iterate_present(t)
 		for data, player in sim.next(&downed) {
 			if !data.downed do continue
 			distance := dmath.dist_sq3(player_center(t, player), at)
-			if distance <= best_distance do best, best_distance = player, distance
+			if distance > REVIVE_RANGE * REVIVE_RANGE || (best != {} && distance >= best_distance) do continue
+			best, best_distance = player, distance
 		}
 		if best == {} do continue
 		slot := sim.player_slot(t, best)

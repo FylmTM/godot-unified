@@ -26,7 +26,6 @@ spawn_enemy :: proc(state: ^State, world: ^World, kind: Enemy_Kind, near: [3]f32
 	if poly == nav.NO_POLY do return false
 	enemy, handle := sim.spawn(&state.enemies) or_return
 	spec := &ENEMY_SPECS[kind]
-	warp := enemy.warp + 1
 	facing := dmath.normalize((world.core - at).xz)
 	enemy^ = {
 		pos    = at,
@@ -34,7 +33,6 @@ spawn_enemy :: proc(state: ^State, world: ^World, kind: Enemy_Kind, near: [3]f32
 		poly   = poly,
 		hp     = spec.hp,
 		kind   = kind,
-		warp   = warp,
 	}
 	def := physics.body_def(.Kinematic, at, dmath.quat_yaw(facing))
 	enemy.body = physics.create_body(world.phys, def, sim.handle_key(handle))
@@ -48,14 +46,14 @@ spawn_enemy :: proc(state: ^State, world: ^World, kind: Enemy_Kind, near: [3]f32
 
 // The standard benchmark's population (Game.bench_prepare, `uni bench`): the last wave under way with `count` enemies
 // of every kind spread over the mesh polygons that lead to the core, and a core that doesn't fall during the run.
-bench_prepare :: proc(state: ^State, world: ^World, count: int) {
-	state.phase, state.wave, state.core_hp = .Wave, WAVES, max(i32) / 2
-	field := nav.field(&world.fields, world.core_poly)
+bench_prepare :: proc(t: ^Tick, count: int) {
+	t.state.phase, t.state.wave, t.state.core_hp = .Wave, WAVES, max(i32) / 2
+	field := nav.field(&t.world.fields, t.world.core_poly)
 	rng := sim.rng_seed(u64(count))
 	for i in 0 ..< count {
-		poly := int(sim.rng_below(&rng, u32(nav.poly_count(&world.mesh))))
+		poly := int(sim.rng_below(&rng, u32(nav.poly_count(&t.world.mesh))))
 		if field.cost[poly] >= nav.UNREACHABLE do continue
-		spawn_enemy(state, world, Enemy_Kind(i % len(Enemy_Kind)), world.mesh.centers[poly])
+		spawn_enemy(t.state, t.world, Enemy_Kind(i % len(Enemy_Kind)), t.world.mesh.centers[poly])
 	}
 }
 
@@ -224,7 +222,6 @@ damage_enemy :: proc(
 	enemy := sim.get(&t.state.enemies, handle)
 	if enemy == nil do return
 	enemy.hp -= damage
-	enemy.hit_at = t.time
 	sim.emit(t, Event_Enemy_Hit{at = sim.Position(at), enemy = handle, damage = damage, headshot = headshot})
 	if enemy.hp > 0 do return
 	sim.emit(t, Event_Enemy_Died{at = sim.Position(enemy.pos), enemy = enemy.kind, killer = killer})
