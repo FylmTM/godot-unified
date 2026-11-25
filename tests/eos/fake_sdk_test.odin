@@ -573,6 +573,11 @@ session_state_machine :: proc(t: ^testing.T) {
 		delete(fake.last_version, heap)
 		fake = {}
 	}
+	// Before EOS starts, the lobby's availability is the SDK library and the credentials: none in this folder.
+	@(static) no_sdk := [1]string{#directory}
+	service := eos.lobby({lib_dirs = no_sdk[:]})
+	available, why := service.available()
+	testing.expect(t, !available && strings.contains(why, "EOS SDK"), why)
 	// Two sessions, each on a thread that exits before the next starts.
 	runs := [2]Host_Run{{t = t, init = true}, {t = t}}
 	for &run in runs {
@@ -587,6 +592,9 @@ session_state_machine :: proc(t: ^testing.T) {
 		testing.expect_value(t, fake.last_version, BUILD.version)
 	}
 	testing.expect(t, runs[0].code != runs[1].code, "a new code per session")
+	running, _ := service.available()
+	testing.expect(t, running, "a running EOS is available")
+	_ = eos.lobby({})
 	for run in runs do delete(run.code, heap) // cloned on the session threads
 	testing.expect_value(t, fake.initialized, 1)
 	testing.expect_value(t, fake.product_version, "1.2.3")

@@ -225,6 +225,12 @@ register_session_class :: proc() {
 		class_name = "UnifiedSession.Mode",
 		doc = "How the session started last began (single player, hosting or joining), whoever started it: a script, the menus or the command line's flags. Read it once [member status] leaves STATUS_IDLE.",
 	)
+	gd.bind_property(class, "online_problem", proc(session: ^Session_Node) -> string {
+			if lobby == nil do return "Online play is not available in this build."
+			if lobby.available == nil do return ""
+			ok, why := lobby.available()
+			return ok ? "" : why
+		}, doc = "Why online play ([method host_online], [method join_online]) can't start on this machine, a sentence for the player (\"\": it can): no lobby service in this build, or the service's library or credentials missing. Read before offering online play, so a menu greys the button and says why instead of failing after a click. It doesn't start the service.")
 	gd.bind_property(
 		class,
 		"join_code",

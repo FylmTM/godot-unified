@@ -259,6 +259,10 @@ Lobby :: struct {
 	shutdown:   proc(),
 	// Optional: the local user's platform account once open_host succeeded (the host's own player's).
 	account:    proc() -> (Account, bool),
+	// Optional, main thread: whether open_host and open_join can work on this machine at all (the service's library
+	// and credentials are there), without starting the service, and why not, a sentence for a player: a menu greys
+	// its online buttons instead of failing after a click. Nil: assumed so.
+	available:  proc() -> (ok: bool, why: string),
 }
 
 // What keeps builds apart in a lobby service: lobbies are found per game, and a joiner on another build is told so

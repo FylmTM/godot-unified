@@ -2,6 +2,9 @@
 // binary (modes.run) alike (src/eos/README.md).
 package eos
 
+import "core:os"
+import "core:path/filepath"
+
 import "unified:netcode"
 
 // How eos.lobby starts EOS: where the SDK is, the relay policy, and the headless tools' keychain options.
@@ -45,6 +48,29 @@ LOBBY := netcode.Lobby {
 		shutdown()
 	},
 	account = local_account,
+	available = lobby_available,
+}
+
+// Lobby.available: the SDK library in one of the directories init looks in, and the product's credentials (compiled
+// in, or UNIFIED_EOS_* in the environment or .env); a running EOS is available.
+@(private)
+lobby_available :: proc() -> (ok: bool, why: string) {
+	if status().stage != .Off do return true, ""
+	dirs := lobby_config.lib_dirs
+	if len(dirs) == 0 do dirs = default_lib_dirs()
+	found := false
+	for dir in dirs {
+		path, _ := filepath.join({dir, LIB_NAME}, context.temp_allocator)
+		if os.exists(path) {
+			found = true
+			break
+		}
+	}
+	if !found do return false, "Online play needs the EOS SDK, which this copy of the game doesn't have."
+	if !credentials_complete(credentials_load(context.temp_allocator)) {
+		return false, "Online play isn't set up in this build (no EOS product credentials)."
+	}
+	return true, ""
 }
 
 // Starts EOS for the game on first use (false: unavailable, status says why).

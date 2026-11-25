@@ -416,6 +416,8 @@ func _newest_recording(to_tick: int) -> String:
 
 # 11. the same failed start twice: each one's FAILED reaches the game
 func _failed_twice() -> bool:
+	# the menus could have known: this build passes no lobby, and online_problem says so before any start
+	check("online_problem says why online can't start", s.online_problem.contains("not available"), s.online_problem)
 	for attempt: int in 2:
 		_statuses.clear()
 		s.join_online("ZZZZZZ")  # this test build has no online play: the start fails at once
