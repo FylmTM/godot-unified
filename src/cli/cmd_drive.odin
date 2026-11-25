@@ -289,9 +289,10 @@ instance_alive :: proc(game: Game, instance: Drive_Instance) -> bool {
 	return process_runs(instance.pid, join(drive_dir(game), aprintf("%s.port", instance.name)))
 }
 
-// Whether the process with this pid runs and is the one started with `marker` on its command line (an argument only
-// that process has, such as the drive instance's --control port file). A command line the OS doesn't give us counts
-// as a match: the pid is all there is to go on.
+// Whether the process with this pid runs and is the one started with `marker` among its arguments (one only that
+// process has, such as the drive instance's --control port file). Arguments the OS doesn't give us count as a match:
+// the pid is all there is to go on. (The arguments, not the command line: core:os reads a Windows command line
+// at twice its length, and the text it makes of it can come back empty.)
 process_runs :: proc(pid: int, marker: string) -> bool {
 	if pid <= 0 do return false
 	process, err := os.process_open(pid)
@@ -299,9 +300,12 @@ process_runs :: proc(pid: int, marker: string) -> bool {
 	state, wait_err := os.process_wait(process, 0)
 	running := wait_err == .Timeout || wait_err == nil && !state.exited // Timeout: still running
 	if !running do return false
-	info, info_err := os.process_info_by_pid(pid, {.Command_Line}, context.temp_allocator)
-	if info_err != nil || .Command_Line not_in info.fields do return true
-	return strings.contains(slashed(info.command_line), slashed(marker))
+	info, info_err := os.process_info_by_pid(pid, {.Command_Args}, context.temp_allocator)
+	if info_err != nil || .Command_Args not_in info.fields do return true
+	for arg in info.command_args {
+		if strings.contains(slashed(arg), slashed(marker)) do return true
+	}
+	return false
 }
 
 // Launches the game with its control socket (a window as AGENT_WINDOW places it, or headless) and waits until it

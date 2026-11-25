@@ -66,8 +66,8 @@ no_process_starts_outside_spawn :: proc(t: ^testing.T) {
 a_reused_pid_is_not_the_instance :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator
 	pid := os.get_pid()
-	info, err := os.process_info_by_pid(pid, {.Command_Line}, context.temp_allocator)
-	testing.expect(t, err == nil && .Command_Line in info.fields, "the OS gives this process's command line")
+	info, err := os.process_info_by_pid(pid, {.Command_Args}, context.temp_allocator)
+	testing.expect(t, err == nil && .Command_Args in info.fields, "the OS gives this process's arguments")
 	testing.expect(t, !cli.process_runs(pid, "/elsewhere/.out/drive/1.port"), "another instance's port file")
 	testing.expect(t, cli.process_runs(pid, os.args[0]), "its own command line")
 	testing.expect(t, !cli.process_runs(0, os.args[0]), "no pid")
