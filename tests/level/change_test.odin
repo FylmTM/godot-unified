@@ -473,8 +473,7 @@ a_crafted_snapshot_is_refused_by_from_snapshot :: proc(t: ^testing.T) {
 			}
 		}
 		(^u32le)(&crafted[image_len_at])^ = u32le(image_len + extra_entries * size_of(physics.Body_Entry))
-		digest := transmute([8]u8)u64le(sim.hash_bytes(crafted[sim.SNAP_HEADER:]))
-		copy(crafted[sim.SNAP_HEADER - 8:], digest[:])
+		sim.snapshot_seal(crafted[:])
 		joiner, err := sim.from_snapshot(&PIT, crafted[:])
 		testing.expectf(t, joiner == nil && err == .Extra_Rejected, "ghost ref %v: %v", ghost_ref, err)
 		if joiner != nil do sim.destroy(joiner)

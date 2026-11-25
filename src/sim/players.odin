@@ -30,14 +30,18 @@ Member :: struct {
 // entry of the longest-absent member, whose handles go stale and who is new if they come back. `before` is each slot's
 // Input of the tick before (input_before: presses are the difference), kept in the state so a rollback, a snapshot and
 // a replay carry it. `profile` is each member's Profile, the one its last join brought (player_profile; zero bytes for
-// sim.No_Profile). The pads keep `before`, `profile` and `data` 8-aligned.
+// sim.No_Profile). The pads keep `before`, `profile` and `data` 8-aligned and the size a multiple of 8, so a Players is
+// padding-free for any T, Profile and Input of alignment up to 8 (a 16-aligned one, a u128, does not compile).
 Players :: struct(
 	$T: typeid,
 	$Profile: typeid,
 	$Input: typeid,
 	$PLAYERS: int,
 ) where PLAYERS >= 1 &&
-	PLAYERS <= MAX_PLAYERS {
+	PLAYERS <= MAX_PLAYERS &&
+	align_of(T) <= 8 &&
+	align_of(Profile) <= 8 &&
+	align_of(Input) <= 8 {
 	members: [PLAYERS * MEMBERS_PER_SLOT]Member,
 	slots:   [PLAYERS]Player, // who holds each slot (Player{}: nobody)
 	_pad:    [PLAYERS % 2 * 4]u8,
@@ -46,6 +50,7 @@ Players :: struct(
 	profile: [PLAYERS * MEMBERS_PER_SLOT]Profile, // by member index: what its last join brought
 	_pad3:   [(8 - PLAYERS * MEMBERS_PER_SLOT * size_of(Profile) % 8) % 8]u8,
 	data:    [PLAYERS * MEMBERS_PER_SLOT]T, // the game's per-player struct, by member index: zeroed for a new member
+	_pad4:   [(8 - PLAYERS * MEMBERS_PER_SLOT * size_of(T) % 8) % 8]u8,
 }
 
 MEMBERS_PER_SLOT :: 2 // how many people a session remembers per slot (Players.members)

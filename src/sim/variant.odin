@@ -336,22 +336,7 @@ wire_compile :: proc(check: ^Wire_Check, type: ^runtime.Type_Info, offset: int) 
 	case runtime.Type_Info_Boolean:
 		for i in 0 ..< type.size do check.allowed[offset + i] = 1 if i == 0 else 0 // little-endian: the low byte holds 1
 	case runtime.Type_Info_Enum:
-		field := Wire_Enum {
-			offset = offset,
-			base   = info.base,
-			info   = info,
-			low    = max(i64),
-			high   = min(i64),
-		}
-		for value in info.values {
-			if i64(value) < field.low do field.low = i64(value)
-			if i64(value) > field.high do field.high = i64(value)
-		}
-		field.dense = len(info.values) > 0 && field.high - field.low < 256
-		for value := field.low; field.dense && value <= field.high; value += 1 {
-			field.dense = enum_declares(info, value)
-		}
-		builtin.append(&check.enums, field)
+		builtin.append(&check.enums, wire_enum_of(info, offset))
 	case runtime.Type_Info_Bit_Set:
 		for i in 0 ..< type.size * 8 {
 			if !bit_set_holds(info, info.lower + i64(i)) do check.allowed[offset + i / 8] &~= 1 << uint(i % 8)
@@ -371,6 +356,27 @@ wire_compile :: proc(check: ^Wire_Check, type: ^runtime.Type_Info, offset: int) 
 		}
 		for i in 0 ..< int(info.field_count) do wire_compile(check, info.types[i], offset + int(info.offsets[i]))
 	}
+}
+
+// The Wire_Enum of an enum at `offset`: its declared range, and whether every value in it is declared.
+@(private)
+wire_enum_of :: proc(info: runtime.Type_Info_Enum, offset: int) -> Wire_Enum {
+	field := Wire_Enum {
+		offset = offset,
+		base   = info.base,
+		info   = info,
+		low    = max(i64),
+		high   = min(i64),
+	}
+	for value in info.values {
+		if i64(value) < field.low do field.low = i64(value)
+		if i64(value) > field.high do field.high = i64(value)
+	}
+	field.dense = len(info.values) > 0 && field.high - field.low < 256
+	for value := field.low; field.dense && value <= field.high; value += 1 {
+		field.dense = enum_declares(info, value)
+	}
+	return field
 }
 
 // Whether an Input reads as it was sent: what wire_fix(.Input, apply = false) says when it changes nothing.

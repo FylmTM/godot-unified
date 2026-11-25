@@ -310,7 +310,7 @@ Synctest_Result :: struct {
 	final_checksum: u64, // the last forward tick's
 	first_tick:     u32, // the first mismatching tick (0: none)
 	first_at:       u32, // the tick whose rollback re-simulated it differently
-	check:          string, // the first problem sim.check_extra found after a restore ("": none; temp-allocated)
+	check:          string, // the first problem sim.block_violation or sim.check_extra found after a restore ("": none; temp-allocated)
 	check_tick:     u32, // the tick it was restored to
 	// The first other problem ("": none; temp-allocated): a NaN in the state block after a forward tick (sim.find_nan),
 	// or a re-simulated tick that emitted other events than the first run (counted in `mismatches` too).
@@ -319,8 +319,8 @@ Synctest_Result :: struct {
 }
 
 // A sync-tested run its caller steps: each step is a forward tick and a NaN scan of its block (sim.find_nan), then a
-// restore `window` ticks back (never before a pinned tick), the extra's check (sim.check_extra) and a re-simulation
-// with the recorded inputs, each tick's checksum and events compared with the forward one's. A Dev is attached (a
+// restore `window` ticks back (never before a pinned tick), the block's and the extra's checks (sim.block_violation,
+// sim.check_extra) and a re-simulation with the recorded inputs, each tick's checksum and events compared with the forward one's. A Dev is attached (a
 // dev build): the forward ticks keep no draw group and the re-simulations every one, so state that depends on
 // sim.drawing (or anything a draw does) shows as a mismatch, as a dev UI showing draws would desync. A game test drives it
 // with the game's scripted player (run_scripted) or its own inputs (run_inputs, then run_step), seats and unseats
@@ -503,8 +503,10 @@ run_step_inputs :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
 		run.mismatches += 1
 		return
 	}
-	if reason := sim.check_extra(simulation); reason != "" && run.check == "" {
-		run.check, run.check_tick = reason, from
+	if run.check == "" {
+		reason := sim.block_violation(&simulation.state)
+		if reason == "" do reason = sim.check_extra(simulation)
+		if reason != "" do run.check, run.check_tick = reason, from
 	}
 	sim.dev_enable(simulation, max(u64))
 	defer sim.dev_enable(simulation, 0)

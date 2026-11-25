@@ -165,8 +165,11 @@ check_wire :: proc($T: typeid) {
 	}
 }
 
-// XXH3 of the type's layout (field names, types, offsets and sizes, recursively). Snapshots carry
-// it, so bytes from a build with another state layout are rejected instead of misread.
+// XXH3 of the type's layout, recursively: each struct's field names, offsets and size, each array's length, each
+// enum's members with their values (an enumerated array's index enum and a bit_set's element enum too), each
+// bit_set's range and each leaf's type; not the names of named types, so renaming one keeps the hash. Snapshots carry
+// it, so bytes from a build with another state layout are rejected instead of misread, and compat_of covers it, so a
+// build that added a button to a bit_set or renumbered an enum refuses the old one at hello.
 layout_hash :: proc($T: typeid) -> u64 {
 	return layout_hash_of(type_info_of(T))
 }
@@ -179,6 +182,7 @@ layout_hash_of :: proc(type: ^runtime.Type_Info) -> u64 {
 	return hash_bytes(builder.buf[:])
 }
 
+// The text layout_hash hashes.
 @(private)
 layout_text :: proc(builder: ^strings.Builder, type: ^runtime.Type_Info) {
 	#partial switch variant in type.variant {
@@ -196,8 +200,24 @@ layout_text :: proc(builder: ^strings.Builder, type: ^runtime.Type_Info) {
 		fmt.sbprintf(builder, "[%d]", variant.count)
 		layout_text(builder, variant.elem)
 	case runtime.Type_Info_Enumerated_Array:
-		fmt.sbprintf(builder, "[%d]", variant.count)
+		fmt.sbprintf(builder, "[%d;", variant.count)
+		layout_text(builder, variant.index)
+		strings.write_byte(builder, ']')
 		layout_text(builder, variant.elem)
+	case runtime.Type_Info_Enum:
+		strings.write_string(builder, "enum ")
+		layout_text(builder, variant.base)
+		strings.write_byte(builder, '{')
+		for name, i in variant.names {
+			fmt.sbprintf(builder, "%s=%d,", name, i64(variant.values[i]))
+		}
+		strings.write_byte(builder, '}')
+	case runtime.Type_Info_Bit_Set:
+		fmt.sbprintf(builder, "bit_set[%d..=%d;", variant.lower, variant.upper)
+		if variant.underlying != nil do layout_text(builder, variant.underlying)
+		strings.write_byte(builder, ';')
+		layout_text(builder, variant.elem)
+		strings.write_byte(builder, ']')
 	case:
 		fmt.sbprintf(builder, "%v", type.id)
 	}

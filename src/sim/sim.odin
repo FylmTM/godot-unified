@@ -35,7 +35,7 @@ MAX_PLAYERS :: 32
 // run or a golden trace compute differently because of the library, not a game's rules (the library-sim-change skill). Part of
 // compat_of, so builds on other library versions refuse each other instead of desyncing; a game's own changes bump
 // its Game.version.
-LIBRARY_VERSION :: 1
+LIBRARY_VERSION :: 2
 
 // The library's part of a build's identity (compat_of): its sim version and the unified-box3d pin.
 Library :: struct {
@@ -220,6 +220,12 @@ Game :: struct(
 	// given another (a menu's, the headless `--setup`). Zero unless set; a variant of the game is a copy of the
 	// descriptor with another Setup. It must read as sent (game_violation).
 	setup:                 Setup,
+	// Optional: why a Setup that reads as sent can't be a session of this game ("" when it can), in the game's words:
+	// a range the type can't say (a saved floor past the map, a format version this build can't continue). Called by
+	// setup_violation after its own checks, so create, from_json, a client, a log and a snapshot refuse such a Setup
+	// as they refuse one that doesn't read. Pure: it reads the Setup alone (every peer must agree), and returns a
+	// constant or temp-allocated string.
+	setup_check:           proc(setup: ^Setup) -> string,
 
 	// Optional: the World for a session with this seed and Setup, given the game's levels (Game.levels): physics
 	// world, every level parsed and built, scratch buffers. The levels outlive the World. nil: a zeroed World (a game
@@ -400,11 +406,13 @@ hash_bytes :: proc(bytes: []u8) -> u64 {
 	return xxhash.XXH3_64_default(bytes)
 }
 
-// The game build's identity for netcode (Hello's compat): the state, input, inputs and Setup layouts (the Profile's
-// is in the State's and the inputs'), the command and event types, the player count, the tick rate, the game's name (each variant, e.g. a
-// tuning, has its own) and version, the library's (LIBRARY_VERSION) and the unified-box3d pin (box3d_pin):
-// `library` overrides those two, and the dev bit (tests: another build's compat; zero fields: this build's). Two builds with the same value run
-// the same simulation, as far as the build can tell. Every level's hash goes in too (content_hash), so peers with
+// The game build's identity for netcode (Hello's compat): the state, input, inputs and Setup layouts (layout_hash:
+// fields and offsets, enum members and their values, bit_set elements; the Profile's is in the State's and the
+// inputs'), the command and event types (each variant's layout_hash), the player count, the tick rate, the game's
+// name (each variant, e.g. a tuning, has its own) and version, the library's (LIBRARY_VERSION) and the unified-box3d
+// pin (box3d_pin): `library` overrides those two, and the dev bit (tests: another build's compat; zero fields: this
+// build's). Two builds with the same value run the same simulation, as far as the build can tell: a rule or tuning
+// change that no layout shows is Game.version's to tell. Every level's hash goes in too (content_hash), so peers with
 // different levels refuse to play together, and nothing is checked when a session changes level.
 compat_of :: proc(game: ^$G, library := Library{}) -> u64 where intrinsics.type_is_specialization_of(G, Game) {
 	return compat_with(game, layout_hash(part(G, GAME_STATE)), library)
@@ -558,15 +566,18 @@ bench_violation :: proc(name: string, tick_hz: int, before: []Bench, bench: Benc
 
 // Why a Setup can't be a session's ("" when it can; temp-allocated): it does not read as sent, as every peer reads
 // bytes from another machine (src/sim/README.md, Bytes from another machine): an enum outside its declared values, a
-// float that is not finite, a bool byte other than 0 or 1, a bit_set bit of no element. Such a Setup is refused
-// everywhere (create panics; a client, a log and a snapshot refuse it), never zeroed: a zeroed Setup would play
-// another session than the host's.
+// float that is not finite, a bool byte other than 0 or 1, a bit_set bit of no element; or the game's own check
+// refuses it (Game.setup_check). Such a Setup is refused everywhere (create panics; from_json, a client, a log and a
+// snapshot refuse it), never zeroed: a zeroed Setup would play another session than the host's.
 setup_violation :: proc(
 	game: ^$G,
 	setup: ^$S,
 ) -> string where intrinsics.type_is_specialization_of(G, Game) &&
 	S == part(G, GAME_SETUP) {
-	return choice_reads(setup, type_info_of(S))
+	if reason := choice_reads(setup, type_info_of(S)); reason != "" do return reason
+	if game.setup_check == nil do return ""
+	if reason := game.setup_check(setup); reason != "" do return fmt.tprintf("is refused by the game: %s", reason)
+	return ""
 }
 
 // game_violation's Setup and Profile part, for the types at run time (a non-generic home for its imports: -vet).
@@ -688,8 +699,6 @@ create_with_setup :: proc(
 	setup: $S,
 ) -> ^Sim(G) where intrinsics.type_is_specialization_of(G, Game) &&
 	S == part(G, GAME_SETUP) {
-	State :: part(G, GAME_STATE)
-	Input :: part(G, GAME_INPUT)
 	if reason := game_violation(game); reason != "" {
 		panic(reason)
 	}
@@ -697,13 +706,34 @@ create_with_setup :: proc(
 	if reason := setup_violation(game, &checked); reason != "" {
 		panic(fmt.tprintf("%s: the session's Setup %s", game.name, reason))
 	}
+	layout := layout_hash(part(G, GAME_STATE))
+	return create_checked(game, seed, setup, {content_hash(game.levels), layout, compat_with(game, layout, {})})
+}
+
+// What identifies a game build's sims (Sim.content_hash, layout, compat), worked out once by create or from_snapshot.
+@(private)
+Sim_Identity :: struct {
+	content, layout, compat: u64,
+}
+
+// create's body once the game and the Setup are checked (game_violation, setup_violation) and its identity known.
+@(private)
+create_checked :: proc(
+	game: ^$G,
+	seed: u64,
+	setup: $S,
+	identity: Sim_Identity,
+) -> ^Sim(G) where intrinsics.type_is_specialization_of(G, Game) &&
+	S == part(G, GAME_SETUP) {
+	State :: part(G, GAME_STATE)
+	Input :: part(G, GAME_INPUT)
 	simulation := new(Sim(G))
 	simulation.game = game
 	simulation.seed = seed
 	simulation.setup = setup
-	simulation.content_hash = content_hash(game.levels)
-	simulation.layout = layout_hash(State)
-	simulation.compat = compat_with(game, simulation.layout, {})
+	simulation.content_hash = identity.content
+	simulation.layout = identity.layout
+	simulation.compat = identity.compat
 	simulation.dev_commands = DEV
 	simulation.input_check = wire_check_make(type_info_of(Input))
 	simulation.ring = make([]Ring_Slot(State), ring_size(game.tick_hz))
