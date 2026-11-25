@@ -233,6 +233,22 @@ register_session_class :: proc() {
 		}, doc = "Why online play ([method host_online], [method join_online]) can't start on this machine, a sentence for the player (\"\": it can): no lobby service in this build, or the service's library or credentials missing. Read before offering online play, so a menu greys the button and says why instead of failing after a click. It doesn't start the service.")
 	gd.bind_property(
 		class,
+		"join_code_alphabet",
+		proc(session: ^Session_Node) -> string {return lobby != nil ? lobby.code_alphabet : ""},
+		doc = "The characters an online join code is made of (the lobby service's; \"\": no lobby in this build): a code field's cells, what typing accepts, a pad's up and down.",
+	)
+	gd.bind_property(
+		class,
+		"join_code_length",
+		proc(session: ^Session_Node) -> i64 {return lobby != nil ? i64(lobby.code_length) : 0},
+		doc = "How many characters an online join code has (0: no lobby in this build).",
+	)
+	gd.bind_method(class, "clean_join_code", proc(session: ^Session_Node, text: string) -> string {
+			if lobby == nil || lobby.code_clean == nil do return ""
+			return lobby.code_clean(text)
+		}, {"text"}, doc = "What a player typed or pasted as an online join code, cleaned as [method join_online] reads it (any case, spaces and dashes dropped): the code, or \"\" when it isn't one.")
+	gd.bind_property(
+		class,
 		"join_code",
 		proc(session: ^Session_Node) -> string {return session.join_code},
 		doc = "What others join this session with, once the host knows it (\"\": none, or not hosting): online, the lobby code ([method join_online]); hosting direct, this machine's private IPv4 address and the port ([method join_direct], 127.0.0.1 when it has none). [signal join_code_changed] says when it changes.",

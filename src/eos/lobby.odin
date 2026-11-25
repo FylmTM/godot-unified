@@ -4,6 +4,7 @@ package eos
 
 import "core:os"
 import "core:path/filepath"
+import "core:strings"
 
 import "unified:netcode"
 
@@ -49,6 +50,12 @@ LOBBY := netcode.Lobby {
 	},
 	account = local_account,
 	available = lobby_available,
+	code_alphabet = CODE_ALPHABET,
+	code_length = CODE_LEN,
+	code_clean = proc(text: string) -> string {
+		code, ok := code_parse(text)
+		return ok ? strings.clone(string(code[:]), context.temp_allocator) : ""
+	},
 }
 
 // Lobby.available: the SDK library in one of the directories init looks in, and the product's credentials (compiled

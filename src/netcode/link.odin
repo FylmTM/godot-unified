@@ -241,28 +241,33 @@ loop_close :: proc(data: rawptr) {
 // (godot.init) and a game's headless binary (modes.run's `lobbies`) take one, so a game implements no transport.
 // The service is one per process. Every proc runs on the session thread, except where it says the main thread.
 Lobby :: struct {
-	name:       string, // what the service is called: the headless modes are <name>-host and <name>-client
+	name:          string, // what the service is called: the headless modes are <name>-host and <name>-client
 	// Host: opens a lobby for `build` (the service starts on first use) and returns the link the relay serves
 	// remote players on. The lobby's code comes from pump once it is up. False: pump says why.
-	open_host:  proc(build: Lobby_Build) -> (Link, bool),
+	open_host:     proc(build: Lobby_Build) -> (Link, bool),
 	// Join: finds the lobby of `code` and joins it if its build is ours; the link to the host's relay is usable at
 	// once (packets flow once the service connects). False: pump says why.
-	open_join:  proc(build: Lobby_Build, code: string) -> (Link, bool),
+	open_join:     proc(build: Lobby_Build, code: string) -> (Link, bool),
 	// Ticks the service (call it every iteration of the session loop) and says where it stands.
-	pump:       proc() -> Lobby_Status,
+	pump:          proc() -> Lobby_Status,
 	// The session ended (its links are closed already): leave the lobby, or destroy it (the host).
-	close:      proc(),
+	close:         proc(),
 	// Optional, main thread, every frame (EOS: the macOS main run loop, where the SDK finishes its HTTP).
-	main_frame: proc(),
+	main_frame:    proc(),
 	// Optional, main thread, once at exit after the session is gone: release the service (an SDK left running at
 	// exit can crash in its own threads). It can't be opened again in the process.
-	shutdown:   proc(),
+	shutdown:      proc(),
 	// Optional: the local user's platform account once open_host succeeded (the host's own player's).
-	account:    proc() -> (Account, bool),
+	account:       proc() -> (Account, bool),
 	// Optional, main thread: whether open_host and open_join can work on this machine at all (the service's library
 	// and credentials are there), without starting the service, and why not, a sentence for a player: a menu greys
 	// its online buttons instead of failing after a click. Nil: assumed so.
-	available:  proc() -> (ok: bool, why: string),
+	available:     proc() -> (ok: bool, why: string),
+	// Optional: the join code's format, for a menu's code field: the characters a code is made of, its length, and
+	// what a player typed or pasted cleaned to a code ("": not one; temp-allocated), by the rules open_join reads it.
+	code_alphabet: string,
+	code_length:   int,
+	code_clean:    proc(text: string) -> string,
 }
 
 // What keeps builds apart in a lobby service: lobbies are found per game, and a joiner on another build is told so

@@ -578,6 +578,12 @@ session_state_machine :: proc(t: ^testing.T) {
 	service := eos.lobby({lib_dirs = no_sdk[:]})
 	available, why := service.available()
 	testing.expect(t, !available && strings.contains(why, "EOS SDK"), why)
+	// The join code's format, for a menu's code field: the lobby's own rules.
+	testing.expect_value(t, service.code_alphabet, eos.CODE_ALPHABET)
+	testing.expect_value(t, service.code_length, eos.CODE_LEN)
+	testing.expect_value(t, service.code_clean("ab-cd ef"), "ABCDEF")
+	testing.expect_value(t, service.code_clean("O00000"), "") // look-alikes the alphabet leaves out
+	testing.expect_value(t, service.code_clean("ABCDE"), "") // too short
 	// Two sessions, each on a thread that exits before the next starts.
 	runs := [2]Host_Run{{t = t, init = true}, {t = t}}
 	for &run in runs {
