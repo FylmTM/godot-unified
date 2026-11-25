@@ -1,16 +1,17 @@
-// The survivor's end-to-end suite: the standard scenarios of unified:headless/scenarios on the game with the `stress`
-// tuning (what its headless binary runs), and its reference run. The game's own scenarios are in the other files of
-// this package (scenario_test.odin: explosions, deaths and resets inside rollback windows).
+// survivor's end-to-end suite: the standard scenarios of unified:headless/scenarios (src/headless/README.md) on the
+// game with the `stress` tuning (what its headless binary runs), its replay regressions (the recorded sessions in
+// replays/), unified's determinism lint and the extension's install check. The reference run is in reference_test.odin,
+// the game's own scenarios in the other files of this package (scenario_test.odin: explosions, deaths and resets
+// inside rollback windows).
 package test_survivor
 
 import "core:testing"
+import "unified:godot"
+import "unified:headless/scenarios"
+import "unified:lint"
 
 import ext "../extension"
 import g "../survivor"
-import "unified:godot"
-import "unified:headless/scenarios"
-@(require) import "unified:physics" // the workers check (in the long tier while the game ships one worker)
-@(require) import "unified:sim"
 
 SUITE := scenarios.Suite(g.Game) {
 	game    = &g.GAME_STRESS,
@@ -19,22 +20,9 @@ SUITE := scenarios.Suite(g.Game) {
 	ticks   = scenarios.LONG ? 3600 : 600,
 }
 
-// The reference run (src/headless/README.md, Reference runs).
-REFERENCE :: scenarios.Reference {
-	seed          = 7,
-	players       = 4,
-	ticks         = 3600,
-	snapshot_tick = 1800,
-	checkpoints   = {0xdbb7441146c5206c, 0xe801faf84aa85a5f, 0x9698d942b73f4c0a, 0x99d4caffb727790d},
-	trace         = 0x80c460ce5f1b391c,
-	snapshot      = 0x5d760ee21e82e052,
-	log           = 0x7470600c68dffda1,
-	compat        = 0xef7aa2edcb00909b,
-}
-
 // By default the minimal set, each scenario proving something about this game (the toy's suite proves the
 // library): rollback every tick, players coming and going (presence churn), a bad-network session, a session whose
-// inputs change every tick, a late joiner and the reference run, on short runs.
+// inputs change every tick and a late joiner, on short runs.
 // `uni test --long` adds the other standard scenarios and runs them all at full length.
 @(test)
 rollback_every_tick :: proc(t: ^testing.T) {scenarios.rollback_every_tick(t, &SUITE)}
@@ -58,27 +46,12 @@ a_late_joiner_agrees :: proc(t: ^testing.T) {scenarios.late_join_agrees(
 		3,
 		scenarios.LONG ? 1200 : 300,
 	)}
-
+// Every recorded session in replays/ (one replay folder each, recorded by the game: `GAME`) computes what was blessed,
+// tick by tick; after a meant rules change, `uni test survivor --bless` (src/headless/README.md, Replay regressions).
 @(test)
-the_reference_run_reproduces :: proc(t: ^testing.T) {scenarios.reference_reproduces(t, &g.GAME_STRESS, REFERENCE)}
-
-// Box3D steps the same on any worker count (src/physics/README.md, Capacity): the reference run on the other count too
-// (4, or 1 for a game that ships more; the_reference_run_reproduces runs PHYSICS_WORKERS). In every `uni test --long`,
-// and in every `uni test` once the game ships more than one worker.
-when scenarios.LONG || g.PHYSICS_WORKERS > 1 {
-	OTHER_WORKERS :: 4 when g.PHYSICS_WORKERS == 1 else 1
-
-	@(test)
-	the_reference_run_matches_on_other_workers :: proc(t: ^testing.T) {
-		game := g.GAME_STRESS
-		game.world_create = proc(seed: u64, levels: []sim.Level_File, setup: g.Setup) -> ^g.World {
-			world := g.world_create(seed, levels, setup)
-			physics.world_set_worker_count(world.phys, OTHER_WORKERS)
-			return world
-		}
-		scenarios.reference_reproduces(t, &game, REFERENCE)
-	}
-}
+the_replays_reproduce :: proc(t: ^testing.T) {scenarios.replays_reproduce(t, &g.GAME, #directory + "/replays")}
+@(test)
+determinism_lint :: proc(t: ^testing.T) {lint.check_game(t, #directory + "/..")}
 
 when scenarios.LONG {
 	@(test)
