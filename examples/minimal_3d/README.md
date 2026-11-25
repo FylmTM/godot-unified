@@ -31,10 +31,12 @@ everyone: Godot's `ui_*` actions, so the project has no InputMap of its own.
 A new game stays this shape: no menus or settings, one scene that starts a session. The other example games show the
 rest; their menus, settings and HUD panels (`game/app/`, `game/ui/`, a copy in each) are theirs, not a template:
 
-- **Playing together:** the session's flags and `uni coop`. Direct (LAN) works as is; online (EOS lobbies and P2P)
-  once the game passes `eos.lobby({})` to `godot.init` and `lobbies` to `modes.run` (drift's extension, survivor's
-  headless main). Hosting and joining from inside the game: the app layer's main menu (any other example's
-  `game/ui/menu.tscn`, with `game/app/game.gd`, which owns the session).
+- **Playing together:** the session's flags and `uni coop`. Direct (LAN) works as is (`--host-port`, `--join`,
+  `uni coop --lan`); online (EOS lobbies and P2P: `--host-online`, `--join-code`) once the game passes
+  `eos.lobby({})` to `godot.init` and `lobbies` to `modes.run` (drift's extension, survivor's headless main). Hosting
+  and joining from inside the game: the app layer's main menu (any other example's `game/ui/menu.tscn`, with
+  `game/app/game.gd`, which owns the session).
+- **A playable build:** this game's `export_presets.cfg` and `uni release` (the `unified-release` skill).
 - **A physics World on a level with markers:** friendslop (3D: characters, joints, sensors), drift (2D on a plane).
 - **Level changes:** friendslop (`Game.levels`, a travel command, `physics.level_change`, the session's `level_root`).
 - **Several local players on one machine:** drift (a pad joins with Start; the extension's `sample_input` reads each

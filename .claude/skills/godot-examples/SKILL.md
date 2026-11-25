@@ -14,8 +14,9 @@ same app layer, so they all open on the same main menu and play the same way: `g
 `Sfx` and `LibraryCheck` autoloads), the menus and HUD panels in `game/ui/` (main menu, pause menu, settings, connect
 overlay, session and controls panels, banner), `game/tools/menu_tool.gd`, `validate.gd` (it names the play scene:
 the main scene is the menu) and `ui_walk.gd`. **A change to the app layer lands in every copy in the same PR**, unless
-a game differs on purpose. Nothing compares them. On purpose: each game's `Sfx` sounds, `Settings` rows and
-`UiTheme.PLAYER_COLORS` (its players' or heroes' colours); friendslop's and deckbuilder's pause menu and `Game` invite
+a game differs on purpose. Nothing compares them. On purpose: each game's `Sfx` sounds and `Settings` rows;
+`UiTheme.PLAYER_COLORS` in horde, holdout and playground (survivor, friendslop and drift share one `ui_theme.gd`);
+friendslop's and deckbuilder's pause menu and `Game` invite
 friends into a running single-player session; the mouse-look games (friendslop, holdout, playground) let clicks
 through the pause menu's dim, so the session panel's Copy works while the mouse is free; deckbuilder's `UiTheme`
 palette and serif face are its tabletop's. A new example starts minimal_3d-shaped (no menus or settings: it plays

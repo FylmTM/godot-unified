@@ -15,8 +15,8 @@ renders the simulation, plays its sound and draws the UI, and never changes the 
 
 ## Try it
 
-You need git, curl and a C toolchain for Odin's linker: clang on macOS and Linux, Visual Studio Build Tools on
-Windows. The first `./uni` downloads the pinned Odin, Godot and Box3D. Nothing else is installed by hand.
+You need git, curl and a C toolchain for Odin's linker ([`docs/getting-started.md`](docs/getting-started.md)). The
+first `./uni` downloads the pinned Odin, Godot and Box3D. Nothing else is installed by hand.
 
 ```sh
 git clone https://github.com/FylmTM/godot-unified
@@ -28,8 +28,9 @@ cd ../mygame
 
 On Windows, run `uni.cmd` instead of `./uni`.
 
-To see co-op on one machine, start an example twice from the unified checkout. Click **Host on the LAN** in one
-window and **Join on the LAN** in the other.
+To see co-op on one machine, start an example twice from the unified checkout. In one window click **Join by address
+(LAN)**, then **Host on LAN instead**; in the other, **Join by address (LAN)**, then **Connect**.
+`./uni coop holdout --lan` runs a scripted host and joiner instead.
 
 ```sh
 ./uni run holdout

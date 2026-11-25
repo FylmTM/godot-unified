@@ -193,10 +193,10 @@ renamed into place.
   reads only the members it needs out of a remote archive over HTTP byte ranges.
 - **Godot:** the pinned editor in the per-user cache; `UNIFIED_GODOT` may name a local install that reports exactly
   the pinned version (`godot`).
-- **Box3D:** unified-box3d, Box3D ported to Odin, as a shared library with upstream's C API, headers and Odin
-  bindings, unpacked beside `.out/unified-box3d/` and renamed into it, or the local checkout `UNIFIED_BOX3D` names (`ensure_box3d`). A
-  program loads the library from its own directory: the CLI copies it next to each output that links it
-  (`stage_box3d`), and keeps each game's `.gdextension` `[dependencies]` section listing what the extension links, so
+- **Box3D:** unified-box3d, Box3D ported to Odin, as a shared library with upstream's C API, headers and Odin bindings,
+  unpacked beside `.out/unified-box3d/` and renamed into it, or the local checkout `UNIFIED_BOX3D` names
+  (`ensure_box3d`). A program loads the library from its own directory: the CLI copies it next to each output that links
+  it (`stage_box3d`), and keeps each game's `.gdextension` `[dependencies]` section listing what the extension links, so
   Godot loads it with the extension and an export ships it (`write_dependencies`).
 - **EOS SDK:** never fetched; read where `UNIFIED_EOS_SDK` names it (`eos.odin`). Without it a game builds and plays
   single player and LAN.

@@ -29,9 +29,9 @@ git tag v<version> <commit> && git push origin v<version>
   `main`; the workflow's first job is the one check of that rule;
 - **check**: `ci.yml`, called: everything CI runs on a push to `main` (fmt, vet, the four test platforms with macOS,
   the godot job);
-- **games**: on windows-x64 and macos-arm64, every game with an `export_presets.cfg` (minimal_3d, the template, included)
-  exported and smoke-tested (`uni release --no-eos --version <version>`, then the same with `--no-devui`), the zips
-  thrown away;
+- **games**: on windows-x64 and macos-arm64, every game with an `export_presets.cfg` (minimal_3d, the template,
+  included) exported and smoke-tested (`uni release --no-eos --version <version>`, then the same with `--no-devui`), the
+  zips thrown away;
 - **publish**, only when both pass: a GitHub release titled `unified v<version>` (a prerelease while the major
   version is 0, and for a release candidate), its notes generated from the PRs merged since the last tag, with
   GitHub's source archives; no binaries.

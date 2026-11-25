@@ -5,9 +5,10 @@
 #
 # Platforms per event:
 #   pull request                 linux-x64, linux-arm64, windows-x64, godot
-#   push to main                 the four above and macos-arm64: the macOS check of every merge (AGENTS.md)
+#   push to main                 the four above and macos-arm64; a newer push cancels a run still going, so what is
+#                                checked is the head of main, plus the nightly (AGENTS.md, Workflow)
 #   nightly (schedule)           macos-arm64, only if main moved since the last nightly (the `nightly` job): the
-#                                safety net when a push's macOS job never got a runner
+#                                safety net when a push's macOS job was cancelled or never got a runner
 #   manual dispatch              all on main; elsewhere the four above, plus macos-arm64 with `-f macos=true`
 #                                (to re-check something on demand, never routine)
 #   release tag (release.yml)    all: release.yml calls this workflow as the check of a library release (a tag push
@@ -42,8 +43,9 @@ on:
         type: boolean
         default: false
 
-# The nightly has its own group: a push to main must not cancel it. A call from release.yml (github.workflow is the
-# caller's) has its own too: it neither cancels nor waits for CI on the same ref.
+# One group per PR and per ref, cancelled by a newer push: on main that checks the head of main, not every push (the
+# policy, AGENTS.md). The nightly has its own group: a push to main must not cancel it. A call from release.yml
+# (github.workflow is the caller's) has its own too: it neither cancels nor waits for CI on the same ref.
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.event_name == 'schedule' && 'nightly' || github.event.pull_request.number || github.ref }}
   cancel-in-progress: true
@@ -85,7 +87,8 @@ jobs:
     runs-on: >-
       ${{ fromJSON('{"linux-x64": "ubuntu-24.04", "linux-arm64": "ubuntu-24.04-arm",
       "windows-x64": "windows-2025", "macos-arm64": "macos-15"}')[matrix.platform] }}
-    timeout-minutes: 30
+    # a run takes 4-7 minutes; a cache miss (a pins.cfg change) downloads and builds everything once
+    timeout-minutes: 15
     strategy:
       fail-fast: false
       matrix:
@@ -109,15 +112,20 @@ jobs:
         shell: bash
     steps:
       - uses: actions/checkout@3d3c42e5aac5ba805825da76410c181273ba90b1 # v7.0.1
-      # The per-user cache (`uni`: ~/.cache/unified; `uni.cmd`: %LOCALAPPDATA%\unified): the shims' Odin, the Godot
-      # editor; and odinfmt. Keyed by pins.cfg: the key must exist before Odin does.
+      # The per-user cache (`uni`: ~/.cache/unified; `uni.cmd`: %LOCALAPPDATA%\unified): the shims' Odin. Keyed by
+      # pins.cfg: the key must exist before Odin does.
       - uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
         with:
           path: |
             ~/.cache/unified/odin
             ~/AppData/Local/unified/odin
-            .out/odinfmt
           key: uni-${{ matrix.platform }}-${{ hashFiles('pins.cfg') }}
+      # odinfmt, built once per pin into the per-user cache: only linux-x64 formats.
+      - if: ${{ env.LINUX_X64 == 'true' }}
+        uses: actions/cache@55cc8345863c7cc4c66a329aec7e433d2d1c52a9 # v6.1.0
+        with:
+          path: ~/.cache/unified/odinfmt
+          key: odinfmt-${{ hashFiles('pins.cfg') }}
       # The shim fetches Odin if needed and builds the CLI; every later step relies on it.
       - id: ready
         name: uni version (the pinned Odin, the CLI)
@@ -157,7 +165,8 @@ jobs:
     needs: nightly
     if: ${{ !cancelled() && needs.nightly.result == 'skipped' }}
     runs-on: ubuntu-24.04
-    timeout-minutes: 30
+    # a run takes about 5 minutes; a cache miss downloads Godot and imports every game afresh
+    timeout-minutes: 20
     defaults:
       run:
         shell: bash

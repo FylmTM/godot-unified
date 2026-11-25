@@ -439,10 +439,9 @@ that every view kind has a scene and every indexed kind is one of them.
 
 ## Library tooling
 
-unified's GDScript, in `tools_godot/` at unified's root, which every project sees at `res://unified/tools_godot/`: in a
-game repo Godot scans the submodule in place (each other top-level directory of unified holds a `.gdignore`), so a
-game holds no copy and always runs its pinned unified's; unified's own projects get a git-ignored mirror at that path
-(`src/cli/README.md`, Tool scripts). The scripts compile under a game's strict typing (no warnings rule exempts
+unified's GDScript, in `tools_godot/` at unified's root, which every project sees at `res://unified/tools_godot/`
+(how: `src/cli/README.md`, Tool scripts), so a game holds no copy and always runs its pinned unified's. The scripts
+compile under a game's strict typing (no warnings rule exempts
 them), and a game's export leaves out `unified/*`. None of it knows a game's menus: a game drives its own UI from its
 own tool scripts (`game/tools/`), which extend these by class name.
 
