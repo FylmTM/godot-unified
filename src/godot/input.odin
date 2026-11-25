@@ -282,6 +282,17 @@ buttons :: proc($Set: typeid/bit_set[$E;$U], actions: [E]string) -> (set: Set) {
 	return
 }
 
+// Main thread: plays local player `local` on `device` (DEVICE_ANY, DEVICE_KEYBOARD, a joypad's id). A change of device
+// forgets what that local's tracked actions held: their state came from the old device's events (or from none, while it
+// was DEVICE_ANY, which reads Input instead), so a key released meanwhile would stay down. A key still held on the new
+// device counts again from its next event (a key's repeat, a pad's next motion).
+@(private)
+set_device :: proc(local: int, device: int) {
+	if local < 0 || local >= LOCAL_MAX || input_sample.devices[local] == device do return
+	input_sample.devices[local] = device
+	for &tracked in input_sample.tracked do tracked.strength[local], tracked.pressed[local] = 0, false
+}
+
 // Main thread (sample_input): the device of local player `local` (DEVICE_ANY, DEVICE_KEYBOARD, or a joypad's id), for
 // a game that reads one itself.
 local_device :: proc(local: int) -> int {

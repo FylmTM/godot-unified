@@ -835,12 +835,14 @@ bind_local_players :: proc(class: ^gd.Class) {
 				}
 			}
 			if !api.local_player(local, true, name, profile[:], explicit) do return gd.to_variant(i64(-1))
-			input_sample.active[local], input_sample.devices[local] = true, int(device)
+			input_sample.active[local] = true
+			set_device(local, int(device))
 			return gd.to_variant(i64(local))
 		}, nil, {{"device", .INT, ""}, {"name", .STRING, ""}, {"profile", .OBJECT, PROFILE_CLASS}}, gd.Dynamic_Arg{"", .INT, ""}, doc = "Adds a local player to the running session, played on [param device] ([constant DEVICE_ANY], [constant DEVICE_KEYBOARD], a joypad's id), named [param name], arriving with [param profile] (null: [code]Unified.profile[/code]'s). Returns its local index (1 and up; 0 is the first player), or -1 when no session runs or [constant LOCAL_MAX] play already. It joins like a late joiner, without a snapshot; [signal local_players_changed] says when it is in.", defaults = {gd.to_variant(i64(DEVICE_ANY)), gd.to_variant(""), gd.variant_nil()})
 	gd.bind_method(class, "remove_local_player", proc(session: ^Session_Node, local: i64) -> bool {
 			if local <= 0 || local >= LOCAL_MAX || !input_sample.active[local] do return false
-			input_sample.active[local], input_sample.devices[local] = false, DEVICE_ANY
+			input_sample.active[local] = false
+			set_device(int(local), DEVICE_ANY)
 			return api.installed && api.local_player(int(local), false, "", nil)
 		}, {"local"}, doc = "Local player [param local] (1 and up) leaves: its player is gone from the next tick, the others play on. (The first player leaves with [method leave].)")
 	gd.bind_dynamic_property(class, {"local_players", .ARRAY, "int"}, proc(_: rawptr, instance: rawptr, _: []^gd.Variant) -> gd.Variant {
@@ -871,8 +873,11 @@ bind_local_players :: proc(class: ^gd.Class) {
 			"local",
 		}, doc = "Local player [param local]'s device ([constant DEVICE_ANY], [constant DEVICE_KEYBOARD], or a joypad's id).")
 	gd.bind_method(class, "set_local_device", proc(session: ^Session_Node, local: i64, device: i64) {
-			if local >= 0 && local < LOCAL_MAX do input_sample.devices[local] = int(device)
-		}, {"local", "device"}, doc = "Plays local player [param local] on [param device] from the next sample: the action helpers read that device only (the first player starts on [constant DEVICE_ANY]: every device).")
+			set_device(int(local), int(device))
+		}, {
+			"local",
+			"device",
+		}, doc = "Plays local player [param local] on [param device] from the next sample: the action helpers read that device only (the first player starts on [constant DEVICE_ANY]: every device).")
 	gd.bind_signal(
 		class,
 		"local_players_changed",
@@ -985,7 +990,10 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	views_check_index()
 	data_reset()
 	// A new session starts with local player 0 alone: the others join it with add_local_player.
-	for local in 1 ..< LOCAL_MAX do input_sample.active[local], input_sample.devices[local] = false, DEVICE_ANY
+	for local in 1 ..< LOCAL_MAX {
+		input_sample.active[local] = false
+		set_device(local, DEVICE_ANY)
+	}
 	session.locals_seen = {}
 	level_host_reset(&session.level)
 	session.mode = request.mode
@@ -1201,7 +1209,10 @@ drain_messages :: proc(session: ^Session_Node) {
 		case .Local_Refused:
 			local := int(message.local)
 			fmt.printfln("unified: local player %d refused: %s", local, text)
-			if local > 0 && local < LOCAL_MAX do input_sample.active[local], input_sample.devices[local] = false, DEVICE_ANY
+			if local > 0 && local < LOCAL_MAX {
+				input_sample.active[local] = false
+				set_device(local, DEVICE_ANY)
+			}
 			gd.emit_signal(session.obj, gd.sn("local_player_refused"), i64(local), text)
 		case .Desync:
 			fmt.printfln("unified: desync at tick %d: %s", message.tick, text)
