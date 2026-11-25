@@ -1,9 +1,12 @@
 # survivor: a co-op horde survival game at scale
 
-A top-down co-op survival game, unified's example of a game at scale: 1–4 players hold out in an arena against waves
-of up to `MAX_ENEMIES` enemies, with projectiles, Box3D crates and barrels, explosions, gems, a level-up pick, death
-and respawn, joining and leaving, a lobby and match resets. A Godot project (this folder is `res://`): the sim, its
-tests, the headless binary and the GDExtension in `simulation/` (Odin), everything Godot in `game/`. `uni run
+A top-down co-op survival game in 3D, unified's example of a whole game at scale: 1–4 players hold out in an arena
+against waves of up to `MAX_ENEMIES` enemies, with projectiles, Box3D crates and barrels, explosions, gems, a level-up
+pick, death and respawn, joining and leaving, a lobby and match resets. What only survivor shows is a crowd game on
+physics and a level: a baked arena whose markers place physics props the players push and blow up while the enemies
+move without bodies, a Setup (the difficulty and the record) that becomes the save, and Profile roles. horde plays the
+same kind of game in 2D with no physics, for the rendering of crowds. A Godot project (this folder is `res://`): the
+sim, its tests, the headless binary and the GDExtension in `simulation/` (Odin), everything Godot in `game/`. `uni run
 survivor` plays it.
 
 Metres and seconds at `TICK_HZ`; the ground is the XZ plane, Y is up. Every rule number is a named constant in
@@ -36,8 +39,9 @@ locked, created at their slot's spot when they become present.
   (`PLAYER_HP`). Everything per player is by player, not slot.
 - `Command_Pick`: the oldest pending level-up goes to the fire rate, damage or move speed (`FIRE_LEVELUP_TICKS`,
   `DAMAGE_LEVELUP`, `SPEED_LEVELUP`) when it is one of that level's two offers, a keyed roll of the player and the
-  level (`upgrade_offers`) that the HUD peeks to show only those cards. A pick with nothing pending, or not
-  offered, is ignored.
+  level (`upgrade_offers`) that the HUD peeks to show only those cards. The HUD names the level whose cards it showed,
+  so a doubled press is refused rather than spent on the next level; the scripted players name none (any level). A
+  pick with nothing pending, for another level, or not offered, is ignored.
 - Dev commands (the dev UI's Commands panel; a public build never applies them): `Command_Dev_Give_Xp` (XP for a
   player), `Command_Dev_Skip_Wave` (the next wave: in a match only, which starts one `wave_ticks` earlier), `Command_Dev_Spawn`
   (enemies of a kind on `SPAWN_RING`), applied first in the tick (`apply_dev_commands`).
@@ -126,7 +130,8 @@ samples at another tick, and lives with the tests (`simulation/tests/bot.odin`).
 - MultiMesh views: `grunt`, `runner`, `brute` (in `Enemy_Kind`'s order), `projectile`, `gem`, keyed by handle, on the
   ground plane facing their velocity; custom data r = hit flash, g = age in seconds.
 - Session data `Data_Hud` (`Unified.data.hud`): the phase, the match time and wave, the session's record, enemies
-  alive, the time until the reset, and each slot's player (with their oldest pending level-up's offers).
+  alive, the time until the reset, and each slot's player (with their oldest pending level-up's offers and its
+  level, which a pick names).
 - Constants (`Unified.constants`): `start_radius`, `blast_radius`, the three level-up cards.
 - Events: effects, sounds, shake and rumble on EMITTED (a prediction too; a cancelled one is left as it played);
   banners on CONFIRMED; the record from `save_changed`.

@@ -24,6 +24,7 @@ Hud_Player :: struct {
 	xp_next:          i32,
 	level:            i32,
 	pending_levelups: i32,
+	offer_level:      i32, // the level the offers are for, which a pick names (CommandPick.level; 0: none pending)
 	respawn_s:        f32, // seconds until respawn (0 when alive)
 }
 
@@ -66,10 +67,11 @@ hud_of :: proc(f: ^Frame) -> (hud: Data_Hud) {
 			respawn_s        = character.alive ? 0 : sim.timer_remaining_s(f.time, character.respawn, g.TICK_HZ),
 		}
 		if character.pending_levelups > 0 { 	// the roll the sim makes for the pick, peeked: nothing in the block changes
+			hud.players[slot].offer_level = g.oldest_pending_level(character)
 			offers := g.upgrade_offers(
 				f.seed,
 				sim.player_in_slot(&f.state.players, slot),
-				g.oldest_pending_level(character),
+				hud.players[slot].offer_level,
 			)
 			hud.players[slot].offer_a, hud.players[slot].offer_b = offers[0], offers[1]
 		}
