@@ -57,6 +57,10 @@ func _run() -> void:
 	if failed():
 		return
 	edit.clear()  # a windowed run may have prefilled it from the real clipboard
+	await type_text("ab0o1l")  # 0, O, 1 and L look like other characters: the code alphabet has none of them
+	await frames(2)
+	expect(edit.text == "AB", "the code field keeps only the code's characters (got '%s')" % edit.text)
+	edit.clear()
 	await type_text("zz-zz zz")  # messy input: cleaned to ZZZZZZ
 	await frames(2)  # LineEdit emits text_changed deferred
 	expect(edit.text == "ZZZZZZ", "the code field cleans and uppercases its input (got '%s')" % edit.text)
