@@ -114,7 +114,7 @@ func _host() -> void:
 	f.store_string(code)
 	f.close()
 	await shot("c01_host_code")
-	step("hosting, %s %s" % ["address" if arg("host-port") != "" else "code", code])
+	step("hosting, %s %s" % ["address" if port != "" else "code", code])
 	await wait_for(func() -> bool: return _present() >= 2, 60.0, "the friend joins")
 	await seconds(1.5)
 	await shot("c02_two_players")
