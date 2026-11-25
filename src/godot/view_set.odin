@@ -83,3 +83,12 @@ set_remove :: proc(view_set: ^View_Set($K, $V), key: K) -> (view: V, ok: bool) {
 	delete_key(&view_set.entries, key)
 	return entry.view, true
 }
+
+// Whether a scene view whose key is gone from the shown Frame was a cancelled spawn (View_Callback.Cancelled: freed at
+// once) rather than a despawn: its spawn tick (`spawn_tick`: View_Out.since) was not yet verified (`verified`, and
+// the Frame's `frame_verified`), and a re-simulation since the last Frame shown (`resim_from`: Frame_Data.resim_from)
+// covered it, so the timeline it was spawned in is gone. A view that just ended a short life the verified tick never
+// caught up with is a despawn.
+view_cancelled :: proc(verified: bool, spawn_tick, frame_verified, resim_from: u32) -> bool {
+	return !verified && frame_verified < spawn_tick && resim_from <= spawn_tick
+}

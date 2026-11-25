@@ -772,3 +772,21 @@ verified_delay_follows_the_gaps :: proc(t: ^testing.T) {
 	for _ in 0 ..< 60 * 30 do godot.verified_gaps_step(&gaps, 1.0 / 60)
 	testing.expect_value(t, godot.verified_delay(gaps), f64(godot.VERIFIED_DELAY_TICKS))
 }
+
+// ---- a view gone from the frame: cancelled or despawned (views.odin, view_cancelled)
+
+// A short-lived predicted view on a client with lag (the verified tick 6 behind): gone in a forward step, it despawned;
+// gone in a step that re-simulated its spawn tick, a rollback cancelled it; once its spawn is verified it never is.
+@(test)
+a_gone_view_is_cancelled_only_by_a_rollback :: proc(t: ^testing.T) {
+	// spawned at 100, gone at 105 (verified 99): the step computed only tick 105
+	testing.expect(t, !godot.view_cancelled(false, 100, 99, 105), "a short life ended: despawned")
+	// the step re-simulated from 98: its spawn tick is in another timeline now
+	testing.expect(t, godot.view_cancelled(false, 100, 99, 98), "re-simulated from before its spawn: cancelled")
+	testing.expect(t, godot.view_cancelled(false, 100, 99, 100), "re-simulated from its spawn tick: cancelled")
+	// a rollback that re-simulated only ticks after its spawn proves nothing about the spawn
+	testing.expect(t, !godot.view_cancelled(false, 100, 99, 101), "re-simulated after its spawn: despawned")
+	// verified: final, whatever re-ran
+	testing.expect(t, !godot.view_cancelled(true, 100, 99, 90), "a verified spawn is never cancelled")
+	testing.expect(t, !godot.view_cancelled(false, 100, 100, 90), "its spawn tick is verified by this frame")
+}

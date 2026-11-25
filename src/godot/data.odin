@@ -526,7 +526,7 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 			&data_class.class,
 			{field.name, field.kind, field.class_name},
 			data_field_get,
-			settable ? data_field_set : nil,
+			settable && field_settable(field.kind) ? data_field_set : nil,
 			&field,
 			doc = field_doc(field),
 		)

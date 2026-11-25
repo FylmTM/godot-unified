@@ -332,7 +332,7 @@ func multi_count(kind: int) -> int:
 func player_names() -> String:
 	var out: Array[String] = []
 	if session != null:
-		for player: int in session.get_players():
+		for player: int in session.players:
 			out.append("%d:%s" % [session.get_player_slot(player), session.get_player_name(player)])
 	return ", ".join(out)
 

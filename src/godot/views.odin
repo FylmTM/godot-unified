@@ -45,7 +45,9 @@ Scene_View :: struct {
 	subject:      typeid, // its subject's type (push_view; nil: none): only events with a subject of this type reach it
 	linger_s:     f64, // its marker's
 	pool:         bool, // its marker's: kept in its kind's pool instead of freed (release_view)
-	spawn_tick:   u32, // the tick it first appeared at
+	// The tick its key is known to be in the timeline since (View_Out.since: its spawn, moved on when a rollback
+	// re-simulated that tick and it was there again), until its spawn is verified.
+	spawn_tick:   u32,
 	verified:     bool, // its spawn tick has been verified: from then on it can't be a cancelled spawn
 	gone:         bool, // _sim_despawned was called (and no _sim_revived since)
 	warp:         u8, // the warp epoch last shown: another one resets the track (the view snaps)
@@ -73,7 +75,10 @@ View_Hooks :: struct {
 View_Callback :: enum u8 {
 	Despawned, // its key is gone: it lingers (linger_s; the host no longer sets its pose), then is freed
 	Revived, // a rollback brought it back while it lingered
-	Cancelled, // a rollback removed it before its spawn tick was verified: freed at once, never despawned
+	// A rollback removed it before its spawn tick was verified (a re-simulation covered that tick and no longer has it):
+	// freed at once, never despawned. One gone in a step that re-simulated nothing of its life is despawned, even when a
+	// later rollback proves that end mispredicted (as an EMITTED event later CANCELLED).
+	Cancelled,
 	Reused, // a pooled view taken again for a new item (instead of _ready)
 }
 
@@ -150,6 +155,18 @@ V: struct {
 	// Per scene view kind whose marker sets `pool`: its views that would have been freed, out of the tree, for its next
 	// spawns (pool_put, pool_take). Never more than the most of the kind alive at once.
 	pools:        map[u8][dynamic]^Scene_View,
+	// What the MultiMesh buffers were last built from: built again only when it changes, or while an instance glides
+	// (a paused session or replay shows one Frame at alpha 1, frame after frame).
+	multi_built:  Multi_Built,
+	multi_gen:    u64, // bumped when a MultiMesh view comes or goes
+}
+
+// What a frame's MultiMesh buffers are built from (V.multi_built): the Frame, the interpolation and the views.
+Multi_Built :: struct {
+	published: u64,
+	epoch:     u32,
+	alpha:     f32,
+	gen:       u64,
 }
 
 // The main thread's view-sync cost, summed over frames until a script takes it (UnifiedSession.take_sync_stats:
@@ -423,7 +440,7 @@ instance_view :: proc(root: gd.Node, item: ^View_Out, frame: ^Frame_Data) -> ^Sc
 	scene_view.kind, scene_view.player, scene_view.key, scene_view.subject =
 		item.kind, item.player, item.key, item.subject
 	scene_view.linger_s = LINGER_S
-	scene_view.spawn_tick = frame.tick
+	scene_view.spawn_tick = item.since
 	scene_view.warp = item.warp
 	scene_view.marker = find_marker(node)
 	if scene_view.marker.ptr == nil {
@@ -506,7 +523,7 @@ reuse_view :: proc(root: gd.Node, scene_view: ^Scene_View, item: ^View_Out, fram
 		player       = item.player,
 		key          = item.key,
 		subject      = item.subject,
-		spawn_tick   = frame.tick,
+		spawn_tick   = item.since,
 		warp         = item.warp,
 	}
 	scene_view^ = reset
@@ -748,6 +765,7 @@ views_clear :: proc() {
 	for &multi in V.multis do multi_drop(&multi)
 	delete(V.multis)
 	V.multis = nil
+	V.multi_gen += 1
 	for _, packed_scene in V.scenes do gd.unref(packed_scene)
 	delete(V.scenes)
 	delete(V.missing)
@@ -793,6 +811,22 @@ views_root_changed :: proc() {
 	pools_free()
 }
 
+// A new session starts (session_launch): the last one's scene views and pooled ones are freed without a callback (they
+// show the old session, whose keys the new one may use for other things), the MultiMesh instances forget their tracks,
+// and the timeline's epoch and the verified-timeline views start over. The MultiMesh nodes are the game's and stay.
+views_session_reset :: proc() {
+	views_root_changed()
+	for &multi in V.multis {
+		clear(&multi.tracks)
+		multi.count = 0
+		if multi.mm.ptr != nil && alive(multi.id) do gd.MultiMesh_set_visible_instance_count(multi.mm, 0)
+	}
+	V.epoch = 0
+	V.multi_built = {}
+	verified_players_clear()
+	debug_draw_clear()
+}
+
 // Brings the scene views under `root` and the MultiMesh instances up to date with the newest frame (main thread,
 // every Godot frame): spawns, despawns, data and interpolated poses. A nil root drops the scene views.
 views_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
@@ -810,12 +844,18 @@ views_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 		scene_sync(root, frame, fresh, alpha, dt)
 	}
 	scened := time.tick_now()
-	multi_sync(frame, fresh, alpha, dt)
-	built := time.tick_now()
-	multi_upload(fresh)
+	inputs := Multi_Built{frame.published, frame.epoch, alpha, V.multi_gen}
+	gliding := false
+	for multi in V.multis do gliding ||= multi.smooth
+	if fresh || gliding || inputs != V.multi_built {
+		V.multi_built = inputs
+		multi_sync(frame, fresh, alpha, dt)
+		built := time.tick_now()
+		multi_upload(fresh)
+		V.stats.multi_build += time.tick_diff(scened, built)
+		V.stats.multi_upload += time.tick_since(built)
+	}
 	V.stats.scene += time.tick_diff(started, scened)
-	V.stats.multi_build += time.tick_diff(scened, built)
-	V.stats.multi_upload += time.tick_since(built)
 }
 
 scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, dt: f32) {
@@ -842,6 +882,7 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 			scene_view := entry.view
 			if scene_view == nil do continue
 			scene_view.gone_tick = 0 // in the frame (again, if a rollback brought it back)
+			if !scene_view.verified do scene_view.spawn_tick = item.since // (a re-simulation of it moves it on)
 			if frame.verified >= scene_view.spawn_tick do scene_view.verified = true
 			if revived && scene_view.gone { 	// a rollback brought it back during its linger
 				scene_view.gone = false
@@ -877,12 +918,12 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 			}
 		}
 		for id in kept do set_see(&V.set, id)
-		// gone before their spawn tick was ever verified: cancelled spawns, freed at once
+		// gone by a rollback before their spawn tick was ever verified: cancelled spawns, freed at once
 		cancelled := make([dynamic]View_Id, context.temp_allocator)
 		for id, entry in V.set.entries {
-			if entry.seen != V.set.frame && entry.phase == .Alive && entry.view != nil && !entry.view.verified {
-				append(&cancelled, id)
-			}
+			if entry.seen == V.set.frame || entry.phase != .Alive || entry.view == nil do continue
+			view := entry.view
+			if view_cancelled(view.verified, view.spawn_tick, frame.verified, frame.resim_from) do append(&cancelled, id)
 		}
 		for id in cancelled {
 			scene_view, _ := set_remove(&V.set, id)
@@ -1120,6 +1161,7 @@ multi_register :: proc(marker: gd.Node, node: ^Unified_Multi_View_Node) {
 			),
 		)
 	}
+	V.multi_gen += 1
 	append(&V.multis, Multi_View {
 		marker    = marker,
 		marker_id = marker_id,
@@ -1136,6 +1178,7 @@ multi_unregister :: proc(marker_id: u64) {
 		if V.multis[i].marker_id != marker_id do continue
 		multi_drop(&V.multis[i])
 		ordered_remove(&V.multis, i)
+		V.multi_gen += 1
 	}
 }
 

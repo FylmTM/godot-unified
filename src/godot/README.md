@@ -33,43 +33,37 @@ game without an Input (`sim.No_Input`) has no `sample_input`: everything its pla
 
 **Local players.** `sample_input(local, input)` runs once a frame for each local player (several people on one
 machine: a couch, guests of a remote-play stream, who arrive as pads), and the action helpers read **the sampled
-player's device**, so one body serves them all: `DEVICE_ANY` (every device, through Godot's Input singleton: the first
-player's default, and how a game of one player plays), `DEVICE_KEYBOARD`, or a joypad's id. Godot's Input singleton
-keeps no action state per device, so for a device the session follows the events of the actions the helpers asked
-for (`_input`: a joypad's events for the players on that pad, the keyboard's and mouse's for the players on it; a press
-latches; losing the focus releases the keyboard players' actions). Each local player is its own member of the session
-(`src/netcode/README.md`, Local players): `UnifiedSession.add_local_player` joins one to the running session, its
-commands name it (`send_command(command, local)`), its input values are `Unified.local_input(local)`
-(`Unified.input` is local player 0's), and `Frame.local_players` (by local index, `{}` where none is in) and
-`UnifiedSession.local_players` (the keys of those in, compacted; by index: `get_local_player_key(local)`) say who
-they are; `local_players_changed` says when that changes, and `local_player_refused` when the session refuses one.
+player's device**, so one body serves them all: every device through Godot's Input singleton (the first player's
+default, and how a game of one player plays), the keyboard and mouse, or one joypad. Godot's Input singleton keeps no
+action state per device, so for a device the session follows the events of the actions the helpers asked for (a
+joypad's events for the players on that pad, the keyboard's and mouse's for the players on it). A press latches for
+the next sample, so a tap within one frame still reaches the sim; what the window or a pad loses without a release
+(the focus gone, the pad unplugged) is released. Each local player is its own member of the session
+(`src/netcode/README.md`, Local players), with its own commands and input values; a command sent for a local index
+nobody plays, or queued by a player who left, is never sent as another's.
 
 **Setup and Profile** (`src/sim/README.md`, Setup and Profile) are GDScript classes built from the game's types, as a
-command's: a host passes a `UnifiedSetup` to `start_single`, `host_online` or `host_direct` (none: the game's default),
-`session.setup` reads the running session's (a joiner's is the host's; `fill_frame` reads it as `Frame.setup`), and
-`Unified.profile` is what the local player joins with. A save (`src/sim/README.md`, Saves) comes as a `UnifiedSetup`:
-`session.save_changed` hands every player the newest one with the frame it shows (two saves verified between two
-frames come as the second; one verified in a step that computed no new tick comes with the next frame), `to_json`
-makes it the game's save file, and the static `UnifiedSetup.from_json` reads it back for the next session's start,
-also on a later build (`json_problem` says why one does not read).
+command's: a host's start takes a Setup (a joiner plays the host's), and the Profile is what a local player joins
+with. A save (`src/sim/README.md`, Saves) comes as a Setup with the frame that shows it, to every player, so any of
+them can host the continuation, also on a later build.
 
-**Open to friends.** A running single-player session becomes a hosted one (`UnifiedSession.open_online`,
-`open_direct`): the session thread opens the lobby or the socket and adds it to the running host
-(`src/netcode/README.md`, Relay: open and closed), and `mode` and `join_code` change (`mode_changed`). `close_online`
-lets nobody new into any hosted session, opened to friends or hosted from the start; the players in stay, and opening
-again the same way shows the code again. A lobby that fails after opening closes again and the session plays on as
-single player: only a session hosted from the start ends with its lobby.
+**Open to friends.** A running single-player session becomes a hosted one: the session thread opens the lobby or the
+socket and adds it to the running host (`src/netcode/README.md`, Relay: open and closed). Closing lets nobody new in
+while the players in stay. A lobby that fails after opening closes again and the session plays on as single player:
+only a session hosted from the start ends with its lobby.
 
 **Input values** are what only scripts know (a camera rig's look direction): the plain struct `Glue.input_values`
 names, whose fields scripts set on `Unified.input` (local player 0's; another's `Unified.local_input(local)`) and
-`sample_input` reads (`input_values`). The session samples at
-process priority −1000, before any other node's `_process`, and emits `UnifiedSession.input_wanted` just before: a
-script sets its values there, whatever its node's priority, and this frame's sample takes them. Set in `_process`,
-they reach the next frame's sample.
+`sample_input` reads (`input_values`). The session samples before any other node's `_process` (Godot side), and emits
+`UnifiedSession.input_wanted` just before: a script sets its values there, whatever its node's priority, and this
+frame's sample takes them. Set in `_process`, they reach the next frame's sample.
 
 **A pause menu pauses single player**: `UnifiedSession.paused` stops the session thread's host (netcode's single-player
-pause), the views hold their last pose, and the session goes on as if no time had passed. With other players it reads
-false and the menu is an overlay: a game that pauses together sends a command (`src/sim/README.md`, Game time).
+pause), the views hold their last pose, and the session goes on as if no time had passed. Asked in the frame a session
+was started, it holds from that session's first tick: the session thread takes its first step only once that frame
+is over (`Start.hold`). With other players it reads false and the menu is an overlay: a game that pauses together
+sends a command (`src/sim/README.md`, Game time). The SceneTree's own pause never stops the session: its node pumps
+it whatever the tree's state.
 
 **Game input is off** while a dev UI text field has the keyboard and while `UnifiedSession.game_input` is false (a
 pause menu): the action helpers read nothing and latched taps drop; `Unified.input` still flows. When it comes back,
@@ -213,10 +207,8 @@ tree, or from a tool script. A game's app layer reacts to `status_changed` and `
 `uni coop` and the flags work in every game. Nothing about the session answers once it is over. A client's LAN token
 is kept under `user://`, one per running copy of the game (`token_claim`), so a restarted copy takes its token back.
 
-The game's view kinds (its `View` union's, by index), its `MultiView` enum and the State's level enum are the classes
-`EnumView`, `EnumMultiView` and `EnumLevel`, whatever the game named them; every enum class has `name(value)` and
-`names()` (a menu's options, in value order).
-A scene view's scene holds a **`UnifiedView`** marker as a direct child of its root, its kind set in the scene by name
+The game's view kinds, its `MultiView` enum and the State's level enum are enum classes like the rest, with fixed
+names whatever the game named them (`EnumView`...). A scene view's scene holds a **`UnifiedView`** marker as a direct child of its root, its kind set in the scene by name
 (the inspector's list; a name stays right when the union is reordered). Its root script declares `var data: ViewCard`
 when the kind carries data: the host sets a new object before the view's `_ready`, so `_ready` reads it, and again
 each time the data's bytes change, so a setter sees the old value and the new one and a view reacts to what changed
@@ -246,7 +238,7 @@ reused without resetting it shows the old item's.
 
 A MultiMeshInstance3D / 2D holding a **`UnifiedMultiView`** marker shows one MultiView kind. Views and their data are
 set before any other node's `_process` (the session runs at priority −1000), so a view's own `_process` sees the
-frame's pose. A `view_root` that leaves the tree holds no views, so a play scene needs no teardown. Unset, it is
+frame's pose. Its buffers are written again only when the frame or the interpolation moved (not while paused). A `view_root` that leaves the tree holds no views, so a play scene needs no teardown. Unset, it is
 the session's parent: right for a session placed in the play scene (the template's); a session an autoload owns sets
 `view_root = null` (no scene views) until its play scene hands over its root.
 
@@ -311,8 +303,11 @@ Every live session of a dev UI build is written to `<user data>/recordings/<loca
 app quits or the session node leaves the tree first (then up to its last verified tick; the newest `RECORDINGS_KEPT`
 kept). A step back inside the sim's ring is a restore; further back, or forward past what was
 played, the replay loads the nearest portable snapshot it kept of a tick it passed and steps to the target without
-showing the ticks between. Such a jump starts a new epoch in the Frame: every view snaps, and the events of ticks
-entered again going forward arrive again. A note starts some seconds before its tick and pauses on it.
+showing the ticks between, a slice of `REPLAY_SEEK_BUDGET` at a time, so a long seek never looks like a frozen
+session thread and a leave ends it at once. Such a jump starts a new epoch in the Frame: every view snaps, events
+still queued from before it are dropped (never shown, they never will be), and the events of ticks entered again
+going forward arrive again. A note starts some seconds before its tick (the one shown when F3 opened, no later than
+the recording reaches) and pauses on it.
 
 The dev UI's Timeline panel drives a replay, and the Inspector's `changes` root is the op log: what the shown tick
 changed in the State against the tick before, a line per leaf field (`sim.state_changes`), computed on the main
@@ -362,8 +357,8 @@ that every view kind has a scene and every indexed kind is one of them.
 ## How it works
 
 - **Threads.** A session (single player is a host with no remote links) runs netcode's `host_step` / `client_step`
-  on its own thread (macOS: the real-time time-constraint class; Windows: two above normal priority; Linux: as it
-  is; while a session runs the process opts out of background throttling: the platform files). The netcode hooks run
+  on its own thread, of a raised class where the platform has one, the process opted out of background throttling
+  while it runs (the platform files). The netcode hooks run
   there: `sample` takes the main thread's newest Input; `frame` feeds the re-simulated and new ticks' events to the
   tracker, calls `fill_frame` and publishes the Frame; `verified` confirms or cancels events. Godot is only called
   from the main thread. The thread counts how late each of its sleeps wakes (`wake.odin`; `take_sync_stats`), and
@@ -382,8 +377,11 @@ that every view kind has a scene and every indexed kind is one of them.
 - **View logic** (`handoff.odin`, `track.odin`, `view_set.odin`, `event_tracker.odin`, `poses.odin`: no Godot calls,
   tested without Godot). A rollback that re-publishes a tick with a different pose puts the difference into an error
   offset that decays (`Smoothing`). A key missing from a frame lingers (an exit animation, or a rollback that brings
-  it back: it is revived, not respawned). Re-simulations of ticks at or below the verified one are ignored, since
-  they are final.
+  it back: it is revived, not respawned), unless its spawn was never verified and a re-simulation since the last
+  Frame shown covered its spawn tick: then a rollback took it away and it is cancelled (`view_cancelled`). A short
+  life the verified tick never caught up with (a bullet on a client with lag) still despawns; one whose end a later
+  rollback proves mispredicted keeps its exit, as an EMITTED event later CANCELLED does. Re-simulations of ticks at
+  or below the verified one are ignored, since they are final.
 - **Data.** A view's data is set before the view enters the tree, then whenever its bytes differ from the last
   set's: its bytes copied into an object, fields converted only when a script reads them. Each view alternates two
   objects and refills the spare only when no script holds it, so a change makes no object (a script that keeps an old
@@ -418,11 +416,15 @@ that every view kind has a scene and every indexed kind is one of them.
   folder replays headless into the frozen tick, which a deterministic sim reproduces under a debugger (on Windows a
   minidump too); then the process aborts.
 - **Starting over.** `leave` asks the session to end; it says goodbye on its thread, for at most `GOODBYE_US` (a
-  host waiting for peers that don't answer). A start on a running session leaves it the same way first, so a game
-  restarts or switches modes with one call, never a silent refusal. The start waits and begins as soon as the old
-  session is gone (the goodbye cut to `HURRY_US`); a newer start replaces it, a `leave` cancels it. A session is one
-  match: a host that restarts ends it for every player who joined (they get its goodbye and join the new one again),
-  so a co-op game that plays another round without losing its players does that inside its sim, not with a restart.
+  host waiting for peers that don't answer). A start while a session exists leaves it the same way first, so a game
+  restarts or switches modes with one call, never a silent refusal. The start waits and begins at the end of the
+  frame the old session is gone in (the goodbye cut to `HURRY_US`); a newer start replaces it, a `leave` cancels it.
+  It waits also when the old session ended already: a script the session calls may be running on its last Frame,
+  which is freed only once that frame's sync is over, and the old session's result (its line, its recording) is
+  taken first. For the same reason the node leaving the tree from such a script ends its session once the frame is
+  done. The new session starts with none of the old one's views. A session is one match: a host that restarts ends
+  it for every player who joined (they get its goodbye and join the new one again), so a co-op game that plays
+  another round without losing its players does that inside its sim, not with a restart.
 - **Quitting** (`quit.odin`). Godot reports a sound's playback still held by the AudioServer at exit as a leak, so the
   session's quits (`UnifiedSession.quit`, and the one at the end of a `--quit-at-end` run) stop every audio player in
   the tree and quit once their playbacks are freed (at most `QUIT_AUDIO_WAIT`); meanwhile the session's frame does
@@ -435,21 +437,12 @@ that every view kind has a scene and every indexed kind is one of them.
   the same command line, so other flags pass through; a bad value of one of ours, or a near miss of a name, prints an
   error and quits (exit 2). A build without the dev UI ignores the dev flags with a warning; the session flags
   (starting, hosting and joining, `--ticks`, `--quit-at-end`) work in every build, so `uni release` smoke-tests the
-  public build with them.
+  public build with them. A `--quit-at-end` run quits with 1 when its session fails, to start or later (a join
+  refused), else with 0 at its result.
 
 ## Library tooling
 
-unified's GDScript, in `tools_godot/` at unified's root, which every project sees at `res://unified/tools_godot/`: in a
-game repo Godot scans the submodule in place (each other top-level directory of unified holds a `.gdignore`), so a
-game holds no copy and always runs its pinned unified's; unified's own projects get a git-ignored mirror at that path
-(`src/cli/README.md`, Tool scripts). The scripts compile under a game's strict typing (no warnings rule exempts
-them), and a game's export leaves out `unified/*`. None of it knows a game's menus: a game drives its own UI from its
-own tool scripts (`game/tools/`), which extend these by class name.
-
-- `level_export.gd`: `uni bake`'s level exporter.
-- `nav_bake.gd`: `uni bake --nav`'s navigation baker (the editor's Bake NavigationMesh, without the editor).
-- `tool.gd` (`UnifiedTool`): the base of every script `uni tool` runs, with its helpers `log_capture.gd` and
-  `frame_log.gd`.
-- `validate.gd` (`UnifiedValidate`): the godot suite's `validate` step; a game adds `_check_contract()` in
-  `game/tools/validate.gd`.
-- `coop.gd` (`UnifiedCoop`): `uni coop`'s host and joiner; a game adds its play in `game/tools/coop.gd`.
+unified's GDScript, in `tools_godot/` at unified's root, which every project sees at `res://unified/tools_godot/`
+(`src/cli/README.md`, Tool scripts, says how). The scripts compile under a game's strict typing (no warnings rule
+exempts them), and a game's export leaves out `unified/*`. None of it knows a game's menus: a game drives its own UI
+from its own tool scripts (`game/tools/`), which extend these by class name; each script's header says what it is.

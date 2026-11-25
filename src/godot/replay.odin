@@ -8,6 +8,7 @@ package godot
 import "core:encoding/json"
 import "core:fmt"
 import "core:os"
+import "core:sync"
 import "core:time"
 import "unified:netcode"
 import "unified:sim"
@@ -15,6 +16,11 @@ import "unified:sim"
 // How far before a note's tick its replay starts (it plays up to the noted tick and pauses there).
 @(private)
 REPLAY_LEAD_S :: 10
+
+// How long one replay_step may spend stepping toward a seek's target before it lets the loop come round (the
+// watchdog sees a step end, a stop is honoured, a newer control read): a long seek is many short steps.
+@(private)
+REPLAY_SEEK_BUDGET :: 8 * time.Millisecond
 
 // The slowest and fastest replay speeds.
 @(private)
@@ -73,6 +79,9 @@ Replay :: struct($G: typeid) {
 	due_us:      i64, // when the playhead's tick was due on the session clock
 	keyframes:   [dynamic]Keyframe, // by tick; [0]: the recording's own start
 	every:       u32, // keyframe spacing in ticks
+	next_check:  int, // the first checkpoint not behind the playhead (checkpoints are sorted): replay_forward's cursor
+	seeking:     bool, // a seek is on its way to seek_to: nothing is shown until it arrives (replay_seek_run)
+	seek_to:     u32,
 }
 
 // The files a replay folder holds (an F3 note's, a session recording's, a freeze's).
@@ -140,11 +149,14 @@ replay_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 		if err == nil do _ = json.unmarshal(text, &about)
 	}
 	replay.view.follow = about.player
-	if about.tick > replay.view.first && about.tick <= replay.view.last {
-		// a note opens before its moment and stops on it
+	replay.view.paused = driver.req.paused
+	if about.tick > replay.view.first {
+		// a note opens before its moment and stops on it; a note's tick past the recording (one noted ahead of the
+		// verified ticks the recording holds) stops on its last
 		lead := u32(REPLAY_LEAD_S * driver.game.tick_hz)
-		replay.stop_at = about.tick
-		if about.tick > replay.view.first + lead do replay_seek(driver, about.tick - lead)
+		replay.stop_at = min(about.tick, replay.view.last)
+		if replay.stop_at > replay.view.first + lead do replay_seek(driver, replay.stop_at - lead)
+		replay_seek_run(driver, max(time.Duration)) // before the watchdog runs and anything is shown
 	}
 	replay.due_us = netcode.now_us()
 	post_status(driver, .Connected, other_build ? "recorded by another build: checked against its checkpoints" : "")
@@ -182,23 +194,26 @@ replay_close :: proc(driver: ^Driver($G, $View, $MultiView)) {
 }
 
 // One loop of the replay (session thread): the controls, then every tick due on the playhead's clock (at the
-// replay's speed), then the Frame of the playhead's tick. Returns when to come back.
+// replay's speed), then the Frame of the playhead's tick. A seek on its way takes the loop instead, for at most
+// REPLAY_SEEK_BUDGET, and comes back at once until it arrives. Returns when to come back.
 @(private)
 replay_step :: proc(driver: ^Driver($G, $View, $MultiView), now: i64) -> (wake: i64) {
 	replay := driver.replay
 	for {
 		control := queue_pop(&driver.replay_controls) or_break
+		// where the playhead is, or goes: a seek on its way counts as arrived (a step after a seek steps from its target)
+		playhead := replay.seek_to if replay.seeking else replay.simulation.tick
 		switch control.kind {
 		case .Pause:
 			replay.view.paused = true
 		case .Play:
-			if replay.simulation.tick >= replay.view.last do replay_seek(driver, replay.view.first)
+			if playhead >= replay.view.last do replay_seek(driver, replay.view.first)
 			replay.view.paused, replay.due_us, replay.stop_at = false, now, 0
 		case .Speed:
 			replay.view.speed = clamp(control.speed, REPLAY_SPEED_MIN, REPLAY_SPEED_MAX)
 		case .Step:
 			replay.view.paused = true
-			target := clamp(i64(replay.simulation.tick) + control.value, i64(replay.view.first), i64(replay.view.last))
+			target := clamp(i64(playhead) + control.value, i64(replay.view.first), i64(replay.view.last))
 			replay_seek(driver, u32(target))
 		case .Seek:
 			replay_seek(driver, u32(clamp(control.value, i64(replay.view.first), i64(replay.view.last))))
@@ -212,9 +227,14 @@ replay_step :: proc(driver: ^Driver($G, $View, $MultiView), now: i64) -> (wake: 
 	}
 	tick_us := i64(1_000_000 / f32(driver.game.tick_hz) / replay.view.speed)
 	stepped := false
+	if replay.seeking {
+		if !replay_seek_run(driver, REPLAY_SEEK_BUDGET) do return now
+		replay.due_us, stepped = now, true
+	}
 	for !replay.view.paused && now - replay.due_us >= tick_us {
 		if loop := replay.view.loop; loop != {} && replay.simulation.tick >= loop[1] {
 			replay_seek(driver, loop[0])
+			if !replay_seek_run(driver, REPLAY_SEEK_BUDGET) do return now
 		}
 		if replay.simulation.tick >= replay.view.last ||
 		   (replay.stop_at != 0 && replay.simulation.tick >= replay.stop_at) {
@@ -245,8 +265,12 @@ replay_forward :: proc(driver: ^Driver($G, $View, $MultiView), publish := true) 
 		tracker_verified(&driver.tracker, tick)
 		flush_events(driver)
 	}
-	for checkpoint in replay.checkpoints {
-		if checkpoint.tick != tick do continue
+	for replay.next_check < len(replay.checkpoints) && replay.checkpoints[replay.next_check].tick < tick {
+		replay.next_check += 1
+	}
+	if replay.next_check < len(replay.checkpoints) && replay.checkpoints[replay.next_check].tick == tick {
+		checkpoint := replay.checkpoints[replay.next_check]
+		replay.next_check += 1
 		replay.view.checkpoints += 1
 		if checksum := sim.checksum(simulation); checksum == checkpoint.checksum {
 			if replay.view.diverged == 0 do replay.view.agreed = tick
@@ -262,44 +286,65 @@ replay_forward :: proc(driver: ^Driver($G, $View, $MultiView), publish := true) 
 				),
 			)
 		}
-		break
 	}
 	if tick % replay.every == 0 && tick > replay.keyframes[len(replay.keyframes) - 1].tick {
 		append(&replay.keyframes, Keyframe{tick, sim.snapshot_encode(simulation, tick)})
 	}
 }
 
-// Moves the playhead to `target` without showing the ticks between: inside the ring a restore, else the nearest
-// keyframe at or before it, then the ticks to it. The views snap (a new epoch), pending events are dropped, and
-// events arrive again for ticks the replay moves into going forward.
+// Starts moving the playhead to `target` without showing the ticks between: back inside the ring a restore, else the
+// nearest keyframe at or before the target when it is behind the playhead or ahead of it, then the ticks to the target
+// (replay_seek_run, a slice at a time). A newer seek replaces one on its way. On arrival the views snap (a new epoch),
+// the events queued before it are dropped, and events arrive again for ticks the replay moves into going forward.
 @(private)
 replay_seek :: proc(driver: ^Driver($G, $View, $MultiView), target: u32) {
 	replay := driver.replay
-	if target == replay.simulation.tick do return
-	if target < replay.simulation.tick && !sim.restore(replay.simulation, target) {
-		keyframe := replay.keyframes[0]
-		for candidate in replay.keyframes do if candidate.tick <= target do keyframe = candidate
+	if target == replay.simulation.tick && !replay.seeking do return
+	replay.seeking, replay.seek_to = true, target
+	keyframe := replay.keyframes[0]
+	for candidate in replay.keyframes do if candidate.tick <= target do keyframe = candidate
+	if target < replay.simulation.tick && sim.restore(replay.simulation, target) {
+		replay.next_check = 0 // the cursor moves on again from the first
+	} else if target < replay.simulation.tick || keyframe.tick > replay.simulation.tick {
 		fresh: ^sim.Sim(G)
 		if keyframe.bytes != nil {
 			fresh, _ = sim.from_snapshot(driver.game, keyframe.bytes, any_build = true)
 		} else {
 			fresh = sim.create(driver.game, replay.log.seed, replay.log.setup)
 		}
-		if fresh == nil do return
+		if fresh == nil {
+			replay.seeking = false // the playhead stays where it is
+			return
+		}
 		dev := replay.simulation.dev
 		enabled := dev != nil ? dev.enabled : 0
 		sim.destroy(replay.simulation)
 		replay.simulation = fresh
+		replay.next_check = 0
 		sim.dev_attach(fresh, replay_clock)
 		sim.dev_enable(fresh, enabled)
 	}
-	for replay.simulation.tick < target do replay_forward(driver, publish = false)
-	// the tracker starts over: a tick entered again going forward has its events again
+}
+
+// Steps a seek on its way toward its target for at most `budget` (checking a stop between ticks); true once it
+// arrived: the tracker starts over and the timeline has a new epoch (every view snaps). Nothing is shown meanwhile.
+@(private)
+replay_seek_run :: proc(driver: ^Driver($G, $View, $MultiView), budget: time.Duration) -> (arrived: bool) {
+	replay := driver.replay
+	if !replay.seeking do return true
+	started := time.tick_now()
+	for replay.simulation.tick < replay.seek_to {
+		if time.tick_since(started) >= budget || sync.atomic_load(&driver.stop_req) do return false
+		replay_forward(driver, publish = false)
+	}
+	replay.seeking = false
+	// the tick tracker starts over: a tick entered again going forward has its events again
 	serial := driver.tracker.last_serial
 	tracker_destroy(&driver.tracker)
 	tracker_init(&driver.tracker, tick_event_id, serial)
 	driver.epoch += 1
 	driver.poses.fill += 2 // no remembered pose crosses the jump
+	return true
 }
 
 // Publishes the playhead's Frame (every tick final: verified = the tick).

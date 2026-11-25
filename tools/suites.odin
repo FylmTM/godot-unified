@@ -224,6 +224,7 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 				"unified: UnifiedSetup.from_json: ",
 				"which view_root has no node at",
 				"it holds at most",
+				"it holds exactly",
 				"unified: UnifiedInput.picks: item 0: ",
 				"unified: UnifiedInput.flags: item 0: ",
 			},
@@ -390,7 +391,7 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 
 // The session check's sections (tests/godot_views/session_check.gd) by Godot process: about as long each (3 hosts again
 // on the port 2 hosted on; 7 records the session it replays, which 10 runs past the length of).
-SESSION_CHECK_GROUPS :: []string{"1,9,10", "2,3,6", "4,5,8,11", "7"}
+SESSION_CHECK_GROUPS :: []string{"1,9,10,15", "2,3,6,14", "4,5,8,11", "7,12,13"}
 
 // How long the debugger-error run may take: it ends in about a second; the prompt waiting for good would hit this.
 DEBUGGER_ERROR_TIMEOUT :: 15 * time.Second

@@ -14,6 +14,9 @@ import "unified:gdext/gdi"
 // Called on the main thread once an F3 note was written into `dir` (the host adds its own files there).
 Feedback_Proc :: #type proc(dir: string, tag_bug: bool)
 
+// Called when an F3 note opens, before the player types it (the host notes the moment: the tick the note is about).
+Note_Open_Proc :: #type proc()
+
 @(private)
 LAYER :: 128 // the dev UI's CanvasLayer: above the game's UI
 
@@ -44,6 +47,7 @@ verified_players: bool
 State :: struct {
 	feedback_dir: string, // Godot's user data dir + /feedback
 	on_feedback:  Feedback_Proc,
+	on_note_open: Note_Open_Proc,
 	inited:       bool,
 	root:         gd.Window,
 	root_id:      u64,
@@ -83,10 +87,12 @@ s: State
 SLOW_MS :: 100 // text and the inspector update at 10 Hz
 
 // Builds the dev UI's controls on their own CanvasLayer and hooks its hotkeys; call on the main thread once the
-// scene tree exists. A second call does nothing.
-init :: proc(shown: bool, on_feedback: Feedback_Proc = nil) {
+// scene tree exists. A second call does nothing. `on_note_open` runs when F3 opens a note, `on_feedback` once it is
+// written.
+init :: proc(shown: bool, on_feedback: Feedback_Proc = nil, on_note_open: Note_Open_Proc = nil) {
 	if s.inited do return
 	s.on_feedback = on_feedback
+	s.on_note_open = on_note_open
 	s.feedback_dir = fmt.aprintf("%s/feedback", gd.OS_get_user_data_dir(gd.OS_singleton()))
 	visible = shown
 	s.rs = gd.RenderingServer_singleton()

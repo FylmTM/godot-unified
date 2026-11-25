@@ -13,7 +13,6 @@ import "core:net"
 import "core:os"
 import "core:strconv"
 import "core:strings"
-import "core:sync"
 import "core:time"
 import gd "unified:gdext"
 import "unified:gdext/gdi"
@@ -293,7 +292,7 @@ when DEVUI {
 					control_error("a pause is single player only (this session is %v)", session.mode),
 				)
 			}
-			sync.atomic_store(&pause_want, op == "pause")
+			api.set_paused(op == "pause")
 			client.wait = op == "pause" ? .Pause : .Resume
 			client.deadline = time.tick_add(time.tick_now(), 2 * time.Second)
 			return false
@@ -301,10 +300,10 @@ when DEVUI {
 			if !want(args[:], 1, 1) do break
 			ticks, ok := count(args[0])
 			if !ok do return control_reply(client, control_error("step takes a tick count, got %q", args[0]))
-			if !sync.atomic_load(&pause_on) {
+			if !api.installed || !api.paused() {
 				return control_reply(client, control_error("the session is not paused: `pause` first (single player)"))
 			}
-			client.goal = sync.atomic_add(&step_req, u32(ticks)) + u32(ticks)
+			client.goal, _ = api.step(u32(ticks))
 			client.wait = .Step
 			for_ticks(client, given, ticks)
 			return false
@@ -336,7 +335,7 @@ when DEVUI {
 			client.text = strings.clone(action)
 			client.wait = .Press
 			for_ticks(client, given, ticks)
-			if sync.atomic_load(&pause_on) {
+			if api.installed && api.paused() {
 				client.stepping, client.ticks = true, u32(ticks)
 			} else {
 				client.goal = client.from + u32(ticks)
@@ -392,7 +391,7 @@ when DEVUI {
 			case "ticks":
 				ticks, ok := count(args[1])
 				if !ok do return control_reply(client, control_error("wait ticks takes a tick count, got %q", args[1]))
-				if sync.atomic_load(&pause_on) {
+				if api.installed && api.paused() {
 					return control_reply(client, control_error("the session is paused: `step` it instead"))
 				}
 				client.goal = client.from + u32(ticks)
@@ -458,8 +457,9 @@ when DEVUI {
 		shown: u32 = session.frame != nil ? session.frame.tick : 0
 		late := time.tick_diff(client.deadline, time.tick_now()) > 0
 		stepped :: proc(session: ^Session_Node, goal: u32) -> bool {
-			if i32(sync.atomic_load(&step_taken) - goal) < 0 do return false
-			tick := sync.atomic_load(&step_tick)
+			if !api.installed do return false
+			taken, tick := api.stepped()
+			if i32(taken - goal) < 0 do return false
 			_, state_tick := api.state()
 			return state_tick >= tick && session.frame != nil && session.frame.tick >= tick
 		}
@@ -467,9 +467,9 @@ when DEVUI {
 		case .None:
 			return true
 		case .Pause, .Resume:
-			if sync.atomic_load(&pause_on) == (client.wait == .Pause) do return control_reply(client, control_ok(session, control_status(session)))
+			if api.installed && api.paused() == (client.wait == .Pause) do return control_reply(client, control_ok(session, control_status(session)))
 			if late {
-				sync.atomic_store(&pause_want, false) // a refused pause asks nothing more
+				if api.installed do api.set_paused(false) // a refused pause asks nothing more
 				return control_reply(
 					client,
 					control_error(
@@ -483,7 +483,7 @@ when DEVUI {
 		case .Press:
 			if client.stepping && client.stage == 0 {
 				// this frame sampled the press (the sample comes before the socket's poll): its ticks may run now
-				client.goal = sync.atomic_add(&step_req, client.ticks) + client.ticks
+				client.goal, _ = api.step(client.ticks)
 				client.stage = 1
 				return false
 			}
@@ -586,7 +586,7 @@ when DEVUI {
 			running,
 			strings.to_lower(fmt.tprint(session.mode), context.temp_allocator),
 			STATUS_NAMES[session.status],
-			sync.atomic_load(&pause_on),
+			api.installed && api.paused(),
 		)
 		frame := session.frame
 		fmt.sbprintf(&out, `,"verified":%d,"tick_hz":%d`, frame != nil ? frame.verified : 0, api.tick_hz)
@@ -719,18 +719,16 @@ when DEVUI {
 		return control_ok(session, strings.to_string(out))
 	}
 
-	// A command of the game's union from its name (`drop`, `Command_Drop`) and `key=value,...`, sent as local player 0's
-	// like a script's send_command (sim units: what the state reads; a player field by its key).
+	// A command of the game's union from its name (`drop`, `Command_Drop`, any case) and `key=value,...`, sent as local
+	// player 0's like a script's send_command (sim units: what the state reads; a player field by its key).
 	@(private = "file")
 	control_command :: proc(session: ^Session_Node, name: string, text: string) -> string {
 		if !api.installed || !api.running() do return control_error("no session is running")
 		names := make([dynamic]string, context.temp_allocator)
-		for &layout, kind in api.commands {
-			append(&names, layout.name)
-			if !strings.equal_fold(layout.name, name) &&
-			   !strings.equal_fold(fmt.tprintf("cmd_%s", layout.name), name) {
-				continue
-			}
+		for &layout in api.commands do append(&names, layout.name)
+		kind := command_kind_named(names[:], name)
+		if kind >= 0 {
+			layout := &api.commands[kind]
 			bytes: [sim.COMMAND_MAX]u8
 			if problem := sim.assign_text(&bytes, layout.type, text); problem != "" do return control_error("%s", problem)
 			command, ok := sim.command_from_bytes(api.commands_type, kind, bytes[:layout.type.size])
@@ -1084,7 +1082,6 @@ when DEVUI {
 	_ :: net
 	_ :: os
 	_ :: strconv
-	_ :: sync
 	_ :: time
 	_ :: gdi
 	_ :: sim
