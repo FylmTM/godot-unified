@@ -359,7 +359,7 @@ a_leaving_client_never_reports_failed :: proc(t: ^testing.T) {
 		name    = "slow",
 		latency = 120_000,
 	}
-	client := net_join(&session, raw = slow, seed = 7, config = Client_Config{slot = -1, compat = 12345})
+	client := net_join(&session, raw = slow, seed = 7, config = Client_Config{compat = 12345})
 	net_run(&session, 0.05)
 	netcode.client_stop(client, session.clock.now)
 	net_run(&session, 3)

@@ -6,6 +6,7 @@
 // plain_data_check, declarations_are_checked).
 package test_scenarios
 
+import "core:log"
 import "core:strings"
 import "core:testing"
 
@@ -13,6 +14,37 @@ import "../toy"
 import "unified:headless"
 import "unified:netcode"
 import "unified:sim"
+
+// The warnings of a test whose planted bug the netcode warns of (a desync): counted, not printed, so a passing run
+// prints none; the test asserts it warned. Errors and the rest go to the runner's logger.
+Planted :: struct {
+	warnings: int,
+	runner:   log.Logger,
+}
+
+// A logger that counts the warnings in `planted` and hands everything else to the current one (the test runner's).
+planted_logger :: proc(planted: ^Planted) -> log.Logger {
+	planted.runner = context.logger
+	return {
+		procedure = proc(
+			data: rawptr,
+			level: log.Level,
+			text: string,
+			options: log.Options,
+			location := #caller_location,
+		) {
+			planted := (^Planted)(data)
+			if level == .Warning {
+				planted.warnings += 1
+				return
+			}
+			planted.runner.procedure(planted.runner.data, level, text, options, location)
+		},
+		data = planted,
+		lowest_level = planted.runner.lowest_level,
+		options = planted.runner.options,
+	}
+}
 
 // Bug: the tick reads the World's count of the ticks it ran, which is never rolled back, so a re-simulated tick sees
 // another count. Detector: rollback_every_tick (run_synctest).
@@ -101,6 +133,8 @@ seeded_shared_state_is_caught_by_runs_match :: proc(t: ^testing.T) {
 // computes its own, even on an ideal network with no rollback. Detector: the netcode's desync detection.
 @(test)
 seeded_address_dependence_is_caught_by_desync_detection :: proc(t: ^testing.T) {
+	planted: Planted
+	context.logger = planted_logger(&planted)
 	game := toy.GAME
 	game.init = proc(t: ^toy.Tick) {
 		address := u64(uintptr(t.world))
@@ -115,6 +149,7 @@ seeded_address_dependence_is_caught_by_desync_detection :: proc(t: ^testing.T) {
 	})
 	defer headless.session_result_destroy(&result)
 	testing.expectf(t, result.desyncs > 0, "a state taken from an address: the session saw no desync")
+	testing.expectf(t, planted.warnings > 0, "the desync warned of nothing")
 }
 
 // Bug: a rule that reads the World (player 0 scores on every 50th call of `tick`): a client that rolls back calls
@@ -122,6 +157,8 @@ seeded_address_dependence_is_caught_by_desync_detection :: proc(t: ^testing.T) {
 // tells every client, and the typed report names the field. On an ideal network nobody rolls back: no desync.
 @(test)
 a_desync_is_detected_and_reported :: proc(t: ^testing.T) {
+	planted: Planted
+	context.logger = planted_logger(&planted)
 	game := toy.GAME
 	game.tick = proc(tick: ^toy.Tick) {
 		toy.tick(tick)
@@ -159,4 +196,5 @@ a_desync_is_detected_and_reported :: proc(t: ^testing.T) {
 	defer headless.session_result_destroy(&ideal)
 	testing.expect_value(t, ideal.desyncs, 0)
 	testing.expect(t, ideal.ok)
+	testing.expectf(t, planted.warnings > 0, "the desync warned of nothing")
 }

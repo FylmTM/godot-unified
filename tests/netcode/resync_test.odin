@@ -60,6 +60,8 @@ joins_of :: proc(session: ^Net, slot: int) -> (joins: int) {
 // recording), its status went Recovering and back to Connected, and nobody else noticed but the report.
 @(test)
 a_desync_is_recovered_in_place :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	net_make(&session, 0, 1)
 	defer net_destroy(&session)
@@ -82,11 +84,14 @@ a_desync_is_recovered_in_place :: proc(t: ^testing.T) {
 	recovering := false
 	for status in statuses do recovering ||= status == .Recovering
 	testing.expectf(t, recovering && statuses[len(statuses) - 1] == .Connected, "statuses %v", statuses)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // With two players the tie goes to the host: the other is resynced from the host's snapshot.
 @(test)
 a_desync_of_two_players_resyncs_the_other_from_the_host :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	net_make(&session, 0, 0)
 	defer net_destroy(&session)
@@ -97,12 +102,15 @@ a_desync_of_two_players_resyncs_the_other_from_the_host :: proc(t: ^testing.T) {
 	testing.expect_value(t, session.host.client.stats.resyncs, 0)
 	testing.expect_value(t, slipped.status, netcode.Status.Connected)
 	testing.expect(t, agrees_with_the_host(t, &session, slipped, 128) > 8)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // A client that diverges on every tick from 100 on is resynced RESYNCS_MAX times, then dropped (Desynced); the others
 // play on.
 @(test)
 a_client_that_keeps_diverging_is_dropped :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	net_make(&session, 0, 1)
 	defer net_destroy(&session)
@@ -113,12 +121,15 @@ a_client_that_keeps_diverging_is_dropped :: proc(t: ^testing.T) {
 	testing.expect_value(t, broken.stats.resyncs, netcode.RESYNCS_MAX)
 	testing.expect_value(t, session.clients[0].status, netcode.Status.Connected)
 	testing.expect(t, session.clients[0].verified + 32 >= session.relay.finalized)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // The toy's commands (its scripted bursts) around a resync: each of the resynced player's commands lands exactly once
 // (the relay's recording holds every one it sent, in order), and once it verified past them it predicts none of them.
 @(test)
 commands_around_a_resync_land_once :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	net_make(&session, 0, 1)
 	defer net_destroy(&session)
@@ -139,6 +150,7 @@ commands_around_a_resync_land_once :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, len(slipped.locals[0].own_cmds) <= 16, "no command predicted forever")
 	testing.expect(t, agrees_with_the_host(t, &session, slipped, 128) > 8)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // The toy at each tick rate the rate tests run (they outlive their sessions): [k][0] and [k][1] the ladder's plain and
@@ -162,11 +174,7 @@ a_client_past_the_relays_ring_is_reanchored_in_place :: proc(t: ^testing.T) {
 		session: Net
 		net_make(&session, 0, 0, game = game)
 		defer net_destroy(&session)
-		slow := net_join(
-			&session,
-			game = game,
-			config = Client_Config{slot = -1, player_name = "Grace", catchup_ticks = 1},
-		)
+		slow := net_join(&session, game = game, config = Client_Config{player_name = "Grace", catchup_ticks = 1})
 		net_run(&session, 3)
 		testing.expect_value(t, slow.status, netcode.Status.Connected)
 		slot := slow.slot
@@ -199,6 +207,8 @@ a_client_past_the_relays_ring_is_reanchored_in_place :: proc(t: ^testing.T) {
 // fresh): resynced once, Connected.
 @(test)
 a_desync_is_recovered_at_every_rate :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	for tick_hz, index in RATES {
 		plain, slips := &RATE_GAMES[index][0], &RATE_GAMES[index][1]
 		plain^ = toy.GAME
@@ -225,6 +235,7 @@ a_desync_is_recovered_at_every_rate :: proc(t: ^testing.T) {
 			session.relay.resynced,
 		)
 	}
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // A command on every tick (the toy's script sends one tick in sixteen): a player who keeps issuing them.
@@ -260,6 +271,8 @@ carried_commands :: proc(session: ^Net, slot: int, first, upto: u32) -> (count: 
 // left own_cmds the first time, so they take none of the newer ones with them.
 @(test)
 a_resynced_client_keeps_the_own_commands_no_verified_tick_carries :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	net_make(&session, 0, 1)
 	defer net_destroy(&session)
@@ -295,12 +308,15 @@ a_resynced_client_keeps_the_own_commands_no_verified_tick_carries :: proc(t: ^te
 		len(slipped.locals[0].own_cmds),
 		slipped.locals[0].cmd_seq,
 	)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // The same on a lossy link: a command dropped from own_cmds before the relay acked it would never be sent again, the
 // relay would wait for its seq for good (it never takes a gap), and every later command of that player would be lost.
 @(test)
 a_resync_on_a_lossy_link_loses_no_command :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	lost_sessions := 0
 	for run in 0 ..< 6 {
 		session: Net
@@ -331,6 +347,7 @@ a_resync_on_a_lossy_link_loses_no_command :: proc(t: ^testing.T) {
 		net_destroy(&session)
 	}
 	testing.expect_value(t, lost_sessions, 0)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // Three players on a plain relay (no typed reports: a shipped game's). The slipping client hitches just before its
@@ -339,6 +356,8 @@ a_resync_on_a_lossy_link_loses_no_command :: proc(t: ^testing.T) {
 // keeps, at or after the one it diverged on (an older base would replay the fault): resynced once, whatever the hitch.
 @(test)
 a_desync_seen_after_a_hitch_is_resynced :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	for hitch in ([]f64{1.5, 2, 3, 4, 5}) {
 		for catchup in ([]u32{0, 8}) {
 			session: Net
@@ -369,6 +388,7 @@ a_desync_seen_after_a_hitch_is_resynced :: proc(t: ^testing.T) {
 			net_destroy(&session)
 		}
 	}
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // A remote client in `slot` behind a gate (a plain relay's start player).
@@ -386,6 +406,8 @@ gated_slot :: proc(session: ^Net, slot: int, game: ^toy.Game = nil) -> (^Client,
 // diverged target's base is a tick it reported: it waits, frozen, and is resynced once it reports again.
 @(test)
 an_old_report_of_the_base_is_not_the_restore :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	net_make_relay(&session, 3, 0, desync_detail = true)
 	defer net_destroy(&session)
@@ -411,12 +433,15 @@ an_old_report_of_the_base_is_not_the_restore :: proc(t: ^testing.T) {
 	testing.expectf(t, slipped.status == .Connected, "%v (%s)", slipped.status, slipped.detail)
 	testing.expect_value(t, slipped.stats.resyncs, 1)
 	testing.expect_value(t, session.relay.resynced, 1)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // A resync whose provider leaves mid-fetch asks another majority player that keeps a tick the target can take, as a
 // joiner's snapshot does (restart_snapshot): the target is resynced, not dropped.
 @(test)
 a_resync_whose_provider_leaves_asks_another :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	net_make_relay(&session, 3, 0)
 	defer net_destroy(&session)
@@ -430,6 +455,7 @@ a_resync_whose_provider_leaves_asks_another :: proc(t: ^testing.T) {
 	net_run(&session, 6)
 	testing.expectf(t, slipped.status == .Connected, "%v (%s)", slipped.status, slipped.detail)
 	testing.expect_value(t, slipped.stats.resyncs, 1)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // A provider that sends the resync's snapshot a byte every 2 s (each one progress, under IMAGE_WAIT_MS) holds the
@@ -438,6 +464,8 @@ a_resync_whose_provider_leaves_asks_another :: proc(t: ^testing.T) {
 // that reports the honest checksums (copied from slot 1's client), so it is the majority player asked first.
 @(test)
 a_trickling_resync_snapshot_is_given_up :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	evil: Evil
 	net_make_relay(&session, 3, 0)
@@ -490,6 +518,7 @@ a_trickling_resync_snapshot_is_given_up :: proc(t: ^testing.T) {
 	)
 	evil_run(&evil, &session, 1, round = 0.05)
 	testing.expectf(t, slipped.status == .Disconnected, "the target is %v (%s)", slipped.status, slipped.detail)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // The slow-fetch test's games (128 Hz): plain, and slipping at tick 200.
@@ -501,6 +530,8 @@ SLOW_FETCH_GAMES: [2]toy.Game
 // target is told were copied when the base was chosen: it keeps exactly the own commands no verified tick carries.
 @(test)
 a_slow_resync_snapshot_tells_the_commands_of_its_base :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	plain, slips := &SLOW_FETCH_GAMES[0], &SLOW_FETCH_GAMES[1]
 	plain^ = toy.GAME
 	plain.tick_hz = 128
@@ -541,12 +572,15 @@ a_slow_resync_snapshot_tells_the_commands_of_its_base :: proc(t: ^testing.T) {
 		len(seat.own_cmds),
 		carried,
 	)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // A diverged client with two local players: the one connection is resynced once, both its seats stay (one join record
 // each), each local player's commands up to the snapshot's tick are dropped and the rest land, and it agrees after.
 @(test)
 a_client_with_two_local_players_is_resynced_once :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	net_make(&session, 0, 1)
 	defer net_destroy(&session)
@@ -563,4 +597,5 @@ a_client_with_two_local_players_is_resynced_once :: proc(t: ^testing.T) {
 		testing.expect(t, len(slipped.locals[local].own_cmds) <= 16, "no command predicted forever")
 	}
 	testing.expect(t, agrees_with_the_host(t, &session, slipped, 128) > 8)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }

@@ -28,6 +28,8 @@ diverging_game :: proc() -> ^toy.Game {
 // majority (players 1 and 2) doesn't have. The relay asks player 1 instead, and the joiner plays from that one.
 @(test)
 a_bad_snapshot_is_refused_and_another_player_sends_one :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	net_make_relay(&session, 3, 0)
 	session.relay.cfg.leave_diverged = true // player 0 stays diverged: the bad provider
@@ -61,11 +63,14 @@ a_bad_snapshot_is_refused_and_another_player_sends_one :: proc(t: ^testing.T) {
 			}
 		}
 	}
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // ... and when the players who could send another leave, the joiner is refused: its snapshot was bad.
 @(test)
 a_bad_snapshot_with_nobody_else_refuses_the_joiner :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	net_make_relay(&session, 3, 0)
 	session.relay.cfg.leave_diverged = true // player 0 stays diverged: the bad provider
@@ -87,6 +92,7 @@ a_bad_snapshot_with_nobody_else_refuses_the_joiner :: proc(t: ^testing.T) {
 		"the snapshot differed from the other players' and nobody else could send one",
 	)
 	testing.expect(t, session.relay.seats[3].conn < 0)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // A joiner that leaves before its provider sent the snapshot, and another one in the same seat right after: the
@@ -99,14 +105,14 @@ a_quick_rejoin_is_sent_a_fresh_snapshot :: proc(t: ^testing.T) {
 	defer net_destroy(&session)
 	net_join(&session, 0, .Ideal)
 	net_run(&session, 2)
-	first := net_join(&session, -1, .Ideal)
+	first := net_join(&session, profile = .Ideal)
 	net_run(&session, 1, proc(session: ^Net) -> bool {return provider_slot(session.relay, 1) >= 0})
 	testing.expect_value(t, provider_slot(session.relay, 1), 0)
 	net_run(&session, 0.3)
 	netcode.client_stop(first, session.clock.now)
 	net_run(&session, 0.02)
 	testing.expect(t, session.relay.seats[1].conn < 0)
-	second := net_join(&session, -1, .Ideal)
+	second := net_join(&session, profile = .Ideal)
 	net_run(&session, 5)
 	testing.expectf(t, second.status == .Connected, "the second joiner is %v (%s)", second.status, second.detail)
 	testing.expect_value(t, len(session.clients[0].snap_reqs), 0)
@@ -127,7 +133,7 @@ an_older_snapshot_after_a_newer_begin_is_refused :: proc(t: ^testing.T) {
 	evil.acking = true
 	honest := net_join(&session, 1, .Ideal)
 	evil_run(&evil, &session, 1)
-	joiner := net_join(&session, -1, .Wan)
+	joiner := net_join(&session, profile = .Wan)
 	evil_run(&evil, &session, 0.3)
 	testing.expect_value(t, provider_slot(session.relay, 2), 0)
 	older := (conn_in(session.relay, 2).snap_min + 15) / 16 * 16 // the first checksum tick the joiner may start from
@@ -232,6 +238,8 @@ a_provider_replaced_mid_transfer_leaves_no_gap :: proc(t: ^testing.T) {
 // two ticks apart across a whole checksum period on `wan`: the joiner always plays, and keeps up.
 @(test)
 a_restarted_snapshot_keeps_up_at_any_phase :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	for k in 0 ..< netcode.CHECKSUM_EVERY / 2 {
 		session: Net
 		defer net_destroy(&session)
@@ -259,6 +267,7 @@ a_restarted_snapshot_keeps_up_at_any_phase :: proc(t: ^testing.T) {
 			conn_in(session.relay, 3).refused,
 		)
 	}
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // A session of the provider (a raw channel in seat 0, acking), an honest client in seat 1 and a joiner in seat 2 whose
@@ -281,7 +290,7 @@ slow_join :: proc(
 	evil.acking = true
 	net_join(session, 1, .Ideal)
 	evil_run(evil, session, 3, round = 0.001) // past tick 100, where the diverged build parts
-	joiner = net_join(session, -1, joiner_link)
+	joiner = net_join(session, profile = joiner_link)
 	evil_run(evil, session, 0.3, round = 0.001)
 	testing.expect_value(t, provider_slot(session.relay, 2), 0)
 	tick = (conn_in(session.relay, 2).snap_min + 15) / 16 * 16
@@ -385,7 +394,7 @@ a_snapshot_in_slow_pieces_catches_up_past_1024_ticks :: proc(t: ^testing.T) {
 	defer evil_destroy(&evil)
 	evil.acking = true
 	evil_run(&evil, &session, 1)
-	joiner := net_join(&session, -1, .Ideal)
+	joiner := net_join(&session, profile = .Ideal)
 	evil_run(&evil, &session, 0.1)
 	tick := (conn_in(session.relay, 1).snap_min + 15) / 16 * 16
 	for session.relay.finalized < tick {
@@ -438,7 +447,7 @@ a_snapshot_nobody_else_reports_is_let_in_unchecked :: proc(t: ^testing.T) {
 	defer evil_destroy(&evil)
 	evil.acking = true
 	evil_run(&evil, &session, 1)
-	joiner := net_join(&session, -1, .Ideal)
+	joiner := net_join(&session, profile = .Ideal)
 	evil_run(&evil, &session, 0.1)
 	testing.expect_value(t, provider_slot(session.relay, 1), 0)
 	tick := (conn_in(session.relay, 1).snap_min + 15) / 16 * 16
@@ -474,11 +483,11 @@ a_rejoin_while_the_providers_answer_is_on_its_way_gets_in :: proc(t: ^testing.T)
 		net_make_relay(&session, 1, 0)
 		net_join(&session, 0, .Wan)
 		net_run(&session, 2)
-		first := net_join(&session, -1, .Ideal)
+		first := net_join(&session, profile = .Ideal)
 		net_run(&session, 0.56 + f64(k) * 0.01)
 		netcode.client_stop(first, session.clock.now)
 		net_run(&session, 0.005)
-		second := net_join(&session, -1, .Ideal)
+		second := net_join(&session, profile = .Ideal)
 		net_run(&session, 2.5)
 		testing.expectf(
 			t,
@@ -505,7 +514,7 @@ a_rejoin_while_a_large_snapshot_is_on_its_way_gets_in :: proc(t: ^testing.T) {
 	defer evil_destroy(&evil)
 	evil.acking = true
 	evil_run(&evil, &session, 1)
-	first := net_join(&session, -1, .Ideal)
+	first := net_join(&session, profile = .Ideal)
 	evil_run(&evil, &session, 0.1)
 	testing.expect_value(t, provider_slot(session.relay, 1), 0)
 	tick := (conn_in(session.relay, 1).snap_min + 15) / 16 * 16
@@ -517,7 +526,7 @@ a_rejoin_while_a_large_snapshot_is_on_its_way_gets_in :: proc(t: ^testing.T) {
 	netcode.client_stop(first, session.clock.now)
 	evil_run(&evil, &session, 0.2)
 	testing.expect(t, session.relay.seats[1].conn < 0)
-	second := net_join(&session, -1, .Ideal)
+	second := net_join(&session, profile = .Ideal)
 	evil_run(&evil, &session, 0.1)
 	testing.expect_value(t, provider_slot(session.relay, 1), 0)
 	tick = (conn_in(session.relay, 1).snap_min + 15) / 16 * 16
@@ -547,6 +556,8 @@ a_rejoin_while_a_large_snapshot_is_on_its_way_gets_in :: proc(t: ^testing.T) {
 // else to ask the joiner is refused for want of a snapshot (none failed a check).
 @(test)
 stale_chunks_keep_a_provider_only_while_the_ring_holds_the_join :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	session: Net
 	net_make_relay(&session, 1, 0)
 	defer net_destroy(&session)
@@ -555,7 +566,7 @@ stale_chunks_keep_a_provider_only_while_the_ring_holds_the_join :: proc(t: ^test
 	defer evil_destroy(&evil)
 	evil.acking = true
 	evil_run(&evil, &session, 1)
-	joiner := net_join(&session, -1, .Ideal)
+	joiner := net_join(&session, profile = .Ideal)
 	evil_run(&evil, &session, 0.1)
 	testing.expect_value(t, provider_slot(session.relay, 1), 0)
 	snap_min := conn_in(session.relay, 1).snap_min
@@ -580,6 +591,7 @@ stale_chunks_keep_a_provider_only_while_the_ring_holds_the_join :: proc(t: ^test
 		"refused %d ticks past its snap_min",
 		session.relay.finalized - snap_min,
 	)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
 // Joiners on `bad` links, a second joiner right behind the first, the first provider leaving mid-join in odd rounds:
@@ -592,9 +604,9 @@ late_joins_on_bad_links_with_a_provider_leaving :: proc(t: ^testing.T) {
 		net_join(&session, 0, .Bad)
 		net_join(&session, 1, .Wan)
 		net_run(&session, 2 + f64(k) * 0.037)
-		first := net_join(&session, -1, .Bad)
+		first := net_join(&session, profile = .Bad)
 		net_run(&session, 0.15 + f64(k) * 0.04)
-		second := net_join(&session, -1, k % 4 < 2 ? .Bad : .Wan)
+		second := net_join(&session, profile = k % 4 < 2 ? .Bad : .Wan)
 		net_run(&session, 0.05 + f64(k % 5) * 0.1)
 		if k % 2 == 1 do netcode.client_stop(session.clients[0], session.clock.now)
 		net_run(&session, 14)
@@ -636,12 +648,12 @@ a_seat_joined_and_left_again_and_again :: proc(t: ^testing.T) {
 		net_join(&session, 1, .Bad)
 		net_run(&session, 2)
 		for round in 0 ..< 4 {
-			joiner := net_join(&session, -1, round % 2 == 0 ? .Wan : .Bad)
+			joiner := net_join(&session, profile = round % 2 == 0 ? .Wan : .Bad)
 			net_run(&session, 0.05 + f64((k * 7 + round * 13) % 23) * 0.04)
 			netcode.client_stop(joiner, session.clock.now)
 			net_run(&session, 0.02 + f64(k) * 0.03)
 		}
-		last := net_join(&session, -1, .Wan)
+		last := net_join(&session, profile = .Wan)
 		net_run(&session, 10)
 		testing.expectf(
 			t,
@@ -667,6 +679,8 @@ GAME_SEEDLESS := toy.Game{}
 // session's seed.
 @(test)
 a_snapshot_of_another_seed_is_refused_and_another_player_sends_one :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
 	GAME_SEEDLESS = toy.GAME
 	GAME_SEEDLESS.tick = proc(tick: ^toy.Tick) {}
 	session: Net
@@ -683,4 +697,5 @@ a_snapshot_of_another_seed_is_refused_and_another_player_sends_one :: proc(t: ^t
 	testing.expect(t, refused_slot(session.relay, 3, 0))
 	testing.expect_value(t, joiner.status, netcode.Status.Connected)
 	testing.expect(t, joiner.sim != nil && joiner.sim.seed == SEED, "the joiner plays with the session's seed")
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }

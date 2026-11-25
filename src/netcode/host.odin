@@ -30,10 +30,13 @@ Host :: struct($G: typeid) {
 	waiting:      [dynamic]Link, // remote links added before the host's player is in (host_add_link)
 	linked:       bool, // a remote link was added (host_solo); it also ends a single-player pause
 	// The single-player pause (host_set_paused): the relay and the client run on session time, `now` less the time
-	// spent paused, so from their side no time passed.
+	// spent paused, so from their side no time passed. A stall the host folds (host_step) counts here too.
 	paused:       bool,
 	paused_at:    i64, // the `now` the pause began
-	paused_total: i64, // µs spent paused before the current pause
+	paused_total: i64, // µs spent paused (and stalls folded) before the current pause
+	stepped_at:   i64, // the session time of the last step (0: none yet): a stall is measured from it
+	relay_loop:   ^Loop_Link, // the relay's end of the in-process link: the account it vouches for (host_set_account)
+	stalls:       int, // stalls host_step saw (over STALL_US of session time between two steps)
 }
 
 // Whether the host never had a remote link: single player as it started (a pause that stops the clock is legal only
@@ -48,8 +51,10 @@ host_set_open :: proc(host: ^Host($G), open: bool) {
 }
 
 // Gives the host's own player its platform account once the lobby knows it (a single-player session opened to a
-// lobby later: host_create had none), and tells every client (relay_set_account).
+// lobby later: host_create had none), and tells every client (relay_set_account). The in-process link vouches for it
+// from now on, so the host's player is recognized by it whatever happens to its connection. `account` is copied.
 host_set_account :: proc(host: ^Host($G), account: Account, now: i64) {
+	loop_vouch(host.relay_loop, account)
 	for &seat in host.client.locals {
 		if seat.state == .Seated do relay_set_account(host.relay, seat.member, account, now)
 	}
@@ -59,6 +64,11 @@ host_set_account :: proc(host: ^Host($G), account: Account, now: i64) {
 // its deadlines (the next tick of the relay or the client) and this is only the fallback before the clock starts.
 @(private)
 SOLO_POLL_US :: 50_000
+
+// A gap of session time between two host_steps longer than this is a stall (the process stopped: a debugger break, a
+// laptop asleep), not a late step (host_step). Well above a step's period, and below what a player would see caught up.
+@(private)
+STALL_US :: 250_000
 
 // Creates the relay (its clock starts when the host's client connects, on the first steps) and
 // the host's client in slot 0.
@@ -80,7 +90,10 @@ host_create :: proc(game: ^$G, cfg: Host_Config(G), hooks: Hooks(G)) -> ^Host(G)
 	},
 	)
 	host.relay.poll_us = SOLO_POLL_US
-	relay_add_link(host.relay, loopback_link(host.hub, 0, cfg.account))
+	relay_end := loopback_link(host.hub, 0, cfg.account)
+	relay_end.in_process = true // both ends are stepped here: a stall is never a lost connection
+	host.relay_loop = (^Loop_Link)(relay_end.data)
+	relay_add_link(host.relay, relay_end)
 	client_config := Client_Config(G) {
 		slot        = 0,
 		profile     = cfg.profile,
@@ -88,7 +101,9 @@ host_create :: proc(game: ^$G, cfg: Host_Config(G), hooks: Hooks(G)) -> ^Host(G)
 		player_name = cfg.player_name,
 		dev         = cfg.dev,
 	}
-	host.client = client_create(game, client_config, loopback_link(host.hub, 1), hooks)
+	client_end := loopback_link(host.hub, 1)
+	client_end.in_process = true
+	host.client = client_create(game, client_config, client_end, hooks)
 	host.client.poll_us = SOLO_POLL_US // its only link is in-process: host_step hands it what the relay sends at once
 	return host
 }
@@ -110,10 +125,30 @@ host_add_link :: proc(host: ^Host($G), link: Link) {
 // is taken in the same call (they talk in-process), so the host's own inputs and finalized ticks never wait for a
 // wake, and a single-player host wakes only at its deadlines. `real_now` and the wake are the caller's clock; the relay
 // and the client run on session time (host_session_time), which a single-player pause stops (host_set_paused).
+//
+// A step over STALL_US of session time after the last one finds the host stalled (src/netcode/README.md, Host): with
+// no remote player in, the gap is folded into the pause time, as if paused for it; with remote players in, a gap
+// under DISCONNECT_US is played on (the remotes' clocks ran: its ticks are finalized with the inputs held) with the
+// relay's waits moved by it, and a longer one is folded and every remote connection ended, so each comes back through
+// the reconnect at the tick the host stopped on.
 host_step :: proc(host: ^Host($G), real_now: i64) -> i64 {
 	if host.paused && host.linked do host_set_paused(host, false, real_now)
 	if host.paused do return real_now + PAUSE_POLL_US
 	now := real_now - host.paused_total // session time: the relay and the client never see a pause
+	if gap := now - host.stepped_at; host.stepped_at != 0 && gap > STALL_US {
+		host.stalls += 1
+		remotes := host_remotes(host)
+		if remotes == {} || gap >= DISCONNECT_US {
+			host.paused_total += gap
+			now -= gap
+			for peer in remotes {
+				conn_left(host.relay, Peer(peer), "lost: the host stalled", now)
+				channel_drop(host.relay.ch, Peer(peer), now)
+			}
+		} else {
+			relay_shift(host.relay, gap, now)
+		}
+	}
 	wake := host_step_at(host, now)
 	if host.relay.started && len(host.waiting) > 0 {
 		for link in host.waiting {
@@ -129,6 +164,7 @@ host_step :: proc(host: ^Host($G), real_now: i64) -> i64 {
 // the earlier of their wakes (session time).
 @(private)
 host_step_at :: proc(host: ^Host($G), now: i64) -> i64 {
+	host.stepped_at = now
 	relay_wake := relay_step(host.relay, now)
 	client_wake := client_step(host.client, now)
 	for _ in 0 ..< 4 { 	// inputs -> finalized tick -> its ack: a few rounds at most
@@ -159,6 +195,16 @@ host_advance :: proc(host: ^Host($G), ticks: u32) -> u32 {
 		host_step_at(host, host.paused_at - host.paused_total)
 	}
 	return client.predicted - from
+}
+
+// The relay's connections of remote players: in, on a link that is not the in-process one.
+@(private)
+host_remotes :: proc(host: ^Host($G)) -> (remotes: Peers) {
+	relay := host.relay
+	for &conn, peer in relay.conns {
+		if conn.connected && !relay.ch.links[relay.ch.conns[peer].link].in_process do remotes += {peer}
+	}
+	return
 }
 
 // host_step's wake while paused: how soon a loop that sleeps until it notices a resume.

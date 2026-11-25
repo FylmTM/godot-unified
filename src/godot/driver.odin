@@ -1174,10 +1174,10 @@ driver_local_requests :: proc(driver: ^Driver($G, $View, $MultiView), now: i64) 
 		driver.local_seen[local] = request.gen
 		if request.add {
 			cfg := netcode.Local_Config(G) {
-				slot        = request.slot,
 				player_name = netcode.text_string(&request.name),
 				profile     = (^Profile)(&request.profile)^,
 			}
+			if request.slot >= 0 do cfg.slot = request.slot // -1: any free one
 			netcode.client_add_player(driver.client, local, cfg)
 		} else {
 			netcode.client_remove_player(driver.client, local, now)
@@ -1588,6 +1588,7 @@ driver_run :: proc(driver: ^Driver($G, $View, $MultiView)) {
 	watchdog_end(driver)
 	driver_close(driver)
 	session_power_end()
+	netcode.sleep_end() // this thread's sleep timer: the thread ends
 	sync.atomic_store(&driver.finished, true)
 }
 
@@ -1610,10 +1611,10 @@ driver_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 	client_config := netcode.Client_Config(G) {
 		player_name = request.name,
 		profile     = (^Profile)(&request.profile)^,
-		slot        = request.slot, // -1: any (a scripted joiner's --slot)
 		token       = request.token,
 		dev         = DEVUI,
 	}
+	if request.slot >= 0 do client_config.slot = request.slot // -1: any (a scripted joiner's --slot)
 	switch request.mode {
 	case .Single:
 		if request.bench > 0 && game.bench_prepare != nil {

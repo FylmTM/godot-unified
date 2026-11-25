@@ -72,6 +72,10 @@ DISCONNECT_US :: 10_000_000 // silence from a peer that has answered before
 FIRST_ANSWER_US :: 30_000_000
 @(private)
 KEEPALIVE_US :: 250_000
+// Datagrams at most to a connection only the peer opened, before we send it a message (Conn.ours): a forged source
+// gets this many for its datagram, not keepalives for DISCONNECT_US.
+@(private)
+UNASKED_DATAGRAMS :: 3
 DGRAM_TAG :: u8(0x80 | PROTOCOL_VERSION) // a datagram's first byte
 NOTICE_BYTES :: 5 // the version notice: the tag and a zero epoch
 HEADER_BYTES :: 25
@@ -87,8 +91,8 @@ EPOCH_BIT :: u32(0x8000_0000) // set in every epoch; clear in the header's `open
 Channel :: struct {
 	links:  [dynamic]Link,
 	conns:  [MAX_PEERS]Conn,
-	events: [dynamic]Event,
-	polled: int, // how many of `events` the last poll returned (the rest came after it: channel_send's Connected)
+	events: [dynamic]Event, // what the last poll returned
+	raised: [dynamic]Event, // raised since the last poll (channel_send's Connected): the next poll returns them first
 	rx:     [MAX_DATAGRAM]u8,
 	stats:  Channel_Stats,
 	arena:  runtime.Arena, // event payloads, reset by each poll
@@ -137,45 +141,49 @@ Sent_Packet :: struct {
 // One channel peer's connection: the (link, link peer) it maps to, both epochs, its send and receive state. Reset, not
 // freed, when it ends: its buffers serve the next connection on that peer.
 Conn :: struct {
-	used:        bool, // the (link, lpeer) mapping is assigned
-	link:        int,
-	lpeer:       Peer,
-	active:      bool,
-	epoch:       u32, // ours, sent in every datagram
-	peer_epoch:  u32, // theirs (0: none seen yet)
-	opened:      u32, // when we opened it (opened_ms), sent in place of peer_epoch until we have it
-	peer_opened: u32, // when the peer opened its side, from its first datagrams (peer_known: it sent one)
-	peer_known:  bool,
-	last_recv:   i64,
-	last_sent:   i64,
+	used:         bool, // the (link, lpeer) mapping is assigned
+	link:         int,
+	lpeer:        Peer,
+	active:       bool,
+	epoch:        u32, // ours, sent in every datagram
+	peer_epoch:   u32, // theirs (0: none seen yet)
+	opened:       u32, // when we opened it (opened_ms), sent in place of peer_epoch until we have it
+	peer_opened:  u32, // when the peer opened its side, from its first datagrams (peer_known: it sent one)
+	peer_known:   bool,
+	// We sent it a message (channel_send): it gets keepalives. One only the peer opened gets UNASKED_DATAGRAMS at most
+	// (an answer to what it sent, or the word that its old connection ended), counted in unasked_sent.
+	ours:         bool,
+	unasked_sent: u8,
+	last_recv:    i64,
+	last_sent:    i64,
 	// send side
-	next_seq:    u32,
-	sent:        []Sent_Packet, // SENT_RING records while active, nil otherwise
-	rel_out:     [dynamic]Rel_Msg,
-	next_rel_id: u32,
-	unrel_out:   [dynamic]Pooled,
-	srtt_us:     f64,
-	acked_max:   u32, // the newest of our seqs the peer acked (0: none)
+	next_seq:     u32,
+	sent:         []Sent_Packet, // SENT_RING records while active, nil otherwise
+	rel_out:      [dynamic]Rel_Msg,
+	next_rel_id:  u32,
+	unrel_out:    [dynamic]Pooled,
+	srtt_us:      f64,
+	acked_max:    u32, // the newest of our seqs the peer acked (0: none)
 	// Seqs of datagrams with reliable messages, newer than acked_max (a FIFO of REL_IN_FLIGHT, allocated with `sent`)
-	rel_seqs:    []u32,
-	rel_first:   int,
-	rel_count:   int,
-	rtt_last_us: f64, // the latest round-trip sample (valid once rtt_samples > 0)
-	rtt_samples: int, // round-trip samples taken (a new one each time it moves)
+	rel_seqs:     []u32,
+	rel_first:    int,
+	rel_count:    int,
+	rtt_last_us:  f64, // the latest round-trip sample (valid once rtt_samples > 0)
+	rtt_samples:  int, // round-trip samples taken (a new one each time it moves)
 	// receive side
-	have_recv:   bool,
-	recv_max:    u32,
-	recent:      u32, // the seq that arrived last (any, an old one too)
-	recent_at:   i64, // when it did (the delay we send with it)
-	recv_bits:   [1 + ACK_EXT_WORDS]u32, // bit i: seq recv_max - 1 - i arrived (word 0 goes in the header)
-	low_since:   u32, // the oldest seq that arrived since our last datagram (have_since: any did)
-	have_since:  bool,
-	ext_until:   i64, // our datagrams carry the older acks until then
-	rel_bucket:  i64, // reliable bytes we may send now (refilled at REL_RATE up to REL_BURST)
-	rel_fill_us: i64, // when the bucket was last refilled
-	ack_pending: bool,
-	rel_next:    u32,
-	rel_early:   map[u32]Pooled, // ids rel_next+1 ..< rel_next+REL_WINDOW that arrived early
+	have_recv:    bool,
+	recv_max:     u32,
+	recent:       u32, // the seq that arrived last (any, an old one too)
+	recent_at:    i64, // when it did (the delay we send with it)
+	recv_bits:    [1 + ACK_EXT_WORDS]u32, // bit i: seq recv_max - 1 - i arrived (word 0 goes in the header)
+	low_since:    u32, // the oldest seq that arrived since our last datagram (have_since: any did)
+	have_since:   bool,
+	ext_until:    i64, // our datagrams carry the older acks until then
+	rel_bucket:   i64, // reliable bytes we may send now (refilled at REL_RATE up to REL_BURST)
+	rel_fill_us:  i64, // when the bucket was last refilled
+	ack_pending:  bool,
+	rel_next:     u32,
+	rel_early:    map[u32]Pooled, // ids rel_next+1 ..< rel_next+REL_WINDOW that arrived early
 }
 
 // Creates an empty channel with no links; the relay and each client own one. Free it with channel_destroy.
@@ -210,6 +218,7 @@ channel_destroy :: proc(channel: ^Channel) {
 		conn_free(&conn)
 	}
 	delete(channel.events)
+	delete(channel.raised)
 	for &link in channel.links {
 		link_close(&link)
 	}
@@ -374,8 +383,10 @@ conn_free :: proc(conn: ^Conn) {
 	conn^ = {}
 }
 
+// Opens `peer`'s connection if it is not open, raising Connected in `events`: the poll's own list during a poll,
+// channel.raised outside one (a caller may be iterating what the poll returned).
 @(private)
-conn_open :: proc(channel: ^Channel, peer: Peer, now: i64) -> ^Conn {
+conn_open :: proc(channel: ^Channel, peer: Peer, now: i64, events: ^[dynamic]Event) -> ^Conn {
 	conn := &channel.conns[peer]
 	if !conn.active {
 		link, link_peer := conn.link, conn.lpeer
@@ -398,7 +409,7 @@ conn_open :: proc(channel: ^Channel, peer: Peer, now: i64) -> ^Conn {
 		conn.srtt_us = 100_000
 		conn.epoch = mix31(sync.atomic_add(&epochs_opened, 1) + 1) | EPOCH_BIT
 		conn.opened = opened_ms(now)
-		append(&channel.events, Event{kind = .Connected, peer = peer})
+		append(events, Event{kind = .Connected, peer = peer})
 	}
 	return conn
 }
@@ -436,7 +447,8 @@ channel_send :: proc(channel: ^Channel, peer: Peer, data: []u8, delivery: Delive
 	if int(peer) < 0 || int(peer) >= MAX_PEERS || !channel.conns[peer].used || len(data) > MAX_MESSAGE {
 		return false
 	}
-	conn := conn_open(channel, peer, now)
+	conn := conn_open(channel, peer, now, &channel.raised)
+	conn.ours = true
 	if delivery == .Reliable {
 		append(&conn.rel_out, Rel_Msg{id = conn.next_rel_id, data = pool_put(&channel.pool, data)})
 		conn.next_rel_id += 1
@@ -456,6 +468,15 @@ channel_rtt :: proc(channel: ^Channel, peer: Peer) -> (us: f64, samples: int) {
 	return channel.conns[peer].rtt_last_us, channel.conns[peer].rtt_samples
 }
 
+// How long `peer`'s connection has been open at `now`, to the millisecond (0: it is not open).
+@(private)
+channel_age_us :: proc(channel: ^Channel, peer: Peer, now: i64) -> i64 {
+	if int(peer) < 0 || int(peer) >= MAX_PEERS || !channel.conns[peer].active {
+		return 0
+	}
+	return i64((opened_ms(now) - channel.conns[peer].opened) & ~EPOCH_BIT) * 1000
+}
+
 // How long `peer`'s connection has been silent at `now`: since a datagram of it was last read (max(i64): it is not
 // open).
 @(private)
@@ -466,15 +487,28 @@ channel_silence_us :: proc(channel: ^Channel, peer: Peer, now: i64) -> i64 {
 	return now - channel.conns[peer].last_recv
 }
 
+// The caller stopped stepping the channel for `gap_us` (a host's stall, host_step): silence it could not hear counts
+// for nobody, so every open connection's silence starts again from its last datagram plus the gap.
+@(private)
+channel_shift :: proc(channel: ^Channel, gap_us: i64) {
+	for &conn in channel.conns {
+		if conn.active do conn.last_recv += gap_us
+	}
+}
+
 // True when every reliable message to `peer` has been acknowledged.
 channel_idle :: proc(channel: ^Channel, peer: Peer) -> bool {
 	return len(channel.conns[peer].rel_out) == 0
 }
 
 // Receives everything pending on every link and returns the events (valid until the next poll), the ones raised
-// since the last poll first (a Connected from channel_send opening a connection).
+// since the last poll first (a Connected from channel_send opening a connection). Sending while iterating them is
+// safe: what a send raises waits for the next poll. A connection on an in-process link (Link.in_process) never times
+// out.
 channel_poll :: proc(channel: ^Channel, now: i64) -> []Event {
-	remove_range(&channel.events, 0, channel.polled)
+	clear(&channel.events)
+	append(&channel.events, ..channel.raised[:])
+	clear(&channel.raised)
 	runtime.arena_free_all(&channel.arena)
 	for &link, link_index in channel.links {
 		if link.event != nil {
@@ -537,12 +571,11 @@ channel_poll :: proc(channel: ^Channel, now: i64) -> []Event {
 	}
 	for &conn, i in channel.conns {
 		timeout: i64 = conn.peer_epoch != 0 ? DISCONNECT_US : FIRST_ANSWER_US
-		if conn.active && now - conn.last_recv > timeout {
+		if conn.active && now - conn.last_recv > timeout && !channel.links[conn.link].in_process {
 			conn_release(channel, Peer(i))
 			append(&channel.events, Event{kind = .Disconnected, peer = Peer(i)})
 		}
 	}
-	channel.polled = len(channel.events)
 	return channel.events[:]
 }
 
@@ -563,7 +596,8 @@ rtt_sample :: proc(conn: ^Conn, seq: u32, now: i64, held_us: i64) {
 	}
 }
 
-// Marks a datagram of ours received: its reliable messages are delivered.
+// Marks a datagram of ours received: its reliable messages are delivered. rel_out holds consecutive ids (appended in
+// order, released only as an acked prefix), so a message's place is its id less the first's.
 @(private)
 seq_acked :: proc(conn: ^Conn, seq: u32) {
 	record := &conn.sent[seq % SENT_RING]
@@ -571,13 +605,11 @@ seq_acked :: proc(conn: ^Conn, seq: u32) {
 		return
 	}
 	record.valid = false
+	if len(conn.rel_out) == 0 do return
+	first := conn.rel_out[0].id
 	for k in 0 ..< int(record.n_ids) {
-		id := record.ids[k]
-		for &message in conn.rel_out {
-			if message.id == id {
-				message.acked = true
-				break
-			}
+		if index := record.ids[k] - first; index < u32(len(conn.rel_out)) {
+			conn.rel_out[index].acked = true
 		}
 	}
 }
@@ -664,7 +696,7 @@ accept_epoch :: proc(channel: ^Channel, from: Peer, header: Dgram_Header, now: i
 		// The peer still talks to a connection we ended (timed out, or dropped after a goodbye).
 		// Open a new one without reading this datagram: our reply carries the new epoch, which
 		// ends the peer's side at once.
-		conn := conn_open(channel, from, now)
+		conn := conn_open(channel, from, now, &channel.events)
 		conn.peer_epoch = header.epoch
 		return nil, false
 	}
@@ -697,7 +729,7 @@ accept_epoch :: proc(channel: ^Channel, from: Peer, header: Dgram_Header, now: i
 		old.used, old.link, old.lpeer = true, link, link_peer
 		append(&channel.events, Event{kind = .Disconnected, peer = from})
 	}
-	conn := conn_open(channel, from, now)
+	conn := conn_open(channel, from, now, &channel.events)
 	conn.last_recv = now
 	conn.peer_epoch = header.epoch
 	if header.echo == 0 {
@@ -921,6 +953,7 @@ end_packet :: proc(channel: ^Channel, builder: ^Packet_Builder, conn: ^Conn, pee
 	conn.next_seq += 1
 	conn.last_sent = now
 	conn.ack_pending = false
+	if !conn.ours do conn.unasked_sent = min(conn.unasked_sent, UNASKED_DATAGRAMS) + 1
 	link_send(&channel.links[conn.link], conn.lpeer, builder.w.buf[:])
 	channel.stats.datagrams_sent += 1
 	channel.stats.bytes_sent += len(builder.w.buf)
@@ -1003,10 +1036,10 @@ channel_flush :: proc(channel: ^Channel, now: i64) {
 			message.last_sent = now
 			conn.rel_bucket -= i64(CHUNK_OVERHEAD + len(data))
 		}
-		// Data, a pending ack, or a keepalive so idle peers (e.g. waiting for the start) stay connected.
-		if builder.count > 0 ||
-		   (conn.ack_pending && now - conn.last_sent > 5_000) ||
-		   now - conn.last_sent > KEEPALIVE_US {
+		// Data, a pending ack, or a keepalive so idle peers (e.g. waiting for the start) stay connected: to a connection
+		// only the peer opened, a few datagrams at most.
+		keepalive := now - conn.last_sent > KEEPALIVE_US && (conn.ours || conn.unasked_sent < UNASKED_DATAGRAMS)
+		if builder.count > 0 || (conn.ack_pending && now - conn.last_sent > 5_000) || keepalive {
 			end_packet(channel, &builder, &conn, peer, now)
 		}
 	}

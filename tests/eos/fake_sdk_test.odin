@@ -6,6 +6,7 @@ package test_eos
 
 import "base:runtime"
 import "core:fmt"
+import "core:log"
 import "core:strings"
 import "core:sync"
 import "core:testing"
@@ -525,10 +526,33 @@ Host_Run :: struct {
 	stage_2: eos.Stage, // after leave
 }
 
+// The lines unified:eos logged (eos_lines_logger): init's context's logger takes every one, from every thread.
+@(private = "file")
+eos_lines: int
+
+// A logger that counts its lines in eos_lines (from any thread).
+@(private = "file")
+eos_lines_logger :: proc() -> log.Logger {
+	return {
+		procedure = proc(
+			data: rawptr,
+			level: log.Level,
+			text: string,
+			options: log.Options,
+			location := #caller_location,
+		) {
+			sync.atomic_add((^int)(data), 1)
+		},
+		data = &eos_lines,
+		lowest_level = .Debug,
+	}
+}
+
 // One hosted session on its own thread, like a unified:godot session thread: (init), host, Ready, leave.
 @(private = "file")
 host_session :: proc(run: ^Host_Run) {
 	if run.init {
+		context.logger = eos_lines_logger() // what the package says goes here, never to stderr
 		ok := eos.init({
 			product_name    = "fake",
 			product_version = "1.2.3",
@@ -599,6 +623,7 @@ session_state_machine :: proc(t: ^testing.T) {
 		testing.expect_value(t, fake.last_version, BUILD.version)
 	}
 	testing.expect(t, runs[0].code != runs[1].code, "a new code per session")
+	testing.expect(t, sync.atomic_load(&eos_lines) > 0, "no line reached the logger init ran under")
 	running, _ := service.available()
 	testing.expect(t, running, "a running EOS is available")
 	_ = eos.lobby({})

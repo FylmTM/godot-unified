@@ -57,6 +57,13 @@ IMAGE_WAIT_MS :: 3000 // how long a typed desync report waits for its two snapsh
 // fetch takes, and the most a connection waits to be resynced (resync_step).
 IMAGE_GIVE_UP_MS :: 30_000
 SNAP_STALL_US :: 5_000_000 // a joiner's snapshot provider that sends nothing this long is replaced by another
+// A connection whose Hello the relay has not seated this long after it opened is dropped (a forged or garbled
+// datagram's connection holds no slot of MAX_PEERS for long), once what it was sent (a Reject) is acked, or twice as
+// long at most.
+HELLO_WAIT_US :: 2_000_000
+// The session's members at most: a member id is a u16, 0 being none.
+@(private)
+MEMBERS_MAX :: int(max(u16))
 // A seated connection heard from within this long (4 keepalives) is live: an earlier try's Hello of the same person
 // doesn't replace it (on_hello).
 SEATED_LIVE_US :: 4 * KEEPALIVE_US
@@ -140,6 +147,9 @@ Relay_Conn :: struct {
 	snap_tick:       u32, // the checksum tick the joiner's snapshot is of
 	snap_from:       Peer, // who sent it
 	snap_us:         i64, // when the joiner's snapshot last made progress (asked for, begun, a chunk)
+	// When the joiner's begun snapshot must be in by (IMAGE_GIVE_UP_MS after its Snap_Begin, plus twice the time its
+	// size takes at REL_RATE): a provider that trickles bytes is replaced then.
+	snap_deadline:   i64,
 	checking:        bool, // the joiner restores it and sends its checksum; the relay compares
 	snap_value:      u64, // the joiner's checksum of its restored snapshot
 	snap_have:       bool,
@@ -249,6 +259,9 @@ Relay :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, sim.Ga
 	ending:              bool,
 	end_us:              i64,
 	finished:            bool,
+	// The relay clock after the host's last stall (relay_shift): a checksum tick due before it is judged on timeout
+	// only CHECK_WAIT_MS after it, so reports the stall held up still count.
+	judge_from:          u32,
 	// New players are let in (relay_set_open). Closed, a Hello or Join of a person the session does not know is
 	// refused (Closed); one who was in (dropped, left) comes back as always.
 	open:                bool,
@@ -558,15 +571,20 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 		}
 		if !relay.members[known[i]].entry.connected do continue
 		seated := relay.seats[relay.members[known[i]].entry.slot].conn
-		if hello.sent_us < relay.conns[seated].hello_us && channel_silence_us(relay.ch, seated, now) < SEATED_LIVE_US {
+		// A resuming Hello (one with a sim of its own: a lost connection's) never replaces a live one either: the same
+		// program's old connection ended before its new one says Hello (the channel ends a peer that starts over), so
+		// a live seat of the same person is another program's (one identity in two places: they would replace each
+		// other without end).
+		earlier := hello.sent_us < relay.conns[seated].hello_us || hello.resume_tick != 0
+		if earlier && channel_silence_us(relay.ch, seated, now) < SEATED_LIVE_US {
 			reject(relay, peer, .Newer_Connection, now)
-			log.infof("member %d: an earlier try's Hello after the seated one's, refused", known[i] + 1)
+			log.infof("member %d: seated on a live connection already, refused", known[i] + 1)
 			return
 		}
 		replaced += {int(seated)}
 	}
-	if len(relay.members) + new_members > int(max(u16)) {
-		reject(relay, peer, .Full, now) // 65,535 people in one session
+	if len(relay.members) + new_members > MEMBERS_MAX {
+		reject(relay, peer, .Full, now)
 		return
 	}
 	slots: [LOCAL_MAX]int
@@ -818,6 +836,10 @@ on_join :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) {
 	key := member_key(client_key(relay, peer, conn.token), ask.local)
 	if !relay.open && find_member(relay, key) < 0 {
 		reject(relay, peer, .Closed, now, ask.local)
+		return
+	}
+	if find_member(relay, key) < 0 && len(relay.members) >= MEMBERS_MAX {
+		reject(relay, peer, .Full, now, ask.local)
 		return
 	}
 	if known := find_member(relay, key); known >= 0 && relay.members[known].entry.connected {
@@ -1082,10 +1104,13 @@ check_slot :: proc(check: ^Check, peer: int) -> int {
 judge_checks :: proc(relay: ^Relay($G), now: i64) {
 	wait := ms_ticks(relay, CHECK_WAIT_MS)
 	for &check in relay.checks {
-		if check.tick == 0 || check.judged {
+		// Judged means a vote: a check with none (its reports all from connections waiting for a resync, or stripped
+		// by one) waits for its first vote, never judged against a majority of nothing.
+		if check.tick == 0 || check.judged || check.have == {} {
 			continue
 		}
-		if !(expected_reports(relay, check.tick) <= check.have) && relay.clock < check.tick + wait {
+		if !(expected_reports(relay, check.tick) <= check.have) &&
+		   relay.clock < max(check.tick, relay.judge_from) + wait {
 			continue
 		}
 		check.judged = true
@@ -1141,7 +1166,7 @@ judge_snapshots :: proc(relay: ^Relay($G), now: i64) {
 		majority, judged := majority_of(relay, tick)
 		if !judged {
 			check := &relay.checks[(tick / CHECKSUM_EVERY) % CHECK_RING]
-			if (check.tick == tick || check.tick < tick) && relay.clock < tick + 2 * wait {
+			if (check.tick == tick || check.tick < tick) && relay.clock < max(tick, relay.judge_from) + 2 * wait {
 				continue // the reports are on their way
 			}
 			// Nobody reported the tick (or it left the ring): nothing to compare with.
@@ -1954,6 +1979,9 @@ forward_snapshot_to :: proc(
 			stale_snapshot_message(relay, conn, now)
 			return
 		}
+		if conn.snap_total != 0 {
+			return // begun already: an answer begins once (a provider can't hold the joiner by starting over)
+		}
 		// A snapshot of a checksum tick (the joiner's checksum of it is compared with the others'), still in the
 		// ring (the ticks after it are streamed from there).
 		if !ok ||
@@ -1972,6 +2000,7 @@ forward_snapshot_to :: proc(
 			return
 		}
 		conn.snap_us = now
+		conn.snap_deadline = now + IMAGE_GIVE_UP_MS * 1000 + 2 * i64(total) * 1_000_000 / REL_RATE
 		conn.snap_total = total
 		conn.snap_sent = 0
 		conn.snap_tick = tick
@@ -1996,8 +2025,8 @@ forward_snapshot_to :: proc(
 			stale_snapshot_message(relay, conn, now)
 			return
 		}
-		if !ok || offset != conn.snap_sent || size > conn.snap_total - offset {
-			return
+		if !ok || offset != conn.snap_sent || size > conn.snap_total - offset || size == 0 {
+			return // an empty chunk is no progress
 		}
 		conn.snap_sent += size
 		conn.snap_us = now
@@ -2020,6 +2049,29 @@ stale_snapshot_message :: proc(relay: ^Relay($G), conn: ^Relay_Conn, now: i64) {
 	}
 }
 
+// The relay's owner did not step it for `gap_us` (a host's stall, host_step) while its clock ran on: nobody's silence
+// or slowness in that time can be measured, so every wait on a peer (a snapshot provider's, a typed report's or a
+// resync's snapshot, a connection's silence, a checksum tick's reports) counts from `now`, the end of the gap, less
+// what it had waited before.
+@(private)
+relay_shift :: proc(relay: ^Relay($G), gap_us: i64, now: i64) {
+	channel_shift(relay.ch, gap_us)
+	for &conn in relay.conns {
+		conn.snap_us += gap_us
+		conn.snap_deadline += gap_us
+		if conn.resync_since != 0 do conn.resync_since += gap_us
+	}
+	relay.pending_us += gap_us
+	relay.pending_from += gap_us
+	relay.resync.asked_us += gap_us
+	relay.resync.start_us += gap_us
+	if relay.ending do relay.end_us += gap_us
+	if relay.started {
+		beats := u32(f64(now - relay.welcome_us) / relay.tm.tick_us)
+		relay.judge_from = beats > relay.lead ? beats - relay.lead : 0
+	}
+}
+
 // One step of the relay: receive, advance the clock, finalize, broadcast, judge checksums, flush. Returns when it
 // wants to run next (a now_us value): the next clock tick, or sooner to poll the links.
 relay_step :: proc(relay: ^Relay($G), now: i64) -> (wake_us: i64) {
@@ -2032,6 +2084,12 @@ relay_step :: proc(relay: ^Relay($G), now: i64) -> (wake_us: i64) {
 			}
 		case .Message:
 			handle_relay_msg(relay, event.peer, event.data, now)
+		}
+	}
+	for &conn, peer in relay.conns {
+		if conn.connected || !channel_connected(relay.ch, Peer(peer)) do continue
+		if age := channel_age_us(relay.ch, Peer(peer), now); age > HELLO_WAIT_US {
+			if channel_idle(relay.ch, Peer(peer)) || age > 2 * HELLO_WAIT_US do channel_drop(relay.ch, Peer(peer), now)
 		}
 	}
 	if relay.started && !relay.finished {
@@ -2056,9 +2114,16 @@ relay_step :: proc(relay: ^Relay($G), now: i64) -> (wake_us: i64) {
 		judge_checks(relay, now)
 		judge_snapshots(relay, now)
 		for &conn, joiner in relay.conns {
-			if provider := conn.provider; provider >= 0 && conn.connected && now - conn.snap_us > SNAP_STALL_US {
+			provider := conn.provider
+			if provider < 0 || !conn.connected do continue
+			stalled := now - conn.snap_us > SNAP_STALL_US
+			if stalled || (conn.snap_total != 0 && now > conn.snap_deadline) {
 				conn.refused += {int(provider)}
-				why := fmt.tprintf("no snapshot from slot %d", conn_slot(relay, provider))
+				why := fmt.tprintf(
+					"%s from slot %d",
+					stalled ? "no snapshot" : "the snapshot took too long",
+					conn_slot(relay, provider),
+				)
 				restart_snapshot(relay, Peer(joiner), why, now)
 			}
 		}
