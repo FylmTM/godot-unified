@@ -15,7 +15,6 @@ package sim
 @(require) import "base:intrinsics" // only in a where clause
 
 import "base:builtin"
-import "unified:dmath"
 import "unified:wire"
 
 @(private)
@@ -382,7 +381,11 @@ log_decode :: proc(data: []u8, $G: typeid) -> (input_log: Input_Log(G), ok: bool
 	input_log.from = header.from
 	// A Log_Tick holds every slot's Profile, so it can be far larger than its record: reserve at most a quarter hour
 	// at 64 Hz up front and let a longer log grow, so a crafted tick count costs no more than an honest log would.
-	input_log.ticks = make([dynamic]Log_Tick(G), 0, dmath.min(header.ticks, LOG_RESERVE_TICKS))
+	input_log.ticks = make(
+		[dynamic]Log_Tick(G),
+		0,
+		header.ticks if header.ticks < LOG_RESERVE_TICKS else LOG_RESERVE_TICKS,
+	)
 	reader := wire.reader_make(body)
 	inputs: Inputs(G)
 	// A recording whose writer never patched the count (it stopped without ending): every whole record to the end.

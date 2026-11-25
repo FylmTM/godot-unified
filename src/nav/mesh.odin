@@ -45,9 +45,11 @@ Build_Error :: enum u8 {
 	Bad_Vertex, // a NaN or an infinity
 	Crowded_Edge, // an edge shared by more than two polygons
 	Bad_Cell, // a cell size not above 0, or a grid of more than 2^24 cells
+	Concave, // a polygon seen from above turns the other way at a corner (collinear corners are fine)
 }
 
-// Builds a mesh from vertices and convex polygons (each a list of vertex indices, either winding): a polygon's
+// Builds a mesh from vertices and convex polygons (each a list of vertex indices, either winding; a concave one is
+// refused, since locate's half-plane test would miss part of it): a polygon's
 // neighbours are the polygons that share an edge's two vertices, its plane the one through its vertices (Newell's
 // normal). Vertices at exactly the same position are one vertex (welded here: a level's mesh already shares indices,
 // src/level/README.md, Authoring; a generated one need not). `cell`:
@@ -93,6 +95,10 @@ build :: proc(
 		}
 		for k in 0 ..< len(polygon) {
 			mesh.corners[at + k] = welded[polygon[k] if area > 0 else polygon[len(polygon) - 1 - k]]
+		}
+		if !convex(mesh.vertices, mesh.corners[at:][:len(polygon)]) {
+			destroy(&mesh, allocator)
+			return {}, .Concave
 		}
 		center, newell: [3]f32
 		for k in 0 ..< len(polygon) {
@@ -193,16 +199,18 @@ height_at :: proc(mesh: ^Mesh, poly: Poly, pos: [3]f32) -> f32 {
 }
 
 // A polygon's island: the set of polygons joined to it by shared edges, numbered from 0 in the order of their lowest
-// polygon (Mesh.island_count of them); -1 for NO_POLY. A walker on one island never reaches another, and a field's goal
+// polygon (Mesh.island_count of them); -1 for NO_POLY or any other index outside the mesh. A walker on one island never reaches another, and a field's goal
 // on one leaves every other unreachable. Computed once in build: a lookup, fine in a tick.
 island_of :: #force_inline proc "contextless" (mesh: ^Mesh, poly: Poly) -> i32 {
-	return poly == NO_POLY ? -1 : mesh.islands[poly]
+	return mesh.islands[poly] if poly >= 0 && int(poly) < len(mesh.islands) else -1
 }
 
-// Whether a walker on polygon `a` can reach polygon `b` (the same island); false when either is NO_POLY. A lookup,
+// Whether a walker on polygon `a` can reach polygon `b` (the same island); false when either is NO_POLY or outside the
+// mesh. A lookup,
 // fine in a tick: "can this enemy reach that goal" before giving it the goal's field.
 connected :: #force_inline proc "contextless" (mesh: ^Mesh, a, b: Poly) -> bool {
-	return a != NO_POLY && b != NO_POLY && mesh.islands[a] == mesh.islands[b]
+	island := island_of(mesh, a)
+	return island >= 0 && island == island_of(mesh, b)
 }
 
 // Numbers the islands (Mesh.islands, island_count): a flood fill from each polygon not yet numbered, in index order.
@@ -257,6 +265,21 @@ corner_edge :: #force_inline proc(mesh: ^Mesh, poly: Poly, k: i32) -> (a, b: [3]
 // so c is left of a → b (inside a counter-clockwise polygon whose edge a → b is).
 area2 :: #force_inline proc "contextless" (a, b, c: [3]f32) -> f32 {
 	return (b.z - a.z) * (c.x - a.x) - (b.x - a.x) * (c.z - a.z)
+}
+
+// Whether a polygon's corners (counter-clockwise seen from above) turn the same way at each one: no corner's turn is
+// clockwise by more than a rounding's worth (a sine of 1e-5: a collinear corner, as a baked mesh has, is fine).
+@(private)
+convex :: proc(vertices: [][3]f32, corners: []i32) -> bool {
+	count := len(corners)
+	for k in 0 ..< count {
+		a, b, c := vertices[corners[k]], vertices[corners[(k + 1) % count]], vertices[corners[(k + 2) % count]]
+		turn := area2(a, b, c)
+		if turn >= 0 do continue
+		ab, bc := b.xz - a.xz, c.xz - b.xz
+		if turn * turn > 1e-10 * (ab.x * ab.x + ab.y * ab.y) * (bc.x * bc.x + bc.y * bc.y) do return false
+	}
+	return true
 }
 
 // Each vertex's index, or the lowest index of a vertex at exactly its position: the indices sorted by position (a

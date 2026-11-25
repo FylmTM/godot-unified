@@ -390,7 +390,7 @@ Sim :: struct($G: typeid) where intrinsics.type_is_specialization_of(G, Game) {
 	// Game.save's answer for each stepped tick, by ring slot (nil without a Game.save): save_changed reads a verified
 	// tick's, whether or not the ring kept its state.
 	saves:        []Saved_Tick(part(G, GAME_SETUP)),
-	seats:        [part(G, GAME_PLAYERS)]Hand_Seat, // the members sim.seat seated by hand (step asks for them)
+	seats:        [part(G, GAME_PLAYERS)]Hand_Seat(part(G, GAME_PROFILE)), // the members sim.seat seated by hand (step asks for them)
 }
 
 // Game.save's answer for a stepped tick: whether it gave a save, and the Setup.

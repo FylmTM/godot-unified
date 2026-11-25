@@ -551,6 +551,34 @@ a_marker_ref_out_of_range_is_refused :: proc(t: ^testing.T) {
 	}
 }
 
+// A Float property or a Curve sample that is not finite is refused at load, as geometry's is: it would reach the state
+// block through prop_f32 or prop_curve.
+@(test)
+a_property_that_is_not_finite_is_refused_at_load :: proc(t: ^testing.T) {
+	nan, inf := math.nan_f32(), math.inf_f32(1)
+	for which in 0 ..< 5 {
+		ramp := curve_ramp()
+		value: level.Prop_Value = f32(0.5)
+		switch which {
+		case 1:
+			value = nan
+		case 2:
+			value = -inf
+		case 3:
+			ramp[4] = nan
+		case 4:
+			ramp[0] = inf
+		}
+		props := []level.Prop{{key = "speed", value = value}, {key = "falloff", value = level.Curve_Samples(&ramp)}}
+		markers := []level.Marker{{kind = "a", name = "A", rot = {0, 0, 0, 1}, scale = 1, props = props}}
+		data := encode(nil, markers)
+		loaded, ok := level.load(data)
+		testing.expectf(t, ok == (which == 0), "case %d: loaded %v", which, ok)
+		level.destroy(&loaded)
+		delete(data)
+	}
+}
+
 @(private = "file")
 slice_equal :: proc(a, b: []u32) -> bool {
 	if len(a) != len(b) do return false
