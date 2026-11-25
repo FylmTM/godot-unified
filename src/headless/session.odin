@@ -37,7 +37,7 @@ CHURN_SPREAD :: 4096
 
 // What session_run reports (session_result_destroy frees it).
 Session_Result :: struct($G: typeid) {
-	ok:         bool, // every client verified every tick and disconnected cleanly, and nothing desynced
+	ok:         bool, // every client verified every tick and disconnected cleanly, nothing desynced, and the saves agree
 	desyncs:    int, // desyncs the relay detected and reported (a checksum tick on which players differ)
 	desync:     netcode.Desync_Report, // the first one, with its typed detail (owned by the result)
 	replaced:   int, // inputs the relay replaced (late or missing)
@@ -264,6 +264,17 @@ session_run :: proc(game: ^$G, cfg: Session_Config) -> (result: Session_Result(G
 		result.clients[slot] = netcode.client_result(client)
 		result.ok &&= client_done(client)
 		netcode.client_destroy(client)
+	}
+	// Every client that saw a save holds the same newest one (Game.save from verified ticks: what each player keeps
+	// must not depend on who they are or what they predicted).
+	agreed: u64
+	for client in result.clients {
+		if client.saves == 0 do continue
+		if agreed == 0 do agreed = client.save_hash
+		if client.save_hash != agreed {
+			fmt.eprintfln("session: slot %d's newest save differs from another client's", client.slot)
+			result.ok = false
+		}
 	}
 	netcode.relay_destroy(relay)
 	netcode.hub_destroy(hub)
