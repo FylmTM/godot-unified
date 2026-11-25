@@ -343,8 +343,8 @@ finish_build :: proc(build: Build, child: ^Proc) -> Ran {
 	ran := wait(child)
 	deps := aprintf("%s.deps.json", build.out)
 	if ran.ok {
-		files, odin_path := read_deps(deps)
-		write_manifest(manifest_path(build), build_key(build), files, odin_path)
+		inputs := read_deps(deps)
+		write_manifest(manifest_path(build), build_key(build), inputs.sources, inputs.odin, inputs.loads)
 	}
 	os.remove(deps)
 	return ran

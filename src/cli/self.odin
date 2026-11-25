@@ -1,7 +1,8 @@
 // The self-rebuild (README.md, Bootstrap and self-rebuild). Each binary .out/cli/uni-<hash> has a manifest,
 // <binary>.inputs (not .manifest: Windows reads foo.exe.manifest as the program's own): the content hash, then one
 // line per input with its size and modification time: every source file it was built from (outside the Odin
-// install), the directories they sit in (a new file changes its directory's time) and the odin executable. Before
+// install), the directories they sit in (a new file changes its directory's time), every file it #loads (not their
+// directories: a package is its directory's files, a #load names one file) and the odin executable. Before
 // every command the binary checks them: all the same, it runs. Else it hashes the sources: the same content, it
 // refreshes the times and runs; different, it rebuilds itself to uni-<new hash>, points .out/cli/current at it and
 // runs that with the same arguments.
@@ -15,10 +16,10 @@ import "core:strconv"
 import "core:strings"
 import "core:time"
 
-// One input of a manifest (write_manifest): a source file, a directory or the odin executable, with the size and
-// time it had.
+// One input of a manifest (write_manifest): a source file, a #loaded file, a directory or the odin executable, with
+// the size and time it had.
 Manifest_Entry :: struct {
-	kind:  string, // "file", "dir" or "odin"
+	kind:  string, // "file", "load", "dir" or "odin"
 	path:  string,
 	size:  i64,
 	mtime: i64, // nanoseconds
@@ -35,13 +36,13 @@ self_check :: proc(args: []string) {
 	if strings.has_prefix(name, "uni-bootstrap") {
 		// Built by a shim: install this binary under its hash, then go on running it.
 		deps := join(cli_dir, "uni-bootstrap.deps.json")
-		files, odin := read_deps(deps)
-		hash := content_hash(files)
+		deps_read := read_deps(deps)
+		hash := content_hash(deps_read.all)
 		target := join(cli_dir, binary_name(hash, ODIN_VERSION_HASH))
 		if !os.exists(target) {
 			copy_file(target, exe)
 		}
-		write_manifest(aprintf("%s.inputs", target), hash, files, odin)
+		write_manifest(aprintf("%s.inputs", target), hash, deps_read.sources, deps_read.odin, deps_read.loads)
 		write_text(join(cli_dir, "current"), aprintf("%s\n", os.base(target)))
 		os.remove(deps)
 		return
@@ -53,20 +54,23 @@ self_check :: proc(args: []string) {
 		return
 	}
 	if ok && !odin_changed(entries) {
-		files: [dynamic]string
+		files, sources, loads: [dynamic]string
+		odin := ""
 		for entry in entries {
-			if entry.kind == "file" {
-				append(&files, entry.path)
+			switch entry.kind {
+			case "file":
+				append(&sources, entry.path)
+			case "load":
+				append(&loads, entry.path)
+			case "odin":
+				odin = entry.path
 			}
 		}
+		append(&files, ..sources[:])
+		append(&files, ..loads[:])
+		slice.sort(files[:])
 		if dirs_current(entries) && content_hash(files[:]) == hash {
-			odin := ""
-			for entry in entries {
-				if entry.kind == "odin" {
-					odin = entry.path
-				}
-			}
-			write_manifest(aprintf("%s.inputs", exe), hash, files[:], odin)
+			write_manifest(aprintf("%s.inputs", exe), hash, sources[:], odin, loads[:])
 			return
 		}
 	}
@@ -144,9 +148,9 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 	version_text := strings.trim_space(version.stdout)
 	commit :=
 		version_text[strings.last_index_byte(version_text, ':') + 1:] if version.ok && strings.contains_rune(version_text, ':') else ""
-	files, odin_path := read_deps(deps, odin_root if root.ok && odin_root != "" else ODIN_ROOT)
+	deps_read := read_deps(deps, odin_root if root.ok && odin_root != "" else ODIN_ROOT)
 	os.remove(deps)
-	hash := content_hash(files)
+	hash := content_hash(deps_read.all)
 	target := join(cli_dir, binary_name(hash, commit))
 	if os.exists(target) {
 		os.remove(tmp)
@@ -154,7 +158,7 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 		log("uni: cannot install %s", target)
 		os.exit(1)
 	}
-	write_manifest(aprintf("%s.inputs", target), hash, files, odin_path)
+	write_manifest(aprintf("%s.inputs", target), hash, deps_read.sources, deps_read.odin, deps_read.loads)
 	write_text(join(cli_dir, "current"), aprintf("%s\n", os.base(target)))
 	prune_binaries(cli_dir)
 	cmd := make([dynamic]string)
@@ -168,37 +172,48 @@ rebuild :: proc(cli_dir: string, args: []string) -> ! {
 	os.exit(child.exit_code)
 }
 
-// The source files of a build from Odin's dependency export, minus the Odin install's own (the odin executable
-// stands for those), and the odin executable.
-read_deps :: proc(path: string, odin_root := ODIN_ROOT) -> (files: []string, odin: string) {
+// The input files of a build, from Odin's dependency export (read_deps), minus the Odin install's own (the odin
+// executable stands for those).
+Build_Inputs :: struct {
+	sources: []string, // the .odin files: a manifest watches their directories too (a new file joins its package)
+	loads:   []string, // the files it #loads: watched alone (a new file beside one is no input)
+	all:     []string, // both, sorted: what the content hash reads
+	odin:    string, // the odin executable
+}
+
+// A build's inputs from Odin's dependency export (-export-dependencies:json).
+read_deps :: proc(path: string, odin_root := ODIN_ROOT) -> Build_Inputs {
 	data, err := os.read_entire_file(path, context.allocator)
 	if err != nil {
 		log("uni: cannot read %s", path)
 		os.exit(1)
 	}
-	Deps :: struct {
+	Export :: struct {
 		source_files: []string,
 		load_files:   []string,
 	}
-	parsed: Deps
+	parsed: Export
 	if json.unmarshal(data, &parsed) != nil {
 		log("uni: cannot parse %s", path)
 		os.exit(1)
 	}
-	odin = which("odin")
-	out: [dynamic]string
+	sources, loads, all: [dynamic]string
 	for file in parsed.source_files {
 		if !path_under(file, odin_root) {
-			append(&out, file)
+			append(&sources, file)
 		}
 	}
 	for file in parsed.load_files {
-		if !path_under(file, odin_root) {
-			append(&out, file)
+		if !path_under(file, odin_root) && !slice.contains(sources[:], file) {
+			append(&loads, file)
 		}
 	}
-	slice.sort(out[:])
-	return out[:], odin
+	append(&all, ..sources[:])
+	append(&all, ..loads[:])
+	slice.sort(sources[:])
+	slice.sort(loads[:])
+	slice.sort(all[:])
+	return {sources = sources[:], loads = loads[:], all = all[:], odin = which("odin")}
 }
 
 @(private)
@@ -226,8 +241,9 @@ content_hash :: proc(files: []string) -> string {
 }
 
 // Writes a manifest (the format above): the key, then the size and time of the odin executable, every source
-// file and their directories. For the CLI itself and every build `stale` checks.
-write_manifest :: proc(manifest, hash: string, files: []string, odin: string) {
+// file and their directories, and every #loaded file (`loads`) without its directory. For the CLI itself and every
+// build `stale` checks.
+write_manifest :: proc(manifest, hash: string, files: []string, odin: string, loads: []string = nil) {
 	builder := strings.builder_make()
 	fmt.sbprintf(&builder, "hash\t%s\n", hash)
 	stat_line :: proc(builder: ^strings.Builder, kind, path: string) {
@@ -257,6 +273,9 @@ write_manifest :: proc(manifest, hash: string, files: []string, odin: string) {
 	}
 	for dir in dirs {
 		stat_line(&builder, "dir", dir)
+	}
+	for file in loads {
+		stat_line(&builder, "load", file)
 	}
 	write_text(manifest, strings.to_string(builder))
 }

@@ -124,6 +124,18 @@ manifest_notices_changes :: proc(t: ^testing.T) {
 	time.sleep(20 * time.Millisecond)
 	testing.expect(t, cli.write_file(cli.join(pkg, "b.odin"), transmute([]byte)string("package a\n")))
 	testing.expect(t, !cli.entries_current(entries), "a new file in a source directory is noticed")
+	// a #loaded file is watched alone: a new file beside it is no input (the project's root holds pins.cfg)
+	root := cli.join(dir, "root")
+	loaded := cli.join(root, "pins.cfg")
+	testing.expect(t, cli.write_file(loaded, transmute([]byte)string("[odin]\n")))
+	cli.write_manifest(manifest_path, "key-1", {src}, "", {loaded})
+	entries, _, _ = cli.read_manifest(manifest_path)
+	testing.expect(t, cli.entries_current(entries), "nothing changed")
+	time.sleep(20 * time.Millisecond)
+	testing.expect(t, cli.write_file(cli.join(root, "scratch.txt"), transmute([]byte)string("x\n")))
+	testing.expect(t, cli.entries_current(entries), "a new file beside a loaded file leaves the manifest current")
+	testing.expect(t, cli.write_file(loaded, transmute([]byte)string("[odin]\ntag = x\n")))
+	testing.expect(t, !cli.entries_current(entries), "an edited loaded file is noticed")
 }
 
 @(test)
@@ -633,7 +645,11 @@ tool_script_takes_a_file_by_path :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
 	cwd, cwd_err := os.get_working_directory(context.allocator)
 	testing.expect(t, cwd_err == nil)
-	dir, temp_err := os.make_directory_temp(cwd, "unified-cli-test-*", context.allocator) // here: relative paths too
+	// under the working directory, for relative paths, but in its .out/: a test never writes into the source tree
+	// (a new entry in the project's root would make every build that #loads pins.cfg look stale)
+	out := cli.join(cwd, ".out", "tmp")
+	os.make_directory_all(out)
+	dir, temp_err := os.make_directory_temp(out, "unified-cli-test-*", context.allocator)
 	testing.expect(t, temp_err == nil)
 	defer os.remove_all(dir)
 	game := cli.Game {
@@ -645,7 +661,7 @@ tool_script_takes_a_file_by_path :: proc(t: ^testing.T) {
 	script := cli.tool_script(game, path)
 	testing.expect(t, strings.has_suffix(script, "/throwaway.gd") && !strings.contains(script, "\\"), script)
 	testing.expect(t, os.is_absolute_path(script), script)
-	testing.expect_value(t, cli.tool_script(game, cli.aprintf("%s/throwaway.gd", os.base(dir))), script)
+	testing.expect_value(t, cli.tool_script(game, cli.aprintf(".out/tmp/%s/throwaway.gd", os.base(dir))), script)
 	testing.expect_value(t, cli.tool_script(game, cli.join(dir, "gone.gd")), "")
 }
 
