@@ -1,20 +1,20 @@
-[gd_scene format=3 uid="uid://drrm8nyiibfie"]
+[gd_scene format=3]
 
 [ext_resource type="PackedScene" path="res://game/levels/arena.tscn" id="2_level"]
 [ext_resource type="PackedScene" path="res://game/arena/start_circle.tscn" id="3_circle"]
-[ext_resource type="Script" uid="uid://srg35jxufrff" path="res://game/ui/orbit_camera.gd" id="4_orbit"]
+[ext_resource type="Script" path="res://game/ui/orbit_camera.gd" id="4_orbit"]
 [ext_resource type="PackedScene" path="res://game/ui/menu.tscn" id="5_menu"]
 
-[node name="MainMenu" type="Node" unique_id=1487752202]
+[node name="MainMenu" type="Node"]
 
-[node name="Level" parent="." unique_id=1545146372 instance=ExtResource("2_level")]
+[node name="Level" parent="." instance=ExtResource("2_level")]
 
-[node name="StartCircle" parent="." unique_id=929650621 instance=ExtResource("3_circle")]
+[node name="StartCircle" parent="." instance=ExtResource("3_circle")]
 
-[node name="Camera" type="Camera3D" parent="." unique_id=1977754866]
+[node name="Camera" type="Camera3D" parent="."]
 fov = 50.0
 script = ExtResource("4_orbit")
 
-[node name="Menu" parent="." unique_id=578982043 instance=ExtResource("5_menu")]
+[node name="Menu" parent="." instance=ExtResource("5_menu")]
 title = "SURVIVOR"
 tagline = "Hold the circle. Then step out and survive together."

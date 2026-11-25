@@ -10,7 +10,7 @@ config_version=5
 
 [application]
 
-config/name="Horde"
+config/name="horde"
 config/description="Co-op 2D horde arena on unified: thousands of enemies, crowds as MultiMesh instances."
 config/version="dev"
 run/main_scene="res://game/ui/main_menu.tscn"
