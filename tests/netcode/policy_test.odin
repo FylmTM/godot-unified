@@ -10,7 +10,7 @@ import "unified:netcode"
 // press and every release.
 tap_hooks :: proc(watch: ^Watch) -> Hooks {
 	hooks := hooks_for(watch)
-	hooks.sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+	hooks.sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State, setup: toy.Setup) -> toy.Input {
 		return {buttons = {.Spawn} if (tick + u32(slot) * 5) % 16 < 2 else {}}
 	}
 	hooks.commands = nil

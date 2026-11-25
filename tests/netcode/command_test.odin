@@ -17,7 +17,7 @@ sent_commands :: proc(player: int, first, last: u32) -> [dynamic]sim.Raw_Command
 		cap  = 1 << 20,
 	}
 	for tick in first ..= last {
-		toy.burst_commands(SEED, player, tick, nil, &out)
+		toy.burst_commands(SEED, player, tick, nil, {}, &out)
 	}
 	return out.list
 }
@@ -150,6 +150,7 @@ sender_hooks :: proc(sender: ^Sender, watch: ^Watch) -> Hooks {
 		local, slot: int,
 		tick: u32,
 		state: ^toy.State,
+		setup: toy.Setup,
 		out: ^sim.Command_Out(toy.Command),
 	) {
 		sender := (^Sender)(user)
@@ -264,6 +265,7 @@ an_empty_command_crosses_the_relay :: proc(t: ^testing.T) {
 		local, slot: int,
 		tick: u32,
 		state: ^toy.State,
+		setup: toy.Setup,
 		out: ^sim.Command_Out(toy.Command),
 	) {
 		ticks_in := (^int)(user)
@@ -348,6 +350,7 @@ a_joiners_first_commands_land_after_its_snapshot :: proc(t: ^testing.T) {
 		local, slot: int,
 		tick: u32,
 		state: ^toy.State,
+		setup: toy.Setup,
 		out: ^sim.Command_Out(toy.Command),
 	) {
 		early := (^Early)(user)

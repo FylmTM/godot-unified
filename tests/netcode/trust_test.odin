@@ -242,7 +242,7 @@ the_hooks_never_read_an_unchecked_state :: proc(t: ^testing.T) {
 	defer delete(probe.statuses)
 	hooks := hooks_for(&probe.watch)
 	hooks.user = &probe
-	hooks.sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+	hooks.sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State, setup: toy.Setup) -> toy.Input {
 		probe := (^Probe)(user)
 		if state != nil && probe.client.checking do probe.unchecked += 1
 		if state == nil && probe.client.sim != nil do probe.nil_beside_sim += 1

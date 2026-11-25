@@ -128,8 +128,8 @@ scripted_commands_destroy :: proc(commands: ^Scripted_Commands($G)) {
 	delete(commands.out.list)
 }
 
-// Scripted inputs and commands of a tick: slots < `players` present (slot i is member i + 1), then as
-// `commands.seats` say. A slot whose member the sim doesn't have there yet gets its join record.
+// Scripted inputs and commands of a tick, on the run's Setup (simulation.setup): slots < `players` present (slot i is
+// member i + 1), then as `commands.seats` say. A slot whose member the sim doesn't have there yet gets its join record.
 scripted :: proc(
 	game: ^$G,
 	simulation: ^sim.Sim(G),
@@ -172,7 +172,7 @@ scripted_given :: proc(
 		}
 		sim.seat(&inputs, simulation, slot, member, scripted_profile(game, simulation.seed, slot, commands))
 		// No scripted player: one who sends zero Inputs (as the Godot driver plays it).
-		inputs.input[slot] = sim.scripted_player_input(game, simulation.seed, slot, tick, state)
+		inputs.input[slot] = sim.scripted_player_input(game, simulation.seed, slot, tick, state, simulation.setup)
 		if game.scripted_commands == nil {
 			continue
 		}
@@ -180,7 +180,7 @@ scripted_given :: proc(
 		out.slot = slot
 		out.cap = sim.COMMANDS_PER_SLOT + 1 // one more than fits: a script that sends it is caught below
 		clear(&out.list)
-		game.scripted_commands(simulation.seed, slot, tick, state, out)
+		game.scripted_commands(simulation.seed, slot, tick, state, simulation.setup, out)
 		fmt.assertf(
 			len(out.list) <= sim.COMMANDS_PER_SLOT,
 			"%s's script sends slot %d more than %d commands at tick %d: a tick takes at most that many",

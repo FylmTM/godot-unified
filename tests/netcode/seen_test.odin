@@ -26,7 +26,7 @@ seen_is_stable_over_a_session :: proc(t: ^testing.T) {
 	defer delete(run.seens)
 	sender := Hooks {
 		user = &run,
-		sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+		sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State, setup: toy.Setup) -> toy.Input {
 			run := (^Seen_Run)(user)
 			input: toy.Input
 			sim.seen_stamp(&input, netcode.client_seen(run.sender, tick))
@@ -35,7 +35,13 @@ seen_is_stable_over_a_session :: proc(t: ^testing.T) {
 		},
 	}
 	receiver := Hooks {
-		sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State) -> toy.Input {return {}},
+		sample = proc(
+			user: rawptr,
+			local, slot: int,
+			tick: u32,
+			state: ^toy.State,
+			setup: toy.Setup,
+		) -> toy.Input {return {}},
 	}
 	run.sender = net_join(&session, hooks = sender)
 	net_join(&session, hooks = receiver)

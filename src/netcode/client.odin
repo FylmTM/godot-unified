@@ -61,21 +61,25 @@ Hooks :: struct($G: typeid) {
 	user:           rawptr,
 	// Local player `local`'s input for `tick` (it holds `slot`), sampled when the client's clock reaches it, once per
 	// seated local player. `state` is the latest predicted state: nil before the sim exists and while it waits for the
-	// relay's check (a snapshot restored for a join or a resync: no peer has vouched for it yet).
+	// relay's check (a snapshot restored for a join or a resync: no peer has vouched for it yet). `setup` is the
+	// session's (Client.setup, the relay's Welcome's; zero before it): what a scripted player reads beside the state
+	// (sim.Game.scripted_input).
 	sample:         proc(
 		user: rawptr,
 		local, slot: int,
 		tick: u32,
 		state: ^usim.part(G, usim.GAME_STATE),
+		setup: usim.part(G, usim.GAME_SETUP),
 	) -> usim.part(G, usim.GAME_INPUT),
 	// Optional: local player `local`'s commands for `tick`, called right after its `sample` for every tick the
-	// client generates (`state` as sample's). usim.send_command(out, command) returns false once COMMAND_QUEUE
-	// commands wait.
+	// client generates (`state` and `setup` as sample's). usim.send_command(out, command) returns false once
+	// COMMAND_QUEUE commands wait.
 	commands:       proc(
 		user: rawptr,
 		local, slot: int,
 		tick: u32,
 		state: ^usim.part(G, usim.GAME_STATE),
+		setup: usim.part(G, usim.GAME_SETUP),
 		out: ^usim.Command_Out(usim.part(G, usim.GAME_COMMAND)),
 	),
 	// Optional: local player `local` was seated (Welcome, Seated) or refused (`why`; Reject of its Join).
@@ -1542,6 +1546,7 @@ generate_seat_inputs :: proc(client: ^Client($G), seat: ^Local_Seat(G), local: i
 				seat.slot,
 				tick,
 				client_state(client),
+				client.setup,
 			)
 		} else {
 			seat.own[tick % OWN_RING] = {}
@@ -1553,7 +1558,7 @@ generate_seat_inputs :: proc(client: ^Client($G), seat: ^Local_Seat(G), local: i
 			out.slot = seat.slot
 			out.cap = COMMAND_QUEUE - len(seat.own_cmds)
 			clear(&out.list)
-			client.hooks.commands(client.hooks.user, local, seat.slot, tick, client_state(client), out)
+			client.hooks.commands(client.hooks.user, local, seat.slot, tick, client_state(client), client.setup, out)
 			for command in out.list[:min(len(out.list), max(out.cap, 0))] {
 				seat.cmd_seq += 1
 				append(&seat.own_cmds, Own_Command{seq = seat.cmd_seq, want = tick, cmd = command})

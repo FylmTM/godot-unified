@@ -1293,6 +1293,7 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 	State :: sim.part(G, sim.GAME_STATE)
 	Input :: sim.part(G, sim.GAME_INPUT)
 	Command :: sim.part(G, sim.GAME_COMMAND)
+	Setup :: sim.part(G, sim.GAME_SETUP)
 	This_Driver :: Driver(G, View, MultiView)
 	hooks := netcode.Hooks(G) {
 		user = driver,
@@ -1306,11 +1307,12 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 			message.len = u8(copy(message.text[:], refused_reason(why)))
 			post((^This_Driver)(user), message)
 		},
-		sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^State) -> Input {
+		sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^State, setup: Setup) -> Input {
 			driver := (^This_Driver)(user)
 			if driver.req.scripted && driver.game.scripted_input != nil {
 				// a joiner before its snapshot has no state: the script is never handed a nil one
-				return state != nil ? sim.scripted_player_input(driver.game, driver.req.seed, slot, tick, state) : {}
+				if state == nil do return {}
+				return sim.scripted_player_input(driver.game, driver.req.seed, slot, tick, state, setup)
 			}
 			input: Input
 			input_sample_take(local, ([^]u8)(&input)[:size_of(Input)])
@@ -1318,11 +1320,18 @@ driver_hooks :: proc(driver: ^Driver($G, $View, $MultiView)) -> netcode.Hooks(G)
 			return input
 		},
 		// Commands sent from GDScript (send_command), in order; what the client can't take yet stays queued.
-		commands = proc(user: rawptr, local, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Command)) {
+		commands = proc(
+			user: rawptr,
+			local, slot: int,
+			tick: u32,
+			state: ^State,
+			setup: Setup,
+			out: ^sim.Command_Out(Command),
+		) {
 			driver := (^This_Driver)(user)
 			if driver.req.scripted {
 				if driver.game.scripted_commands != nil && state != nil {
-					driver.game.scripted_commands(driver.req.seed, slot, tick, state, out)
+					driver.game.scripted_commands(driver.req.seed, slot, tick, state, setup, out)
 				}
 				return
 			}

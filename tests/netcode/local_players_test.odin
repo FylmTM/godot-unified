@@ -27,7 +27,7 @@ Second_Sender :: struct {
 second_sender_hooks :: proc(sender: ^Second_Sender, watch: ^Watch) -> Hooks {
 	hooks := hooks_for(watch)
 	hooks.user = sender
-	hooks.sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+	hooks.sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State, setup: toy.Setup) -> toy.Input {
 		(^Second_Sender)(user).calls[local] += 1
 		return toy.scripted_input(SEED, slot, tick)
 	}
@@ -36,6 +36,7 @@ second_sender_hooks :: proc(sender: ^Second_Sender, watch: ^Watch) -> Hooks {
 		local, slot: int,
 		tick: u32,
 		state: ^toy.State,
+		setup: toy.Setup,
 		out: ^sim.Command_Out(toy.Command),
 	) {
 		sender := (^Second_Sender)(user)

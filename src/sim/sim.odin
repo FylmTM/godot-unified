@@ -245,17 +245,27 @@ Game :: struct(
 	// called by the sim; without one they play zero Inputs): the input of the player in `slot` for `tick`, and right
 	// after it that player's commands (sim.send_command(out, command)).
 	// `state` is the caller's current state, never nil (a client without one yet, a late joiner before its snapshot,
-	// plays zero Inputs and sends no commands meanwhile). The game's own script answers from (seed, slot, tick) alone
-	// (sim.script_bits), so every client of a session and every offline run play the same player: a session's clients
-	// each hand it their own prediction. The standard scenarios rollback_every_tick and presence_churn ask it again
-	// with an older state and fail when it answers otherwise (headless.Run.script_check), unless the game's suite says
-	// its script steers by the state (scenarios.Suite.script_reads_state). Nothing else checks it: a test's bot that
-	// steers by the state plugs in here, for its own runs and sessions.
-	scripted_input:        proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input,
-	scripted_commands:     proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^Command_Out(Command)),
+	// plays zero Inputs and sends no commands meanwhile). `setup` is the session's Setup (Sim.setup; a client's is the
+	// relay's, from its Welcome): a script that plays each Setup its own way reads it here, not from a copy in the
+	// State (a field in every snapshot and checksum only for the script). The game's own script answers from (seed,
+	// setup, slot, tick) alone (sim.script_bits), so every client of a session and every offline run play the same
+	// player: a session's clients each hand it their own prediction. The standard scenarios rollback_every_tick and
+	// presence_churn ask it again with an older state and fail when it answers otherwise (headless.Run.script_check),
+	// unless the game's suite says its script steers by the state (scenarios.Suite.script_reads_state). Nothing else
+	// checks it: a test's bot that steers by the state plugs in here, for its own runs and sessions.
+	scripted_input:        proc(seed: u64, slot: int, tick: u32, state: ^State, setup: Setup) -> Input,
+	scripted_commands:     proc(
+		seed: u64,
+		slot: int,
+		tick: u32,
+		state: ^State,
+		setup: Setup,
+		out: ^Command_Out(Command),
+	),
 	// Optional, never called by the sim: the Profile a scripted player in `slot` joins with (without one: the zero
 	// Profile; the headless `--player-profile` assigns fields over it). A script that answers from (seed, slot) alone
-	// gives every client and offline run the same players.
+	// gives every client and offline run the same players. It gets no Setup: a joiner's Profile travels in its Hello,
+	// before the relay's Welcome brings the session's Setup.
 	scripted_profile:      proc(seed: u64, slot: int) -> Profile,
 	// Optional, never called by `tick`: the Setup that continues this session in a new one (src/sim/README.md, Saves),
 	// from a tick's state. `setup` holds the session's Setup: write the progress into it and return true, or false when

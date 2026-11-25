@@ -72,24 +72,25 @@ Scripted_User :: struct($G: typeid) {
 	churn: bool, // Session_Config.churn
 }
 
-// Client hooks that sample the game's scripted input and commands for the client's slot, so a session's
-// clients, the `client` mode and the online modes play without a human.
+// Client hooks that sample the game's scripted input and commands for the client's slot, on the session's Setup (the
+// relay's, as the client got it), so a session's clients, the `client` mode and the online modes play without a human.
 scripted_hooks :: proc(scripted: ^Scripted_User($G)) -> netcode.Hooks(G) {
 	State :: sim.part(G, sim.GAME_STATE)
 	Input :: sim.part(G, sim.GAME_INPUT)
 	Command :: sim.part(G, sim.GAME_COMMAND)
+	Setup :: sim.part(G, sim.GAME_SETUP)
 	hooks := netcode.Hooks(G) {
 		user = scripted,
 	}
 	// No scripted player: the client sends zero Inputs (no sample hook). A client without its sim yet (a late joiner
 	// before its snapshot: `state` nil) plays zero Inputs and no commands: the script is never handed a nil state.
 	if scripted.game.scripted_input != nil {
-		hooks.sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^State) -> Input {
+		hooks.sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^State, setup: Setup) -> Input {
 			if state == nil do return {}
 			scripted := (^Scripted_User(G))(user)
 			// Churn wraps after ~1M ticks (4.5 h at 64 Hz): still a fresh draw every tick.
 			asked := scripted.churn ? tick * CHURN_SPREAD + u32(slot) : tick
-			return sim.scripted_player_input(scripted.game, scripted.seed, slot, asked, state)
+			return sim.scripted_player_input(scripted.game, scripted.seed, slot, asked, state, setup)
 		}
 	}
 	if scripted.game.scripted_commands != nil {
@@ -98,11 +99,12 @@ scripted_hooks :: proc(scripted: ^Scripted_User($G)) -> netcode.Hooks(G) {
 			local, slot: int,
 			tick: u32,
 			state: ^State,
+			setup: Setup,
 			out: ^sim.Command_Out(Command),
 		) {
 			if state == nil do return
 			scripted := (^Scripted_User(G))(user)
-			scripted.game.scripted_commands(scripted.seed, slot, tick, state, out)
+			scripted.game.scripted_commands(scripted.seed, slot, tick, state, setup, out)
 		}
 	}
 	return hooks

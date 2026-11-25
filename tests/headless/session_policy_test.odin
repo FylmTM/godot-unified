@@ -89,7 +89,15 @@ WIDE_GAME := Wide_Game {
 			for b in sim.input(t, player).bytes do data.sum += u32(b)
 		}
 	},
-	scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^Wide_State) -> (input: Wide_Input) {
+	scripted_input = proc(
+		seed: u64,
+		slot: int,
+		tick: u32,
+		state: ^Wide_State,
+		setup: sim.No_Setup,
+	) -> (
+		input: Wide_Input,
+	) {
 		for &b, i in input.bytes {
 			b = u8((u32(seed) + u32(slot) * 977 + tick * 131 + u32(i) * 17) * 2654435761 >> 24)
 		}

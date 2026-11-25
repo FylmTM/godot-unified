@@ -260,7 +260,7 @@ in_slot :: proc(state: ^State, slot: int) -> ^Player_Data {
 }
 
 // Scripted input: a hash of (seed, slot, tick / 8), so any tick can be asked for in any order.
-scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State = nil) -> Input {
+scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State = nil, setup: Setup = {}) -> Input {
 	x := u32(seed) * 0x9E3779B1 ~ u32(slot + 1) * 0x85EBCA77 ~ (tick / 8) * 0xC2B2AE3D
 	x ~= x >> 15
 	x *= 0x2C1B3C6D
@@ -286,13 +286,20 @@ bump_fold :: proc(fold: u32, amount: i32) -> u32 {
 // of 3 bumps every 200th tick (tick % 200 == 50), a mark every 64th, and from slot 0 a travel to the cave every 300th
 // tick (tick % 300 == 120) and back 90 ticks later, and from slot 0 a pause of 40 ticks of every 512 (from tick 300):
 // never more than a tick takes (offline runs play it).
-scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Command)) {
+scripted_commands :: proc(
+	seed: u64,
+	slot: int,
+	tick: u32,
+	state: ^State,
+	setup: Setup,
+	out: ^sim.Command_Out(Command),
+) {
 	commands_of(seed, slot, tick, out, 3)
 }
 
 // The same with a burst of 6 bumps: more than a tick takes, so two of them wait for the next tick (the netcode's
 // tests: the relay holds them).
-burst_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Command)) {
+burst_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, setup: Setup, out: ^sim.Command_Out(Command)) {
 	commands_of(seed, slot, tick, out, 6)
 }
 

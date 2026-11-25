@@ -27,7 +27,7 @@ step :: proc(run: ^Run, input: [g.PLAYERS]g.Input, command: g.Command = nil) {
 
 scripted :: proc(run: ^Run) -> (input: [g.PLAYERS]g.Input) {
 	tick := run.simulation.tick + 1
-	for slot in 0 ..< g.PLAYERS do input[slot] = g.scripted_input(7, slot, tick, &run.simulation.state)
+	for slot in 0 ..< g.PLAYERS do input[slot] = g.scripted_input(7, slot, tick, &run.simulation.state, run.simulation.setup)
 	return
 }
 

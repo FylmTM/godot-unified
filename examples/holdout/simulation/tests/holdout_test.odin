@@ -29,7 +29,7 @@ play :: proc(players: int, ticks: u32) -> (played: Played) {
 		inputs := sim.seated_inputs(simulation) // the players seated so far stay present
 		for slot in 0 ..< players {
 			if tick == 1 do sim.seat(&inputs, simulation, slot, slot + 1)
-			inputs.input[slot] = sim.scripted_player_input(&g.GAME, 7, slot, tick, &simulation.state)
+			inputs.input[slot] = sim.scripted_player_input(&g.GAME, 7, slot, tick, &simulation.state, simulation.setup)
 		}
 		sim.step(simulation, &inputs)
 		for &raw in sim.events_at(simulation, tick) {

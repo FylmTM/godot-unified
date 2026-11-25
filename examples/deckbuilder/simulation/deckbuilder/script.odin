@@ -22,7 +22,14 @@ scripted_profile :: proc(seed: u64, slot: int) -> Profile {
 // The slot's commands for a tick: a play every SCRIPT_PLAY_EVERY ticks (a starter of its own deck at an enemy and an
 // ally), its turn ended every SCRIPT_END_TURN_EVERY, a vote, a reward and a rest every SCRIPT_CHOOSE_EVERY, and from
 // slot 0 a new run every SCRIPT_START_EVERY. At most two a tick.
-scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Command)) {
+scripted_commands :: proc(
+	seed: u64,
+	slot: int,
+	tick: u32,
+	state: ^State,
+	setup: Setup,
+	out: ^sim.Command_Out(Command),
+) {
 	bits := sim.script_bits(seed, slot, tick, 1)
 	if slot == 0 && tick % SCRIPT_START_EVERY == 9 do sim.send_command(out, Command_Start_Run{})
 	phase := (tick + u32(slot) * 3) % SCRIPT_CHOOSE_EVERY

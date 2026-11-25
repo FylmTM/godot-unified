@@ -20,7 +20,7 @@ SCRIPT_AIM_STEPS :: 61
 
 // The scripted input hook: what the headless modes and test sessions feed in (a function of seed, slot and
 // tick only; `state` may be nil).
-scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input {
+scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State, setup: sim.No_Setup) -> Input {
 	in_block := (tick - 1) % SCRIPT_PERIOD
 	hash := sim.script_bits(seed, slot, tick, SCRIPT_PERIOD)
 	input: Input
@@ -41,7 +41,14 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input 
 // The scripted commands: slot 0 takes the team to the route every SCRIPT_TRAVEL_EVERY ticks (at SCRIPT_TRAVEL_AT) and
 // back to the hub SCRIPT_TRAVEL_STAY ticks later, so every scripted session, replay and reference run crosses level
 // changes (a function of slot and tick only).
-scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Command)) {
+scripted_commands :: proc(
+	seed: u64,
+	slot: int,
+	tick: u32,
+	state: ^State,
+	setup: sim.No_Setup,
+	out: ^sim.Command_Out(Command),
+) {
 	if slot != 0 do return
 	if tick % SCRIPT_TRAVEL_EVERY == SCRIPT_TRAVEL_AT do sim.send_command(out, Command_Travel{.Route})
 	if tick % SCRIPT_TRAVEL_EVERY == SCRIPT_TRAVEL_AT + SCRIPT_TRAVEL_STAY do sim.send_command(out, Command_Travel{.Hub})

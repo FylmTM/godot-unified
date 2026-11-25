@@ -28,17 +28,18 @@ seen_of :: proc "contextless" (tick, predicted: u32) -> Seen {
 
 // A scripted player's input (Game.scripted_input; a zero Input without one) with its Seen 0, whatever the script wrote:
 // a script saw no screen, so a session, an offline run and a Godot `--scripted` session play the same bytes. What every
-// host calls instead of the game's script.
+// host calls instead of the game's script, with the session's Setup (Sim.setup).
 scripted_player_input :: proc(
 	game: ^$G,
 	seed: u64,
 	slot: int,
 	tick: u32,
 	state: ^$State,
+	setup: $Setup,
 ) -> (
 	input: part(G, GAME_INPUT),
 ) where intrinsics.type_is_specialization_of(G, Game) {
-	if game.scripted_input != nil do input = game.scripted_input(seed, slot, tick, state)
+	if game.scripted_input != nil do input = game.scripted_input(seed, slot, tick, state, setup)
 	seen_stamp(&input, 0)
 	return
 }

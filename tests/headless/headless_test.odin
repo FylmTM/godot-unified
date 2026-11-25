@@ -7,6 +7,7 @@ import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
+import "core:sync"
 import "core:testing"
 
 import "../toy"
@@ -98,6 +99,55 @@ a_game_without_a_scripted_player_runs :: proc(t: ^testing.T) {
 	session := headless.session_run(&game, {clients = 2, profile = netcode.PROFILES[.Wan], ticks = 160, seed = 1})
 	defer headless.session_result_destroy(&session)
 	testing.expect(t, session.ok, "a session of players without a script")
+}
+
+// What the script of a_scripted_player_reads_the_sessions_setup saw: how many calls (input and commands) got the
+// session's Setup, and how many another (one test uses them).
+@(private = "file")
+script_setup_seen: struct {
+	right, wrong: int,
+}
+
+// The scripted player reads the session's Setup, never a copy in the State: an offline run hands it the run's
+// (Sim.setup), a session's clients the relay's (from their Welcome, a late joiner's included).
+@(test)
+a_scripted_player_reads_the_sessions_setup :: proc(t: ^testing.T) {
+	SETUP :: toy.Setup {
+		life_bonus = 5,
+	}
+	tally :: proc(setup: toy.Setup) {
+		if setup == SETUP do sync.atomic_add(&script_setup_seen.right, 1)
+		else do sync.atomic_add(&script_setup_seen.wrong, 1)
+	}
+	game := toy.GAME
+	game.scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State, setup: toy.Setup) -> toy.Input {
+		tally(setup)
+		return toy.scripted_input(seed, slot, tick, state, setup)
+	}
+	game.scripted_commands = proc(
+		seed: u64,
+		slot: int,
+		tick: u32,
+		state: ^toy.State,
+		setup: toy.Setup,
+		out: ^sim.Command_Out(toy.Command),
+	) {
+		tally(setup)
+		toy.scripted_commands(seed, slot, tick, state, setup, out)
+	}
+	headless.run_sim(&game, 64, 1, 2, SETUP)
+	testing.expect_value(t, script_setup_seen.wrong, 0)
+	testing.expect_value(t, script_setup_seen.right, 64 * 2 * 2) // each tick, each slot: its input and its commands
+	script_setup_seen = {}
+	session := headless.session_run(
+		&game,
+		{clients = 3, profile = netcode.PROFILES[.Wan], ticks = 200, seed = 1, late_tick = 100, late_slot = 2},
+		SETUP,
+	)
+	defer headless.session_result_destroy(&session)
+	testing.expect(t, session.ok, "the session")
+	testing.expect_value(t, sync.atomic_load(&script_setup_seen.wrong), 0)
+	testing.expect(t, sync.atomic_load(&script_setup_seen.right) > 0, "the clients' scripts ran")
 }
 
 // The same session twice on the virtual clock: identical, to the byte.

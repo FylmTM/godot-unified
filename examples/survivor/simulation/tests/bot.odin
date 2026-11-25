@@ -28,7 +28,7 @@ BOT_WEIGHT_GEM :: 0.8
 bot_world: ^g.World
 
 // The input of the bot in `slot` (zero when nobody holds it or they are dead), a sim.Game.scripted_input.
-bot_input :: proc(seed: u64, slot: int, tick: u32, state: ^g.State) -> (input: g.Input) {
+bot_input :: proc(seed: u64, slot: int, tick: u32, state: ^g.State, setup: g.Setup) -> (input: g.Input) {
 	character := sim.slot_data(&state.players, slot)
 	if character == nil || !character.alive {
 		return
@@ -95,7 +95,14 @@ bot_input :: proc(seed: u64, slot: int, tick: u32, state: ^g.State) -> (input: g
 // The bot's commands (a sim.Game.scripted_commands): while a level-up is pending, one of the two upgrades its oldest
 // offers (g.upgrade_offers), alternating by level, naming that level. In a session it sees a predicted state a few
 // ticks old, so it may pick more than once for one level-up: the sim ignores a pick for a level already taken.
-bot_commands :: proc(seed: u64, slot: int, tick: u32, state: ^g.State, out: ^sim.Command_Out(g.Command)) {
+bot_commands :: proc(
+	seed: u64,
+	slot: int,
+	tick: u32,
+	state: ^g.State,
+	setup: g.Setup,
+	out: ^sim.Command_Out(g.Command),
+) {
 	character := sim.slot_data(&state.players, slot)
 	if character != nil && character.alive && character.pending_levelups > 0 {
 		player := sim.player_in_slot(&state.players, slot)

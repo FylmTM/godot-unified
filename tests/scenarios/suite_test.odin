@@ -72,7 +72,7 @@ the_reference_run_reproduces :: proc(t: ^testing.T) {scenarios.reference_reprodu
 @(test)
 a_script_that_reads_the_state_is_named :: proc(t: ^testing.T) {
 	game := toy.GAME
-	game.scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+	game.scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State, setup: toy.Setup) -> toy.Input {
 		input := toy.scripted_input(seed, slot, tick)
 		input.dx = i8(state.spawned % 3) // the state's count, not (seed, slot, tick)
 		return input
@@ -90,7 +90,7 @@ a_script_that_reads_the_state_is_named :: proc(t: ^testing.T) {
 @(test)
 a_late_joiners_script_always_gets_a_state :: proc(t: ^testing.T) {
 	game := toy.GAME
-	game.scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+	game.scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State, setup: toy.Setup) -> toy.Input {
 		input := toy.scripted_input(seed, slot, tick, state)
 		if state.spawned > 1_000_000 do input.dx = 0 // a read of the state: a nil one faults here
 		return input

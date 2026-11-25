@@ -19,7 +19,7 @@ SCRIPT_LOOK_TICKS :: 256 // a scripted look sweeps left and right once in this m
 // scene it looks at), looks toward -Z (where each scene is, from the cameras' starts) sweeping a sixteenth of a turn
 // either way every SCRIPT_LOOK_TICKS, a little down, and holds Grab for SCRIPT_GRAB_TICKS of every SCRIPT_GRAB_EVERY
 // (reeling in or out).
-scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input {
+scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State, setup: Setup) -> Input {
 	bits := sim.script_bits(seed, slot, tick, SCRIPT_PERIOD)
 	direction := dmath.DIR8[bits % 8]
 	input := Input {
@@ -39,7 +39,14 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input 
 // explosion every SCRIPT_EXPLODE_EVERY (each slot at its own tick), gets in and out of a car every SCRIPT_DRIVE_EVERY (in
 // Driving: elsewhere it does nothing), and slot 0 changes the scene every SCRIPT_SCENE_TICKS (the n-th change to the
 // n-th scene, round the list), so the reference run crosses scene changes.
-scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Command)) {
+scripted_commands :: proc(
+	seed: u64,
+	slot: int,
+	tick: u32,
+	state: ^State,
+	setup: Setup,
+	out: ^sim.Command_Out(Command),
+) {
 	at := tick + u32(slot) * 8
 	if slot == 0 && tick % SCRIPT_SCENE_TICKS == 0 && tick > 0 {
 		sim.send_command(out, Command_Scene{scene = Scene(tick / SCRIPT_SCENE_TICKS % len(Scene))})

@@ -61,7 +61,7 @@ sampling_fill :: proc(out: ^godot.Frame_Data, state: ^toy.State) {
 sampling_hooks :: proc(sampling: ^Sampling) -> netcode.Hooks(toy.Game) {
 	return {
 		user = sampling,
-		sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+		sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State, setup: toy.Setup) -> toy.Input {
 			return toy.scripted_input(11, slot, tick) // changes every 8 ticks: the other client mispredicts it
 		},
 		frame = proc(user: rawptr, simulation: ^toy.Sim, info: netcode.Frame_Info) {

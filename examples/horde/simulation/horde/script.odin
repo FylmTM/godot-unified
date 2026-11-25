@@ -10,7 +10,7 @@ SCRIPT_PERIOD :: 32 // ticks a scripted direction holds
 SCRIPT_IDLE_ONE_IN :: 6 // one block in this many the scripted hero stands still
 
 // The hero in `slot` walks one of 8 directions, drawn again every SCRIPT_PERIOD ticks (some blocks standing still).
-scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input {
+scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State, setup: sim.No_Setup) -> Input {
 	bits := sim.script_bits(seed, slot, tick, SCRIPT_PERIOD)
 	if bits % SCRIPT_IDLE_ONE_IN == 0 do return {}
 	move := dmath.DIR8[bits / SCRIPT_IDLE_ONE_IN % 8]
@@ -20,7 +20,14 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input 
 // A level-up pick at the start of every SCRIPT_PERIOD block, whether or not one is pending (the sim ignores it then):
 // an upgrade drawn from (seed, slot, tick), so the script depends on nothing else, for the oldest level (level 0: the
 // script can't read which).
-scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Command)) {
+scripted_commands :: proc(
+	seed: u64,
+	slot: int,
+	tick: u32,
+	state: ^State,
+	setup: sim.No_Setup,
+	out: ^sim.Command_Out(Command),
+) {
 	if (tick - 1) % SCRIPT_PERIOD != 0 do return
 	bits := sim.script_bits(seed, slot, tick, SCRIPT_PERIOD)
 	sim.send_command(out, Command_Pick{upgrade = Upgrade(bits / 7 % len(Upgrade))})

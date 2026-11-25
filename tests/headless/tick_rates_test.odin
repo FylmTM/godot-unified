@@ -83,6 +83,7 @@ plain_game :: proc($G: typeid, $CHANGING: int, tick_hz: int) -> G {
 			slot: int,
 			tick: u32,
 			state: ^sim.part(G, sim.GAME_STATE),
+			setup: sim.part(G, sim.GAME_SETUP),
 		) -> (
 			input: sim.part(G, sim.GAME_INPUT),
 		) {

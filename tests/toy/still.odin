@@ -36,7 +36,14 @@ STILL := Still_Game {
 	},
 	init = proc(t: ^Still_Tick) {sim.level_enter(t, Area.Meadow)},
 	tick = still_tick,
-	scripted_commands = proc(seed: u64, slot: int, tick: u32, state: ^Still_State, out: ^sim.Command_Out(Command)) {
+	scripted_commands = proc(
+		seed: u64,
+		slot: int,
+		tick: u32,
+		state: ^Still_State,
+		setup: Setup,
+		out: ^sim.Command_Out(Command),
+	) {
 		commands_of(seed, slot, tick, out, 3)
 	},
 	scripted_profile = scripted_profile,

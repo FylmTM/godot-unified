@@ -960,7 +960,7 @@ a_relay_time_far_off_costs_a_ring_of_inputs :: proc(t: ^testing.T) {
 	samples := 0
 	hooks := Hooks {
 		user = &samples,
-		sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+		sample = proc(user: rawptr, local, slot: int, tick: u32, state: ^toy.State, setup: toy.Setup) -> toy.Input {
 			(^int)(user)^ += 1
 			return {}
 		},

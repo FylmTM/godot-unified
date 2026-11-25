@@ -18,7 +18,7 @@ SCRIPT_BOOST_ONE_IN :: 6 // and one in this many it boosts
 
 // The scripted input of the player in `slot` for a tick, a pure function of (seed, slot, tick): the input the headless
 // modes, the end-to-end suite and a Godot scripted session feed the sim, identical wherever it is asked for.
-scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input {
+scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State, setup: sim.No_Setup) -> Input {
 	bits := sim.script_bits(seed, slot, tick, SCRIPT_PERIOD)
 	input: Input
 	if bits % SCRIPT_IDLE_ONE_IN != SCRIPT_IDLE_ONE_IN - 1 {
@@ -35,7 +35,14 @@ scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input 
 
 // Sends the slot-0 player's scripted `Command_Start` and `Command_Restart` on a fixed beat, so scripted runs go through whole
 // matches and back to the lobby.
-scripted_commands :: proc(seed: u64, slot: int, tick: u32, state: ^State, out: ^sim.Command_Out(Command)) {
+scripted_commands :: proc(
+	seed: u64,
+	slot: int,
+	tick: u32,
+	state: ^State,
+	setup: sim.No_Setup,
+	out: ^sim.Command_Out(Command),
+) {
 	if slot != 0 do return
 	switch tick % SCRIPT_COMMAND_EVERY {
 	case SCRIPT_START_AT:

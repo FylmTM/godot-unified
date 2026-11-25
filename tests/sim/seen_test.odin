@@ -96,11 +96,11 @@ an_input_seen_the_host_cannot_fill_is_refused :: proc(t: ^testing.T) {
 @(test)
 a_scripted_input_has_no_seen :: proc(t: ^testing.T) {
 	game := toy.GAME
-	game.scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State) -> toy.Input {
+	game.scripted_input = proc(seed: u64, slot: int, tick: u32, state: ^toy.State, setup: toy.Setup) -> toy.Input {
 		return {dx = 7, seen = 9}
 	}
 	state: toy.State
-	testing.expect_value(t, sim.scripted_player_input(&game, 1, 0, 5, &state), toy.Input{dx = 7})
+	testing.expect_value(t, sim.scripted_player_input(&game, 1, 0, 5, &state, toy.Setup{}), toy.Input{dx = 7})
 	game.scripted_input = nil
-	testing.expect_value(t, sim.scripted_player_input(&game, 1, 0, 5, &state), toy.Input{})
+	testing.expect_value(t, sim.scripted_player_input(&game, 1, 0, 5, &state, toy.Setup{}), toy.Input{})
 }

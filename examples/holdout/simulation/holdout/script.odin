@@ -19,7 +19,7 @@ SCRIPT_GATE_YAWS := [3]f32{0, 0.75, 0.25}
 // The player in `slot` wanders (a stick drawn every SCRIPT_PERIOD ticks, at half tilt), faces one of the gates and
 // sweeps its aim across it, fires three ticks in four, throws a grenade every SCRIPT_THROW_EVERY ticks (each slot at
 // its own tick), holds Use now and then, and slot 0 presses Ready so the runs start.
-scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State) -> Input {
+scripted_input :: proc(seed: u64, slot: int, tick: u32, state: ^State, setup: sim.No_Setup) -> Input {
 	bits := sim.script_bits(seed, slot, tick, SCRIPT_PERIOD)
 	move := dmath.DIR8[bits % 8] * 0.5
 	input := Input {
