@@ -67,8 +67,9 @@ hit_of :: proc(world: ^World, shape: box3d.ShapeId, point, normal: box3d.Vec3, f
 // Whether the shape is on the body `ignore` names (a zero id: none).
 @(private)
 on_body :: proc(shape: box3d.ShapeId, ignore: box3d.BodyId) -> bool {
+	if ignore.index1 == 0 do return false
 	body := box3d.Shape_GetBody(shape)
-	return ignore.index1 != 0 && body.index1 == ignore.index1 && body.generation == ignore.generation
+	return body.index1 == ignore.index1 && body.generation == ignore.generation
 }
 
 // ---- world casts and overlaps
@@ -210,14 +211,21 @@ ray_crosses_box :: proc(origin, translation: [3]f32, box: AABB) -> bool {
 	return true
 }
 
-// Every hit along `translation` from `origin` into `out` (replaced, never appended to), sensors skipped, sorted by
-// fraction, then body and shape index.
-world_cast_ray :: proc(world: ^World, origin, translation: [3]f32, out: ^[dynamic]Hit, filter := Filter{}) {
+// Every hit along `translation` from `origin` into `out` (replaced, never appended to), sensors and the `ignore` body
+// skipped, sorted by fraction, then body and shape index.
+world_cast_ray :: proc(
+	world: ^World,
+	origin, translation: [3]f32,
+	out: ^[dynamic]Hit,
+	filter := Filter{},
+	ignore := Body_Link{},
+) {
 	clear(out)
 	ray := Ray_Ctx {
-		ctx   = context,
-		world = world,
-		out   = out,
+		ctx    = context,
+		world  = world,
+		ignore = link_id(world, ignore),
+		out    = out,
 	}
 	box3d.World_CastRay(
 		world.id,
@@ -230,8 +238,8 @@ world_cast_ray :: proc(world: ^World, origin, translation: [3]f32, out: ^[dynami
 	sort_results(world, out[:], hit_before)
 }
 
-// Every shape the proxy at `origin`, swept by `translation`, hits, into `out` (replaced), sensors skipped, sorted like
-// world_cast_ray's.
+// Every shape the proxy at `origin`, swept by `translation`, hits, into `out` (replaced), sensors and the `ignore` body
+// skipped, sorted like world_cast_ray's.
 world_cast_shape :: proc(
 	world: ^World,
 	origin: [3]f32,
@@ -239,12 +247,14 @@ world_cast_shape :: proc(
 	translation: [3]f32,
 	out: ^[dynamic]Hit,
 	filter := Filter{},
+	ignore := Body_Link{},
 ) {
 	clear(out)
 	ray := Ray_Ctx {
-		ctx   = context,
-		world = world,
-		out   = out,
+		ctx    = context,
+		world  = world,
+		ignore = link_id(world, ignore),
+		out    = out,
 	}
 	proxy := proxy
 	box3d.World_CastShape(
@@ -286,17 +296,25 @@ ray_callback :: proc "c" (
 
 @(private)
 Overlap_Ctx :: struct {
-	ctx:   runtime.Context,
-	world: ^World,
-	out:   ^[dynamic]Overlap,
+	ctx:    runtime.Context,
+	world:  ^World,
+	out:    ^[dynamic]Overlap,
+	ignore: box3d.BodyId,
 }
 
 // Every shape whose fat AABB overlaps the box [lo, hi] ("near" rather than exact: world_overlap_shape is exact), into
-// `out` (replaced), sorted by body index, then shape index. A game keeps `out` in its World as scratch: it never
-// holds anything from an earlier call, so it can't carry a result into another tick (src/sim/README.md, World).
-world_overlap_aabb :: proc(world: ^World, lo, hi: [3]f32, out: ^[dynamic]Overlap, filter := Filter{}) {
+// `out` (replaced), sensors included, the `ignore` body skipped, sorted by body index, then shape index. A game keeps
+// `out` in its World as scratch: it never holds anything from an earlier call, so it can't carry a result into another
+// tick (src/sim/README.md, World).
+world_overlap_aabb :: proc(
+	world: ^World,
+	lo, hi: [3]f32,
+	out: ^[dynamic]Overlap,
+	filter := Filter{},
+	ignore := Body_Link{},
+) {
 	clear(out)
-	overlap := Overlap_Ctx{context, world, out}
+	overlap := Overlap_Ctx{context, world, out, link_id(world, ignore)}
 	box3d.World_OverlapAABB(
 		world.id,
 		transmute(box3d.AABB)AABB{lo, hi},
@@ -307,16 +325,18 @@ world_overlap_aabb :: proc(world: ^World, lo, hi: [3]f32, out: ^[dynamic]Overlap
 	sort_results(world, out[:], overlap_before)
 }
 
-// Every shape the proxy at `origin` overlaps (exactly), into `out` (replaced), sorted like world_overlap_aabb's.
+// Every shape the proxy at `origin` overlaps (exactly), into `out` (replaced), sensors included, the `ignore` body
+// skipped, sorted like world_overlap_aabb's.
 world_overlap_shape :: proc(
 	world: ^World,
 	origin: [3]f32,
 	proxy: Shape_Proxy,
 	out: ^[dynamic]Overlap,
 	filter := Filter{},
+	ignore := Body_Link{},
 ) {
 	clear(out)
-	overlap := Overlap_Ctx{context, world, out}
+	overlap := Overlap_Ctx{context, world, out, link_id(world, ignore)}
 	proxy := proxy
 	box3d.World_OverlapShape(
 		world.id,
@@ -333,6 +353,7 @@ world_overlap_shape :: proc(
 overlap_callback :: proc "c" (shape: box3d.ShapeId, user: rawptr) -> bool {
 	overlap := (^Overlap_Ctx)(user)
 	context = overlap.ctx
+	if on_body(shape, overlap.ignore) do return true
 	append(overlap.out, overlap_of(overlap.world, shape))
 	return true
 }
@@ -484,8 +505,8 @@ body_cast_ray :: proc(
 	return hit_of(world, result.shapeId, result.point, result.normal, result.fraction, result.userMaterialId), true
 }
 
-// A proxy at `origin` swept by `translation` against this body's shapes; not ok: no hit. `can_encroach` lets a
-// rounded proxy end closer than its radius.
+// A proxy at `origin` swept by `translation` against this body's shapes alone (sensors too); not ok: no hit.
+// `can_encroach` lets a rounded proxy end closer than its radius.
 body_cast_shape :: proc(
 	world: ^World,
 	ref: Body_Ref,
@@ -516,7 +537,7 @@ body_cast_shape :: proc(
 	return hit_of(world, result.shapeId, result.point, result.normal, result.fraction, result.userMaterialId), true
 }
 
-// Whether the proxy at `origin` overlaps one of this body's shapes.
+// Whether the proxy at `origin` overlaps one of this body's shapes (sensors too).
 body_overlap_shape :: proc(
 	world: ^World,
 	ref: Body_Ref,

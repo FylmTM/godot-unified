@@ -116,11 +116,10 @@ camera_start :: proc(scene: Scene, slot: int) -> [3]f32 {
 	return {f32(slot) * 2 - 3, height, distance}
 }
 
-// The present player who holds the grab on `body`, if any.
-holder_of :: proc(t: ^Tick, body: physics.Body_Link) -> (holder: sim.Player, found: bool) {
+// Every present player who holds the grab on `body` lets go (release: each with its own Event_Released), in slot order.
+release_holders :: proc(t: ^Tick, body: physics.Body_Link) {
 	players := sim.iterate_present(t)
 	for data, player in sim.next(&players) {
-		if data.grab != {} && data.held_body == body do return player, true
+		if data.grab != {} && data.held_body == body do release(t, player)
 	}
-	return {}, false
 }

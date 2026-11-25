@@ -15,7 +15,7 @@ TICK_HZ :: 64
 
 // The game's version (sim.Game.version, part of the netcode's compat): bump it when a rule or constant changes what a
 // tick computes without changing the State or Input layout.
-VERSION :: "1"
+VERSION :: "2"
 
 // The scenes, one level each, in GAME.levels' order (the State's `level` says which is active).
 Scene :: enum u8 {

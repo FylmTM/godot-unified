@@ -133,8 +133,11 @@ each time; the views show the newest guess and are told when it changes.
   `min`/`max` on floats, `core:math`, a NaN, an out-of-range float-to-int (`src/dmath/README.md`).
 - **Someone rejoins and gets another player's things.** Something keyed by slot: key it by `sim.Player`.
 - **A player spawns as the default, then swaps.** Their choice was a command after joining: make it the Profile.
-- **`check_refs` names an orphan or a stale ref.** A body no `Body_Ref` in the block owns, or a joint to the old
-  level kept across a change (`src/physics/README.md`, References; Levels).
+- **`check_refs` names an orphan or a dead ref.** A body no `Body_Ref` in the block owns, or a `Body_Ref` or
+  `Shape_Ref` to something destroyed (`src/physics/README.md`, References).
+- **A joint call asserts "a stale joint ref".** The joint died with one of its bodies (destroyed by another system, or
+  the old level's): joint refs are weak, so check `physics.joint_valid` before using one whose bodies aren't the
+  holder's own (`src/physics/README.md`, References).
 - **A timer never fires.** `timer_fired` is true on one tick: a sliced or skipped system misses it. Use `timer_done`
   and `timer_stop` (`sim.timer_fired`).
 - **A command sent during the co-op pause does nothing.** The paused tick returned before reading it, and a command

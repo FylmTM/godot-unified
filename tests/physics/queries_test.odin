@@ -288,6 +288,24 @@ queries_filter_ignore_and_replace :: proc(t: ^testing.T) {
 	if len(got) == 2 do testing.expect(t, got[0].body.index1 < got[1].body.index1 && got[1].body == physics.link(side_box))
 	physics.world_overlap_aabb(world, {10, 10, 10}, {11, 11, 11}, &got)
 	testing.expect_value(t, len(got), 0)
+	// Every world query skips its `ignore` body: the overlaps, the collecting ray and the shape cast.
+	physics.world_overlap_aabb(world, {-5, 0.2, -1}, {5, 3, 1}, &got, {mask = CAT_BOX}, physics.link(side_box))
+	testing.expect(t, len(got) == 1 && got[0].body == physics.link(faller))
+	ball := physics.make_proxy([][3]f32{{}}, 0.1)
+	physics.world_overlap_shape(world, {0, 2, 0}, ball, &got)
+	testing.expect(t, len(got) == 1 && got[0].body == physics.link(faller))
+	physics.world_overlap_shape(world, {0, 2, 0}, ball, &got, {}, physics.link(faller))
+	testing.expect_value(t, len(got), 0)
+	cast_hits: [dynamic]physics.Hit
+	defer delete(cast_hits)
+	physics.world_cast_ray(world, {0, 5, 0}, {0, -8, 0}, &cast_hits)
+	testing.expect(t, len(cast_hits) == 2 && cast_hits[0].body == physics.link(faller))
+	physics.world_cast_ray(world, {0, 5, 0}, {0, -8, 0}, &cast_hits, {}, physics.link(faller))
+	testing.expect(t, len(cast_hits) == 1 && cast_hits[0].body != physics.link(faller))
+	physics.world_cast_shape(world, {0, 5, 0}, ball, {0, -8, 0}, &cast_hits)
+	testing.expect(t, len(cast_hits) == 2 && cast_hits[0].body == physics.link(faller))
+	physics.world_cast_shape(world, {0, 5, 0}, ball, {0, -8, 0}, &cast_hits, {}, physics.link(faller))
+	testing.expect(t, len(cast_hits) == 1 && cast_hits[0].body != physics.link(faller))
 	// The landing's hit events, then none at rest, and never the stale entry `events` held.
 	events: [dynamic]physics.Contact_Event
 	defer delete(events)
@@ -499,6 +517,30 @@ check_refs_despawn_and_destroy_refs :: proc(t: ^testing.T) {
 	problem = physics.check_refs(world, &block)
 	testing.expectf(t, strings.contains(problem, "no live"), "its shape and hinge went with it: %q", problem)
 	second^ = {}
+	testing.expect_value(t, physics.check_refs(world, &block), "")
+
+	// Joint refs are weak: a stale one passes, a live one must be of its typed ref's type, a negative index is none.
+	hinge := block.loose.hinge
+	weld := physics.create_weld_joint(
+		world,
+		physics.link(ground),
+		physics.link(block.loose.body),
+		physics.default_weld_joint_def(),
+	)
+	block.loose.hinge = {weld.joint}
+	problem = physics.check_refs(world, &block)
+	testing.expectf(
+		t,
+		strings.contains(problem, "Revolute joint ref") && strings.contains(problem, "Weld joint"),
+		"%q",
+		problem,
+	)
+	physics.destroy_joint(world, &weld)
+	testing.expect_value(t, physics.check_refs(world, &block), "")
+	block.loose.hinge = {physics.Joint_Ref{index1 = -3}}
+	problem = physics.check_refs(world, &block)
+	testing.expectf(t, strings.contains(problem, "negative index"), "%q", problem)
+	block.loose.hinge = hinge
 	testing.expect_value(t, physics.check_refs(world, &block), "")
 
 	// despawn frees the item's joint and body, zeroes its refs, and frees the slot.

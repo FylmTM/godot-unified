@@ -102,9 +102,9 @@ level_data :: proc(
 // height fields in file order), then sim.level_enter. Box3D's snapshot holds static bodies like any other, so a rollback across the
 // change, a late join after it and a replay of it are exact. Entering the active level rebuilds it.
 //
-// Destroy what hangs on the old level first: a joint to a level body goes with it (a character standing on the level
-// or riding a platform: its pogo joint hangs on the ground it stands on, so destroy the character, as a leave does),
-// and a Body_Link to one goes stale. check_refs names a joint ref left behind.
+// What hangs on the old level goes with it: a joint to a level body dies with the body (a character's pogo to the
+// ground it stands on: its next character_update finds the ground again), and a Body_Link or joint ref to one goes
+// stale (Body_Link, Joint_Ref).
 level_change :: proc(t: ^sim.Tick($G), world: ^World, id: $Id) where intrinsics.type_is_enum(Id) {
 	assert(world.sealed, "physics: level_change runs in init or tick (after extra)")
 	assert(int(id) >= 0 && int(id) < len(world.levels), "physics: no such level (create_with_levels' levels)")
