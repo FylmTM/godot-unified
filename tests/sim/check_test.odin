@@ -111,6 +111,39 @@ a_crafted_block_is_refused :: proc(t: ^testing.T) {
 	}
 }
 
+// The inline collections and the enum rule, nested in arrays: a Bits index past its size, a Queue's head past its
+// capacity, an enum's undeclared value (0 is fine even when undeclared: dead items are zeroed).
+@(test)
+the_block_check_reads_collections_and_enums_in_arrays :: proc(t: ^testing.T) {
+	Mood :: enum u8 {
+		Calm  = 1,
+		Angry = 2,
+	}
+	Crowd :: struct {
+		moods: [3]Mood,
+		_pad:  [5]u8,
+		seen:  sim.Bits(70),
+		queue: sim.Queue(u32, 5),
+	}
+	State :: struct {
+		crowds: [2]Crowd,
+	}
+	state: State
+	testing.expect_value(t, sim.block_violation(&state), "")
+	state.crowds[1].moods[2] = .Angry
+	sim.incl(&state.crowds[1].seen, 69)
+	sim.append(&state.crowds[0].queue, 7)
+	testing.expect_value(t, sim.block_violation(&state), "")
+	(^u8)(&state.crowds[1].moods[1])^ = 3
+	testing.expect_value(t, sim.block_violation(&state), "crowds[1].moods[1]: 3 is no value of its enum")
+	state.crowds[1].moods[1] = .Calm
+	state.crowds[0].seen.words[1] |= 1 << 63
+	testing.expect_value(t, sim.block_violation(&state), "crowds[0].seen: a Bits(70) holds 127")
+	state.crowds[0].seen = {}
+	state.crowds[1].queue.head = 5
+	testing.expect_value(t, sim.block_violation(&state), "crowds[1].queue: its count or head is past its capacity 5")
+}
+
 // The check names the field it refuses, as a desync report names a field.
 @(test)
 a_block_violation_names_the_field :: proc(t: ^testing.T) {
