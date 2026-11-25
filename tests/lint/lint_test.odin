@@ -120,6 +120,66 @@ games_follow_determinism_rules :: proc(t: ^testing.T) {
 	}
 }
 
+// The toy (tests/toy), the game under the library's own reference run and seeded-bug tests, holds to the rule it
+// demonstrates: its package is linted as a game's sim package is (lint.sim_rule), its files alone (headless/ is its
+// binary, not tick code).
+@(test)
+the_toy_follows_determinism_rules :: proc(t: ^testing.T) {
+	TOY_DIR :: #directory + "/../toy"
+	rule := lint.sim_rule("toy", TOY_DIR)
+	infos, err := os.read_all_directory_by_path(TOY_DIR, context.temp_allocator)
+	testing.expectf(t, err == nil, "cannot list %s: %v", TOY_DIR, err)
+	files := 0
+	for info in infos {
+		if info.type == .Directory || !strings.has_suffix(info.name, ".odin") do continue
+		data, read_err := os.read_entire_file(info.fullpath, context.temp_allocator)
+		testing.expectf(t, read_err == nil, "cannot read %s", info.fullpath)
+		for violation in lint.scan(rule, info.fullpath, string(data)) do testing.expect(t, false, violation)
+		for violation in lint.scan_globals(rule, info.fullpath, string(data)) do testing.expect(t, false, violation)
+		files += 1
+	}
+	testing.expect(t, files > 0, "no .odin files in tests/toy")
+}
+
+// The standard suite every example's tests run (the in-repo check: a game outside the repo writes its own): its
+// reference run and replay regressions, the sync and session scenarios, the determinism lint, and the extension's
+// install check when it has one. A new example copying an older one's suite can't drop one silently.
+@(test)
+every_example_runs_the_standard_suite :: proc(t: ^testing.T) {
+	STANDARD :: []string {
+		"scenarios.reference_reproduces(",
+		"scenarios.replays_reproduce(",
+		"scenarios.rollback_every_tick(",
+		"scenarios.presence_churn(",
+		"scenarios.session_agrees(",
+		"scenarios.late_join_agrees(",
+		"lint.check_game(",
+	}
+	for game in game_dirs(t) {
+		tests_dir := fmt.tprintf("%s/%s/simulation/tests", EXAMPLES_DIR, game)
+		infos, err := os.read_all_directory_by_path(tests_dir, context.temp_allocator)
+		if !testing.expectf(t, err == nil, "%s: no simulation/tests (%v)", game, err) do continue
+		text := strings.builder_make(context.temp_allocator)
+		for info in infos {
+			if info.type == .Directory || !strings.has_suffix(info.name, ".odin") do continue
+			data, _ := os.read_entire_file(info.fullpath, context.temp_allocator)
+			strings.write_string(&text, string(data))
+		}
+		all := strings.to_string(text)
+		for call in STANDARD {
+			testing.expectf(t, strings.contains(all, call), "%s: simulation/tests never calls %s...)", game, call)
+		}
+		if os.exists(fmt.tprintf("%s/%s/simulation/extension", EXAMPLES_DIR, game)) {
+			testing.expectf(
+				t,
+				strings.contains(all, "the_extension_installs ::"),
+				"%s: simulation/tests has no the_extension_installs",
+				game,
+			)
+		}
+	}
+}
+
 // Box3D is physics' implementation (src/physics/README.md, The boundary): only src/physics and tests/physics import its
 // bindings (box3d:), across the library, its tests and the games.
 @(test)
@@ -378,6 +438,27 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 		{"f :: proc(t: ^Tick) -> bool {\n\treturn t.inputs.replaced != {}\n}\n", false}, // differs per peer
 		{"f :: proc(t: ^Tick) -> bool {\n\treturn t.dev != nil\n}\n", false}, // one machine's draws and zone clock
 		{"DEV :: #config(UNIFIED_DEVUI, true)\n", false}, // sim.DEV is the harness's to read
+		// every build or platform constant but ODIN_ENDIAN, also ones Odin adds later
+		{"K :: ODIN_ARCH_STRING\n", true},
+		{"K :: ODIN_OPTIMIZATION_MODE\n", true},
+		{"K :: ODIN_COMPILE_TIMESTAMP\n", true}, // wall-clock time as a constant
+		{"when ODIN_NO_BOUNDS_CHECK {\n\tK :: 1\n}\n", true},
+		// SIMD, complex and quaternion arithmetic without naming a banned type
+		{"V :: #simd[4]f32\n", true},
+		{"f :: proc(a, b: f32) -> f32 {\n\treturn real(complex(a, b))\n}\n", true},
+		{"f :: proc(q: Q) -> Q {\n\treturn conj(q)\n}\n", true},
+		{"f :: proc(x, y, z, w: f32) -> f32 {\n\treturn kmag(quaternion(w = w, x = x, y = y, z = z))\n}\n", true},
+		// untyped float right-hand sides beyond a lone literal: each declares an f64
+		{"f :: proc() {\n\ta, b := 1.0, 2.0\n}\n", true},
+		{"f :: proc(c: bool) {\n\tx := c ? 1.0 : 2.0\n}\n", true},
+		{"f :: proc(c: bool) {\n\tx := 1.0 if c else 2.0\n}\n", true},
+		{"f :: proc() {\n\tx := (1.5)\n}\n", true},
+		{"f :: proc() {\n\tx := 1.5 * 2\n}\n", true},
+		{"f :: proc() {\n\tx := 3 / 2.0\n}\n", true},
+		{"f :: proc() {\n\tfor x := 0.5; x < 1; x += 0.25 {}\n}\n", true},
+		// a builtin under another name: the call no longer looks like one
+		{"m :: max\nf :: proc(a, b: f32) -> f32 {\n\treturn m(a, b)\n}\n", true},
+		{"f :: proc(a, b: f32) -> f32 {\n\treturn (min)(a, b)\n}\n", true},
 	}
 	// ... and the harness may read that one build option
 	for rule in RULES do if rule.pkg == "sim" {
@@ -390,6 +471,29 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 		if rule.pkg == "sim" {
 			sim_rule = rule
 		}
+	}
+	// base:intrinsics, which library tick packages import: its type queries, memory helpers, bit counts and sqrt
+	// only, under any import name.
+	intrinsics_cases := []struct {
+		src:    string,
+		caught: bool,
+	} {
+		{"import \"base:intrinsics\"\nv := intrinsics.simd_add(a, b)\n", true},
+		{"import \"base:intrinsics\"\nv := intrinsics.atomic_load(&x)\n", true},
+		{"import \"base:intrinsics\"\nv := intrinsics.fixed_point_mul(a, b, 4)\n", true},
+		{"import intr \"base:intrinsics\"\nv := intr.syscall(1)\n", true},
+		{"import \"base:intrinsics\"\nv := intrinsics.sqrt(x) + intrinsics.count_ones(y)\n", false},
+		{"import \"base:intrinsics\"\nV :: intrinsics.type_is_enum(T)\nintrinsics.mem_zero(p, 4)\n", false},
+		{"import intr \"base:intrinsics\"\nV :: intr.type_is_enum(T)\n", false},
+		{"#assert(ODIN_ENDIAN == .Little)\n", false},
+		{"f :: proc(v: V) -> f32 {\n\treturn v.real + v.imag\n}\n", false}, // fields named like the builtins
+		{"f :: proc(y: f32) {\n\tx := 1.5 * y\n\tz := HALF\n\tlo := max(u16)\n}\n", false}, // typed; a constant
+		{"f :: proc() {\n\tn := 3 / 2\n\tp := proc() {}\n}\n", false},
+	}
+	for test_case in intrinsics_cases {
+		src := strings.concatenate({"package sim\n", test_case.src}, context.temp_allocator)
+		found := lint.scan(sim_rule, "case.odin", src)
+		testing.expectf(t, (len(found) > 0) == test_case.caught, "%s\n%v", test_case.src, found)
 	}
 	for test_case, i in cases {
 		src := strings.concatenate({"package survivor\n", test_case.src}, context.temp_allocator)

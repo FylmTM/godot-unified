@@ -160,6 +160,7 @@ Sim :: sim.Sim(Game)
 Inputs :: sim.Inputs(Game)
 Tick :: sim.Tick(Game)
 
+@(rodata)
 GAME := Game {
 	name = "toy",
 	version = "1",

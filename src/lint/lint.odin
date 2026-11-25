@@ -14,10 +14,12 @@ import "core:testing"
 
 // What a package is, which says what it may not do:
 //
-//   Tick      code inside a tick: only its listed imports, none of SIM_IDENTS, no call of BUILTIN_CALLS with two or
-//             more arguments (dmath's instead), no field of SIM_FIELDS but its allow_fields, no `matrix`, `foreign`,
-//             `map`, `---`, `#config` or `x := 1.5` (an untyped float literal is f64), and no mutable package-level
-//             variables (scan_globals) but its allow_globals.
+//   Tick      code inside a tick: only its listed imports, none of SIM_IDENTS, no `ODIN_` constant but ODIN_ENDIAN,
+//             no `intrinsics.` name off INTRINSICS_ALLOWED, none of BUILTIN_NUMBERS, no call or alias of
+//             BUILTIN_CALLS with two or more arguments (dmath's instead), no field of SIM_FIELDS but its
+//             allow_fields, no `matrix`, `#simd`, `foreign`, `map`, `---`, `#config` or `x := 1.5` (a right-hand side
+//             of untyped numeric literals with a float among them is f64), and no mutable package-level variables
+//             (scan_globals) but its allow_globals.
 //   Realtime  real-time code beside the sim (netcode, headless): Odin's own packages and its listed ones, but not
 //             core:math (core:math/bits is fine), FLOAT_TRAPS or `matrix`.
 //   Host      host-side code that never feeds back into the sim: Odin's own packages and its listed ones.
@@ -57,9 +59,9 @@ FLOAT_TRAPS :: []string {
 }
 
 // The identifiers a tick may not name: f32 only (no f64 or f16 types, no fused, quaternion or complex arithmetic), no
-// cycle counters or random generators (clocks and files are out of reach: a tick imports neither), no
-// state outside the block (`@(static)` and `@(thread_local)` variables: not rolled back, not hashed) and no code that
-// differs per platform or build (ODIN_OS, ODIN_ARCH, ODIN_DEBUG: peers would run different sims).
+// cycle counters or random generators (clocks and files are out of reach: a tick imports neither) and no state
+// outside the block (`@(static)` and `@(thread_local)` variables: not rolled back, not hashed). Code that differs per
+// platform or build (an `ODIN_` constant: peers would run different sims) is banned by its prefix (scan).
 @(private)
 SIM_IDENTS :: []string {
 	"fused_mul_add",
@@ -81,10 +83,24 @@ SIM_IDENTS :: []string {
 	"default_random_generator",
 	"static",
 	"thread_local",
-	"ODIN_OS",
-	"ODIN_ARCH",
-	"ODIN_DEBUG",
 }
+
+// The builtins of complex and quaternion numbers a tick may not call (`real(z)`; a field named like one, `.real`, is
+// fine): the types are banned (SIM_IDENTS), and these make or take them without naming one.
+@(private)
+BUILTIN_NUMBERS :: []string{"complex", "quaternion", "real", "imag", "jmag", "kmag", "conj"}
+
+// The one `ODIN_` constant a tick may read: the block's bytes are its little-endian serialization (sim asserts it).
+@(private)
+ODIN_ALLOWED :: "ODIN_ENDIAN"
+
+// What a tick may name from base:intrinsics (under any import name): type queries (`type_` names, compile time),
+// memory copies and zeroing (`mem_` names), the integer bit counts and the hardware square root. Not its SIMD,
+// atomics, cycle counters, syscalls or fused arithmetic.
+@(private)
+INTRINSICS_ALLOWED :: []string{"count_ones", "count_trailing_zeros", "sqrt"}
+@(private)
+INTRINSICS_ALLOWED_PREFIXES :: []string{"type_", "mem_"}
 
 // The builtins a tick may not call with two or more arguments: on floats they lower to instructions free to return
 // either zero when -0 meets +0, and x64 and arm64, debug and release builds, even two inlined calls of one build pick
@@ -136,13 +152,16 @@ float_traps := FLOAT_TRAPS
 @(private)
 builtin_calls := BUILTIN_CALLS
 @(private)
+builtin_numbers := BUILTIN_NUMBERS
+@(private)
 sim_fields := SIM_FIELDS
 
 // What a rule bans, from its kind.
 @(private)
 Bans :: struct {
 	idents:       []string,
-	calls:        []string, // builtins not to call with two or more arguments
+	calls:        []string, // builtins not to call with two or more arguments, nor alias
+	numbers:      []string, // builtins not to call at all
 	fields:       []string, // fields not to read (`x.name`)
 	math:         bool, // core:math (but core:math/bits)
 	strict:       bool, // `foreign`, `map`, `---`, `#config`, `x := 1.5`; package-level variables
@@ -154,7 +173,14 @@ Bans :: struct {
 bans_of :: proc(kind: Kind) -> Bans {
 	switch kind {
 	case .Tick:
-		return {idents = sim_idents, calls = builtin_calls, fields = sim_fields, strict = true, matrices = true}
+		return {
+			idents   = sim_idents,
+			calls    = builtin_calls,
+			numbers  = builtin_numbers,
+			fields   = sim_fields,
+			strict   = true,
+			matrices = true,
+		}
 	case .Realtime:
 		return {idents = float_traps, math = true, odin_allowed = true, matrices = true}
 	case .Host:
@@ -249,26 +275,15 @@ scan :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator)
 	bans := bans_of(rule.kind)
 	scanner: tokenizer.Tokenizer
 	tokenizer.init(&scanner, src, name, proc(_: tokenizer.Pos, _: string, _: ..any) {})
-	scanner.flags = {.Insert_Semicolon} // a newline ends a statement: `x := 1.5` is caught, `x := 1.5 * y` is not
+	scanner.flags = {.Insert_Semicolon} // a newline ends a statement
 	after_import := false
+	import_alias := "" // the name an import statement gives its package, when it names one
+	intrinsics_alias := "" // what this file calls base:intrinsics ("": it doesn't import it)
 	prev: [3]tokenizer.Token_Kind // the last significant tokens, prev[0] the latest
-	pending: Maybe(tokenizer.Token) // an untyped float literal right after `:=`, if the statement ends there
+	prev_text: [3]string // their text
 	for tok := tokenizer.scan(&scanner);; tok = tokenizer.scan(&scanner) {
 		if tok.kind == .Comment {
 			continue
-		}
-		if literal, ok := pending.?; ok {
-			if tok.kind == .Semicolon || tok.kind == .EOF || tok.kind == .Close_Brace {
-				report(
-					&out,
-					literal,
-					name,
-					fmt.tprintf("`:= %s` (an untyped float literal is f64)", literal.text),
-					rule,
-					allocator,
-				)
-			}
-			pending = nil
 		}
 		if tok.kind == .EOF {
 			break
@@ -276,7 +291,9 @@ scan :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator)
 		#partial switch tok.kind {
 		case .Import:
 			after_import = true
+			import_alias = ""
 			prev = {tok.kind, prev[0], prev[1]}
+			prev_text = {tok.text, prev_text[0], prev_text[1]}
 			continue
 		case .Matrix:
 			if bans.matrices {
@@ -294,16 +311,69 @@ scan :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator)
 			if bans.strict {
 				report(&out, tok, name, "`---` (uninitialised memory differs per run)", rule, allocator)
 			}
-		case .Float:
-			after_colon_eq := prev[0] == .Eq && prev[1] == .Colon
-			signed := (prev[0] == .Sub || prev[0] == .Add) && prev[1] == .Eq && prev[2] == .Colon
-			if bans.strict && (after_colon_eq || signed) {
-				pending = tok
+		case .Eq:
+			if bans.strict && prev[0] == .Colon {
+				if literal, is_f64 := untyped_float(scanner); is_f64 {
+					report(
+						&out,
+						literal,
+						name,
+						fmt.tprintf(
+							"`:= %s` (untyped numeric literals with a float among them are f64)",
+							literal.text,
+						),
+						rule,
+						allocator,
+					)
+				}
 			}
 		case .Ident:
 			if after_import {
+				import_alias = tok.text
 				prev = {tok.kind, prev[0], prev[1]}
+				prev_text = {tok.text, prev_text[0], prev_text[1]}
 				continue // import alias
+			}
+			if bans.strict && strings.has_prefix(tok.text, "ODIN_") && tok.text != ODIN_ALLOWED {
+				report(
+					&out,
+					tok,
+					name,
+					fmt.tprintf("`%s` (a build or platform constant: peers would run different sims)", tok.text),
+					rule,
+					allocator,
+				)
+			}
+			if bans.strict && prev[0] == .Hash && tok.text == "simd" {
+				report(&out, tok, name, "`#simd`", rule, allocator)
+			}
+			if bans.strict &&
+			   prev[0] == .Period &&
+			   intrinsics_alias != "" &&
+			   prev_text[1] == intrinsics_alias &&
+			   prev[1] == .Ident &&
+			   !intrinsic_allowed(tok.text) {
+				report(
+					&out,
+					tok,
+					name,
+					fmt.tprintf("`%s.%s` (off the tick's intrinsics)", intrinsics_alias, tok.text),
+					rule,
+					allocator,
+				)
+			}
+			if prev[0] != .Period && slice.contains(bans.numbers, tok.text) {
+				report(&out, tok, name, fmt.tprintf("the builtin `%s`", tok.text), rule, allocator)
+			}
+			if prev[0] != .Period && slice.contains(bans.calls, tok.text) && builtin_aliased(scanner, prev) {
+				report(
+					&out,
+					tok,
+					name,
+					fmt.tprintf("an alias of the builtin `%s` (dmath.%s, under any name)", tok.text, tok.text),
+					rule,
+					allocator,
+				)
 			}
 			if bans.strict &&
 			   prev[0] == .Hash &&
@@ -348,12 +418,120 @@ scan :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator)
 				if banned_import(rule, path) {
 					report(&out, tok, name, fmt.tprintf("import %q", path), rule, allocator)
 				}
+				if path == "base:intrinsics" do intrinsics_alias = import_alias if import_alias != "" else "intrinsics"
 			}
 		}
 		after_import = false
 		prev = {tok.kind, prev[0], prev[1]}
+		prev_text = {tok.text, prev_text[0], prev_text[1]}
 	}
 	return out[:]
+}
+
+// Whether a tick may name base:intrinsics' `name` (INTRINSICS_ALLOWED, INTRINSICS_ALLOWED_PREFIXES).
+@(private)
+intrinsic_allowed :: proc(name: string) -> bool {
+	if slice.contains(INTRINSICS_ALLOWED, name) do return true
+	for prefix in INTRINSICS_ALLOWED_PREFIXES do if strings.has_prefix(name, prefix) do return true
+	return false
+}
+
+// Whether a builtin's name (`scanner` is right after it; `prev` the tokens before it) is aliased rather than called:
+// declared as a constant (`m :: max`) or wrapped in parentheses (`(max)(a, b)`), which call_with_arguments can't see.
+@(private)
+builtin_aliased :: proc(scanner: tokenizer.Tokenizer, prev: [3]tokenizer.Token_Kind) -> bool {
+	if prev[0] == .Colon && prev[1] == .Colon do return true
+	ahead := scanner
+	return prev[0] == .Open_Paren && tokenizer.scan(&ahead).kind == .Close_Paren
+}
+
+// Whether the right-hand side after a `:=` (`scanner` is right after it) declares an f64: one of its comma-separated
+// values is made of numeric literals alone, with a float among them (`1.5`, `-(1.5)`, `3 / 2.0`), or is a ternary
+// (`c ? 1.0 : 2.0`, `1.0 if c else 2.0`) whose two arms are. Returns the first float literal of such a value. Reads
+// to the statement's end (a `;` or `{` outside brackets). A named constant (`x := HALF`) is out of a token scan's
+// reach.
+@(private)
+untyped_float :: proc(scanner: tokenizer.Tokenizer) -> (literal: tokenizer.Token, is_f64: bool) {
+	ahead := scanner
+	tokens := make([dynamic]tokenizer.Token, context.temp_allocator)
+	depth := 0
+	for tok := tokenizer.scan(&ahead); tok.kind != .EOF; tok = tokenizer.scan(&ahead) {
+		if tok.kind == .Comment do continue
+		#partial switch tok.kind {
+		case .Open_Paren, .Open_Bracket:
+			depth += 1
+		case .Close_Paren, .Close_Bracket:
+			depth -= 1
+		case .Semicolon, .Open_Brace, .Close_Brace:
+			if depth <= 0 do return value_f64(tokens[:])
+		case .Comma:
+			if depth == 0 {
+				if literal, is_f64 = value_f64(tokens[:]); is_f64 do return
+				clear(&tokens)
+				continue
+			}
+		}
+		append(&tokens, tok)
+	}
+	return value_f64(tokens[:])
+}
+
+// untyped_float's test of one value: literals alone with a float, or a ternary whose arms both are.
+@(private)
+value_f64 :: proc(tokens: []tokenizer.Token) -> (literal: tokenizer.Token, is_f64: bool) {
+	depth := 0
+	for tok, i in tokens {
+		#partial switch tok.kind {
+		case .Open_Paren, .Open_Bracket:
+			depth += 1
+		case .Close_Paren, .Close_Bracket:
+			depth -= 1
+		case .Question:
+			if depth != 0 do continue
+			for arm, j in tokens[i + 1:] {
+				if arm.kind != .Colon do continue
+				a, a_float := literals_f64(tokens[i + 1:][:j])
+				b, b_float := literals_f64(tokens[i + 2 + j:])
+				if literals_only(tokens[i + 1:][:j]) && literals_only(tokens[i + 2 + j:]) && (a_float || b_float) {
+					return a if a_float else b, true
+				}
+				return
+			}
+		case .If:
+			if depth != 0 do continue
+			for arm, j in tokens[i + 1:] {
+				if arm.kind != .Else do continue
+				a, a_float := literals_f64(tokens[:i])
+				b, b_float := literals_f64(tokens[i + 2 + j:])
+				if literals_only(tokens[:i]) && literals_only(tokens[i + 2 + j:]) && (a_float || b_float) {
+					return a if a_float else b, true
+				}
+				return
+			}
+		}
+	}
+	if !literals_only(tokens) do return
+	return literals_f64(tokens)
+}
+
+// Whether tokens are numeric literals, signs, `+ - * /` and parentheses alone (and some).
+@(private)
+literals_only :: proc(tokens: []tokenizer.Token) -> bool {
+	for tok in tokens {
+		#partial switch tok.kind {
+		case .Integer, .Float, .Add, .Sub, .Mul, .Quo, .Open_Paren, .Close_Paren:
+		case:
+			return false
+		}
+	}
+	return len(tokens) > 0
+}
+
+// The first float literal among tokens.
+@(private)
+literals_f64 :: proc(tokens: []tokenizer.Token) -> (literal: tokenizer.Token, found: bool) {
+	for tok in tokens do if tok.kind == .Float do return tok, true
+	return
 }
 
 // The option a `#config` reads (`scanner` is right after `config`): the name after its `(`, else "".
