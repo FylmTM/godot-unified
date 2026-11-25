@@ -319,9 +319,12 @@ joint_linear_separation :: proc(world: ^World, joint: Joint_Ref, loc := #caller_
 	return box3d.Joint_GetLinearSeparation(joint_id(world, joint, loc))
 }
 
-// The joint's current angular error (radians), not counting the movement it allows.
+// The joint's current angular error (radians), not counting the movement it allows; 0 for a wheel joint, which Box3D
+// does not measure (its debug build asserts there).
 joint_angular_separation :: proc(world: ^World, joint: Joint_Ref, loc := #caller_location) -> f32 {
-	return box3d.Joint_GetAngularSeparation(joint_id(world, joint, loc))
+	id := joint_id(world, joint, loc)
+	if box3d.Joint_GetType(id) == .wheelJoint do return 0
+	return box3d.Joint_GetAngularSeparation(id)
 }
 
 // Sets the joint's constraint stiffness (Hz) and damping ratio (1: critical). Advanced.
