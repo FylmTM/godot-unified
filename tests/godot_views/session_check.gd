@@ -6,8 +6,9 @@
 #    closes to new players and opens again (close_online, open_direct).
 # 3. (after 2) leave, host at once, leave again before the old session is gone: the waiting start is dropped ("left").
 # 4. a session that ends on its own (its ticks ran out) stops answering from its last frame: no local player.
-# 5. a session's Setup (start_single(setup), session.setup, the default again; a save from save_changed) and a second
-#    local player (and local_players_changed saying so, and roster_changed once the shown tick has them present, and
+# 5. a session's Setup (start_single(setup), session.setup, the default again; a save from save_changed), a Profile's
+#    lifetime (a guest's a value, Unified.profile live), and a second local player with its own Profile (and
+#    local_players_changed saying so, and roster_changed once the shown tick has them present, and
 #    gone).
 # 6. open to friends: a running single-player session hosts on a port and closes; a failed open leaves it running.
 # 7. a replay: a 40-tick session's recording (user://recordings) played back, and every control a replay viewer uses
@@ -201,6 +202,14 @@ func _setup_and_locals() -> bool:
 	var keep_save := func(save: UnifiedSetup) -> void: saves.append(save)
 	s.save_changed.connect(keep_save)
 	Unified.profile.color = 9
+	# A Profile is a value: a couch guest's own is freed once no script holds it; Unified.profile lives on.
+	var guest_profile := UnifiedProfile.new()
+	check("a new UnifiedProfile is a RefCounted value", guest_profile is RefCounted)
+	var dropped_id := UnifiedProfile.new().get_instance_id()
+	check("a UnifiedProfile no script holds is freed", not is_instance_id_valid(dropped_id))
+	var held: UnifiedProfile = Unified.profile
+	held = null
+	check("Unified.profile outlives a script's reference to it", is_instance_valid(Unified.profile) 		and Unified.profile.color == 9)
 	check("start_single(setup) with a Setup", s.start_single(setup))
 	if not await _wait_for(func() -> bool: return s.local_player != 0, 5.0, "the Setup's session runs"):
 		return false
@@ -217,7 +226,7 @@ func _setup_and_locals() -> bool:
 	var listed: Array = [s.get_players()]
 	var redraw := func() -> void: listed[0] = s.get_players()
 	s.roster_changed.connect(redraw)
-	var second: int = s.add_local_player(UnifiedSession.DEVICE_KEYBOARD, "Second")
+	var second: int = s.add_local_player(UnifiedSession.DEVICE_KEYBOARD, "Second", guest_profile)
 	check("add_local_player gives local 1", second == 1, second)
 	if not await _wait_for(func() -> bool: return s.local_players.size() == 2 and s.get_players().size() == 2, 5.0,
 			"the second local player joins"):

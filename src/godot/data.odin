@@ -443,7 +443,7 @@ Data_Role :: enum u8 {
 	Nested, // a nested struct: a RefCounted value, cached per field (nested_cache.odin), settable
 	View, // a view kind's data (ViewCard): a RefCounted value per change, the root script's `data`; settable
 	Setup, // UnifiedSetup: a RefCounted value (new(): the game's default Setup), settable; start_single(setup)
-	Profile, // UnifiedProfile: one live instance (Unified.profile), set by scripts, sent when a session starts
+	Profile, // UnifiedProfile: a RefCounted value (a couch guest's: add_local_player), and one live instance (Unified.profile), sent when a session starts
 }
 
 // The editor's help on reading nested values (nested_cache.odin), in the classes whose fields hold them.
@@ -465,7 +465,7 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 	data_class^ = {
 		class = {
 			name = layout.class,
-			parent = role == .Nested || role == .Setup || role == .View ? "RefCounted" : "Object",
+			parent = role == .Nested || role == .Setup || role == .View || role == .Profile ? "RefCounted" : "Object",
 			size = size_of(Data_Object),
 			init = proc(instance: rawptr) {
 				object := (^Data_Object)(instance)
@@ -513,7 +513,7 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 		data_class.doc = "A value: [code]UnifiedSetup.new()[/code] starts as the game's default (Game.setup); set its fields and pass it to [method UnifiedSession.start_single], [method UnifiedSession.host_online] or [method UnifiedSession.host_direct]. [member UnifiedSession.setup] reads the running session's. No members when the game has none."
 	case .Profile:
 		data_class.doc_brief = "The game's player Profile (sim.Game's Profile): [code]Unified.profile[/code]."
-		data_class.doc = "What the local player chose before joining (a character, a colour): set its fields before starting or joining a session. No members when the game has none."
+		data_class.doc = "What a local player chose before joining (a character, a colour). [code]Unified.profile[/code] is the first player's: set its fields before starting or joining a session. A couch guest's is a value: [code]UnifiedProfile.new()[/code] (zeroed), its fields set, passed to [method UnifiedSession.add_local_player] (freed when no script holds it). No members when the game has none."
 	}
 	gd.register_class(&data_class.class)
 	if layout.type != nil {
@@ -536,6 +536,9 @@ register_data_class :: proc(layout: Data_Layout, role: Data_Role) -> ^Data_Class
 	if role != .Nested && role != .Setup && role != .View {
 		data_class.object = {gd.construct_object(layout.class)}
 		data_class.instance = (^Data_Object)(gd.instance_of(data_class.object, &data_class.class))
+		// A RefCounted live instance (Unified.profile) holds a reference of its own, so a script's last Variant of it
+		// dropping never frees it; data_objects_free frees it.
+		if role == .Profile do gd.RefCounted_init_ref({data_class.object})
 	}
 	return data_class
 }
