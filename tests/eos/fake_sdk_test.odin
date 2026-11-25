@@ -582,6 +582,7 @@ session_state_machine :: proc(t: ^testing.T) {
 	testing.expect_value(t, service.code_alphabet, eos.CODE_ALPHABET)
 	testing.expect_value(t, service.code_length, eos.CODE_LEN)
 	testing.expect_value(t, service.code_clean("ab-cd ef"), "ABCDEF")
+	testing.expect_value(t, service.code_clean("k7m2qx\r\n"), "K7M2QX") // a paste's line break
 	testing.expect_value(t, service.code_clean("O00000"), "") // look-alikes the alphabet leaves out
 	testing.expect_value(t, service.code_clean("ABCDE"), "") // too short
 	// Two sessions, each on a thread that exits before the next starts.

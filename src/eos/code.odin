@@ -34,7 +34,7 @@ code_new :: proc(random: proc(buf: []u8) = crypto.rand_bytes) -> (code: Code) {
 	return
 }
 
-// Parses what a player typed: case-insensitive, spaces and dashes ignored, and the look-alikes the
+// Parses what a player typed or pasted: case-insensitive, spaces, dashes and line breaks ignored, and the look-alikes the
 // alphabet leaves out are read as what they resemble only when that is unambiguous (O -> 0 is not,
 // as 0 isn't in the alphabet either), so they are rejected.
 code_parse :: proc(text: string) -> (code: Code, ok: bool) {
@@ -42,7 +42,8 @@ code_parse :: proc(text: string) -> (code: Code, ok: bool) {
 	for i in 0 ..< len(text) {
 		char := text[i]
 		switch char {
-		case ' ', '-', '\t':
+		case ' ', '-', '\t', '\r', '\n':
+			// a paste often ends with a line break
 			continue
 		case 'a' ..= 'z':
 			char -= 'a' - 'A'
