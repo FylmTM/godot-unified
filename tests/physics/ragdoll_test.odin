@@ -62,10 +62,10 @@ ragdoll_is_the_samples_human_facing_plus_z :: proc(t: ^testing.T) {
 		joint_type, has_joint := physics.ragdoll_joint_type(bone)
 		if !has_joint {
 			testing.expect_value(t, bone, physics.Ragdoll_Bone.Pelvis)
-			testing.expect_value(t, ragdoll.joints[bone], physics.Joint_Ref{})
+			testing.expect_value(t, physics.ragdoll_joint(&ragdoll, bone), physics.Joint_Ref{})
 			continue
 		}
-		testing.expect_value(t, physics.joint_type(world, ragdoll.joints[bone]), joint_type)
+		testing.expect_value(t, physics.joint_type(world, physics.ragdoll_joint(&ragdoll, bone)), joint_type)
 		if joint_type == .Revolute do revolute += 1
 	}
 	testing.expect_value(t, revolute, 4) // knees and elbows
@@ -95,8 +95,8 @@ ragdoll_is_the_samples_human_facing_plus_z :: proc(t: ^testing.T) {
 	testing.expectf(t, mass > 140 && mass < 150, "the sample's human at water's density: %v kg", mass)
 
 	// the table's limits and frictions, and springs holding the pose it was made in
-	for knee in ([2]physics.Ragdoll_Bone{.Left_Calf, .Right_Calf}) {
-		joint := physics.Revolute_Joint_Ref{ragdoll.joints[knee]}
+	for knee in ([2]physics.Ragdoll_Hinge{.Left_Calf, .Right_Calf}) {
+		joint := ragdoll.hinges[knee]
 		testing.expect(t, near_f32(physics.revolute_joint_lower_limit(world, joint), -KNEE_LIMIT))
 		testing.expect(t, near_f32(physics.revolute_joint_upper_limit(world, joint), KNEE_LIMIT))
 		testing.expect(t, near_f32(physics.revolute_joint_max_motor_torque(world, joint), 5))
@@ -105,26 +105,24 @@ ragdoll_is_the_samples_human_facing_plus_z :: proc(t: ^testing.T) {
 			near_f32(physics.revolute_joint_target_angle(world, joint), physics.revolute_joint_angle(world, joint)),
 		)
 	}
-	for elbow in ([2]physics.Ragdoll_Bone{.Left_Forearm, .Right_Forearm}) {
-		joint := physics.Revolute_Joint_Ref{ragdoll.joints[elbow]}
+	for elbow in ([2]physics.Ragdoll_Hinge{.Left_Forearm, .Right_Forearm}) {
+		joint := ragdoll.hinges[elbow]
 		testing.expect(t, near_f32(physics.revolute_joint_upper_limit(world, joint), ELBOW_LIMIT))
 		testing.expect(t, near_f32(physics.revolute_joint_max_motor_torque(world, joint), 0.06 * 5))
 	}
-	for shoulder in ([2]physics.Ragdoll_Bone{.Left_Upper_Arm, .Right_Upper_Arm}) {
-		joint := physics.Spherical_Joint_Ref{ragdoll.joints[shoulder]}
+	for shoulder in ([2]physics.Ragdoll_Socket{.Left_Upper_Arm, .Right_Upper_Arm}) {
+		joint := ragdoll.sockets[shoulder]
 		testing.expect(t, near_f32(physics.spherical_joint_cone_limit(world, joint), SHOULDER_CONE))
 		testing.expect(t, near_f32(physics.spherical_joint_max_motor_torque(world, joint), 0.8 * 5))
 	}
-	for bone in physics.Ragdoll_Bone {
-		if joint_type, _ := physics.ragdoll_joint_type(bone); joint_type != .Spherical do continue
-		joint := physics.Spherical_Joint_Ref{ragdoll.joints[bone]}
+	for joint, socket in ragdoll.sockets {
 		testing.expect(t, physics.spherical_joint_is_spring_enabled(world, joint))
 		target := physics.spherical_joint_target_rotation(world, joint)
 		testing.expectf(
 			t,
 			same_rotation(target, relative_rotation(world, joint)),
 			"%v's spring targets its made pose",
-			bone,
+			socket,
 		)
 	}
 
@@ -154,45 +152,35 @@ ragdoll_springs_hold_the_made_pose :: proc(t: ^testing.T) {
 	def := physics.RAGDOLL_DEFAULT
 	def.hertz, def.damping_ratio, def.friction_torque = 4, 1, 0
 	physics.ragdoll_create(world, &ragdoll, def, {0, 0, 0})
-	targets: [physics.Ragdoll_Bone][4]f32
-	angles: [physics.Ragdoll_Bone]f32
-	for bone in physics.Ragdoll_Bone {
-		joint_type, has_joint := physics.ragdoll_joint_type(bone)
-		if !has_joint do continue
-		if joint_type == .Revolute {
-			angles[bone] = physics.revolute_joint_angle(world, {ragdoll.joints[bone]}) // as made
-		} else {
-			targets[bone] = relative_rotation(world, ragdoll.joints[bone])
-		}
-	}
+	targets: [physics.Ragdoll_Socket][4]f32
+	angles: [physics.Ragdoll_Hinge]f32
+	for joint, hinge in ragdoll.hinges do angles[hinge] = physics.revolute_joint_angle(world, joint) // as made
+	for joint, socket in ragdoll.sockets do targets[socket] = relative_rotation(world, joint)
 	physics.body_apply_angular_impulse(world, ragdoll.bones[.Left_Forearm], {1.5, 1.5, 1.5})
 	physics.body_apply_angular_impulse(world, ragdoll.bones[.Right_Calf], {0, 0.5, 0.5})
 	physics.body_apply_angular_impulse(world, ragdoll.bones[.Head], {0.2, 0.2, 0})
 	steps(world, HZ / 4)
-	moved := abs(physics.revolute_joint_angle(world, {ragdoll.joints[.Left_Forearm]}) - angles[.Left_Forearm])
+	moved := abs(physics.revolute_joint_angle(world, ragdoll.hinges[.Left_Forearm]) - angles[.Left_Forearm])
 	testing.expectf(t, moved > 0.05, "the knock moved the elbow (%v rad)", moved)
 	steps(world, 4 * HZ)
-	for bone in physics.Ragdoll_Bone {
-		joint_type, has_joint := physics.ragdoll_joint_type(bone)
-		if !has_joint do continue
-		if joint_type == .Revolute {
-			angle := physics.revolute_joint_angle(world, {ragdoll.joints[bone]})
-			testing.expectf(
-				t,
-				near_f32(angle, angles[bone], 0.02),
-				"%v back at %v rad (made at %v)",
-				bone,
-				angle,
-				angles[bone],
-			)
-		} else {
-			testing.expectf(
-				t,
-				same_rotation(relative_rotation(world, ragdoll.joints[bone]), targets[bone], 1e-3),
-				"%v back in its pose",
-				bone,
-			)
-		}
+	for joint, hinge in ragdoll.hinges {
+		angle := physics.revolute_joint_angle(world, joint)
+		testing.expectf(
+			t,
+			near_f32(angle, angles[hinge], 0.02),
+			"%v back at %v rad (made at %v)",
+			hinge,
+			angle,
+			angles[hinge],
+		)
+	}
+	for joint, socket in ragdoll.sockets {
+		testing.expectf(
+			t,
+			same_rotation(relative_rotation(world, joint), targets[socket], 1e-3),
+			"%v back in its pose",
+			socket,
+		)
 	}
 }
 
@@ -217,10 +205,10 @@ ragdoll_falls_in_one_piece :: proc(t: ^testing.T) {
 	slack: f32 = 0.1
 	for _ in 0 ..< 4 * HZ {
 		physics.step(world)
-		for bone in ([4]physics.Ragdoll_Bone{.Left_Calf, .Right_Calf, .Left_Forearm, .Right_Forearm}) {
-			limit := bone == .Left_Calf || bone == .Right_Calf ? KNEE_LIMIT : ELBOW_LIMIT
-			angle := physics.revolute_joint_angle(world, {ragdoll.joints[bone]})
-			testing.expectf(t, abs(angle) <= limit + slack, "%v at %v rad", bone, angle)
+		for joint, hinge in ragdoll.hinges {
+			limit := hinge == .Left_Calf || hinge == .Right_Calf ? KNEE_LIMIT : ELBOW_LIMIT
+			angle := physics.revolute_joint_angle(world, joint)
+			testing.expectf(t, abs(angle) <= limit + slack, "%v at %v rad", hinge, angle)
 		}
 		for pair in filtered {
 			physics.body_contact_data(world, ragdoll.bones[pair[0]], &contacts)
@@ -253,17 +241,17 @@ ragdoll_setters :: proc(t: ^testing.T) {
 	ragdoll: physics.Ragdoll
 	physics.ragdoll_create(world, &ragdoll, physics.RAGDOLL_DEFAULT, {0, 3, 0})
 	physics.ragdoll_set_friction_torque(world, &ragdoll, 20)
-	testing.expect(t, near_f32(physics.spherical_joint_max_motor_torque(world, {ragdoll.joints[.Left_Upper_Arm]}), 16))
-	testing.expect(t, near_f32(physics.revolute_joint_max_motor_torque(world, {ragdoll.joints[.Left_Calf]}), 20))
+	testing.expect(t, near_f32(physics.spherical_joint_max_motor_torque(world, ragdoll.sockets[.Left_Upper_Arm]), 16))
+	testing.expect(t, near_f32(physics.revolute_joint_max_motor_torque(world, ragdoll.hinges[.Left_Calf]), 20))
 	physics.ragdoll_set_spring_hertz(world, &ragdoll, 0)
-	testing.expect(t, !physics.spherical_joint_is_spring_enabled(world, {ragdoll.joints[.Spine]}))
-	testing.expect(t, !physics.revolute_joint_is_spring_enabled(world, {ragdoll.joints[.Right_Forearm]}))
+	testing.expect(t, !physics.spherical_joint_is_spring_enabled(world, ragdoll.sockets[.Spine]))
+	testing.expect(t, !physics.revolute_joint_is_spring_enabled(world, ragdoll.hinges[.Right_Forearm]))
 	physics.ragdoll_set_spring_hertz(world, &ragdoll, 2)
-	testing.expect(t, physics.spherical_joint_is_spring_enabled(world, {ragdoll.joints[.Spine]}))
-	testing.expect(t, near_f32(physics.revolute_joint_spring_hertz(world, {ragdoll.joints[.Right_Forearm]}), 2))
+	testing.expect(t, physics.spherical_joint_is_spring_enabled(world, ragdoll.sockets[.Spine]))
+	testing.expect(t, near_f32(physics.revolute_joint_spring_hertz(world, ragdoll.hinges[.Right_Forearm]), 2))
 	physics.ragdoll_set_spring_damping_ratio(world, &ragdoll, 1.5)
-	testing.expect(t, near_f32(physics.spherical_joint_spring_damping_ratio(world, {ragdoll.joints[.Head]}), 1.5))
-	testing.expect(t, near_f32(physics.revolute_joint_spring_damping_ratio(world, {ragdoll.joints[.Left_Calf]}), 1.5))
+	testing.expect(t, near_f32(physics.spherical_joint_spring_damping_ratio(world, ragdoll.sockets[.Head]), 1.5))
+	testing.expect(t, near_f32(physics.revolute_joint_spring_damping_ratio(world, ragdoll.hinges[.Left_Calf]), 1.5))
 	physics.ragdoll_set_bullet(world, &ragdoll, true)
 	for body in ragdoll.bones do testing.expect(t, physics.body_is_bullet(world, body))
 
@@ -306,7 +294,7 @@ ragdoll_posed_and_scaled :: proc(t: ^testing.T) {
 	defer physics.destroy(world)
 	rest: physics.Ragdoll
 	physics.ragdoll_create(world, &rest, physics.RAGDOLL_DEFAULT, {0, 0, 0})
-	elbow := physics.Revolute_Joint_Ref{rest.joints[.Left_Forearm]}
+	elbow := rest.hinges[.Left_Forearm]
 	upper_arm := rest.bones[.Left_Upper_Arm]
 	frame := physics.joint_local_frame_a(world, elbow)
 	anchor := physics.body_world_point(world, upper_arm, frame.p)
@@ -323,7 +311,7 @@ ragdoll_posed_and_scaled :: proc(t: ^testing.T) {
 	for bone in physics.Ragdoll_Bone {
 		testing.expect(t, near(physics.body_position(world, posed.bones[bone]), pose[bone].p))
 	}
-	posed_angle := physics.revolute_joint_target_angle(world, {posed.joints[.Left_Forearm]})
+	posed_angle := physics.revolute_joint_target_angle(world, posed.hinges[.Left_Forearm])
 	testing.expectf(
 		t,
 		near_f32(abs(posed_angle - rest_angle), 20 * DEG, 1e-3),
