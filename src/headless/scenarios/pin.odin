@@ -148,16 +148,21 @@ bless_pin :: proc(t: ^testing.T, what, old, new: string, loc := #caller_location
 	return true
 }
 
-// One field of a literal not pinned yet, by name and value (pin_first).
+// One field of a literal not pinned yet, by name and value (pin_first): a number, or a string's value unquoted
+// (`{"setup", "arena=crowd"}`).
 Pin_Field :: struct {
 	name:  string,
-	value: u64,
+	value: union #no_nil {
+		u64,
+		string,
+	},
 }
 
 // Pins a value for the first time: replaces, whole, the literal of type `type_name` in `source` that sets `fields` and
 // nothing else (a reference with only its parameters: `REFERENCE :: scenarios.Reference{seed = 7, ...}`) with `new`
-// from its type's name on, as the token rewrite (pin_rewrite) can't add the fields it lacks. The literal is flat (`name = number`,
-// comma-separated, in any order; numbers by value); a field of `fields` that is 0 may be left out. `found`: the source
+// from its type's name on, as the token rewrite (pin_rewrite) can't add the fields it lacks. The literal is flat (`name =
+// number` or `name = "string"`, comma-separated, in any order; numbers by value, strings unquoted); a field of `fields`
+// that is 0 or "" may be left out. `found`: the source
 // holds one such literal (`rewritten` has `new` in its place); `problem` (nothing rewritten): it holds more than one.
 // Temp-allocated.
 pin_first :: proc(
@@ -211,14 +216,20 @@ flat_literal_sets :: proc(source: string, tokens: []Token, fields: []Pin_Field) 
 		if k + 2 >= len(tokens) || tokens[k].kind != .Ident || source[tokens[k + 1].start:tokens[k + 1].end] != "=" {
 			return
 		}
-		if tokens[k + 2].kind != .Number do return
 		name := source[tokens[k].start:tokens[k].end]
-		value, value_ok := strconv.parse_u64(source[tokens[k + 2].start:tokens[k + 2].end])
-		if !value_ok do return
+		value_token := source[tokens[k + 2].start:tokens[k + 2].end]
 		known := false
 		for field, i in fields {
 			if field.name != name do continue
-			if field.value != value || set[i] do return
+			if set[i] do return
+			switch want in field.value {
+			case u64:
+				value, value_ok := strconv.parse_u64(value_token)
+				if tokens[k + 2].kind != .Number || !value_ok || value != want do return
+			case string:
+				unquoted, _, unquoted_ok := strconv.unquote_string(value_token, context.temp_allocator)
+				if tokens[k + 2].kind != .String || !unquoted_ok || unquoted != want do return
+			}
 			set[i], known = true, true
 		}
 		if !known do return
@@ -226,7 +237,7 @@ flat_literal_sets :: proc(source: string, tokens: []Token, fields: []Pin_Field) 
 		if k < len(tokens) && source[tokens[k].start:tokens[k].end] == "," do k += 1
 	}
 	if k >= len(tokens) do return
-	for field, i in fields do if !set[i] && field.value != 0 do return
+	for field, i in fields do if !set[i] && field.value != u64(0) && field.value != "" do return
 	return k, true
 }
 

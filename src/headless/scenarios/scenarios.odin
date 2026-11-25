@@ -35,6 +35,9 @@ Suite :: struct($G: typeid) {
 	// again with an older state (headless.Run.script_check; its sessions then play another player than its offline
 	// runs, and a Godot session's checksums are not the offline binary's).
 	script_reads_state: bool,
+	// The Setup every run plays (nil: the game's, Game.setup): offline, sync-tested and interleaved runs and sessions
+	// alike. A game proves a Setup that plays differently (a crowd, a mode) with a second suite on it.
+	setup:              Maybe(sim.part(G, sim.GAME_SETUP)),
 }
 
 // Whether the game passes sim.game_violation (an event field named `kind`, a Setup that doesn't read as sent...): one
@@ -46,14 +49,18 @@ game_ok :: proc(t: ^testing.T, game: ^$G) -> bool {
 }
 
 // A run every platform must reproduce, pinned by hashes: the game's scripted run of `ticks` ticks with `players`
-// players and `seed` (run_sim). A game's tests keep it as a constant (`REFERENCE :: scenarios.Reference{...}`);
-// reference_reproduces prints the literal when a run moves it, and re-pins it under BLESS (the unified-sim-change
-// skill).
+// players and `seed` (run_sim), on `setup`. A game's tests keep it as a constant (`REFERENCE ::
+// scenarios.Reference{...}`, and one more per Setup it pins: `CROWD_REFERENCE`); reference_reproduces prints the
+// literal when a run moves it, and re-pins it under BLESS (the unified-sim-change skill).
 Reference :: struct {
 	seed:          u64,
 	players:       int,
 	ticks:         u32,
 	snapshot_tick: u32, // the portable snapshot taken there resumes to `ticks`
+	// The Setup it plays, as --setup's text over Game.setup (sim.struct_from_text: "arena=crowd"; "": Game.setup), so
+	// `uni headless <game> -- sim --setup TEXT` plays the same run. A parameter like the seed: changing it moves the
+	// results on the same build, so a new one is a reference pinned afresh (its parameters alone, then --bless).
+	setup:         string,
 	checkpoints:   [4]u64, // the checksum at ticks / 4, ticks / 2, 3 * ticks / 4 and ticks
 	trace:         u64, // the hash of every tick's checksum
 	snapshot:      u64, // the hash of the snapshot's bytes
@@ -83,6 +90,7 @@ rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 		window,
 		suite.seed,
 		suite.players,
+		suite_setup(suite),
 		script_check = !suite.script_reads_state,
 	)
 	testing.expectf(
@@ -219,6 +227,7 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 		window,
 		suite.seed,
 		suite.players,
+		suite_setup(suite),
 		seats,
 		script_check = !suite.script_reads_state,
 	)
@@ -239,7 +248,7 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 // second created halfway through the first, then stepped alongside it and on after it (headless.run_interleaved).
 runs_match :: proc(t: ^testing.T, suite: ^Suite($G)) {
 	if !game_ok(t, suite.game) do return
-	result := headless.run_interleaved(suite.game, suite.ticks, suite.seed, suite.players)
+	result := headless.run_interleaved(suite.game, suite.ticks, suite.seed, suite.players, suite_setup(suite))
 	testing.expectf(
 		t,
 		result.mismatches == 0,
@@ -315,11 +324,12 @@ late_join_agrees :: proc(t: ^testing.T, suite: ^Suite($G), profile: netcode.Netw
 // on (`compat`). What a mismatch does is reference_verdict's: it prints the new literal, or under BLESS re-pins it in
 // the caller's package (bless_pin), unless the results moved while the build's identity didn't: refused, naming what
 // moved, as a change that moves results bumps Game.version or sim.LIBRARY_VERSION (the unified-sim-change skill). To find the
-// first tick that differs between two builds, run `uni headless <game> -- sim --trace FILE` on both and compare the
-// files. A reference with only its four parameters set (seed, players, ticks, snapshot_tick: a new game's, the
-// template's) is not pinned yet: the run warns with the literal instead of failing, and its replay and resume checks
-// still hold; a bless that asks for first pins (bless_first: `uni test <game> --bless`) replaces it whole with the
-// literal (bless_first_pin), any other bless leaves it.
+// first tick that differs between two builds, run `uni headless <game> -- sim --trace FILE` (with its `--setup`, if
+// it has one) on both and compare the files. A Setup text that doesn't read (sim.struct_from_text, sim.setup_violation)
+// fails it, saying why. A reference with only its parameters set (seed, players, ticks, snapshot_tick and its setup: a
+// new game's, the template's, a new Setup's) is not pinned yet: the run warns with the literal instead of failing, and
+// its replay and resume checks still hold; a bless that asks for first pins (bless_first: `uni test <game> --bless`)
+// replaces it whole with the literal (bless_first_pin), any other bless leaves it.
 reference_reproduces :: proc(t: ^testing.T, game: ^$G, reference: Reference, loc := #caller_location) {
 	if !game_ok(t, game) do return
 	what := fmt.tprintf("reference_reproduces (%s)", ref_params(reference))
@@ -331,11 +341,20 @@ reference_reproduces :: proc(t: ^testing.T, game: ^$G, reference: Reference, loc
 	) {
 		return
 	}
+	setup := game.setup
+	if reference.setup != "" {
+		problem: string
+		setup, problem = sim.struct_from_text(game.setup, reference.setup)
+		if problem == "" do problem = sim.setup_violation(game, &setup)
+		if !testing.expectf(t, problem == "", "%s: its setup %q: %s", what, reference.setup, problem, loc = loc) {
+			return
+		}
+	}
 	trace: headless.Trace
 	defer headless.trace_destroy(&trace)
 	input_log: sim.Input_Log(G)
 	defer sim.log_destroy(&input_log)
-	headless.run_sim(game, reference.ticks, reference.seed, reference.players, &trace, &input_log)
+	headless.run_sim(game, reference.ticks, reference.seed, reference.players, setup, &trace, &input_log)
 	got := reference
 	for &checkpoint, k in got.checkpoints {
 		checkpoint, _ = headless.trace_at(&trace, u32(k + 1) * reference.ticks / 4)
@@ -344,7 +363,7 @@ reference_reproduces :: proc(t: ^testing.T, game: ^$G, reference: Reference, loc
 	log_bytes := sim.log_encode(&input_log)
 	defer delete(log_bytes)
 	got.log = sim.hash_bytes(log_bytes)
-	snapshot, _ := headless.run_snapshot(game, reference.snapshot_tick, reference.seed, reference.players)
+	snapshot, _ := headless.run_snapshot(game, reference.snapshot_tick, reference.seed, reference.players, setup)
 	defer delete(snapshot)
 	got.snapshot = sim.hash_bytes(snapshot)
 	got.compat = sim.compat_of(game)
@@ -359,6 +378,7 @@ reference_reproduces :: proc(t: ^testing.T, game: ^$G, reference: Reference, loc
 				{"players", u64(reference.players)},
 				{"ticks", u64(reference.ticks)},
 				{"snapshot_tick", u64(reference.snapshot_tick)},
+				{"setup", reference.setup},
 			}
 			bless_first_pin(t, what, "Reference", parameters, literal, loc)
 			break
@@ -490,15 +510,18 @@ reference_moved :: proc(want, got: Reference, before, after: string) -> string {
 	return fmt.tprintf("%s%s%s", before, strings.to_string(text), after)
 }
 
-// The Reference as its declaration reads after odinfmt: what a test pins, printed to paste and re-pinned as is.
+// The Reference as its declaration reads after odinfmt: what a test pins, printed to paste and re-pinned as is. Its
+// `setup` line only when it has one, so a reference on the game's Setup reads as it did before the field.
 @(private)
 reference_literal :: proc(reference: Reference) -> string {
+	setup := reference.setup == "" ? "" : fmt.tprintf("\tsetup         = %q,\n", reference.setup)
 	return fmt.tprintf(
 		"REFERENCE :: scenarios.Reference {{\n" +
 		"\tseed          = %d,\n" +
 		"\tplayers       = %d,\n" +
 		"\tticks         = %d,\n" +
 		"\tsnapshot_tick = %d,\n" +
+		"%s" +
 		"\tcheckpoints   = {{0x%016x, 0x%016x, 0x%016x, 0x%016x}},\n" +
 		"\ttrace         = 0x%016x,\n" +
 		"\tsnapshot      = 0x%016x,\n" +
@@ -509,6 +532,7 @@ reference_literal :: proc(reference: Reference) -> string {
 		reference.players,
 		reference.ticks,
 		reference.snapshot_tick,
+		setup,
 		reference.checkpoints[0],
 		reference.checkpoints[1],
 		reference.checkpoints[2],
@@ -539,19 +563,28 @@ expect_trace :: proc(t: ^testing.T, what, which: string, got, want: ^headless.Tr
 
 // --- helpers ---------------------------------------------------------------------------------------
 
+// The Setup the suite's runs play: its own, else the game's.
+@(private)
+suite_setup :: proc(suite: ^Suite($G)) -> sim.part(G, sim.GAME_SETUP) {
+	return suite.setup.? or_else suite.game.setup
+}
+
 @(private)
 params :: proc(suite: ^Suite($G)) -> string {
-	return fmt.tprintf("%d players, seed %d, %d ticks", suite.players, suite.seed, suite.ticks)
+	text := fmt.tprintf("%d players, seed %d, %d ticks", suite.players, suite.seed, suite.ticks)
+	if setup, has_setup := suite.setup.?; has_setup do text = fmt.tprintf("%s, setup %v", text, setup)
+	return text
 }
 
 @(private)
 ref_params :: proc(reference: Reference) -> string {
 	return fmt.tprintf(
-		"%d players, seed %d, %d ticks, snapshot at %d",
+		"%d players, seed %d, %d ticks, snapshot at %d%s",
 		reference.players,
 		reference.seed,
 		reference.ticks,
 		reference.snapshot_tick,
+		reference.setup == "" ? "" : fmt.tprintf(", setup %s", reference.setup),
 	)
 }
 
@@ -578,14 +611,14 @@ session :: proc(
 	churn := false,
 ) -> headless.Session_Result(G) {
 	return headless.session_run(suite.game, {
-		clients   = clients,
-		profile   = netcode.PROFILES[profile],
-		ticks     = suite.ticks,
-		seed      = suite.seed,
-		late_slot = late_slot,
-		late_tick = late_tick,
-		churn     = churn,
-	})
+			clients   = clients,
+			profile   = netcode.PROFILES[profile],
+			ticks     = suite.ticks,
+			seed      = suite.seed,
+			late_slot = late_slot,
+			late_tick = late_tick,
+			churn     = churn,
+		}, suite_setup(suite))
 }
 
 // A session's results agree: no desyncs; every client verified every tick; the starting clients'

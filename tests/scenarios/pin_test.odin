@@ -274,6 +274,38 @@ a_first_pin_replaces_the_placeholder_whole :: proc(t: ^testing.T) {
 	twice := fmt.tprintf("%s\n%s\n", placeholder, placeholder)
 	_, _, twice_problem := scenarios.pin_first(twice, "Reference", parameters, REFERENCE_NEW)
 	testing.expect(t, strings.contains(twice_problem, "more than one"), twice_problem)
+	// a string field (a reference's setup) by its unquoted value; "" may be left out
+	on_setup := []scenarios.Pin_Field {
+		{"seed", 7},
+		{"players", 4},
+		{"ticks", 1200},
+		{"snapshot_tick", 600},
+		{"setup", "a=1"},
+	}
+	no_setup := []scenarios.Pin_Field {
+		{"seed", 7},
+		{"players", 4},
+		{"ticks", 1200},
+		{"snapshot_tick", 600},
+		{"setup", ""},
+	}
+	both := "A :: Reference{seed = 7, players = 4, ticks = 1200, snapshot_tick = 600}\nB :: Reference{seed = 7, players = 4, ticks = 1200, snapshot_tick = 600, setup = \"a=1\"}\n"
+	on_rewritten, on_found, on_problem := scenarios.pin_first(both, "Reference", on_setup, REFERENCE_NEW)
+	testing.expect(t, on_found && on_problem == "", on_problem)
+	testing.expect(t, strings.has_prefix(on_rewritten, "A :: Reference{seed = 7,"), "the reference without it stays")
+	testing.expect(t, strings.contains(on_rewritten, "B :: Reference {\n\tseed          = 7,"), on_rewritten)
+	off_rewritten, off_found, _ := scenarios.pin_first(both, "Reference", no_setup, REFERENCE_NEW)
+	testing.expect(t, off_found && strings.has_prefix(off_rewritten, "A :: Reference {\n"), off_rewritten)
+	testing.expect(t, strings.contains(off_rewritten, "B :: Reference{seed = 7,"), "the reference on a Setup stays")
+	other_setup := []scenarios.Pin_Field {
+		{"seed", 7},
+		{"players", 4},
+		{"ticks", 1200},
+		{"snapshot_tick", 600},
+		{"setup", "a=2"},
+	}
+	_, other_setup_found, _ := scenarios.pin_first(both, "Reference", other_setup, REFERENCE_NEW)
+	testing.expect(t, !other_setup_found, "another setup is another reference")
 }
 
 // repin_first writes the one file of a directory that holds the placeholder; a second check of the same pin finds it

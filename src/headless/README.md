@@ -59,7 +59,8 @@ it checks), then the game's own scenarios, its reference run's constant
 (`REFERENCE`), the determinism lint (`lint.check_game`) and its extension's install check (`godot.install_problems`:
 what Godot would refuse at load, caught by `uni test`). A new game copies minimal_3d's
 (`examples/minimal_3d/simulation/tests/`, what `uni init` copies). The toy's suite (`tests/scenarios/`) proves the
-library: it runs every scenario.
+library: it runs every scenario. A Setup that plays differently enough to break on its own (a crowd, a mode) gets a
+suite of its own on it (`scenarios.Suite.setup`) and a reference run of its own (`scenarios.Reference.setup`).
 
 **Two tiers.** The default run covers the toy's suite whole and each game's minimal set (a few standard scenarios, its
 reference run and its replay regressions; the game's suite says which) on short runs, each scenario its own test so the

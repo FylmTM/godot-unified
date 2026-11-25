@@ -196,19 +196,39 @@ scripted_given :: proc(
 	return
 }
 
-// `sim`: scripted run for `ticks` ticks; records every tick's checksum into `trace` and its inputs into `input_log`
-// (each optional).
-run_sim :: proc(
+// `sim`: scripted run for `ticks` ticks, on the game's default Setup or `setup`; records every tick's checksum into
+// `trace` and its inputs into `input_log` (each optional).
+run_sim :: proc {
+	run_sim_default,
+	run_sim_with_setup,
+}
+
+// run_sim with the game's default Setup (Game.setup).
+run_sim_default :: proc(
 	game: ^$G,
 	ticks: u32,
 	seed: u64,
 	players: int,
 	trace: ^Trace = nil,
 	input_log: ^sim.Input_Log(G) = nil,
+) -> Run_Result {
+	return run_sim_with_setup(game, ticks, seed, players, game.setup, trace, input_log)
+}
+
+// run_sim with this Setup.
+run_sim_with_setup :: proc(
+	game: ^$G,
+	ticks: u32,
+	seed: u64,
+	players: int,
+	setup: $S,
+	trace: ^Trace = nil,
+	input_log: ^sim.Input_Log(G) = nil,
 ) -> (
 	result: Run_Result,
-) {
-	simulation := sim.create(game, seed)
+) where S ==
+	sim.part(G, sim.GAME_SETUP) {
+	simulation := sim.create(game, seed, setup)
 	defer sim.destroy(simulation)
 	commands: Scripted_Commands(G)
 	defer scripted_commands_destroy(&commands)
@@ -251,9 +271,30 @@ Interleaved_Result :: struct {
 // run; at its halfway tick a second sim is created (the first is warm) and replays the first's inputs one
 // tick per tick of the first, half a run behind; the first is destroyed and the second runs the rest
 // alone. Every tick of the second is compared with the first's. Catches state that instances share (a
-// global, a library's static, reset or shared at world creation), which two back-to-back runs miss.
-run_interleaved :: proc(game: ^$G, ticks: u32, seed: u64, players: int) -> (result: Interleaved_Result) {
-	first := sim.create(game, seed)
+// global, a library's static, reset or shared at world creation), which two back-to-back runs miss. Both sims play the
+// game's default Setup or `setup`.
+run_interleaved :: proc {
+	run_interleaved_default,
+	run_interleaved_with_setup,
+}
+
+// run_interleaved with the game's default Setup (Game.setup).
+run_interleaved_default :: proc(game: ^$G, ticks: u32, seed: u64, players: int) -> Interleaved_Result {
+	return run_interleaved_with_setup(game, ticks, seed, players, game.setup)
+}
+
+// run_interleaved with this Setup.
+run_interleaved_with_setup :: proc(
+	game: ^$G,
+	ticks: u32,
+	seed: u64,
+	players: int,
+	setup: $S,
+) -> (
+	result: Interleaved_Result,
+) where S ==
+	sim.part(G, sim.GAME_SETUP) {
+	first := sim.create(game, seed, setup)
 	commands: Scripted_Commands(G)
 	defer scripted_commands_destroy(&commands)
 	input_log: sim.Input_Log(G)
@@ -268,7 +309,7 @@ run_interleaved :: proc(game: ^$G, ticks: u32, seed: u64, players: int) -> (resu
 		sim.step(first, &inputs)
 		forward[tick] = sim.checksum(first)
 		if tick == result.second_start {
-			second = sim.create(game, seed)
+			second = sim.create(game, seed, setup)
 		}
 		if second != nil {
 			interleaved_step(second, &input_log, forward, &result)
@@ -652,8 +693,15 @@ run_events :: proc(
 }
 
 // `synctest`: run_scripted for `ticks` ticks, rolling back `window` ticks every tick (at most max_window(game), the
-// ring's depth). `seats`: who comes and goes (Seat; none: slots < players all along). `script_check`: Run.script_check.
-run_synctest :: proc(
+// ring's depth), on the game's default Setup or `setup`. `seats`: who comes and goes (Seat; none: slots < players all
+// along). `script_check`: Run.script_check.
+run_synctest :: proc {
+	run_synctest_default,
+	run_synctest_with_setup,
+}
+
+// run_synctest with the game's default Setup (Game.setup).
+run_synctest_default :: proc(
 	game: ^$G,
 	ticks, window: u32,
 	seed: u64,
@@ -661,7 +709,21 @@ run_synctest :: proc(
 	seats: []Seat = nil,
 	script_check := false,
 ) -> Synctest_Result {
-	run := run_begin(game, seed, window = window)
+	return run_synctest_with_setup(game, ticks, window, seed, players, game.setup, seats, script_check)
+}
+
+// run_synctest with this Setup.
+run_synctest_with_setup :: proc(
+	game: ^$G,
+	ticks, window: u32,
+	seed: u64,
+	players: int,
+	setup: $S,
+	seats: []Seat = nil,
+	script_check := false,
+) -> Synctest_Result where S ==
+	sim.part(G, sim.GAME_SETUP) {
+	run := run_begin_with_setup(game, seed, setup, window = window)
 	run.script_check = script_check
 	defer run_end(&run)
 	for _ in 1 ..= ticks do run_scripted(&run, players, seats)
@@ -756,9 +818,31 @@ run_replay :: proc(
 	return result, result.diverged_tick == 0
 }
 
-// `snapshot`: scripted run to `ticks`, then a portable snapshot of that tick (the caller owns `data`).
-run_snapshot :: proc(game: ^$G, ticks: u32, seed: u64, players: int) -> (data: []u8, checksum: u64) {
-	simulation := sim.create(game, seed)
+// `snapshot`: scripted run to `ticks`, on the game's default Setup or `setup`, then a portable snapshot of that tick
+// (the caller owns `data`). The snapshot carries the Setup, so run_resume continues on it.
+run_snapshot :: proc {
+	run_snapshot_default,
+	run_snapshot_with_setup,
+}
+
+// run_snapshot with the game's default Setup (Game.setup).
+run_snapshot_default :: proc(game: ^$G, ticks: u32, seed: u64, players: int) -> (data: []u8, checksum: u64) {
+	return run_snapshot_with_setup(game, ticks, seed, players, game.setup)
+}
+
+// run_snapshot with this Setup.
+run_snapshot_with_setup :: proc(
+	game: ^$G,
+	ticks: u32,
+	seed: u64,
+	players: int,
+	setup: $S,
+) -> (
+	data: []u8,
+	checksum: u64,
+) where S ==
+	sim.part(G, sim.GAME_SETUP) {
+	simulation := sim.create(game, seed, setup)
 	defer sim.destroy(simulation)
 	commands: Scripted_Commands(G)
 	defer scripted_commands_destroy(&commands)

@@ -157,8 +157,27 @@ session_timeout_s :: proc(ticks: u32, tick_hz: int) -> f64 {
 }
 
 // Runs a whole session in this process on a virtual clock: a relay and `cfg.clients` scripted clients over loopback,
-// each behind the netsim profile. The `session` mode and the end-to-end scenarios use it.
-session_run :: proc(game: ^$G, cfg: Session_Config) -> (result: Session_Result(G)) {
+// each behind the netsim profile, on the game's default Setup or `setup` (the relay's, netcode.Relay_Config.setup:
+// every client and a late joiner get it from the relay). The `session` mode and the end-to-end scenarios use it.
+session_run :: proc {
+	session_run_default,
+	session_run_with_setup,
+}
+
+// session_run with the game's default Setup (Game.setup).
+session_run_default :: proc(game: ^$G, cfg: Session_Config) -> Session_Result(G) {
+	return session_run_with_setup(game, cfg, game.setup)
+}
+
+// session_run with this Setup.
+session_run_with_setup :: proc(
+	game: ^$G,
+	cfg: Session_Config,
+	setup: $S,
+) -> (
+	result: Session_Result(G),
+) where S ==
+	sim.part(G, sim.GAME_SETUP) {
 	PLAYERS :: sim.part(G, sim.GAME_PLAYERS)
 	assert(cfg.clients >= 1 && cfg.clients <= PLAYERS)
 	assert(cfg.late_tick == 0 || (cfg.late_slot >= 1 && cfg.late_slot < cfg.clients && cfg.late_tick >= 2))
@@ -169,6 +188,7 @@ session_run :: proc(game: ^$G, cfg: Session_Config) -> (result: Session_Result(G
 	defer delete(recording)
 	relay := netcode.relay_create(game, {
 		seed          = cfg.seed,
+		setup         = setup,
 		ticks         = cfg.ticks,
 		start_players = cfg.clients - (cfg.late_tick != 0 ? 1 : 0),
 		recording     = sim.log_sink_memory(&recording),
