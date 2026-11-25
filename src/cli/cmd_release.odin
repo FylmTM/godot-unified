@@ -1,3 +1,5 @@
+// `uni release`: playable game builds of this host's platform, every game's or one's (README.md, Releases). The
+// `unified-release` skill is the pipeline's home for a game: the steps, the version, the rules a game's export follows.
 package cli
 
 import "core:encoding/endian"
@@ -5,10 +7,6 @@ import "core:encoding/json"
 import "core:os"
 import "core:strings"
 import "core:time"
-
-
-// `uni release`: playable game builds of this host's platform, every game's or one's (README.md, Releases). The
-// `unified-release` skill is the pipeline's home for a game: the steps, the version, the rules a game's export follows.
 
 // What a release build of this host's platform is: the export preset it exports, the export templates Godot needs
 // for it, the preset's numeric version keys, the .gdextension library keys it ships and the zip's platform name.
