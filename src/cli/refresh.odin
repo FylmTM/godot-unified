@@ -245,7 +245,7 @@ game_files :: proc(root: string) -> []string {
 // `path` relative to `root`, with / separators.
 @(private = "file")
 rel_to :: proc(root, path: string) -> string {
-	relative, _ := strings.replace_all(strings.trim_left(path[len(root):], "/\\"), "\\", "/")
+	relative := slashed(strings.trim_left(path[len(root):], "/\\"))
 	return relative
 }
 

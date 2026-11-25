@@ -466,7 +466,7 @@ Run_Opts :: struct {
 	mute:       bool `usage:"no sound (Godot's dummy audio driver)"`,
 	screen:     string `hint:"n|left|right|primary" usage:"the screen the window opens on: Godot's index, left, right or primary"`,
 	background: bool `usage:"the window never takes focus (a window an agent opens; macOS: uni hands it straight back when Godot takes it)"`,
-	overflow:   [dynamic]string `hint:"[-- args]" usage:"after --: the game's own arguments"`,
+	overflow:   [dynamic]string `hint:"[-- args]" after:"--" usage:"after --: the game's own arguments"`,
 }
 
 @(private)
@@ -701,7 +701,7 @@ Coop_Opts :: struct {
 	menus:        bool `usage:"no session flags: each side starts through the game's coop script (_start_host, _start_join: its own menus)"`,
 	host_profile: string `hint:"<k=v,..>" usage:"the host's Profile (--profile's syntax: class=Knight), over one after --"`,
 	join_profile: string `hint:"<k=v,..>" usage:"the joiner's Profile likewise: two players arriving with different choices"`,
-	overflow:     [dynamic]string `hint:"[-- args]" usage:"after --: game arguments for both processes (dev flags such as --lag, --verified-players)"`,
+	overflow:     [dynamic]string `hint:"[-- args]" after:"--" usage:"after --: game arguments for both processes (dev flags such as --lag, --verified-players)"`,
 }
 
 // A host (windowed with --window, else headless) and a headless joiner, as two Godot processes running the coop tool
@@ -943,7 +943,7 @@ report_nav :: proc(dir: string, baked: Tool_Result, reports: ^[dynamic]json.Valu
 			append(&cmd, aprintf("--export=%.4f,%d", max_lowered, json_int(changes["inside_solids"])))
 		}
 		file := rel(join(dir, strings.trim_prefix(json_string(level["level"]), "res://")))
-		file, _ = strings.replace_all(file, "\\", "/")
+		file = slashed(file)
 		append(&cmd, file)
 	}
 	ran := run_proc({cmd = cmd[:], dir = state.project.root, capture = true, quiet = true, timeout = 60 * time.Second})
@@ -982,7 +982,7 @@ view_index :: proc(dir: string) -> (index: string, ok: bool) {
 	ok = true
 	for file in godot_scenes(dir) {
 		rel_path := strings.trim_prefix(file[len(dir):], "/")
-		rel_path, _ = strings.replace_all(strings.trim_prefix(rel_path, "\\"), "\\", "/")
+		rel_path = slashed(strings.trim_prefix(rel_path, "\\"))
 		if strings.has_prefix(rel_path, "addons/") || strings.has_prefix(rel_path, "unified/") do continue
 		text, read := read_text(file)
 		if !read do continue
@@ -1113,7 +1113,7 @@ level_scenes :: proc(dir: string) -> []string {
 	out: [dynamic]string
 	for file in godot_scenes(dir) {
 		rel_path := strings.trim_prefix(file[len(dir):], "/")
-		rel_path, _ = strings.replace_all(strings.trim_prefix(rel_path, "\\"), "\\", "/")
+		rel_path = slashed(strings.trim_prefix(rel_path, "\\"))
 		if strings.has_prefix(rel_path, "addons/") || strings.has_prefix(rel_path, "unified/") do continue
 		in_levels := strings.has_prefix(rel_path, "game/levels/") && strings.count(rel_path, "/") == 2
 		if in_levels || os.is_file(aprintf("%s.level", strings.trim_suffix(file, ".tscn"))) {

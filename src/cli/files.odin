@@ -6,9 +6,15 @@ import "core:os"
 import "core:slice"
 import "core:strings"
 
+// The path with / separators (Godot's, a JSON report's, a zip entry's), on every OS.
+slashed :: proc(path: string) -> string {
+	out, _ := strings.replace_all(path, "\\", "/")
+	return out
+}
+
 // A path to compare: / separators, no trailing one, and (on Windows) lowercase.
 path_key :: proc(path: string) -> string {
-	key, _ := strings.replace_all(path, "\\", "/")
+	key := slashed(path)
 	key = strings.trim_right(key, "/")
 	return ODIN_OS == .Windows ? strings.to_lower(key) : key
 }
@@ -19,7 +25,7 @@ absolute_path :: proc(cwd, path: string) -> string {
 	joined := os.is_absolute_path(path) ? path : join(cwd, path)
 	cleaned, _ := os.clean_path(joined, context.allocator)
 	if ODIN_OS == .Windows {
-		cleaned, _ = strings.replace_all(cleaned, "\\", "/")
+		cleaned = slashed(cleaned)
 	}
 	return cleaned
 }

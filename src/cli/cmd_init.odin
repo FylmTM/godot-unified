@@ -358,7 +358,7 @@ write_repo_files :: proc(template, dir, name: string) -> int {
 	count := 0
 	for file in find_files(template, ".tmpl") {
 		rel_path := file[len(template) + 1:len(file) - len(".tmpl")]
-		rel_path, _ = strings.replace_all(rel_path, "\\", "/")
+		rel_path = slashed(rel_path)
 		if rel_path == "gitignore" || rel_path == "gitattributes" {
 			rel_path = aprintf(".%s", rel_path)
 		}

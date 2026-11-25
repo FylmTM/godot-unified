@@ -52,7 +52,7 @@ For every upgrade:
 
 ## Godot
 
-- **Editor and export templates** (a patch release, same baseline): `[godot] version` and its three editor hashes,
+- **Editor and export templates** (a patch release, same baseline): `[godot] version` and its four editor hashes (macOS, Windows, Linux x64 and arm64),
   `[godot_templates]` (GitHub's asset digests for the new release:
   `gh api repos/godotengine/godot/releases/tags/<version>-stable --jq '.assets[] | [.name, .digest]'`; the
   templates' hashes are of the files inside the `.tpz`). Check with `./uni test --suite godot,godot-bindings` and a local release build (`release` skill).

@@ -522,7 +522,7 @@ cmd_clean :: proc(args: []string) -> Result {
 		if !os.exists(target) {
 			continue
 		}
-		name, _ := strings.replace_all(rel(target), "\\", "/")
+		name := slashed(rel(target))
 		append(&removed, name)
 		// remove_all can return no error and leave files a running process holds (Windows: a Godot this project
 		// started, its loaded extension, an older uni still running), so what is left decides.

@@ -698,3 +698,27 @@ tool_script_runs_only_a_main_loop :: proc(t: ^testing.T) {
 	ok, extends = cli.tool_script_runs(cli.join(game, "game", "ui", "bare.gd"), game, library)
 	testing.expect(t, !ok && extends == "", extends)
 }
+
+// --json and --verbose are uni's only before a `--`: after it they belong to the game, the script or the mode.
+@(test)
+global_flags_stop_at_double_dash :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	argv, as_json, verbose := cli.split_global_flags({"run", "g", "--json", "--", "--verbose", "--json"})
+	testing.expect(t, as_json && !verbose, "--json before --, --verbose after it")
+	testing.expect_value(t, strings.join(argv, " "), "run g -- --verbose --json")
+	argv, as_json, verbose = cli.split_global_flags({"--verbose", "test"})
+	testing.expect(t, !as_json && verbose)
+	testing.expect_value(t, strings.join(argv, " "), "test")
+}
+
+// An `overflow` that takes only what follows -- (`uni run`, `uni coop`): the positionals core:flags put there from
+// before the -- are strays (`uni run survivor mute`: a forgotten --).
+@(test)
+stray_positionals_come_before_double_dash :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	stray := cli.stray_positionals({"survivor", "mute", "--", "--lag", "80"}, {"mute", "--lag", "80"})
+	testing.expect_value(t, strings.join(stray, " "), "mute")
+	testing.expect_value(t, len(cli.stray_positionals({"survivor", "--", "--lag"}, {"--lag"})), 0)
+	testing.expect_value(t, strings.join(cli.stray_positionals({"survivor", "lan"}, {"lan"}), " "), "lan")
+	testing.expect_value(t, len(cli.stray_positionals({"survivor", "--mute"}, nil)), 0)
+}

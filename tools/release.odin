@@ -611,7 +611,7 @@ sign_and_zip :: proc(target, zip: string) {
 		writer: cli.Zip_Writer
 		dir := os.dir(target)
 		for file in cli.find_files(dir, "") {
-			rel, _ := strings.replace_all(file[len(dir) + 1:], "\\", "/")
+			rel := cli.slashed(file[len(dir) + 1:])
 			cli.zip_add(&writer, cli.aprintf("%s/%s", stem, rel), transmute([]byte)cli.must_read(file))
 		}
 		if !cli.write_file(zip, cli.zip_finish(&writer)) {

@@ -232,6 +232,9 @@ cmd_fmt :: proc(args: []string) -> Result {
 			append(&srcs, abs)
 			continue
 		}
+		if !os.is_directory(abs) {
+			usage("no file or directory %s", root) // a typo would otherwise format (or check) nothing and pass
+		}
 		for file in find_files(abs, ".odin") {
 			if !strings.has_suffix(file, ".gen.odin") {
 				append(&srcs, file)
@@ -333,8 +336,9 @@ fmt_files :: proc(exe: string, srcs: []string, check: bool, config := "") -> []s
 // Claude Code's PostToolUse hook (.claude/settings.json): formats the one .odin file an Edit or Write touched, named
 // in the hook's JSON on stdin. The file's own project is the nearest directory above it with a `uni` shim, so an edit
 // in a git worktree of this checkout (.claude/worktrees/<name>/) is formatted too, with its own odinfmt.json. Builds
-// odinfmt when the project has none yet (a fresh game repo). Never blocks the agent: anything unexpected (not Odin, outside the formatted directories, a file that doesn't parse yet)
-// is skipped quietly; `fmt --check` in `verify` and CI is the gate.
+// odinfmt when the machine has none yet (ensure_odinfmt: the hook's timeout allows for it). Never blocks the agent:
+// anything unexpected (not Odin, outside the formatted directories, a file that doesn't parse yet) is skipped
+// quietly; `fmt --check` in `verify` and CI is the gate.
 @(private)
 fmt_hook :: proc() -> ! {
 	data, err := os.read_entire_file(os.stdin, context.allocator)
@@ -353,7 +357,7 @@ fmt_hook :: proc() -> ! {
 		os.exit(0)
 	}
 	path, _ := os.get_absolute_path(hook.tool_input.file_path, context.allocator)
-	path, _ = strings.replace_all(path, "\\", "/")
+	path = slashed(path)
 	root := os.dir(path)
 	for !os.is_file(join(root, "uni")) {
 		parent := os.dir(root)
@@ -364,13 +368,13 @@ fmt_hook :: proc() -> ! {
 	}
 	inside := false
 	for dir in fmt_dirs(root) {
-		slashed, _ := strings.replace_all(dir, "\\", "/")
-		inside ||= strings.has_prefix(path, aprintf("%s/", slashed))
+		dir_slashed := slashed(dir)
+		inside ||= strings.has_prefix(path, aprintf("%s/", dir_slashed))
 	}
 	if !inside || !os.is_file(path) {
 		os.exit(0)
 	}
-	// built on the first edit in a fresh repo (a minute at most, once), not skipped: a skipped edit fails fmt --check
+	// built on the first edit on a fresh machine (a minute at most, once), not skipped: a skipped edit fails fmt --check
 	exe := ensure_odinfmt()
 	config := join(root, "odinfmt.json")
 	if !os.is_file(config) {

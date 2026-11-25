@@ -123,30 +123,33 @@ refresh_writes_missing_starters_and_keeps_the_games :: proc(t: ^testing.T) {
 	testing.expectf(t, strings.contains(problems, "odinfmt.json"), "a changed odinfmt.json is named:\n%s", problems)
 }
 
-// The game's settings.json starter runs the same format hook as unified's own: one command, kept in step.
+// The game's settings.json starter runs the same format hook as unified's own: one command and timeout, kept in step
+// (the first edit in a fresh checkout may build odinfmt).
 @(test)
 settings_starter_runs_unifieds_format_hook :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	Hook :: struct {
+		command: string,
+		timeout: int,
+	}
 	Settings :: struct {
 		hooks: struct {
 			PostToolUse: []struct {
 				matcher: string,
-				hooks:   []struct {
-					command: string,
-				},
+				hooks:   []Hook,
 			},
 		},
 	}
-	command :: proc(t: ^testing.T, path: string) -> string {
+	hook :: proc(t: ^testing.T, path: string) -> Hook {
 		settings: Settings
 		text, found := cli.read_text(path)
 		testing.expectf(t, found && json.unmarshal_string(text, &settings) == nil, "%s parses", path)
-		if len(settings.hooks.PostToolUse) == 0 || len(settings.hooks.PostToolUse[0].hooks) == 0 do return ""
-		return settings.hooks.PostToolUse[0].hooks[0].command
+		if len(settings.hooks.PostToolUse) == 0 || len(settings.hooks.PostToolUse[0].hooks) == 0 do return {}
+		return settings.hooks.PostToolUse[0].hooks[0]
 	}
-	starter := command(t, cli.join(UNIFIED_ROOT, cli.STARTER_TEMPLATES, "settings.json"))
-	testing.expect(t, strings.contains(starter, "fmt --hook"))
-	testing.expect_value(t, starter, command(t, cli.join(UNIFIED_ROOT, ".claude", "settings.json")))
+	starter := hook(t, cli.join(UNIFIED_ROOT, cli.STARTER_TEMPLATES, "settings.json"))
+	testing.expect(t, strings.contains(starter.command, "fmt --hook"))
+	testing.expect_value(t, starter, hook(t, cli.join(UNIFIED_ROOT, ".claude", "settings.json")))
 }
 
 // A `uni` shim committed without its executable bit (what a Windows checkout does): refresh_problems names it and

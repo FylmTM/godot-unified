@@ -275,7 +275,7 @@ game_user_dir :: proc(game_dir: string, base := "") -> string {
 // paths, / and \) become -, the edges trimmed.
 godot_safe_dir_name :: proc(name: string, allow_paths: bool) -> string {
 	out := name
-	if allow_paths do out, _ = strings.replace_all(out, "\\", "/")
+	if allow_paths do out = slashed(out)
 	invalid := allow_paths ? `:*?"<>|` : `:*?"<>|/\`
 	for c in invalid {
 		out, _ = strings.replace_all(out, fmt.tprintf("%c", c), "-")

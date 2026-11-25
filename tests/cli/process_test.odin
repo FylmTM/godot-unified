@@ -58,3 +58,44 @@ no_process_starts_outside_spawn :: proc(t: ^testing.T) {
 	}
 	for dir in ([]string{"src", "tests", "tools", "examples"}) do walk(t, cli.join(root, dir), calls)
 }
+
+// `drive stop` kills only the game it started: a recorded pid now held by another process (the game ended; the OS
+// reused its pid) is not the instance, so it is never killed. A process is the one whose command line holds the
+// marker its start gave it (the instance's --control port file).
+@(test)
+a_reused_pid_is_not_the_instance :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	pid := os.get_pid()
+	info, err := os.process_info_by_pid(pid, {.Command_Line}, context.temp_allocator)
+	testing.expect(t, err == nil && .Command_Line in info.fields, "the OS gives this process's command line")
+	testing.expect(t, !cli.process_runs(pid, "/elsewhere/.out/drive/1.port"), "another instance's port file")
+	testing.expect(t, cli.process_runs(pid, os.args[0]), "its own command line")
+	testing.expect(t, !cli.process_runs(0, os.args[0]), "no pid")
+}
+
+// Two uni processes that would unpack or build the same thing take turns through a lock file; one left by a process
+// that is gone is taken over. A fresh copy renamed into place where another process already put one gives way to it.
+@(test)
+locks_and_renames_into_place :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	dir, _ := os.make_directory_temp("", "unified-cli-test-*", context.allocator)
+	defer os.remove_all(dir)
+	path := cli.join(dir, "work.lock")
+	lock := cli.lock_acquire(path, "test")
+	testing.expect(t, os.is_file(path), "held")
+	cli.lock_release(lock)
+	testing.expect(t, !os.exists(path), "released")
+	testing.expect(t, cli.write_file(path, transmute([]byte)string("999999999\n")), "a lock whose process is gone")
+	lock = cli.lock_acquire(path, "test")
+	held, _ := os.read_entire_file(path, context.allocator)
+	testing.expect_value(t, strings.trim_space(string(held)), cli.aprintf("%d", os.get_pid()))
+	cli.lock_release(lock)
+	placed, tmp := cli.join(dir, "placed"), cli.join(dir, "placed.1.tmp")
+	testing.expect(t, cli.write_file(cli.join(placed, "ready"), transmute([]byte)string("theirs")))
+	testing.expect(t, cli.write_file(cli.join(tmp, "ready"), transmute([]byte)string("ours")))
+	// a rename onto a directory that holds files fails on every OS: theirs stays, ours goes
+	cli.rename_into_place(tmp, placed, cli.join(placed, "ready"))
+	testing.expect(t, !os.exists(tmp), "our copy is removed")
+	theirs, _ := os.read_entire_file(cli.join(placed, "ready"), context.allocator)
+	testing.expect_value(t, string(theirs), "theirs")
+}

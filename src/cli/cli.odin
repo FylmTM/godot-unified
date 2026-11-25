@@ -29,7 +29,8 @@ Command :: struct {
 // One way to call a command: its options struct, after a subcommand word when the command has several (`board
 // list`, `board set`; "": none). An options field's tags say how it reads: `usage` (what it does, for -h), `args`
 // (core:flags: `pos=N`, `required`, `name=...`, `hidden`) and `hint` (what -h shows for its value: `<url>`; an enum
-// shows its names, any other value `<name>`; the `overflow` field's whole text, e.g. `[-- args]`).
+// shows its names, any other value `<name>`; the `overflow` field's whole text, e.g. `[-- args]`) and, on the
+// `overflow` field, `after:"--"` (it takes only what follows --: a positional before it is a usage error).
 Form :: struct {
 	word: string,
 	type: typeid,
@@ -173,17 +174,9 @@ run :: proc(command_sets: ..[]Command) -> ! {
 			append(&state.commands, command)
 		}
 	}
-	argv := make([dynamic]string)
-	for arg in args {
-		if arg == "--json" {
-			state.json = true
-		} else if arg == "--verbose" {
-			state.verbose = true
-		} else {
-			append(&argv, arg)
-		}
-	}
-	state.argv = argv[:]
+	argv: []string
+	argv, state.json, state.verbose = split_global_flags(args)
+	state.argv = argv
 	if state.verbose {
 		_ = os.set_env(VERBOSE_ENV, "1")
 	} else {
@@ -204,6 +197,29 @@ run :: proc(command_sets: ..[]Command) -> ! {
 	finish(result)
 }
 
+// The command line without the options every command takes (--json, --verbose), and whether each was there. They
+// count only before a `--`: what follows belongs to the game, the script or the mode (Godot's own --verbose).
+split_global_flags :: proc(args: []string) -> (argv: []string, as_json, verbose: bool) {
+	out := make([dynamic]string)
+	ended := false
+	for arg in args {
+		switch {
+		case ended:
+			append(&out, arg)
+		case arg == "--":
+			ended = true
+			append(&out, arg)
+		case arg == "--json":
+			as_json = true
+		case arg == "--verbose":
+			verbose = true
+		case:
+			append(&out, arg)
+		}
+	}
+	return out[:], as_json, verbose
+}
+
 // The registered command of that name, or nil: `run` dispatches the command line with it and refuses a name
 // defined twice; `verify` finds its steps with it.
 find_command :: proc(name: string) -> ^Command {
@@ -221,7 +237,7 @@ print_help :: proc() {
 	fmt.println("uni: build, test, check and run the games of this project (src/cli/README.md)\n")
 	fmt.println("usage: uni <command> [options] [--json] [--verbose]   (uni <command> -h: its options and details)\n")
 	fmt.println(
-		"Any command: --json prints the result as one JSON object; --verbose echoes every command line it runs.\n",
+		"Any command (before any --): --json prints the result as one JSON object; --verbose echoes every command line it runs.\n",
 	)
 	for command in state.commands {
 		fmt.printf("  %s\n      %s\n", strings.trim_space(command_usage(command)), command.summary)
@@ -257,6 +273,30 @@ parse :: proc(opts: ^$Options, args: []string) {
 	if err := flags.parse(opts, args, .Unix); err != nil {
 		usage_error(err)
 	}
+	for field in reflect.struct_fields_zipped(Options) {
+		if field.name != "overflow" || field.type.id != typeid_of([dynamic]string) {
+			continue
+		}
+		if after, tagged := reflect.struct_tag_lookup(field.tag, "after"); tagged && after == "--" {
+			overflow := (^[dynamic]string)(uintptr(opts) + field.offset)
+			if stray := stray_positionals(args, overflow[:]); len(stray) > 0 {
+				usage("unexpected argument %q (the game's own arguments go after --)", stray[0])
+			}
+		}
+	}
+}
+
+// The positionals core:flags put in an `overflow` field that came before the first `--` (it fills the field with
+// both): for a field that takes only what follows -- (`after:"--"`), each one is a mistake.
+stray_positionals :: proc(args, overflow: []string) -> []string {
+	after := 0
+	for arg, i in args {
+		if arg == "--" {
+			after = len(args) - i - 1
+			break
+		}
+	}
+	return overflow[:max(0, len(overflow) - after)]
 }
 
 // A command's -h: its usage line (every form) and summary, each option of its `options` with what it does,
