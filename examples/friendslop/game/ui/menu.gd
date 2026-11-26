@@ -59,7 +59,8 @@ func _ready() -> void:
 
 
 func _exit_tree() -> void:
-	# Collect the background load (the play scene now holds what it needs), or the loader keeps it until exit.
+	# Collect the background load the game didn't take for the play scene (Game._change_to_play_scene: the app
+	# quits, or another scene opens), or the loader keeps it until exit.
 	if ResourceLoader.load_threaded_get_status(Game.PLAY_SCENE) != ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
 		ResourceLoader.load_threaded_get(Game.PLAY_SCENE)
 

@@ -246,19 +246,21 @@ is_retired_copy :: proc(root: string, retired: Retired) -> bool {
 @(private = "file")
 game_files :: proc(root: string) -> []string {
 	out: [dynamic]string
+	walked := walk_spelling(root)
 	walker := os.walker_create(root)
 	defer os.walker_destroy(&walker)
 	for info in os.walker_walk(&walker) {
+		path := respelled(root, walked, info.fullpath)
 		skipped :=
 			strings.has_prefix(info.name, ".") ||
-			path_key(os.dir(info.fullpath)) == path_key(root) && (info.name == "unified" || info.name == "addons")
+			path_key(os.dir(path)) == path_key(root) && (info.name == "unified" || info.name == "addons")
 		if skipped {
 			if info.type == .Directory do os.walker_skip_dir(&walker)
 			continue
 		}
 		if info.type != .Regular do continue
 		for suffix in ([]string{".odin", ".gd", ".md"}) {
-			if strings.has_suffix(info.name, suffix) do append(&out, strings.clone(info.fullpath))
+			if strings.has_suffix(info.name, suffix) do append(&out, path)
 		}
 	}
 	return out[:]

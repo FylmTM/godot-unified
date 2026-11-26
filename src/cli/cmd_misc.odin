@@ -520,6 +520,7 @@ cmd_clean :: proc(args: []string) -> Result {
 		append(&targets, ..user_cache_cleanable())
 	}
 	// Every other .out/ and .godot/: a game's, a Godot test project's.
+	walked := walk_spelling(project.root)
 	walker := os.walker_create(project.root)
 	defer os.walker_destroy(&walker)
 	for info in os.walker_walk(&walker) {
@@ -527,8 +528,9 @@ cmd_clean :: proc(args: []string) -> Result {
 			continue
 		}
 		if info.name == ".out" || info.name == ".godot" {
-			if path_key(info.fullpath) != path_key(project.out) {
-				append(&targets, strings.clone(info.fullpath))
+			path := respelled(project.root, walked, info.fullpath)
+			if path_key(path) != path_key(project.out) {
+				append(&targets, path)
 			}
 			os.walker_skip_dir(&walker)
 		} else if strings.has_prefix(info.name, ".") {
