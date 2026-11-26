@@ -1,18 +1,20 @@
 class_name UnifiedCrowdClips
 extends Resource
-## A crowd's baked clips (UnifiedCrowdBake): the bone matrices of every frame of each clip in one RGBA float Image, and
-## what is known of each clip by name. The crowd's shader skins from the Image alone (crowd_skin.gdshaderinc), so its
-## material needs one texture (apply) and no table of uniforms, and a crowd takes as many clips as the Image is wide.
+## A crowd's baked clips (unified's crowd bake, tools_godot/crowd_bake.gd): the bone matrices of every frame of each
+## clip in one RGBA float Image, and what is known of each clip by name. The crowd's shader skins from the Image alone
+## (crowd_skin.gdshaderinc), so its material needs one texture (apply) and no table of uniforms, and a crowd takes as
+## many clips as the Image is wide.
 ##
 ## The Image: row 0 is the header, texel 0 `(clips, bones, 0, 0)` and texel 1 + c clip c's `(first row, frames,
 ## frames a second, loops 0 or 1)`; then a row per frame, TEXELS_PER_BONE texels per bone, the three rows of its 3x4
 ## skinning matrix (the bone's pose in the character's space times its bind: what Godot skins by). A clip's frames are
-## 0 to its length at its rate, both ends included: a looping clip's last frame is its first pose again, so a blend never
-## wraps. A pose is a clip and the seconds into it: a loop wraps, a one-shot holds its first frame before its start and
-## its last past its end, and between two frames the matrices blend entry by entry (matrices, the shader's twin).
+## 0 to its length at its rate, both ends included: a looping clip's last frame is its first pose again, so a blend
+## never wraps. A pose is a clip and the seconds into it: a loop wraps, a one-shot holds its first frame before its start and
+## its last past its end, and between two frames the matrices blend entry by entry (matrices, the shader's twin). The
+## layout is the bake's: a change to it is a new UnifiedCrowdBake.BAKE_VERSION.
 ##
-## A running game loads this table (its `apply`, `index`, `tops`) and its shader the skinning include: both are
-## runtime files, unlike the rest of tools_godot.
+## A running game loads this table and its shader the skinning include: they are unified's runtime files
+## (godot_runtime/, which every export ships), and name nothing of its tooling.
 
 ## The texels a bone takes in a row.
 const TEXELS_PER_BONE := 3
@@ -20,18 +22,22 @@ const TEXELS_PER_BONE := 3
 const HEADER_ROWS := 1
 ## The shader parameter apply() sets: the include's uniform.
 const BONES_PARAMETER := &"unified_crowd_bones"
+## The most texels a side of the Image may hold (a texture's limit on every renderer Godot runs).
+const MAX_SIDE := 16384
 
 ## The matrices and their header (above), RGBA float.
 @export var bones: Image
 ## The clips, as the character's AnimationPlayer names them, in the order an instance names them by index.
 @export var clips: Array[StringName] = []
-## Per clip: the height of its last pose's highest point in the mesh's space (how deep a sink must go to hide the end of
-## a one-shot, say).
-@export var tops: PackedFloat32Array = []
+## Per clip: the bounds of its last pose in the crowd mesh's space (how deep a sink must go to hide the end of a
+## one-shot, say: its `end.y`).
+@export var last_bounds: Array[AABB] = []
 ## Every pose's bounds in the crowd mesh's space (a MultiMesh's culling: the mesh's custom_aabb is these).
 @export var bounds: AABB
 ## What the bake was made from (UnifiedCrowdBake.inputs_hash), so a check can tell it is stale.
 @export var sources := ""
+
+var _texture: ImageTexture
 
 
 ## The index of `clip` (an instance's clip number), or -1.
@@ -69,9 +75,11 @@ func length(clip_index: int) -> float:
 	return float(frame_count(clip_index) - 1) / rate(clip_index)
 
 
-## A new texture of `bones`, for a crowd material.
+## The texture of `bones` a crowd material skins from: made once, shared by every material apply() sets.
 func texture() -> ImageTexture:
-	return ImageTexture.create_from_image(bones)
+	if _texture == null:
+		_texture = ImageTexture.create_from_image(bones)
+	return _texture
 
 
 ## Sets what a crowd material's shader (one including crowd_skin.gdshaderinc) skins by: its bone texture.

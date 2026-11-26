@@ -2,7 +2,8 @@
 # `uni test --suite godot-bindings`. A headless run's window is the project's window size, not Godot's 64x64; click
 # and click_at give real mouse events of the button asked for, where they aim (a target past 64x64 is hit); pad_button
 # and pad_axis give a pad's events as the pad asked for; the --frames log splits a drawn frame into its scene process
-# and render draw.
+# and render draw. Validate's runtime check names a running game's file that names a tool script (by class or path,
+# in code, not in a comment), never a game tool's or unified's runtime files.
 # Prints one line per check and "TOOL TESTS: <n> failed"; a failure fails the run.
 extends UnifiedTool
 
@@ -59,6 +60,7 @@ func _run() -> void:
 	await pad_axis(JOY_AXIS_LEFT_X, 0.0, 1)
 	check("pad_axis 0 lets go", Input.get_joy_axis(1, JOY_AXIS_LEFT_X) == 0.0, Input.get_joy_axis(1, JOY_AXIS_LEFT_X))
 	check_frame_split()
+	check_runtime_without_tools()
 	print("TOOL TESTS: %d failed" % failures)
 	if failures > 0:
 		fail("%d checks failed" % failures)
@@ -94,3 +96,32 @@ func check_frame_split() -> void:
 	check("frame log: the summary's split is the drawn frame's", report.get("process_max_ms", 0.0) >= 15.0
 		and report.get("draw_max_ms", 0.0) >= 12.0
 		and report.get("process_max_ms", 0.0) + report.get("draw_max_ms", 0.0) <= report.max_ms, report)
+
+
+func check_runtime_without_tools() -> void:
+	var dir := "user://runtime_check/"
+	DirAccess.make_dir_recursive_absolute(dir)
+	var files: Dictionary[String, String] = {
+		"by_class.gd": "extends Node\nvar recipe: UnifiedCrowdRecipe\n",
+		"in_a_comment.gd": "extends Node\n## Baked by UnifiedCrowdBake (a tool).\nvar clips: UnifiedCrowdClips\n",
+		"by_path.tscn":
+		"[gd_scene format=3]\n[ext_resource type=\"Script\" path=\"res://unified/tools_godot/tool.gd\" id=\"1\"]\n",
+		"shader.gdshader": "shader_type spatial;\n// UnifiedTool in a comment\n",
+	}
+	var paths: Array[String] = []
+	for file in files:
+		var handle := FileAccess.open(dir + file, FileAccess.WRITE)
+		handle.store_string(files[file])
+		handle.close()
+		paths.append(dir + file)
+	paths.append("res://game/tools/anything.gd")  # a game's tool: never read
+	var found: Array[String] = []
+	for named in UnifiedValidate.tools_named_in(paths):
+		found.append("%s %s" % [named[0].get_file(), named[1]])
+	check("validate: a running game's file naming a tool script, by class or path, not in a comment",
+		found == ["by_class.gd UnifiedCrowdRecipe", "by_path.tscn unified/tools_godot/"], found)
+	var runtime: Array[String] = []
+	for file in DirAccess.get_files_at("res://unified/godot_runtime/"):
+		runtime.append("res://unified/godot_runtime/" + file)
+	check("validate: unified's runtime files name no tool script", not runtime.is_empty()
+		and UnifiedValidate.tools_named_in(runtime).is_empty(), UnifiedValidate.tools_named_in(runtime))

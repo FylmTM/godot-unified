@@ -6,6 +6,7 @@ package test_lint
 import "core:fmt"
 import "core:os"
 import "core:path/filepath"
+import "core:slice"
 import "core:strings"
 import "core:testing"
 import "unified:lint"
@@ -542,9 +543,9 @@ lint_sim_rule_extra_imports :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(lint.scan(lint.sim_rule("mygame", "", {"../sim", "../physics"}), "b.odin", own)), 0)
 }
 
-// A game's export leaves out the tool scripts: its own (game/tools) and the library's (res://unified: a game repo's
-// submodule, or the mirror of tools_godot). Every preset's exclude_filter names them (Godot reads the filters per
-// preset).
+// A game's export leaves out the tool scripts, its own (game/tools) and the library's (res://unified/tools_godot: a
+// game repo's submodule, or its mirror), and ships unified's runtime files (res://unified/godot_runtime): every
+// preset's exclude_filter names the tools, never the whole of unified/ (Godot reads the filters per preset).
 @(test)
 game_exports_leave_out_the_tools :: proc(t: ^testing.T) {
 	for game in game_dirs(t) {
@@ -553,38 +554,51 @@ game_exports_leave_out_the_tools :: proc(t: ^testing.T) {
 			context.temp_allocator,
 		)
 		if err != nil do continue // no export
-		tools := []string{"game/tools/*", "unified/*"}
 		filters := 0
 		text := string(presets)
 		for line in strings.split_lines_iterator(&text) {
 			if !strings.has_prefix(line, "exclude_filter=") do continue
 			filters += 1
-			for tool in tools {
+			excluded: [dynamic]string
+			value := strings.trim(strings.trim_prefix(line, "exclude_filter="), "\"")
+			for filter in strings.split_iterator(&value, ",") {
+				append(&excluded, strings.trim_space(filter))
+			}
+			for tool in ([]string{"game/tools/*", "unified/tools_godot/*"}) {
 				testing.expectf(
 					t,
-					strings.contains(line, tool),
+					slice.contains(excluded[:], tool),
 					"%s: an export preset ships %s (%s)",
 					game,
 					tool,
 					line,
 				)
 			}
+			testing.expectf(
+				t,
+				!slice.contains(excluded[:], "unified/*"),
+				"%s: an export preset leaves out unified/godot_runtime, which the game loads (%s)",
+				game,
+				line,
+			)
 		}
 		testing.expectf(t, filters > 0, "%s: export_presets.cfg has no exclude_filter", game)
 	}
 }
 
 // In a game repo Godot scans the unified submodule as part of the game's project: it must see tools_godot/ (the
-// library's tool scripts, extended by class name) and nothing else. Every other top-level directory holds a .gdignore
-// (hidden ones are skipped anyway), and every tool script has its .uid committed, so a game's import never writes
-// into the submodule (src/godot/README.md, Library tooling).
+// library's tool scripts, extended by class name) and godot_runtime/ (what a running game loads), and nothing else.
+// Every other top-level directory holds a .gdignore (hidden ones are skipped anyway), and every script and shader
+// include there has its .uid committed, so a game's import never writes into the submodule (src/godot/README.md,
+// Library tooling).
 @(test)
-godot_sees_only_tools_godot :: proc(t: ^testing.T) {
+godot_sees_only_tools_godot_and_godot_runtime :: proc(t: ^testing.T) {
 	ROOT :: #directory + "/../.."
+	SEEN :: []string{"tools_godot", "godot_runtime"}
 	entries, err := os.read_all_directory_by_path(ROOT, context.temp_allocator)
 	testing.expect(t, err == nil, "cannot list the checkout's root")
 	for entry in entries {
-		if entry.type != .Directory || strings.has_prefix(entry.name, ".") || entry.name == "tools_godot" do continue
+		if entry.type != .Directory || strings.has_prefix(entry.name, ".") || slice.contains(SEEN, entry.name) do continue
 		// a test's scratch directory (`unified-<test>-*`, os.make_directory_temp's default place is the working
 		// directory), there for a moment while the suite runs
 		if strings.has_prefix(entry.name, "unified-") do continue
@@ -596,15 +610,19 @@ godot_sees_only_tools_godot :: proc(t: ^testing.T) {
 		)
 	}
 	testing.expect(t, !os.exists(ROOT + "/project.godot"), "unified's root is no Godot project")
-	tools, _ := os.read_all_directory_by_path(ROOT + "/tools_godot", context.temp_allocator)
-	for entry in tools {
-		if !strings.has_suffix(entry.name, ".gd") do continue
-		testing.expectf(
-			t,
-			os.is_file(fmt.tprintf("%s/tools_godot/%s.uid", ROOT, entry.name)),
-			"tools_godot/%s has no .uid: a game's import would write one into the submodule",
-			entry.name,
-		)
-		testing.expectf(t, entry.type == .Regular, "tools_godot/%s: tool scripts are files, not folders", entry.name)
+	for seen in SEEN {
+		testing.expectf(t, !os.exists(fmt.tprintf("%s/%s/.gdignore", ROOT, seen)), "%s/ holds a .gdignore", seen)
+		files, _ := os.read_all_directory_by_path(fmt.tprintf("%s/%s", ROOT, seen), context.temp_allocator)
+		for entry in files {
+			testing.expectf(t, entry.type == .Regular, "%s/%s: its scripts are files, not folders", seen, entry.name)
+			if !strings.has_suffix(entry.name, ".gd") && !strings.has_suffix(entry.name, ".gdshaderinc") do continue
+			testing.expectf(
+				t,
+				os.is_file(fmt.tprintf("%s/%s/%s.uid", ROOT, seen, entry.name)),
+				"%s/%s has no .uid: a game's import would write one into the submodule",
+				seen,
+				entry.name,
+			)
+		}
 	}
 }

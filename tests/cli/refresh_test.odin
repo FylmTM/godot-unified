@@ -46,7 +46,7 @@ refresh_retires_what_an_older_unified_copied_in :: proc(t: ^testing.T) {
 	ignore, _ := cli.read_text(cli.join(root, ".gitignore"))
 	testing.expect_value(t, ignore, ".out/\n.env\n")
 	presets, _ := cli.read_text(cli.join(root, "export_presets.cfg"))
-	testing.expect_value(t, presets, "exclude_filter=\"game/tools/*, unified/*\"\n")
+	testing.expect_value(t, presets, "exclude_filter=\"game/tools/*, unified/tools_godot/*\"\n")
 	state, _ := cli.read_text(cli.join(root, "simulation", "game", "state.odin"))
 	testing.expect_value(t, state, "// desyncs after a rollback (unified/docs/gameplay.md).\n")
 	shim, _ := cli.read_text(cli.join(root, "uni"))
@@ -59,6 +59,24 @@ refresh_retires_what_an_older_unified_copied_in :: proc(t: ^testing.T) {
 		"the batch shim has CRLF line endings, as a checkout gives it",
 	)
 	testing.expect(t, !strings.contains(strings.trim_suffix(cmd_shim, "\r\n"), "\n\n"), "no doubled line ends")
+}
+
+// An export filter that leaves out the whole of unified/ (what refresh wrote before godot_runtime/ existed) is
+// narrowed to its tool scripts, so the export ships what a running game loads; the game's own filters stay, and a
+// filter already right is left alone.
+@(test)
+refresh_narrows_the_export_filter_to_the_tool_scripts :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	before := "[preset.0]\nexclude_filter=\"game/tools/*, unified/*, secret/*\"\n[preset.1]\nexclude_filter=\"unified/*\"\n"
+	after, changed := cli.retarget_export_filters(before)
+	testing.expect(t, changed)
+	testing.expect_value(
+		t,
+		after,
+		"[preset.0]\nexclude_filter=\"game/tools/*, secret/*, unified/tools_godot/*\"\n[preset.1]\nexclude_filter=\"unified/tools_godot/*\"\n",
+	)
+	_, again := cli.retarget_export_filters(after)
+	testing.expect(t, !again, "a narrowed filter is left alone")
 }
 
 // A repo's own files from init: a batch file as a checkout gives it (CRLF), every other file LF.

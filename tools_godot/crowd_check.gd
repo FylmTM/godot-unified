@@ -3,23 +3,28 @@ extends RefCounted
 ## Holds a crowd's committed bake (UnifiedCrowdBake, at its UnifiedCrowdRecipe's paths) fresh and true, for a game's
 ## checks (its validate step, say): `UnifiedCrowdCheck.new(recipe).check(root)`, then report `problems`.
 ##
-## - **Whole:** the table's clips are the recipe's, its texture the table's size, the mesh one surface.
-## - **Fresh:** the hash of its inputs is today's, its mesh is the scene merged and lightened as the bake does it now
-##   (every array bit for bit, but the normals within `normal_tolerance`: a mesh stores them compressed), and a bake
-##   now gives its matrices, bounds and tops within `fresh_tolerance`.
+## - **Whole:** the table's clips are the recipe's (their rates and looping too), its texture the table's size, the
+##   mesh one surface.
+## - **Fresh:** the hash of its inputs is today's (UnifiedCrowdBake.inputs); its mesh is the character merged and
+##   lightened as the bake does it now (every array bit for bit, but the normals within `normal_tolerance`: a mesh
+##   stores them compressed); and a bake now gives its matrices, bounds and last poses' bounds within
+##   `fresh_tolerance`. The bake now is the truth the hash stands in for: it catches what no input's hash shows (a
+##   pose script's change, a forgotten UnifiedCrowdBake.BAKE_VERSION bump).
 ## - **Its rules:** within the recipe's max_triangles, each vertex's bones the skeleton's and its weights summing to 1,
-##   each vertex masked as the scene mesh it comes from is, a masked recipe's mask kept.
+##   each vertex masked as the material of the scene part it comes from says.
 ## - **Parity** (parity): the bake's vertices skinned as the shader does, from the baked matrices, stand where the live
 ##   Skeleton3D puts them, within `parity_tolerance`, at any time in any clip.
 
 ## How far a baked vertex may stand from where the scene puts it, in metres, by default: at a baked frame it stands
 ## exactly there; between two the blend of their matrices cuts each bone's arc, which a clip's rate keeps small.
 const PARITY := 0.015
-## How near a fresh bake's matrices, bounds and tops must come to the committed ones by default (float noise across
+## How near a fresh bake's matrices and bounds must come to the committed ones by default (float noise across
 ## machines).
 const FRESH := 0.00001
 ## How near a fresh bake's normals must come to the committed mesh's by default.
 const NORMALS := 0.01
+## How near 1 a vertex's weights must sum.
+const WEIGHT_SUM := 0.0001
 ## The seconds before a clip's start and past its end that parity also poses (a loop wraps, a one-shot holds).
 const PAST := 0.3
 ## Parity samples every SAMPLE_EVERY-th vertex, and each bone's farthest.
@@ -47,16 +52,26 @@ func _init(crowd: UnifiedCrowdRecipe) -> void:
 ## Checks the committed bake (everything above), its character instanced under `parent` for the time it takes.
 ## Whether it found nothing.
 func check(parent: Node) -> bool:
-	var clips := load(recipe.clips_path) as UnifiedCrowdClips
-	var mesh := load(recipe.mesh_path) as ArrayMesh
+	var clips: UnifiedCrowdClips = null
+	if ResourceLoader.exists(recipe.clips_path):
+		clips = load(recipe.clips_path) as UnifiedCrowdClips
+	var mesh: ArrayMesh = null
+	if ResourceLoader.exists(recipe.mesh_path):
+		mesh = load(recipe.mesh_path) as ArrayMesh
 	if clips == null or mesh == null:
 		_problem("no bake here (run the game's crowd bake)", recipe.clips_path if clips == null else recipe.mesh_path)
 		return false
 	if clips.sources != UnifiedCrowdBake.inputs_hash(recipe):
 		_problem("the crowd's bake is stale: its inputs changed (re-bake it)", recipe.clips_path)
-	var packed := load(recipe.scene) as PackedScene
-	var rig := packed.instantiate() as Node3D if packed != null else null
+	var root: Node = null
+	if ResourceLoader.exists(recipe.scene):
+		var packed := load(recipe.scene) as PackedScene
+		if packed != null:
+			root = packed.instantiate()
+	var rig := root as Node3D
 	if rig == null:
+		if root != null:
+			root.free()
 		_problem("cannot instance the character (a scene with a Node3D root)", recipe.scene)
 		return false
 	parent.add_child(rig)
@@ -70,41 +85,40 @@ func check(parent: Node) -> bool:
 ## bake now, its rules and parity. Whether it found nothing.
 func check_bake(rig: Node3D, mesh: ArrayMesh, clips: UnifiedCrowdClips) -> bool:
 	var found := problems.size()
-	if not _whole(rig, mesh, clips):
-		return false
 	var errors := UnifiedCrowdBake.validate(rig, recipe)
 	for error in errors:
 		_problem(error, recipe.scene)
-	if not errors.is_empty():
+	if not errors.is_empty() or not _whole(rig, mesh, clips):
 		return false
-	var merged := UnifiedCrowdBake.merge(rig, recipe)
-	var lightened := UnifiedCrowdBake.lighten(merged, recipe.max_error)
+	var shaped := UnifiedCrowdBake.shape(rig, recipe)
 	var arrays := mesh.surface_get_arrays(0)
-	if _same_mesh(arrays, lightened.arrays) and _mesh_rules(arrays, clips):
-		var pose := UnifiedCrowdBake.posing(rig, recipe)
-		_fresh(UnifiedCrowdBake.bake_clips(rig, pose, recipe, lightened.arrays), mesh, clips)
-		_masks(merged, lightened.source, arrays)
-		parity(rig, merged, lightened.source, arrays, clips)
+	var same := _same_mesh(arrays, shaped.arrays)
+	var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	if positions.size() == shaped.source.size():
+		_masks(shaped, arrays)
+	var rules := _mesh_rules(arrays, clips)
+	_fresh(UnifiedCrowdBake.bake_clips(rig, recipe, shaped.arrays), mesh, clips)
+	if same and rules:
+		parity(rig, shaped, arrays, clips)
 	return problems.size() == found
 
 
-## The bake's vertices (every SAMPLE_EVERY-th, and each bone's farthest) skinned from `clips`' matrices as the shader
-## does, against where the scene puts the vertex each one is (`source`: the merged vertex of each of `arrays`'; the
-## scene's own skins with every weight, a prop where the engine's BoneAttachment3D holds it): at each clip's ends and
-## PAST beyond them, at and between its first frames, and through the pair of baked frames between which a bone's
-## farthest vertex turns most (where the blend cuts the arc most). A problem past `parity_tolerance`. The farthest.
-func parity(
-	rig: Node3D, merged: UnifiedCrowdBake.Merged, source: PackedInt32Array, arrays: Array, clips: UnifiedCrowdClips
-) -> float:
+## The bake's vertices (`arrays`: every SAMPLE_EVERY-th, and each bone's farthest) skinned from `clips`' matrices as the
+## shader does, against where the scene puts the vertex each one is (`shaped`: its parts, and the merged vertex of each
+## of `arrays`'; the scene's own skins with every weight, a prop where the engine's BoneAttachment3D holds it): at each
+## clip's ends and PAST beyond them, at and between its first frames, and through the pair of baked frames between
+## which a bone's farthest vertex turns most (where the blend cuts the arc most). A problem past `parity_tolerance`.
+## The farthest.
+func parity(rig: Node3D, shaped: UnifiedCrowdBake.Shape, arrays: Array, clips: UnifiedCrowdClips) -> float:
 	var pose := UnifiedCrowdBake.posing(rig, recipe)
 	var skeleton := UnifiedCrowdBake.skeleton_of(rig)
 	var attachments := rig.find_children("*", "BoneAttachment3D", true, false)
 	var bind_poses := UnifiedCrowdBake.binds(rig)
 	var reach := UnifiedCrowdBake.bone_reach(arrays, bind_poses)
 	var samples := _samples(arrays, bind_poses)
-	var scenes: Array[SceneMesh] = []
-	for mesh_node in merged.meshes:
-		scenes.append(SceneMesh.new(mesh_node, skeleton))
+	var scenes: Dictionary[UnifiedCrowdBake.Part, ScenePart] = {}
+	for part in shaped.parts:
+		scenes[part] = ScenePart.new(part, skeleton)
 	worst = 0.0
 	worst_at = ""
 	for clip in clips.clips.size():
@@ -122,44 +136,46 @@ func parity(
 			var poses: Array[Transform3D] = []
 			for bone in skeleton.get_bone_count():
 				poses.append(to_rig * skeleton.get_bone_global_pose(bone))
-			for scene in scenes:
-				scene.pose(rig, poses)
+			for part in scenes:
+				scenes[part].pose(rig, poses)
 			var matrices := clips.matrices(clip, seconds)
 			for vertex in samples:
-				var from := source[vertex]
-				var mesh := merged.mesh_of(from)
-				var at := scenes[mesh].position(from - merged.bases[mesh])
+				var from := shaped.source[vertex]
+				var part := shaped.part_of(from)
+				var at := scenes[part].position(from - part.base)
 				var apart := UnifiedCrowdBake.skin_vertex(arrays, vertex, matrices).distance_to(at)
-				if apart > worst:
+				if not (apart <= worst):
 					worst = apart
-					worst_at = "%s at %.3f s, %s" % [clips.clips[clip], seconds, merged.meshes[mesh].name]
-	if worst > parity_tolerance:
+					worst_at = "%s at %.3f s, %s" % [clips.clips[clip], seconds, part.node.name]
+	if not (worst <= parity_tolerance):
 		_problem("the crowd stands %.4f m from the scene's character (%s)" % [worst, worst_at], recipe.clips_path)
 	return worst
 
 
-## Whether the bake's parts have the sizes the rest reads by: the recipe's clips, a top per clip, the clips' rows in
-## order and the texture the table's size (its header the skeleton's bones), one surface.
+## Whether the bake's parts have the sizes the rest reads by: the recipe's clips, rates and looping, a last pose's
+## bounds per clip, the clips' rows in order and the texture the table's size (its header the skeleton's bones), one
+## surface.
 func _whole(rig: Node3D, mesh: ArrayMesh, clips: UnifiedCrowdClips) -> bool:
 	var skeleton := UnifiedCrowdBake.skeleton_of(rig)
-	if clips.bones == null or clips.bones.get_format() != Image.FORMAT_RGBAF:
+	if clips.bones == null or clips.bones.get_format() != Image.FORMAT_RGBAF or clips.bones.get_height() < 1:
 		_problem("the bone matrices are no RGBA float Image", recipe.bones_path)
 		return false
 	var count := clips.clips.size()
-	if clips.clips != recipe.clips or int(clips.bones.get_pixel(0, 0).r) != count or clips.tops.size() != count:
-		_problem("the baked clips are not the recipe's, in its order", recipe.clips_path)
+	if clips.clips != recipe.names() or int(clips.bones.get_pixel(0, 0).r) != count or clips.last_bounds.size() != count:
+		_problem("the baked clips are not the recipe's, in its order (re-bake it)", recipe.clips_path)
 		return false
-	if skeleton == null or clips.bone_count() != skeleton.get_bone_count():
-		_problem("the bake has %d bones, the skeleton %d" % [clips.bone_count(),
-			skeleton.get_bone_count() if skeleton != null else 0], recipe.bones_path)
+	if clips.bone_count() != skeleton.get_bone_count():
+		_problem("the bake has %d bones, the skeleton %d (re-bake it)" % [clips.bone_count(), skeleton.get_bone_count()],
+			recipe.bones_path)
 		return false
 	var rows := UnifiedCrowdClips.HEADER_ROWS
 	for clip in count:
 		if clips.first_row(clip) != rows or clips.frame_count(clip) < 2:
 			_problem("%s: its rows are not the table's" % clips.clips[clip], recipe.bones_path)
 			return false
-		if clips.loops(clip) != (clips.clips[clip] in recipe.loops) or clips.rate(clip) != recipe.rate(clip):
-			_problem("%s: its looping or rate is not the recipe's" % clips.clips[clip], recipe.bones_path)
+		var looping := UnifiedCrowdBake.clip_loops(rig, recipe, clip)
+		if clips.loops(clip) != looping or clips.rate(clip) != recipe.clips[clip].rate:
+			_problem("%s: its looping or rate is not the recipe's (re-bake it)" % clips.clips[clip], recipe.bones_path)
 			return false
 		rows += clips.frame_count(clip)
 	var width := maxi(clips.bone_count() * UnifiedCrowdClips.TEXELS_PER_BONE, 1 + count)
@@ -176,7 +192,7 @@ func _whole(rig: Node3D, mesh: ArrayMesh, clips: UnifiedCrowdClips) -> bool:
 func _same_mesh(arrays: Array, fresh: Array) -> bool:
 	var same := true
 	var named: Dictionary[int, String] = {
-		Mesh.ARRAY_VERTEX: "positions", Mesh.ARRAY_TEX_UV: "UVs", Mesh.ARRAY_TEX_UV2: "mask",
+		Mesh.ARRAY_VERTEX: "positions", Mesh.ARRAY_TEX_UV: "UVs", Mesh.ARRAY_TEX_UV2: "masks",
 		Mesh.ARRAY_CUSTOM0: "bones", Mesh.ARRAY_CUSTOM1: "weights", Mesh.ARRAY_INDEX: "triangles",
 	}
 	for array in named:
@@ -185,70 +201,86 @@ func _same_mesh(arrays: Array, fresh: Array) -> bool:
 			same = false
 	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
 	var fresh_normals: PackedVector3Array = fresh[Mesh.ARRAY_NORMAL]
-	if same and normals.size() == fresh_normals.size():
-		for vertex in normals.size():
-			if normals[vertex].distance_to(fresh_normals[vertex]) > normal_tolerance:
-				_problem("the crowd mesh's normal %d is not a bake's now (re-bake it)" % vertex, recipe.mesh_path)
-				return false
+	if normals.size() != fresh_normals.size():
+		return false
+	for vertex in normals.size():
+		if not (normals[vertex].distance_to(fresh_normals[vertex]) <= normal_tolerance):
+			_problem("the crowd mesh's normal %d is not a bake's now (re-bake it)" % vertex, recipe.mesh_path)
+			return false
 	return same
 
 
 ## Whether the mesh holds its rules: within max_triangles, each vertex's bones whole and the skeleton's, its weights
-## summing to 1, and some vertex masked when the recipe masks a material.
+## summing to 1.
 func _mesh_rules(arrays: Array, clips: UnifiedCrowdClips) -> bool:
+	var ok := true
 	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
-	var masks: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
 	var bones: PackedFloat32Array = arrays[Mesh.ARRAY_CUSTOM0]
 	var weights: PackedFloat32Array = arrays[Mesh.ARRAY_CUSTOM1]
 	var triangles := indices.size() / 3.0
 	if recipe.max_triangles > 0 and triangles > recipe.max_triangles:
 		_problem("the crowd mesh has %d triangles, over %d" % [triangles, recipe.max_triangles], recipe.mesh_path)
-	var masked := 0
-	for vertex in masks.size():
-		masked += int(masks[vertex].x > 0.5)
+		ok = false
+	for vertex in roundi(bones.size() / float(UnifiedCrowdBake.WEIGHTS)):
 		var total := 0.0
 		for k in UnifiedCrowdBake.WEIGHTS:
 			var bone := bones[vertex * UnifiedCrowdBake.WEIGHTS + k]
 			total += weights[vertex * UnifiedCrowdBake.WEIGHTS + k]
-			if bone != roundf(bone) or bone < 0 or bone >= clips.bone_count():
+			if not (bone == roundf(bone) and bone >= 0 and bone < clips.bone_count()):
 				_problem("vertex %d is bound to bone %f" % [vertex, bone], recipe.mesh_path)
 				return false
-		if absf(total - 1.0) > 0.0001:
+		if not (absf(total - 1.0) <= WEIGHT_SUM):
 			_problem("vertex %d's weights sum to %f" % [vertex, total], recipe.mesh_path)
 			return false
-	if not recipe.masked.is_empty() and masked == 0:
-		_problem("the crowd mesh lost its masked parts (no vertex masked)", recipe.mesh_path)
-	return true
+	return ok
 
 
-## A bake now (`fresh`) gives the committed matrices, bounds and tops, and the mesh's custom_aabb is its bounds.
+## Every vertex of `arrays` is masked as the material of the scene part it comes from says (`shaped`: the merged vertex
+## each one is, and its part): that material's index in the recipe's masked plus one, else 0.
+func _masks(shaped: UnifiedCrowdBake.Shape, arrays: Array) -> void:
+	var masks: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
+	for vertex in masks.size():
+		var part := shaped.part_of(shaped.source[vertex])
+		var material := part.node.get_active_material(part.surface)
+		var expected := 0
+		for index in recipe.masked.size():
+			var mask := recipe.masked[index]
+			if material == null:
+				break
+			var same_file := mask.resource_path != "" and mask.resource_path == material.resource_path
+			if mask == material or same_file:
+				expected = index + 1
+				break
+		if masks[vertex].x != expected:
+			_problem("crowd vertex %d is masked %d, its scene part (%s, surface %d) %d" % [vertex, masks[vertex].x,
+				part.node.name, part.surface, expected], recipe.mesh_path)
+			return
+
+
+## A bake now (`fresh`) gives the committed matrices, bounds and last poses' bounds, and the mesh's custom_aabb is its
+## bounds.
 func _fresh(fresh: UnifiedCrowdClips, mesh: ArrayMesh, clips: UnifiedCrowdClips) -> void:
+	if fresh.bones.get_size() != clips.bones.get_size():
+		_problem("a bake now is %s texels, the committed one %s (re-bake it)" % [fresh.bones.get_size(),
+			clips.bones.get_size()], recipe.bones_path)
+		return
 	var drift := 0.0
 	for y in clips.bones.get_height():
 		for x in clips.bones.get_width():
 			var a := clips.bones.get_pixel(x, y)
 			var b := fresh.bones.get_pixel(x, y)
 			drift = maxf(drift, maxf(maxf(absf(a.r - b.r), absf(a.g - b.g)), maxf(absf(a.b - b.b), absf(a.a - b.a))))
-	if drift > fresh_tolerance:
+			if is_nan(a.r + a.g + a.b + a.a):
+				drift = INF
+	if not (drift <= fresh_tolerance):
 		_problem("a bake now differs from the committed one by %f (re-bake it)" % drift, recipe.bones_path)
 	if not _near(fresh.bounds, clips.bounds) or not _near(clips.bounds, mesh.custom_aabb):
-		_problem("the bounds differ: a bake now %s, the table %s, the mesh %s" % [fresh.bounds, clips.bounds,
+		_problem("the bounds differ: a bake now %s, the table %s, the mesh %s (re-bake it)" % [fresh.bounds, clips.bounds,
 			mesh.custom_aabb], recipe.clips_path)
 	for clip in clips.clips.size():
-		if absf(fresh.tops[clip] - clips.tops[clip]) > fresh_tolerance:
-			_problem("%s: its last pose's top is %f, a bake now %f" % [clips.clips[clip], clips.tops[clip],
-				fresh.tops[clip]], recipe.clips_path)
-
-
-## Every vertex of `arrays` is masked as the scene mesh it comes from (`source`: its merged vertex) is.
-func _masks(merged: UnifiedCrowdBake.Merged, source: PackedInt32Array, arrays: Array) -> void:
-	var masks: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
-	for vertex in masks.size():
-		var masked := merged.masked[merged.mesh_of(source[vertex])]
-		if (masks[vertex].x > 0.5) != masked:
-			_problem("crowd vertex %d is %s, its scene mesh %s" % [vertex, "masked" if masks[vertex].x > 0.5 else
-				"not masked", "is" if masked else "isn't"], recipe.mesh_path)
-			return
+		if not _near(fresh.last_bounds[clip], clips.last_bounds[clip]):
+			_problem("%s: its last pose's bounds are %s, a bake now %s (re-bake it)" % [clips.clips[clip],
+				clips.last_bounds[clip], fresh.last_bounds[clip]], recipe.clips_path)
 
 
 ## The vertices parity samples: every SAMPLE_EVERY-th, and each bone's farthest from it (a blade's tip, a hand, a
@@ -315,12 +347,12 @@ class Problem:
 	var path: String
 
 
-## A mesh of the scene's character as parity reads it: its arrays once, and its vertices where the scene puts them as
-## posed now (its skin's own binds with every weight it has; a prop where the engine has placed its node).
-class SceneMesh:
+## A part of the scene's character as parity reads it: its surface's arrays once, and its vertices where the scene puts
+## them as posed now (its skin's own binds with every weight it has; a prop where the engine has placed its node).
+class ScenePart:
 	## The mesh's node.
 	var node: MeshInstance3D
-	## Its vertices, bones (bind indices) and weights, as the mesh holds them.
+	## Its vertices, bones (bind indices) and weights, as the surface holds them.
 	var positions: PackedVector3Array
 	var bones: PackedInt32Array
 	var weights: PackedFloat32Array
@@ -333,17 +365,17 @@ class SceneMesh:
 	## A prop's place in the character's space as posed.
 	var placed: Transform3D
 
-	func _init(mesh_node: MeshInstance3D, skeleton: Skeleton3D) -> void:
-		node = mesh_node
-		var arrays := mesh_node.mesh.surface_get_arrays(0)
+	func _init(part: UnifiedCrowdBake.Part, skeleton: Skeleton3D) -> void:
+		node = part.node
+		var arrays := node.mesh.surface_get_arrays(part.surface)
 		positions = arrays[Mesh.ARRAY_VERTEX]
-		if mesh_node.skin == null:
+		if node.skin == null:
 			return
 		bones = arrays[Mesh.ARRAY_BONES]
 		weights = arrays[Mesh.ARRAY_WEIGHTS]
 		per_vertex = roundi(float(bones.size()) / positions.size())
-		for bind in mesh_node.skin.get_bind_count():
-			bind_bones.append(UnifiedCrowdBake.bind_bone(skeleton, mesh_node.skin, bind))
+		for bind in node.skin.get_bind_count():
+			bind_bones.append(UnifiedCrowdBake.bind_bone(skeleton, node.skin, bind))
 
 	## Takes the pose: `poses` are the skeleton's bones in the character's space.
 	func pose(rig: Node3D, poses: Array[Transform3D]) -> void:

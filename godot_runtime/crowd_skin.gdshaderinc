@@ -1,6 +1,6 @@
-// unified's crowd skinning: what a crowd's spatial shader includes to pose a baked character (UnifiedCrowdBake) from
-// its bone texture, so a whole crowd is one MultiMesh, one draw call a pass, and its animation costs no node:
-//   #include "res://unified/tools_godot/crowd_skin.gdshaderinc"
+// unified's crowd skinning: what a crowd's spatial shader includes to pose a baked character (unified's crowd bake)
+// from its bone texture, so a whole crowd is one MultiMesh, one draw call a pass, and its animation costs no node:
+//   #include "res://unified/godot_runtime/crowd_skin.gdshaderinc"
 // Its one uniform is the bake's Image as a texture (UnifiedCrowdClips.apply sets it). The texture holds the clip table
 // in its header row (UnifiedCrowdClips says the layout), so the material needs nothing else, whatever the clips.
 //
@@ -8,11 +8,17 @@
 //   mat4 skin = unified_crowd_skinning(clip, seconds, CUSTOM0, CUSTOM1);
 //   VERTEX = (skin * vec4(VERTEX, 1.0)).xyz;
 //   NORMAL = normalize(mat3(skin) * NORMAL);
-// The bake's mesh carries each vertex's four bones in CUSTOM0 and their weights in CUSTOM1. A loop wraps, a one-shot
+// The bake's mesh carries each vertex's four bones in CUSTOM0 and their weights in CUSTOM1, and its masked parts'
+// UV2.x (a masked material's index plus one; 0 elsewhere) for the game's own look. A loop wraps, a one-shot
 // holds its first frame before its start and its last past its end, and two frames' matrices blend entry by entry:
 // UnifiedCrowdClips.matrices computes the same on the CPU.
 
 uniform sampler2D unified_crowd_bones : filter_nearest, repeat_disable;
+
+// The bone texture's texel at column `x`, row `row`.
+vec4 unified_crowd_texel(int x, int row) {
+	return texelFetch(unified_crowd_bones, ivec2(x, row), 0);
+}
 
 // The clips the texture holds.
 int unified_crowd_clip_count() {
@@ -48,9 +54,9 @@ mat4 unified_crowd_skinning(int clip, float seconds, vec4 bones, vec4 weights) {
 	for (int k = 0; k < 4; k++) {
 		if (weights[k] > 0.0) {
 			int x = int(bones[k] + 0.5) * 3;
-			r0 += weights[k] * mix(texelFetch(unified_crowd_bones, ivec2(x, row), 0), texelFetch(unified_crowd_bones, ivec2(x, row + 1), 0), blend);
-			r1 += weights[k] * mix(texelFetch(unified_crowd_bones, ivec2(x + 1, row), 0), texelFetch(unified_crowd_bones, ivec2(x + 1, row + 1), 0), blend);
-			r2 += weights[k] * mix(texelFetch(unified_crowd_bones, ivec2(x + 2, row), 0), texelFetch(unified_crowd_bones, ivec2(x + 2, row + 1), 0), blend);
+			r0 += weights[k] * mix(unified_crowd_texel(x, row), unified_crowd_texel(x, row + 1), blend);
+			r1 += weights[k] * mix(unified_crowd_texel(x + 1, row), unified_crowd_texel(x + 1, row + 1), blend);
+			r2 += weights[k] * mix(unified_crowd_texel(x + 2, row), unified_crowd_texel(x + 2, row + 1), blend);
 		}
 	}
 	// the rows of a 3x4 matrix, as a column-major mat4

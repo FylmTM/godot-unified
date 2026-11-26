@@ -1,4 +1,5 @@
-# unified's tool scripts (tools_godot), mirrored by uni for markers_check.gd, tool_check.gd and crowd_test.gd
+# unified's tool scripts and runtime files (tools_godot, godot_runtime), mirrored by uni for markers_check.gd,
+# tool_check.gd and crowd_test.gd
 /unified/
 # the UIDs Godot writes when uni imports this project (nothing here refers to a script by UID)
 *.uid

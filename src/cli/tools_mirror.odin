@@ -3,32 +3,40 @@ package cli
 import "core:os"
 import "core:strings"
 
-// unified's library tooling (src/godot/README.md, Library tooling): the tool base, validate, coop, the level
-// exporter and the navigation and crowd bakers, which every Godot project the CLI runs Godot on sees at
-// res://unified/tools_godot/. In a game repo that is the unified submodule itself: Godot scans it in place (every
-// other top-level directory of unified holds a .gdignore), so the game holds no copy. unified's own projects
+// unified's Godot-side GDScript (src/godot/README.md, Library tooling), which every Godot project the CLI runs Godot
+// on sees under res://unified/: tools_godot/ (the tool base, validate, coop, the level exporter and the navigation and
+// crowd bakers: never shipped) and godot_runtime/ (what a running game loads: the crowd's clip table and skinning
+// include, shipped in every export). In a game repo they are the unified submodule itself: Godot scans them in place
+// (every other top-level directory of unified holds a .gdignore), so the game holds no copy. unified's own projects
 // (examples/<game>, the test projects) are inside the checkout, not around it, so they get a git-ignored mirror at
-// that same path, refreshed before every Godot run (ensure_imported, write_extension_list): one path for scripts and
-// export filters everywhere.
+// those same paths, refreshed before every Godot run (ensure_imported, write_extension_list): one path for scripts
+// and export filters everywhere.
 TOOLS_SOURCE :: "tools_godot"
 TOOLS_DIR :: "unified/" + TOOLS_SOURCE
+RUNTIME_SOURCE :: "godot_runtime"
+RUNTIME_DIR :: "unified/" + RUNTIME_SOURCE
+// The directories mirrored, as unified names them.
+MIRRORED_SOURCES :: [?]string{TOOLS_SOURCE, RUNTIME_SOURCE}
 // What the mirror wrote last (path and SHA-256 per file), to tell an in-place edit from a stale copy.
 MIRROR_STAMP :: ".unified_mirror"
 // Where older unified mirrored the tools; a copy left there (its stamp says it is one) is deleted, else Godot sees
 // every class twice.
 LEGACY_TOOLS_DIR :: "addons/unified"
 
-// Brings <dir>/unified/tools_godot in line with unified's tools_godot (nothing to do in a game repo, where it is
-// the submodule's): new and changed files copied, removed ones deleted. A copy edited in place (the Godot editor saves
-// there) stops the run instead of being overwritten: the change belongs in tools_godot. A .uid file Godot wrote for a
-// new tool script is copied back, so it is committed. Deletes an older unified's mirror at addons/unified.
+// Brings <dir>/unified/tools_godot and <dir>/unified/godot_runtime in line with unified's (nothing to do in a game
+// repo, where they are the submodule's): new and changed files copied, removed ones deleted. A copy edited in place
+// (the Godot editor saves there) stops the run instead of being overwritten: the change belongs in unified's. A .uid
+// file Godot wrote for a new script is copied back, so it is committed. Deletes an older unified's mirror at
+// addons/unified.
 sync_tools :: proc(dir: string) {
 	if !os.is_file(join(dir, "project.godot")) do return
 	remove_legacy_tools(dir)
-	source := join(state.project.unified, TOOLS_SOURCE)
-	target := join(dir, TOOLS_DIR)
-	if path_key(target) != path_key(source) {
-		mirror_tree(source, target, TOOLS_SOURCE)
+	for source_name in MIRRORED_SOURCES {
+		source := join(state.project.unified, source_name)
+		target := join(dir, "unified", source_name)
+		if path_key(target) != path_key(source) {
+			mirror_tree(source, target, source_name)
+		}
 	}
 }
 

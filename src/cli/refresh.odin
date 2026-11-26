@@ -6,6 +6,7 @@
 package cli
 
 import "core:os"
+import "core:slice"
 import "core:strings"
 
 // The shims a game repo runs uni through: thin ones that run the submodule's own (template/repo/uni.tmpl and
@@ -71,10 +72,13 @@ GUIDE_REFERENCE :: "(GUIDE.md)"
 @(private = "file")
 GUIDE_NOW :: "(unified/docs/gameplay.md)"
 
-// The .gitignore line and export filter an older unified's mirror (res://addons/unified/) needed. Its filter becomes
-// the one for res://unified/, where the tool scripts are now.
+// The .gitignore line an older unified's mirror (res://addons/unified/) needed, and the export filters older unified
+// left out its tool scripts with: the mirror's, and the whole of res://unified/, which would leave out
+// godot_runtime/ (what a running game loads). Each becomes TOOLS_FILTER.
 @(private = "file")
-LEGACY_FILTER :: "addons/unified/*"
+LEGACY_FILTERS :: []string{"addons/unified/*", "unified/*"}
+// The export filter that leaves out unified's tool scripts and nothing else of it.
+TOOLS_FILTER :: TOOLS_DIR + "/*"
 
 @(private)
 Refresh_Opts :: struct {}
@@ -132,9 +136,10 @@ write_refresh :: proc(unified, root: string) {
 	if text, found := read_text(join(root, ".gitignore")); found {
 		if kept, changed := without_legacy_ignore(text); changed do write_text(join(root, ".gitignore"), kept)
 	}
-	if text, found := read_text(join(root, "export_presets.cfg")); found && strings.contains(text, LEGACY_FILTER) {
-		retargeted, _ := strings.replace_all(text, LEGACY_FILTER, "unified/*")
-		write_text(join(root, "export_presets.cfg"), retargeted)
+	if text, found := read_text(join(root, "export_presets.cfg")); found {
+		if retargeted, changed := retarget_export_filters(text); changed {
+			write_text(join(root, "export_presets.cfg"), retargeted)
+		}
 	}
 }
 
@@ -178,8 +183,17 @@ refresh_problems :: proc(unified, root: string) -> []string {
 			append(&problems, aprintf(".gitignore: ignores %s/, an older unified's mirror", LEGACY_TOOLS_DIR))
 		}
 	}
-	if text, found := read_text(join(root, "export_presets.cfg")); found && strings.contains(text, LEGACY_FILTER) {
-		append(&problems, aprintf("export_presets.cfg: excludes %s (unified/* now)", LEGACY_FILTER))
+	if text, found := read_text(join(root, "export_presets.cfg")); found {
+		if _, changed := retarget_export_filters(text); changed {
+			append(
+				&problems,
+				aprintf(
+					"export_presets.cfg: an exclude_filter names %s, not %s alone",
+					strings.join(LEGACY_FILTERS, " or "),
+					TOOLS_FILTER,
+				),
+			)
+		}
 	}
 	return problems[:]
 }
@@ -255,6 +269,34 @@ game_files :: proc(root: string) -> []string {
 rel_to :: proc(root, path: string) -> string {
 	relative := slashed(strings.trim_left(path[len(root):], "/\\"))
 	return relative
+}
+
+// `text` (an export_presets.cfg) with each exclude_filter's LEGACY_FILTERS replaced by TOOLS_FILTER (once, where the
+// filter doesn't name it already); `changed`: one was.
+retarget_export_filters :: proc(text: string) -> (retargeted: string, changed: bool) {
+	lines := strings.split(text, "\n")
+	for line, i in lines {
+		if !strings.has_prefix(line, "exclude_filter=\"") do continue
+		end := strings.last_index_byte(line, '"')
+		if end <= len("exclude_filter=\"") do continue
+		kept: [dynamic]string
+		has_tools, line_changed := false, false
+		value := line[len("exclude_filter=\""):end]
+		for filter in strings.split_iterator(&value, ",") {
+			trimmed := strings.trim_space(filter)
+			if slice.contains(LEGACY_FILTERS, trimmed) {
+				line_changed = true
+				continue
+			}
+			has_tools = has_tools || trimmed == TOOLS_FILTER
+			if trimmed != "" do append(&kept, trimmed)
+		}
+		if !line_changed do continue
+		if !has_tools do append(&kept, TOOLS_FILTER)
+		lines[i] = aprintf("exclude_filter=\"%s%s", strings.join(kept[:], ", "), line[end:])
+		changed = true
+	}
+	return strings.join(lines, "\n"), changed
 }
 
 // `text` (a .gitignore) without the addons/unified line and the comment right above it, when it names unified's tool

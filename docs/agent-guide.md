@@ -75,7 +75,8 @@ pinned unified:
   `ols.json` (the editor's language server); `uni doc cli STARTERS` says what each does.
 
 Nothing else of unified's is in the repo: the docs stay in `unified/docs/`, and Godot reads unified's tool scripts in
-place at `res://unified/tools_godot/` (every other directory of unified holds a `.gdignore`). After a submodule bump,
+place at `res://unified/tools_godot/`, and what a running game loads of unified at `res://unified/godot_runtime/`
+(every other directory of unified holds a `.gdignore`; an export ships `godot_runtime/` and leaves out the tools). After a submodule bump,
 `./uni refresh` brings the repo in line: the marked section, the `unified-*` skills (added, rewritten, or removed when
 unified no longer ships one), the shims (`uni` marked executable in the git index, which a Windows checkout drops),
 `odinfmt.json`, a missing starter (never one the game has), and what an older unified copied in (`GUIDE.md`,

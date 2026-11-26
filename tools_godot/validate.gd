@@ -9,13 +9,22 @@ extends UnifiedTool
 ## game/tools/validate.gd that extends this), 4. runs the main scene for N frames (default 30) to catch runtime errors.
 
 ## Also: no preload() in the scripts the play scene loads (`_play_scene()`: the main scene unless a game's validate says
-## otherwise), the play scene draws every MultiMesh kind of the game (EnumMultiView) once, and the project keeps
-## GDScript strictly typed. unified's library tooling (src/godot/README.md, Library tooling), at
+## otherwise), the play scene draws every MultiMesh kind of the game (EnumMultiView) once, the project keeps GDScript
+## strictly typed (and unified's own scripts compile under it), and nothing a running game loads names a tool script
+## (_check_runtime_without_tools). unified's library tooling (src/godot/README.md, Library tooling), at
 ## res://unified/tools_godot/ in every project.
 
 ## Left out of the walk besides hidden and .gdignore'd directories: unified (a game repo's submodule, or the mirror
 ## of its tool scripts in unified's own projects).
 const SKIP_DIRS: Array[String] = ["res://unified"]
+## unified's tool scripts, which an export leaves out (src/godot/README.md, Library tooling).
+const TOOLS_DIR := "res://unified/tools_godot/"
+## What a running game loads of unified, which every export ships.
+const RUNTIME_DIR := "res://unified/godot_runtime/"
+## A game's tool scripts, which its export leaves out too.
+const GAME_TOOLS_DIR := "res://game/tools/"
+## The files a running game may load whose text can name a script: scripts, shaders, scenes and text resources.
+const RUNTIME_EXTENSIONS: Array[String] = ["gd", "gdshader", "gdshaderinc", "tscn", "tres"]
 
 
 func _run() -> void:
@@ -23,6 +32,11 @@ func _run() -> void:
 	_walk("res://", files)
 	var t0 := Time.get_ticks_usec()
 	var scripts := 0
+	for f: String in _files_at(TOOLS_DIR) + _files_at(RUNTIME_DIR):
+		if f.ends_with(".gd"):
+			var library: Script = ResourceLoader.load(f)  # unified's own, under the game's strict typing
+			if library == null or not library.can_instantiate():
+				log_capture.add("script failed to compile", f)
 	for f in files:
 		if f.ends_with(".gd"):
 			scripts += 1
@@ -43,6 +57,7 @@ func _run() -> void:
 	_check_play_scene_preloads()
 	_check_multi_views()
 	_check_strict_typing()
+	_check_runtime_without_tools(files)
 	var errors_before := log_capture.errors.size()
 	var contract := _check_contract()
 	if contract == "ok" and log_capture.errors.size() > errors_before:
@@ -94,6 +109,56 @@ func _check_strict_typing() -> void:
 		if level != 2:
 			log_capture.add("%s is not an error (2) in project.godot: unified games are strictly typed" % setting,
 				"res://project.godot")
+
+
+## Nothing a running game loads names a tool script, by path or by class: the game's files outside game/tools/ and
+## unified's runtime files (godot_runtime/), in their code (comments aside). An export leaves the tool scripts out, so
+## such a file fails to load in the shipped game, never in the editor or a tool run.
+func _check_runtime_without_tools(files: Array[String]) -> void:
+	for named in tools_named_in(files + _files_at(RUNTIME_DIR)):
+		log_capture.add("a file a running game loads names the tool script %s, which an export leaves out" % named[1],
+			named[0])
+
+
+## Of `files`, those a running game loads (not under game/tools/; a script, shader, scene or text resource) whose code
+## (comments aside) names one of unified's tool scripts, by its path or its class: [file, the name] each.
+static func tools_named_in(files: Array[String]) -> Array[PackedStringArray]:
+	var classes: PackedStringArray = []
+	for tool_script in _files_at(TOOLS_DIR):
+		if tool_script.ends_with(".gd"):
+			for line in FileAccess.get_file_as_string(tool_script).split("\n"):
+				if line.begins_with("class_name "):
+					classes.append(line.trim_prefix("class_name ").strip_edges())
+	var named := RegEx.create_from_string("unified/tools_godot/|\\b(%s)\\b" % "|".join(classes))
+	var out: Array[PackedStringArray] = []
+	for f in files:
+		if f.begins_with(GAME_TOOLS_DIR) or f.get_extension() not in RUNTIME_EXTENSIONS:
+			continue
+		var found := named.search(_code_of(f))
+		if found != null:
+			out.append(PackedStringArray([f, found.get_string()]))
+	return out
+
+
+## A file's text without its comments (a script's `#`, a shader's `//` and `/* */`, a resource's `;`): what loads.
+static func _code_of(path: String) -> String:
+	var text := FileAccess.get_file_as_string(path)
+	match path.get_extension():
+		"gd":
+			return RegEx.create_from_string("#[^\n]*").sub(text, "", true)
+		"gdshader", "gdshaderinc":
+			return RegEx.create_from_string("//[^\n]*|/\\*[\\s\\S]*?\\*/").sub(text, "", true)
+		_:
+			return RegEx.create_from_string("(?m)^;[^\n]*").sub(text, "", true)
+
+
+## The files directly in `dir` (none when it is missing).
+static func _files_at(dir: String) -> Array[String]:
+	var out: Array[String] = []
+	if DirAccess.dir_exists_absolute(dir):
+		for f in DirAccess.get_files_at(dir):
+			out.append(dir.path_join(f))
+	return out
 
 
 ## Every MultiView member of the game (EnumMultiView) has one UnifiedMultiView in the play scene, under a

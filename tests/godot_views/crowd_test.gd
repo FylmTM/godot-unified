@@ -1,22 +1,33 @@
-# unified's crowd bake (tools_godot/crowd_*.gd, mirrored as res://unified/tools_godot/): run headless by
-# `uni test --suite godot-bindings`. A tiny character built here (three bones, a skinned body, a masked eye, a held
-# prop; a looping clip and a one-shot, both asymmetric in time) is baked: its texture's header is the clip table, every
-# baked frame's matrices are the skeleton's own pose at that frame, the CPU blend wraps a loop and holds a one-shot as
-# the rig does, the mesh is merged and masked as the recipe says. UnifiedCrowdCheck passes the bake from its files and
-# fails a stale one, and its parity fails each wrong bake: frames off by one, a clip's rows reversed, a loop baked as a
-# one-shot. A recipe the bake can't follow is refused with its reason.
+# unified's crowd bake (tools_godot/crowd_*.gd and godot_runtime/crowd_*, mirrored under res://unified/): run headless
+# by `uni test --suite godot-bindings`. A small character built here (three bones; a two-surface skinned body, one
+# surface of eight weights a vertex and one masked with more than four; a dense head; a masked eye; a hidden mesh; a
+# turned prop on a BoneAttachment3D; a looping clip, a one-shot and a snap, each asymmetric in time) is baked and
+# checked against its skeleton: the header, every frame, the CPU blend's wrap and hold, the mesh (parts, masks,
+# weights, normals, bounds), the lightening, the refusals, the hash of its inputs, and the check passing the bake and
+# failing each wrong one. The skinning include compiles in a spatial shader.
 # Prints one line per check and "CROWD TESTS: <n> failed"; a failure fails the run.
 extends UnifiedTool
 
 const DIR := "user://crowd_test/"
 const LOOP := &"Test/Loop"
 const ONCE := &"Test/Once"
+const SNAP := &"Test/Snap"
 ## How near a baked matrix must come to the skeleton's pose (float noise).
 const NEAR := 0.00001
 ## How much larger than the poses the bounds may be (a bone's box, turned with it, holds its vertices loosely).
-const LOOSE := 0.05
+const LOOSE := 0.25
+## The prop's turn on its attachment: its normals must turn with it.
+const PROP_TURN := Vector3(0, 0, 1)
+## How near a baked normal must come to the expected one (a mesh stores its normals compressed).
+const NORMALS := 0.01
+## The band's weights, six a vertex: the bake keeps the strongest four (the two it drops are too light for parity to
+## see) and makes them sum to 1.
+const BAND_WEIGHTS: Array[float] = [0.5, 0.3, 0.19, 0.008, 0.001, 0.001, 0, 0]
+const INCLUDE := "res://unified/godot_runtime/crowd_skin.gdshaderinc"
 
 var failures := 0
+var _glow: Material
+var _team: Material
 
 
 func check(what: String, ok: bool, detail: Variant = "") -> void:
@@ -27,20 +38,13 @@ func check(what: String, ok: bool, detail: Variant = "") -> void:
 
 func _run() -> void:
 	DirAccess.make_dir_recursive_absolute(DIR)
-	var glow := StandardMaterial3D.new()
-	glow.emission_enabled = true
-	ResourceSaver.save(glow, DIR + "glow.tres")
-	glow = load(DIR + "glow.tres")
-	var built := _rig(glow)
-	var packed := PackedScene.new()
-	packed.pack(built)
-	built.free()
-	ResourceSaver.save(packed, DIR + "rig.tscn")
-	var recipe := _recipe(glow)
+	_glow = _saved_material("glow", Color(1, 1, 0.2))
+	_team = _saved_material("team", Color(0.2, 0.3, 1))
+	_save_rig()
+	var recipe := _recipe()
+	_check_shader()
 	_refusals(recipe)
-
-	var rig := (load(recipe.scene) as PackedScene).instantiate() as Node3D
-	root.add_child(rig)
+	var rig := _instance(recipe)
 	var baked := UnifiedCrowdBake.bake_rig(rig, recipe)
 	check("the character bakes", baked.errors.is_empty(), baked.errors)
 	if baked.errors.is_empty():
@@ -48,20 +52,32 @@ func _run() -> void:
 		_check_frames(rig, baked.clips)
 		_check_blend(rig, baked.clips)
 		_check_mesh(rig, baked)
+		_check_lightening(rig, recipe, baked)
 		_check_parity(rig, recipe, baked)
-	root.remove_child(rig)
-	rig.free()
+		_check_corruptions(rig, recipe, baked)
+	_free(rig)
+	_check_worst_pair(recipe)
 	_check_files(recipe)
 	print("CROWD TESTS: %d failed" % failures)
 	if failures > 0:
 		fail("%d checks failed" % failures)
 
 
-## The character: a Node3D (placed and turned in the world, so the bake must work in its space), its Skeleton3D a
-## little above it holding three bones (root, arm, hand, a metre apart up the y axis), a 2 m column skinned across them,
-## a masked eye on the hand, a prop held by a BoneAttachment3D, and the AnimationPlayer with LOOP (1 s, at 30 a second)
-## and ONCE (0.5 s, at 60).
-func _rig(glow: Material) -> Node3D:
+func _saved_material(material_name: String, color: Color) -> Material:
+	var material := StandardMaterial3D.new()
+	material.albedo_color = color
+	var path := DIR + material_name + ".tres"
+	ResourceSaver.save(material, path)
+	return load(path)
+
+
+## The character, saved as DIR/rig.tscn: a Node3D (placed and turned in the world, so the bake must work in its
+## space), its Skeleton3D a little above it holding three bones (root, arm, hand, a metre apart up the y axis); the
+## body a 2 m column (eight weight slots, the two that weigh last) and a band round the arm (masked by `team`, six
+## weights a vertex); a dense head on the hand; a masked eye; a hidden box; a turned prop held by a BoneAttachment3D;
+## and the AnimationPlayer: LOOP (1 s, looping in its Animation), ONCE (0.5 s) and SNAP (1 s, still but for a 170°
+## turn between 0.4 and 0.5 s).
+func _save_rig() -> void:
 	var rig := Node3D.new()
 	rig.name = "Rig"
 	rig.transform = Transform3D(Basis(Vector3.UP, deg_to_rad(30)), Vector3(5, 0, 3))
@@ -77,21 +93,22 @@ func _rig(glow: Material) -> Node3D:
 		skeleton.set_bone_parent(index, parent)
 		skeleton.set_bone_rest(index, Transform3D(Basis.IDENTITY, offset))
 		skeleton.reset_bone_pose(index)
-	var skin := Skin.new()
-	for bone in skeleton.get_bone_count():
-		skin.add_named_bind(skeleton.get_bone_name(bone), skeleton.get_bone_global_rest(bone).affine_inverse())
-	var body := MeshInstance3D.new()
-	body.name = "Body"
-	body.mesh = _column()
-	body.skin = skin
-	body.skeleton = NodePath("..")
+	var skin := _skin(skeleton)
+	var body := _skinned("Body", _body(), skin)
 	_own(rig, skeleton, body)
-	var eye := MeshInstance3D.new()
-	eye.name = "Eye"
-	eye.mesh = _box(Vector3(0.1, 0.1, 0.1), Vector3(0.15, 1.9, 0), 2, glow)
-	eye.skin = skin
-	eye.skeleton = NodePath("..")
-	_own(rig, skeleton, eye)
+	var head := SphereMesh.new()
+	head.radius = 0.25
+	head.height = 0.5
+	head.radial_segments = 48
+	head.rings = 24
+	_own(rig, skeleton, _skinned("Head", _bound(head, Vector3(0, 2.3, 0), 2, null), skin))
+	var eye := SphereMesh.new()
+	eye.radius = 0.05
+	eye.height = 0.1
+	_own(rig, skeleton, _skinned("Eye", _bound(eye, Vector3(0.12, 2.35, 0.2), 2, _glow), skin))
+	var hidden := _skinned("Hidden", _bound(BoxMesh.new(), Vector3(0, 1, 0), 1, null), skin)
+	hidden.visible = false
+	_own(rig, skeleton, hidden)
 	var hand := BoneAttachment3D.new()
 	hand.name = "Hand"
 	hand.bone_name = "hand"
@@ -99,9 +116,9 @@ func _rig(glow: Material) -> Node3D:
 	var prop := MeshInstance3D.new()
 	prop.name = "Prop"
 	var prop_mesh := BoxMesh.new()
-	prop_mesh.size = Vector3(0.05, 0.6, 0.05)
+	prop_mesh.size = Vector3(0.05, 0.6, 0.1)
 	prop.mesh = prop_mesh
-	prop.position = Vector3(0.2, 0.3, 0)
+	prop.transform = Transform3D(Basis(PROP_TURN, deg_to_rad(90)), Vector3(0.2, 0.3, 0))
 	_own(rig, hand, prop)
 	var player := AnimationPlayer.new()
 	player.name = "Player"
@@ -110,14 +127,35 @@ func _rig(glow: Material) -> Node3D:
 		[[0.0, 0.0, 0.0], [0.25, 60.0, -45.0], [1.0, 0.0, 0.0]]))
 	library.add_animation(&"Once", _clip(0.5, Animation.LOOP_NONE,
 		[[0.0, 0.0, 0.0], [0.1, 70.0, 20.0], [0.5, 90.0, 30.0]]))
+	library.add_animation(&"Snap", _clip(1.0, Animation.LOOP_NONE,
+		[[0.0, 0.0, 0.0], [0.4, 0.0, 0.0], [0.5, 170.0, 0.0], [1.0, 170.0, 0.0]]))
 	player.add_animation_library(&"Test", library)
 	_own(rig, rig, player)
-	return rig
+	var packed := PackedScene.new()
+	packed.pack(rig)
+	rig.free()
+	ResourceSaver.save(packed, DIR + "rig.tscn")
 
 
 func _own(rig: Node, parent: Node, child: Node) -> void:
 	parent.add_child(child)
 	child.owner = rig
+
+
+func _skin(skeleton: Skeleton3D) -> Skin:
+	var skin := Skin.new()
+	for bone in skeleton.get_bone_count():
+		skin.add_named_bind(skeleton.get_bone_name(bone), skeleton.get_bone_global_rest(bone).affine_inverse())
+	return skin
+
+
+func _skinned(node_name: String, mesh: Mesh, skin: Skin) -> MeshInstance3D:
+	var node := MeshInstance3D.new()
+	node.name = node_name
+	node.mesh = mesh
+	node.skin = skin
+	node.skeleton = NodePath("..")
+	return node
 
 
 ## A clip turning the arm about z and the hand about x: keys of [seconds, arm degrees, hand degrees].
@@ -138,9 +176,10 @@ func _clip(clip_length: float, loop: Animation.LoopMode, keys: Array[Array]) -> 
 	return clip
 
 
-## The body: a 0.2 m by 2 m column from the skeleton up, its rings weighted between the bones around them, eight
-## weights a vertex.
-func _column() -> ArrayMesh:
+## The body: a 0.2 m by 2 m column from the skeleton up, its rings weighted between the bones around them (eight slots,
+## the two that weigh last: the bake keeps a vertex's four strongest, wherever they are); and a band round the arm,
+## drawn with `team`, six weights a vertex (the bake keeps four and makes them sum to 1).
+func _body() -> ArrayMesh:
 	var box := BoxMesh.new()
 	box.size = Vector3(0.2, 2, 0.2)
 	box.subdivide_height = 3
@@ -153,7 +192,6 @@ func _column() -> ArrayMesh:
 		var height := positions[vertex].y
 		var low := 0 if height < 1.0 else 1
 		var share := height - low
-		# eight slots, the two that weigh last: the bake keeps a vertex's four strongest, wherever they are
 		bones.append_array(PackedInt32Array([0, 0, 0, 0, 0, 0, low, low + 1]))
 		weights.append_array(PackedFloat32Array([0, 0, 0, 0, 0, 0, 1.0 - share, share]))
 	arrays[Mesh.ARRAY_VERTEX] = positions
@@ -161,14 +199,27 @@ func _column() -> ArrayMesh:
 	arrays[Mesh.ARRAY_WEIGHTS] = weights
 	var mesh := ArrayMesh.new()
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, Mesh.ARRAY_FLAG_USE_8_BONE_WEIGHTS)
+	var band := BoxMesh.new()
+	band.size = Vector3(0.3, 0.2, 0.3)
+	var band_arrays := band.get_mesh_arrays()
+	var band_positions: PackedVector3Array = band_arrays[Mesh.ARRAY_VERTEX]
+	var band_bones := PackedInt32Array()
+	var band_weights := PackedFloat32Array()
+	for vertex in band_positions.size():
+		band_positions[vertex].y += 1.2
+		band_bones.append_array(PackedInt32Array([1, 2, 0, 1, 2, 0, 0, 0]))
+		band_weights.append_array(PackedFloat32Array(BAND_WEIGHTS))
+	band_arrays[Mesh.ARRAY_VERTEX] = band_positions
+	band_arrays[Mesh.ARRAY_BONES] = band_bones
+	band_arrays[Mesh.ARRAY_WEIGHTS] = band_weights
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, band_arrays, [], {}, Mesh.ARRAY_FLAG_USE_8_BONE_WEIGHTS)
+	mesh.surface_set_material(1, _team)
 	return mesh
 
 
-## A box of `size` at `at`, bound to `bone` alone, drawn with `material`.
-func _box(size: Vector3, at: Vector3, bone: int, material: Material) -> ArrayMesh:
-	var box := BoxMesh.new()
-	box.size = size
-	var arrays := box.get_mesh_arrays()
+## `source`'s first surface at `at`, bound to `bone` alone, drawn with `material`.
+func _bound(source: PrimitiveMesh, at: Vector3, bone: int, material: Material) -> ArrayMesh:
+	var arrays := source.get_mesh_arrays()
 	var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
 	var bones := PackedInt32Array()
 	var weights := PackedFloat32Array()
@@ -185,40 +236,157 @@ func _box(size: Vector3, at: Vector3, bone: int, material: Material) -> ArrayMes
 	return mesh
 
 
-func _recipe(glow: Material) -> UnifiedCrowdRecipe:
+func _recipe() -> UnifiedCrowdRecipe:
 	var recipe := UnifiedCrowdRecipe.new()
 	recipe.scene = DIR + "rig.tscn"
-	recipe.clips = [LOOP, ONCE]
-	recipe.loops = [LOOP]
-	recipe.rates = [30.0, 60.0]
-	recipe.masked = [glow]
+	recipe.clips = [UnifiedCrowdClip.new(LOOP, 30.0), UnifiedCrowdClip.new(ONCE, 60.0, UnifiedCrowdClip.Loop.HOLDS)]
+	recipe.masked = [_glow, _team]
 	recipe.mesh_path = DIR + "mesh.res"
 	recipe.bones_path = DIR + "bones.res"
 	recipe.clips_path = DIR + "clips.tres"
 	return recipe
 
 
-## A recipe the character can't follow is refused, saying why.
+func _instance(recipe: UnifiedCrowdRecipe) -> Node3D:
+	var rig := (load(recipe.scene) as PackedScene).instantiate() as Node3D
+	root.add_child(rig)
+	return rig
+
+
+func _free(rig: Node3D) -> void:
+	root.remove_child(rig)
+	rig.free()
+
+
+## The include compiles in a spatial shader (Godot's headless renderer parses it: an error is an ERROR line, which
+## fails the suite) and declares the uniform UnifiedCrowdClips.apply sets; apply makes the texture once.
+func _check_shader() -> void:
+	var shader := Shader.new()
+	shader.code = ("shader_type spatial;\n#include \"%s\"\nvoid vertex() {\n" % INCLUDE
+		+ "\tmat4 skin = unified_crowd_skinning(1, 0.25, CUSTOM0, CUSTOM1);\n"
+		+ "\tVERTEX = (skin * vec4(VERTEX, 1.0)).xyz;\n\tNORMAL = normalize(mat3(skin) * NORMAL);\n"
+		+ "\tfloat seconds = unified_crowd_clip_length(0) + float(unified_crowd_clip_count());\n}\n")
+	var uniforms := shader.get_shader_uniform_list()
+	var declared := uniforms.any(func(uniform: Dictionary) -> bool:
+		return uniform["name"] == String(UnifiedCrowdClips.BONES_PARAMETER) and uniform["type"] == TYPE_OBJECT)
+	check("a spatial shader with the include compiles, its one uniform the bone texture", uniforms.size() == 1
+		and declared, uniforms)
+	check("the include declares `uniform sampler2D <BONES_PARAMETER>`", FileAccess.get_file_as_string(INCLUDE).contains(
+		"uniform sampler2D %s " % UnifiedCrowdClips.BONES_PARAMETER))
+
+
+## A recipe the character can't follow is refused, saying why; nothing of a refused bake is saved.
 func _refusals(recipe: UnifiedCrowdRecipe) -> void:
-	var odd := recipe.duplicate() as UnifiedCrowdRecipe
-	odd.rates = [30.0, 25.0]
-	var refused := UnifiedCrowdBake.bake(odd, root)
-	check("a clip that is no whole number of frames at its rate is refused",
-		refused.errors.size() == 1 and refused.errors[0].contains("Once") and refused.mesh == null, refused.errors)
-	check("a refused bake saves nothing", refused.save() == ERR_INVALID_DATA)
-	var missing := recipe.duplicate() as UnifiedCrowdRecipe
-	missing.clips = [LOOP, &"Test/Gone"]
-	refused = UnifiedCrowdBake.bake(missing, root)
-	check("a clip the AnimationPlayer lacks is refused", refused.errors.size() == 1
-		and refused.errors[0].contains("Test/Gone"), refused.errors)
+	var cases: Array[Array] = []  # [what, recipe, words the error has]
+	var odd := _copy_recipe(recipe)
+	odd.clips[1].rate = 25.0
+	cases.append(["a clip that is no whole number of frames at its rate", odd, "not a whole number"])
+	var missing := _copy_recipe(recipe)
+	missing.clips[1] = UnifiedCrowdClip.new(&"Test/Gone")
+	cases.append(["a clip the AnimationPlayer lacks (a name's typo)", missing, "no clip Test/Gone"])
+	var still := _copy_recipe(recipe)
+	still.clips[0].rate = 0.0
+	cases.append(["a rate of 0", still, "less than a frame"])
+	var slow := _copy_recipe(recipe)
+	slow.clips[1].rate = 0.5
+	cases.append(["a clip shorter than half a frame", slow, "less than a frame"])
+	var held := _copy_recipe(recipe)
+	held.clips[0].loop = UnifiedCrowdClip.Loop.HOLDS
+	cases.append(["a recipe holding a clip its Animation loops", held, "its Animation that it loops"])
+	var twice := _copy_recipe(recipe)
+	twice.clips.append(UnifiedCrowdClip.new(LOOP))
+	cases.append(["a clip twice", twice, "twice"])
+	var nowhere := _copy_recipe(recipe)
+	nowhere.bones_path = ""
+	cases.append(["no path for the bake", nowhere, "not where to keep"])
+	var unused := _copy_recipe(recipe)
+	unused.masked = [_glow, _team, StandardMaterial3D.new()]
+	cases.append(["a masked material no part is drawn with", unused, "draws no part"])
+	var tall := _copy_recipe(recipe)
+	tall.clips[0].rate = 20000.0
+	cases.append(["a texture over 16384 rows", tall, "over 16384"])
+	for case in cases:
+		var what: String = case[0]
+		var refused: UnifiedCrowdRecipe = case[1]
+		var words: String = case[2]
+		var baked := UnifiedCrowdBake.bake(refused, root)
+		check("refused: " + what, baked.mesh == null and "\n".join(baked.errors).contains(words), baked.errors)
+	var failed := UnifiedCrowdBake.bake(odd, root)
+	check("a refused bake saves nothing", failed.save() == ERR_INVALID_DATA)
+	# a character's own faults, each added to an instance of the good one
+	var faults: Array[Array] = [
+		["a vertex no weight moves", "has no weight"],
+		["a surface without normals", "no normals"],
+		["two skins binding a bone apart", "two skins bind arm apart"],
+	]
+	for index in faults.size():
+		var rig := _instance(recipe)
+		var skeleton := rig.get_node("Skeleton") as Skeleton3D
+		var mesh := _bound(BoxMesh.new(), Vector3.ZERO, 1, null)
+		var skin := _skin(skeleton)
+		if index == 0:
+			var arrays := mesh.surface_get_arrays(0)
+			var weights := PackedFloat32Array()
+			weights.resize((arrays[Mesh.ARRAY_WEIGHTS] as PackedFloat32Array).size())
+			arrays[Mesh.ARRAY_WEIGHTS] = weights
+			mesh = ArrayMesh.new()
+			mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		elif index == 1:
+			var arrays := mesh.surface_get_arrays(0)
+			arrays[Mesh.ARRAY_NORMAL] = null
+			arrays[Mesh.ARRAY_TANGENT] = null
+			mesh = ArrayMesh.new()
+			mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays)
+		else:
+			skin.set_bind_pose(1, Transform3D(Basis.IDENTITY, Vector3(0, -2, 0)))
+		skeleton.add_child(_skinned("Fault", mesh, skin))
+		var errors := UnifiedCrowdBake.validate(rig, recipe)
+		check("refused: " + (faults[index][0] as String), "\n".join(errors).contains(faults[index][1] as String), errors)
+		_free(rig)
+	_check_wide_refused()
 
 
-## The header is the clip table: the clips and bones, then each clip's first row, frames, rate and looping.
+## A skeleton of more bones than a texture row holds (three texels each) is refused.
+func _check_wide_refused() -> void:
+	var rig := Node3D.new()
+	var skeleton := Skeleton3D.new()
+	skeleton.name = "Skeleton"
+	rig.add_child(skeleton)
+	for bone in int(UnifiedCrowdClips.MAX_SIDE / float(UnifiedCrowdClips.TEXELS_PER_BONE)) + 1:
+		skeleton.add_bone("b%d" % bone)
+	skeleton.add_child(_skinned("Body", _bound(BoxMesh.new(), Vector3.ZERO, 0, null), _skin(skeleton)))
+	var player := AnimationPlayer.new()
+	var library := AnimationLibrary.new()
+	var clip := Animation.new()
+	clip.length = 1.0
+	library.add_animation(&"Still", clip)
+	player.add_animation_library(&"Test", library)
+	rig.add_child(player)
+	root.add_child(rig)
+	var recipe := _recipe()
+	recipe.masked = []
+	recipe.clips = [UnifiedCrowdClip.new(&"Test/Still")]
+	var errors := UnifiedCrowdBake.validate(rig, recipe)
+	check("refused: a texture over 16384 texels wide", "\n".join(errors).contains("over 16384"), errors)
+	_free(rig)
+
+
+func _copy_recipe(recipe: UnifiedCrowdRecipe) -> UnifiedCrowdRecipe:
+	var copy := recipe.duplicate() as UnifiedCrowdRecipe
+	copy.clips = []
+	for clip in recipe.clips:
+		copy.clips.append(UnifiedCrowdClip.new(clip.animation, clip.rate, clip.loop))
+	copy.masked = recipe.masked.duplicate()
+	return copy
+
+
+## The header is the clip table: the clips and bones, then each clip's first row, frames, rate and looping (the loop's
+## from its Animation, the one-shot's said).
 func _check_table(clips: UnifiedCrowdClips) -> void:
 	check("the table names the clips in the recipe's order", clips.clips == [LOOP, ONCE], clips.clips)
 	check("the header counts the clips and the skeleton's bones",
 		clips.bones.get_pixel(0, 0) == Color(2, 3, 0, 0), clips.bones.get_pixel(0, 0))
-	check("the loop: rows from the header's end, 31 frames at 30, looping", clips.first_row(0) == 1
+	check("the loop: rows from the header's end, 31 frames at 30, looping as its Animation does", clips.first_row(0) == 1
 		and clips.frame_count(0) == 31 and clips.rate(0) == 30.0 and clips.loops(0), clips.bones.get_pixel(1, 0))
 	check("the one-shot: its rows after the loop's, 31 frames at 60, holding", clips.first_row(1) == 32
 		and clips.frame_count(1) == 31 and clips.rate(1) == 60.0 and not clips.loops(1), clips.bones.get_pixel(2, 0))
@@ -226,6 +394,13 @@ func _check_table(clips: UnifiedCrowdClips) -> void:
 		clips.bones.get_width() == 9 and clips.bones.get_height() == 63, clips.bones.get_size())
 	check("lengths as baked", is_equal_approx(clips.length(0), 1.0) and is_equal_approx(clips.length(1), 0.5))
 	check("a clip's index by name", clips.index(ONCE) == 1 and clips.index(&"Test/Gone") == -1)
+	var first := ShaderMaterial.new()
+	var second := ShaderMaterial.new()
+	clips.apply(first)
+	clips.apply(second)
+	var texture: Variant = first.get_shader_parameter(UnifiedCrowdClips.BONES_PARAMETER)
+	check("apply sets one texture, made once", texture is ImageTexture
+		and texture == second.get_shader_parameter(UnifiedCrowdClips.BONES_PARAMETER))
 
 
 ## Every baked frame's matrices are the skeleton's pose at that frame's time: each bone's pose in the character's space
@@ -283,51 +458,117 @@ func _check_blend(rig: Node3D, clips: UnifiedCrowdClips) -> void:
 		_apart(between, UnifiedCrowdClips.blend(a, b, 0.25)) <= NEAR)
 
 
-## The mesh: one surface in the crowd format, every visible mesh merged, the eye masked and nothing else, weights
-## summing to 1, the prop bound to the hand, its bounds every pose's.
+## The mesh: one surface in the crowd format, every visible surface merged (the hidden mesh not), each masked by its
+## material's index plus one, weights summing to 1 (the band's six made four), the prop bound to the hand with its
+## normals turned as it is, the bounds every pose's and each clip's last pose's.
 func _check_mesh(rig: Node3D, baked: UnifiedCrowdBake.Baked) -> void:
 	var mesh := baked.mesh
 	var arrays := mesh.surface_get_arrays(0)
 	var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
 	var masks: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
 	var bones: PackedFloat32Array = arrays[Mesh.ARRAY_CUSTOM0]
 	var weights: PackedFloat32Array = arrays[Mesh.ARRAY_CUSTOM1]
-	var sources := 0
-	for mesh_node in UnifiedCrowdBake.meshes_of(rig):
-		sources += (mesh_node.mesh.surface_get_arrays(0)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
-	check("one surface, bones and weights in CUSTOM0 and CUSTOM1",
-		mesh.get_surface_count() == 1 and mesh.surface_get_format(0) & UnifiedCrowdBake.format() == UnifiedCrowdBake.format())
-	check("every vertex of the body, the eye and the prop", positions.size() == sources, [positions.size(), sources])
-	var masked := 0
+	var counts: Dictionary[String, int] = {}  # per visible part, its vertices
+	var order: Array[String] = []
+	for mesh_node: Node in rig.find_children("*", "MeshInstance3D", true, false):
+		var shown := mesh_node as MeshInstance3D
+		if not shown.is_visible_in_tree():
+			continue
+		for surface in shown.mesh.get_surface_count():
+			var part := "%s/%d" % [shown.name, surface]
+			counts[part] = (shown.mesh.surface_get_arrays(surface)[Mesh.ARRAY_VERTEX] as PackedVector3Array).size()
+			order.append(part)
+	var total := 0
+	for part in order:
+		total += counts[part]
+	check("one surface, bones and weights in CUSTOM0 and CUSTOM1", mesh.get_surface_count() == 1
+		and mesh.surface_get_format(0) & Mesh.ARRAY_FORMAT_CUSTOM0 != 0
+		and mesh.surface_get_format(0) & Mesh.ARRAY_FORMAT_CUSTOM1 != 0)
+	check("every visible surface merged, the hidden mesh left out", positions.size() == total and order == [
+		"Body/0", "Body/1", "Head/0", "Eye/0", "Prop/0"], [positions.size(), total, order])
+	var expected_masks: Dictionary[String, float] = {"Body/0": 0, "Body/1": 2, "Head/0": 0, "Eye/0": 1, "Prop/0": 0}
+	var base := 0
+	var masked_right := true
+	for part in order:
+		for vertex in range(base, base + counts[part]):
+			masked_right = masked_right and masks[vertex].x == expected_masks[part]
+		base += counts[part]
+	check("each part masked by its material's index plus one (the eye 1, the band 2, the rest 0)", masked_right)
 	var whole := true
 	for vertex in positions.size():
-		masked += int(masks[vertex].x == 1.0)
-		var total := 0.0
+		var sum := 0.0
 		for k in UnifiedCrowdBake.WEIGHTS:
-			total += weights[vertex * UnifiedCrowdBake.WEIGHTS + k]
-		whole = whole and absf(total - 1.0) < 0.0001
-	check("the eye's 24 vertices are masked, no other", masked == 24, masked)
-	check("every vertex's weights sum to 1", whole)
-	var last := positions.size() - 1  # the prop is merged last: its bone the hand, weight 1
+			sum += weights[vertex * UnifiedCrowdBake.WEIGHTS + k]
+		whole = whole and absf(sum - 1.0) < 0.0001
+	check("every vertex's weights sum to 1 (the band's strongest four of six)", whole)
+	var band := counts["Body/0"]
+	check("the band keeps its strongest four, made to sum to 1", is_equal_approx(weights[band * 4], 0.5 / 0.998)
+		and bones[band * 4] == 1.0, weights.slice(band * 4, band * 4 + 4))
+	var prop := positions.size() - counts["Prop/0"]
 	check("the prop is bound to the hand alone",
-		bones[last * UnifiedCrowdBake.WEIGHTS] == 2.0 and weights[last * UnifiedCrowdBake.WEIGHTS] == 1.0)
+		bones[prop * UnifiedCrowdBake.WEIGHTS] == 2.0 and weights[prop * UnifiedCrowdBake.WEIGHTS] == 1.0)
+	var skeleton := rig.get_node("Skeleton") as Skeleton3D
+	var prop_node := rig.get_node("Skeleton/Hand/Prop") as MeshInstance3D
+	var at_rest := skeleton.get_bone_global_rest(skeleton.find_bone("hand")) * prop_node.transform
+	var prop_normals: PackedVector3Array = prop_node.mesh.surface_get_arrays(0)[Mesh.ARRAY_NORMAL]
+	var shaped := UnifiedCrowdBake.shape(rig, baked.recipe)  # the merged vertex each baked one is (first-use order)
+	var prop_base := shaped.parts[shaped.parts.size() - 1].base
+	var turned := true
+	for vertex in range(prop, positions.size()):
+		var expected := (at_rest.basis * prop_normals[shaped.source[vertex] - prop_base]).normalized()
+		turned = turned and normals[vertex].distance_to(expected) <= NORMALS
+	check("the prop's normals turn as it is turned", turned)
 	check("the mesh's bounds are the clips' (culling)", mesh.custom_aabb == baked.clips.bounds)
 	var bounds := baked.clips.bounds.grow(NEAR)
 	var outside := ""
 	var top := -INF
+	var last_right := true
 	for clip in baked.clips.clips.size():
 		for frame in baked.clips.frame_count(clip):
 			var matrices := baked.clips.matrices(clip, frame / baked.clips.rate(clip))
+			var pose_box := AABB()
 			for vertex in positions.size():
 				var at := UnifiedCrowdBake.skin_vertex(arrays, vertex, matrices)
+				pose_box = AABB(at, Vector3.ZERO) if vertex == 0 else pose_box.expand(at)
 				top = maxf(top, at.y)
 				if outside == "" and not bounds.has_point(at):
 					outside = "%s frame %d vertex %d at %s" % [baked.clips.clips[clip], frame, vertex, at]
+			if frame == baked.clips.frame_count(clip) - 1:
+				var last := baked.clips.last_bounds[clip]
+				last_right = last_right and last.position.distance_to(pose_box.position) <= NEAR and last.end.distance_to(
+					pose_box.end) <= NEAR
 	check("every vertex in every baked pose is within the bounds", outside == "", outside)
 	check("the bounds reach about as high as the highest pose", absf(baked.clips.bounds.end.y - top) <= LOOSE,
 		[baked.clips.bounds.end.y, top])
-	check("a top per clip, the one-shot's last pose lower than the upright loop's",
-		baked.clips.tops.size() == 2 and baked.clips.tops[1] < baked.clips.tops[0], baked.clips.tops)
+	check("each clip's last bounds are its last pose's, every vertex", last_right, baked.clips.last_bounds)
+
+
+## Lightened (a max_error over 0): the dense head loses triangles, the masked eye and band keep every one, and the
+## lighter bake still passes the check.
+func _check_lightening(rig: Node3D, recipe: UnifiedCrowdRecipe, baked: UnifiedCrowdBake.Baked) -> void:
+	var light := _copy_recipe(recipe)
+	light.max_error = 0.3
+	var lighter := UnifiedCrowdBake.bake_rig(rig, light)
+	var whole := _triangles_by_mask(baked.mesh)
+	var lightened := _triangles_by_mask(lighter.mesh)
+	check("lightened: the unmasked parts lose triangles", lightened[0] < whole[0] * 0.6, [whole, lightened])
+	check("lightened: the masked parts keep every triangle", lightened[1] == whole[1] and lightened[2] == whole[2],
+		[whole, lightened])
+	var lighter_check := UnifiedCrowdCheck.new(light)
+	check("the check passes the lightened bake", lighter_check.check_bake(rig, lighter.mesh, lighter.clips),
+		_messages(lighter_check))
+
+
+## Per mask (0, 1, 2), the triangles of `mesh` whose first vertex has it.
+func _triangles_by_mask(mesh: ArrayMesh) -> Array[int]:
+	var arrays := mesh.surface_get_arrays(0)
+	var indices: PackedInt32Array = arrays[Mesh.ARRAY_INDEX]
+	var masks: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
+	var out: Array[int] = [0, 0, 0]
+	for triangle in range(0, indices.size(), 3):
+		out[int(masks[indices[triangle]].x)] += 1
+	return out
 
 
 ## Parity passes the bake, and fails each wrong one: every frame a row late (off by one), the loop's rows reversed (a
@@ -337,8 +578,7 @@ func _check_parity(rig: Node3D, recipe: UnifiedCrowdRecipe, baked: UnifiedCrowdB
 	check("the checks pass the bake", good.check_bake(rig, baked.mesh, baked.clips), _messages(good))
 	check("parity: the baked crowd stands where the skeleton puts it", good.worst <= UnifiedCrowdCheck.PARITY,
 		"%f at %s" % [good.worst, good.worst_at])
-	var merged := UnifiedCrowdBake.merge(rig, recipe)
-	var lightened := UnifiedCrowdBake.lighten(merged, recipe.max_error)
+	var shaped := UnifiedCrowdBake.shape(rig, recipe)
 	var arrays := baked.mesh.surface_get_arrays(0)
 	var wrongs: Dictionary[String, UnifiedCrowdClips] = {}
 	var late := _copy(baked.clips)
@@ -349,8 +589,9 @@ func _check_parity(rig: Node3D, recipe: UnifiedCrowdRecipe, baked: UnifiedCrowdB
 	wrongs["frames off by one"] = late
 	var reversed := _copy(baked.clips)
 	var frames := reversed.frame_count(0)
+	var first_row := reversed.first_row(0)
 	for frame in frames:
-		_copy_row(baked.clips.bones, reversed.first_row(0) + frame, reversed.bones, reversed.first_row(0) + frames - 1 - frame)
+		_copy_row(baked.clips.bones, first_row + frame, reversed.bones, first_row + frames - 1 - frame)
 	wrongs["a clip's rows reversed"] = reversed
 	var held := _copy(baked.clips)
 	var header := held.bones.get_pixel(1, 0)
@@ -358,13 +599,72 @@ func _check_parity(rig: Node3D, recipe: UnifiedCrowdRecipe, baked: UnifiedCrowdB
 	wrongs["a loop baked as a one-shot"] = held
 	for what in wrongs:
 		var wrong := UnifiedCrowdCheck.new(recipe)
-		var apart := wrong.parity(rig, merged, lightened.source, arrays, wrongs[what])
+		var apart := wrong.parity(rig, shaped, arrays, wrongs[what])
 		check("parity fails a wrong bake: " + what, apart > UnifiedCrowdCheck.PARITY and wrong.problems.size() == 1,
 			"%f at %s" % [apart, wrong.worst_at])
 
 
-## From files: a bake saved where the recipe says passes the full check, and the check calls it stale once the recipe
-## changes.
+## Each of the check's parts catches what only it sees: a matrix off by less than parity notices (fresh), a UV moved
+## (the mesh against a bake now), a vertex masked as no part is (the masks against the scene's materials), a mesh over
+## the recipe's triangles (its rules).
+func _check_corruptions(rig: Node3D, recipe: UnifiedCrowdRecipe, baked: UnifiedCrowdBake.Baked) -> void:
+	var nudged := _copy(baked.clips)
+	var texel := nudged.bones.get_pixel(3, 5)
+	nudged.bones.set_pixel(3, 5, Color(texel.r, texel.g, texel.b, texel.a + 0.0005))
+	_expect_problem("a matrix nudged half a millimetre", recipe, rig, baked.mesh, nudged, "a bake now differs")
+	var arrays := baked.mesh.surface_get_arrays(0)
+	var uvs: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV]
+	uvs[0] += Vector2(0.01, 0)
+	arrays[Mesh.ARRAY_TEX_UV] = uvs
+	_expect_problem("a UV moved", recipe, rig, _mesh_of(arrays, baked.mesh), baked.clips, "UVs are not a bake's now")
+	arrays = baked.mesh.surface_get_arrays(0)
+	var masks: PackedVector2Array = arrays[Mesh.ARRAY_TEX_UV2]
+	var eye := masks.find(Vector2(1, 0))
+	masks[eye] = Vector2.ZERO
+	arrays[Mesh.ARRAY_TEX_UV2] = masks
+	_expect_problem("an eye vertex unmasked", recipe, rig, _mesh_of(arrays, baked.mesh), baked.clips,
+		"crowd vertex %d is masked 0, its scene part (Eye, surface 0) 1" % eye)
+	var capped := _copy_recipe(recipe)
+	capped.max_triangles = 10
+	_expect_problem("a mesh over the recipe's triangles", capped, rig, baked.mesh, baked.clips, "over 10")
+
+
+func _expect_problem(what: String, recipe: UnifiedCrowdRecipe, rig: Node3D, mesh: ArrayMesh, clips: UnifiedCrowdClips,
+		words: String) -> void:
+	var crowd_check := UnifiedCrowdCheck.new(recipe)
+	crowd_check.check_bake(rig, mesh, clips)
+	var messages := _messages(crowd_check)
+	check("the check fails " + what, messages.any(func(message: String) -> bool: return message.contains(words)),
+		messages)
+
+
+func _mesh_of(arrays: Array, like: ArrayMesh) -> ArrayMesh:
+	var mesh := ArrayMesh.new()
+	var custom := ((Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM0_SHIFT)
+		| (Mesh.ARRAY_CUSTOM_RGBA_FLOAT << Mesh.ARRAY_FORMAT_CUSTOM1_SHIFT))
+	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, custom)
+	mesh.custom_aabb = like.custom_aabb
+	return mesh
+
+
+## The pair of frames a bone turns fastest between is where parity looks: SNAP at 10 frames a second stands still but
+## for a 170° turn between two frames, which no other time parity poses shows.
+func _check_worst_pair(recipe: UnifiedCrowdRecipe) -> void:
+	var snap := _copy_recipe(recipe)
+	snap.clips = [UnifiedCrowdClip.new(SNAP, 10.0)]
+	var rig := _instance(snap)
+	var baked := UnifiedCrowdBake.bake_rig(rig, snap)
+	var crowd_check := UnifiedCrowdCheck.new(snap)
+	var shaped := UnifiedCrowdBake.shape(rig, snap)
+	var apart := crowd_check.parity(rig, shaped, baked.mesh.surface_get_arrays(0), baked.clips)
+	check("parity finds the snap between two frames", apart > UnifiedCrowdCheck.PARITY
+		and crowd_check.worst_at.contains("Test/Snap at 0.4"), "%f at %s" % [apart, crowd_check.worst_at])
+	_free(rig)
+
+
+## From files: a bake saved where the recipe says passes the full check. Its inputs are the bake's version, Godot's,
+## the recipe and the character's files; a changed recipe or a scene edited on disk makes the bake stale, a material's
+## colour or a texture does not.
 func _check_files(recipe: UnifiedCrowdRecipe) -> void:
 	var baked := UnifiedCrowdBake.bake(recipe, root)
 	check("the bake from the scene file is stamped with its inputs' hash",
@@ -374,14 +674,37 @@ func _check_files(recipe: UnifiedCrowdRecipe) -> void:
 	check("the saved table refers to the saved bones", saved != null and saved.bones.resource_path == recipe.bones_path)
 	var fresh := UnifiedCrowdCheck.new(recipe)
 	check("the full check passes the saved bake", fresh.check(root), _messages(fresh))
-	var changed := recipe.duplicate() as UnifiedCrowdRecipe
-	changed.masked = []
-	var stale := UnifiedCrowdCheck.new(changed)
-	stale.check(root)
-	check("a changed recipe makes the bake stale",
-		_messages(stale).any(func(message: String) -> bool: return message.contains("stale")), _messages(stale))
-	check("the include's path is where tools_godot is mirrored",
-		FileAccess.file_exists("res://unified/tools_godot/crowd_skin.gdshaderinc"))
+	var inputs := UnifiedCrowdBake.inputs(recipe)
+	var files: Dictionary = inputs["files"]
+	check("the inputs: the bake's version, Godot's, the recipe", inputs["bake"] == UnifiedCrowdBake.BAKE_VERSION
+		and inputs["godot"] == Engine.get_version_info()["string"] and inputs["recipe"] == recipe.describe(), inputs)
+	check("the inputs: the scene's bytes, not its materials'", files.has(recipe.scene)
+		and files[recipe.scene] == FileAccess.get_sha256(recipe.scene) and not files.has(DIR + "glow.tres"), files)
+	var changed := _copy_recipe(recipe)
+	changed.max_error = 0.1
+	_expect_stale("a changed recipe makes the bake stale", changed, true)
+	var before := UnifiedCrowdBake.inputs_hash(recipe)
+	(_glow as StandardMaterial3D).albedo_color = Color(0, 1, 0)
+	ResourceSaver.save(_glow, _glow.resource_path)
+	check("a material's colour leaves the bake fresh", UnifiedCrowdBake.inputs_hash(recipe) == before)
+	var scene_text := FileAccess.get_file_as_string(recipe.scene)
+	_write(recipe.scene, scene_text + "; edited\n")
+	_expect_stale("the scene edited on disk makes the bake stale", recipe, true)
+	_write(recipe.scene, scene_text)
+	_expect_stale("the scene as it was is fresh again", recipe, false)
+
+
+func _write(path: String, text: String) -> void:
+	var file := FileAccess.open(path, FileAccess.WRITE)
+	file.store_string(text)
+	file.close()
+
+
+func _expect_stale(what: String, recipe: UnifiedCrowdRecipe, stale: bool) -> void:
+	var crowd_check := UnifiedCrowdCheck.new(recipe)
+	crowd_check.check(root)
+	var said := _messages(crowd_check).any(func(message: String) -> bool: return message.contains("stale"))
+	check(what, said == stale, _messages(crowd_check))
 
 
 func _skeleton_matrices(rig: Node3D, skeleton: Skeleton3D) -> Array[Transform3D]:
