@@ -188,9 +188,10 @@ check_sha256 :: proc(path, want, what: string) {
 }
 
 // Every file under `dir` (recursively) whose name ends with `suffix`, skipping hidden entries (.godot, .out, .git);
-// sorted.
+// sorted. Each path is spelled under `dir` as given (walk_spelling), so `path[len(dir) + 1:]` is its relative path.
 find_files :: proc(dir, suffix: string) -> []string {
 	out: [dynamic]string
+	walked := walk_spelling(dir)
 	walker := os.walker_create(dir)
 	defer os.walker_destroy(&walker)
 	for info in os.walker_walk(&walker) {
@@ -201,9 +202,28 @@ find_files :: proc(dir, suffix: string) -> []string {
 			continue
 		}
 		if info.type == .Regular && strings.has_suffix(info.name, suffix) {
-			append(&out, strings.clone(info.fullpath))
+			append(&out, respelled(dir, walked, info.fullpath))
 		}
 	}
 	slice.sort(out[:]) // the same order on every OS
 	return out[:]
+}
+
+// How os.walker spells the paths under `dir`: the folder's resolved path on macOS and Linux (/var/x walks as
+// /private/var/x on macOS), `dir` itself on Windows. respelled puts a walked path back under `dir`.
+walk_spelling :: proc(dir: string) -> string {
+	folder, err := os.open(dir)
+	if err != nil {
+		return dir
+	}
+	defer os.close(folder)
+	return strings.clone(os.name(folder))
+}
+
+// `path`, a walker's under `walked` (walk_spelling(dir)), spelled under `dir` instead (a clone).
+respelled :: proc(dir, walked, path: string) -> string {
+	if walked == dir || !strings.has_prefix(path, walked) {
+		return strings.clone(path)
+	}
+	return join(dir, strings.trim_left(path[len(walked):], "/"))
 }

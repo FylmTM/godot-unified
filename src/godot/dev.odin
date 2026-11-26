@@ -405,7 +405,8 @@ when DEVUI {
 			context.temp_allocator,
 		)
 		stamp, _ = strings.replace_all(stamp, "T", "_", context.temp_allocator)
-		if os.make_directory_all(root) != nil do return
+		// an existing folder is an error on Linux and macOS, none on Windows
+		if os.make_directory_all(root) != nil && !os.is_directory(root) do return
 		// a folder this save made itself, not one it found free: another instance of the game (uni coop's windows share
 		// the user folder) may save in the same second
 		dir := fmt.tprintf("%s/%s", root, stamp)
