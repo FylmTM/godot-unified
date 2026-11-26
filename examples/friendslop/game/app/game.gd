@@ -254,7 +254,7 @@ func _on_status_changed(new_status: UnifiedSession.Status, detail: String) -> vo
 			if flow == Flow.CONNECTING:
 				_hide_connect_overlay()
 				flow = Flow.PLAYING
-				get_tree().change_scene_to_file(PLAY_SCENE)
+				_change_to_play_scene()
 			elif flow == Flow.PLAYING:
 				_hide_connect_overlay()  # back from reconnecting or recovering
 		UnifiedSession.STATUS_RECONNECTING, UnifiedSession.STATUS_RECOVERING:
@@ -270,6 +270,15 @@ func _on_status_changed(new_status: UnifiedSession.Status, detail: String) -> vo
 		UnifiedSession.STATUS_DISCONNECTED:
 			if flow != Flow.MENU:
 				leave_to_menu("Disconnected" + (": " + detail if detail != "" else "."))
+
+
+## Opens the play scene, taking the menu's background load of it when there is one (menu.gd, _preload_play_scene):
+## a load() of the scene while that load is still running can leave Godot's request unreleased, a leak at exit.
+func _change_to_play_scene() -> void:
+	if ResourceLoader.load_threaded_get_status(PLAY_SCENE) == ResourceLoader.THREAD_LOAD_INVALID_RESOURCE:
+		get_tree().change_scene_to_file(PLAY_SCENE)
+	else:
+		get_tree().change_scene_to_packed(ResourceLoader.load_threaded_get(PLAY_SCENE) as PackedScene)
 
 
 ## A session the menus didn't start (the command line's session flags, a tool) is the app's too: the flow follows it.
