@@ -106,8 +106,8 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
   Leave, a duplicate) is never read.
 - **Connections** are few (`MAX_PEERS`), so a stranger's cost is bounded. A datagram whose header doesn't validate
   never gets one (or a transport peer number). One only the peer opened gets a few datagrams from us until we send it
-  a message, not keepalives: a forged source's datagram is never multiplied. The relay drops a connection whose Hello
-  it has not seated soon after it opened (`HELLO_WAIT_US`), so forged sources hold no connection a real Hello needs.
+  a message, not keepalives: a forged source's datagram is never multiplied. The relay drops a connection that said no
+  Hello soon after it opened (`HELLO_WAIT_US`), so forged sources hold no connection a real Hello needs.
 
 ## Relay
 
@@ -133,6 +133,12 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
 - **Hello** asks for a slot or any free one (slots go lowest-free). The relay checks `compat` (`sim.compat_of`), finds
   who it is (Members) and, once the session runs, someone who can send the joiner a snapshot; `Reject_Reason` names
   each refusal. A Hello while the session ends gets End, not silence.
+- **Refusals get through.** A connection refused, at its Hello or once in (`Desynced`, `Too_Far_Behind`,
+  `Bad_Snapshot`), holds no seat but stays open, reading nothing but a Leave, until its Reject is acked
+  (`REJECT_LINGER_US` at most), the channel resending it meanwhile: dropped at once, a lost Reject would leave the
+  client to take the end of its connection for a lost one and come back. If the Reject never gets through, the
+  refused members' resuming Hello (that program, back with its sim) gets the same refusal; a Hello that resumes
+  nothing is a new try (a restarted game), a late joiner like any other.
 - **One new player per tick.** A tick carries at most one join record and its Profile: the start players become
   present on ticks 1, 2, ... in slot order, and a late join takes the first tick at or after its join tick on which no
   other seat joins (four start players are all present by tick 4). So the widest tick has one join, a Profile of up to

@@ -947,6 +947,84 @@ a_client_that_stops_acking_is_reanchored_then_refused :: proc(t: ^testing.T) {
 	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
 }
 
+// A host, one honest remote and a client that keeps diverging (with a token: the relay knows it when it comes back),
+// whose path from the relay loses everything for `cut_us` from the moment the relay refuses it (Desynced, after
+// RESYNCS_MAX resyncs), then 15 s more. Returns the refused client, the channel peer its refused connection had, and
+// whether the relay ever seated it again after the refusal.
+@(private = "file")
+refuse_through_a_cut :: proc(session: ^Net, cut_us: i64) -> (broken: ^Client, peer: netcode.Peer, back_in: bool) {
+	net_make(session, 0, 1)
+	link, netsim := net_link(session, live = true)
+	broken = net_join(session, game = diverging_game(), token = {1 = 9}, link = link)
+	peer = -1
+	refused_at := i64(0)
+	end := session.clock.now + 60_000_000
+	for session.clock.now < end && (refused_at == 0 || session.clock.now - refused_at < cut_us + 15_000_000) {
+		now := session.clock.now
+		seated := broken.slot >= 0 ? session.relay.seats[broken.slot].conn : -1
+		wake := netcode.host_step(session.host, now)
+		after := broken.slot >= 0 ? session.relay.seats[broken.slot].conn : -1
+		if refused_at == 0 && seated >= 0 && after < 0 {
+			// Refused in this step: the Reject is on its way, and lost with everything after it until the cut ends.
+			refused_at, peer = now, seated
+			netcode.netsim_set(netsim, {}, {name = "cut", loss = 1000})
+		} else if refused_at != 0 && now - refused_at >= cut_us {
+			netcode.netsim_set(netsim, {}, {})
+		}
+		if refused_at != 0 && now > refused_at {
+			taken := 0
+			for &seat in session.relay.seats {
+				if seat.conn >= 0 do taken += 1
+			}
+			back_in ||= taken > 2 // the host's own player and the honest remote are the only ones in
+		}
+		for client in session.clients {
+			wake = min(wake, netcode.client_step(client, now))
+		}
+		session.clock.now = clamp(wake, now + 1, end)
+	}
+	return
+}
+
+// The relay refuses a client that is in (Desynced) while its path loses everything: the refused connection lingers and
+// its Reject is resent until it gets through (REJECT_LINGER_US), so the client fails with the reason instead of taking
+// the end of its connection for a lost one and coming back in. Once the Reject is acked the connection is dropped.
+@(test)
+a_refusal_lost_on_the_way_is_resent :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
+	session: Net
+	defer net_destroy(&session)
+	broken, peer, back_in := refuse_through_a_cut(&session, netcode.REJECT_LINGER_US / 2)
+	testing.expect(t, peer >= 0, "refused")
+	testing.expect_value(t, broken.status, netcode.Status.Disconnected)
+	testing.expect_value(t, broken.detail, "diverged from the other players and could not be resynced")
+	testing.expect_value(t, broken.stats.reconnects, 0)
+	testing.expect(t, !back_in, "seated again after its refusal")
+	testing.expect(t, !netcode.channel_connected(session.relay.ch, peer), "the refused connection was dropped")
+	testing.expect_value(t, session.clients[0].status, netcode.Status.Connected)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
+}
+
+// The same with a cut longer than the refused connection lingers: the relay drops it with the Reject never through,
+// the client times out and comes back resuming, and that Hello gets the same refusal (its member is marked refused),
+// so it fails with the reason and is never seated again.
+@(test)
+a_refused_client_resuming_is_refused_again :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
+	session: Net
+	defer net_destroy(&session)
+	broken, peer, back_in := refuse_through_a_cut(&session, netcode.REJECT_LINGER_US + 2_000_000)
+	testing.expect(t, peer >= 0, "refused")
+	testing.expect_value(t, broken.status, netcode.Status.Disconnected)
+	testing.expect_value(t, broken.detail, "diverged from the other players and could not be resynced")
+	testing.expect_value(t, broken.stats.reconnects, 1)
+	testing.expect(t, !back_in, "seated again after its refusal")
+	testing.expect_value(t, session.clients[0].status, netcode.Status.Connected)
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
+}
+
 // A relay time far off (a mangled first Finalized, a relay that is no relay) throws the client's clock far ahead, but
 // a step still does a ring's worth of work: it samples at most OWN_RING inputs, not one per tick of the jump (2^50 µs
 // would be ~7e10 ticks at 64 Hz).
