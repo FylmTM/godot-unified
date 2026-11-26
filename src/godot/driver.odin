@@ -526,12 +526,17 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		// the dev UI can force it on for every kind; a replay has none: every tick it shows is final
 		if (api.remote_verified || DEVUI) && request.mode != .Replay {
 			kinds := make([dynamic]u8, context.temp_allocator)
-			data_stride := 0 // the largest data of a kind it may sample: every kind's in a dev UI build
+			// the largest data of its kinds; of every kind for the dev UI's switch (widened when it is first on)
+			data_stride, forced_stride := 0, 0
 			for policy, kind in api.view_policy {
-				if policy.remote == .Verified do append(&kinds, u8(kind))
-				if policy.remote == .Verified || DEVUI do data_stride = max(data_stride, api.view_types[kind].size)
+				size := api.view_types[kind].size
+				if policy.remote == .Verified {
+					append(&kinds, u8(kind))
+					data_stride = max(data_stride, size)
+				}
+				if DEVUI do forced_stride = max(forced_stride, size)
 			}
-			driver.sampler = verified_sampler_new(kinds[:], data_stride)
+			driver.sampler = verified_sampler_new(kinds[:], data_stride, forced_stride)
 		}
 		input_sample_reset()
 		triple_init(&driver.states)
@@ -981,7 +986,7 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 			append(
 				&problems,
 				fmt.aprintf(
-					"the view kind %v is %d bytes, past VIEW_DATA_MAX (%d): its remote views' samples on the verified timeline would hold too much",
+					"the view kind %v is %d bytes, past VIEW_DATA_MAX (%d), which bounds what the verified timeline's samples hold: split its data into smaller kinds, or move bulk data to MultiMesh instances (MultiView) or session data (Glue.data)",
 					variant.id,
 					variant.size,
 					VIEW_DATA_MAX,

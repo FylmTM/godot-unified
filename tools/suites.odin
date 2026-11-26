@@ -19,7 +19,7 @@ private_suites :: proc() -> []cli.Suite {
 		},
 		{
 			name = "godot-bindings",
-			summary = "tests/godot and tests/godot_views (views, the level marker order, the session lifecycle, UnifiedTool, the crowd bake) under headless Godot",
+			summary = "tests/godot and tests/godot_views (views, the level marker order, the session lifecycle, UnifiedTool, the crowd bake, the forced verified timeline) under headless Godot",
 			run = suite_godot_bindings,
 			beside = true,
 			prepare = proc(_: []cli.Game, _: cli.Test_Options) {
@@ -185,8 +185,8 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 // --- godot-bindings ---------------------------------------------------------------------------------------------
 
 // The Godot-side library tests: the gdext bindings (tests/godot), unified:godot's views and send_command's refusals,
-// Unified.level_markers against the level exporter, its session lifecycle, UnifiedTool's helpers and the crowd bake
-// (tests/godot_views),
+// Unified.level_markers against the level exporter, its session lifecycle, UnifiedTool's helpers, the crowd bake and
+// the dev UI's switch forcing the verified timeline (tests/godot_views),
 // each an extension plus a test script under headless Godot.
 // `expected`: error lines the test provokes on purpose (they must show up, and nothing else may). A passing run says
 // nothing (--verbose: each PASS line); a failing one prints that Godot run's whole output.
@@ -232,6 +232,15 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 		{views, cli.join(views, "ext"), "views_test", "markers_check.gd", "MARKERS TESTS", nil, nil},
 		{views, cli.join(views, "ext"), "views_test", "tool_check.gd", "TOOL TESTS", nil, nil},
 		{views, cli.join(views, "ext"), "views_test", "crowd_test.gd", "CROWD TESTS", nil, nil},
+		{
+			views,
+			cli.join(views, "ext"),
+			"views_test",
+			"verified_check.gd",
+			"VERIFIED TESTS",
+			nil,
+			cli.strs("--verified-players"),
+		},
 	}
 	// The session check mostly waits on purpose (goodbyes, timers), so its sections run in groups, each in a Godot
 	// process of its own beside the rest, so no group outlasts views' test.gd.

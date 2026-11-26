@@ -1182,3 +1182,24 @@ a_view_kind_past_the_data_bound_is_an_install_problem :: proc(t: ^testing.T) {
 	problems := godot.install_problems(&toy.GAME, glue)
 	testing.expectf(t, len(problems) == 1 && strings.contains(problems[0], "View_Huge"), "%v", problems)
 }
+
+@(private = "file")
+View_At_Bound :: struct {
+	bytes: [godot.VIEW_DATA_MAX]u8,
+}
+
+@(private = "file")
+Bound_View :: union {
+	View_At_Bound,
+}
+
+// A view kind of exactly VIEW_DATA_MAX installs.
+@(test)
+a_view_kind_at_the_data_bound_installs :: proc(t: ^testing.T) {
+	glue := godot.Glue(toy.Game, Bound_View, MultiView) {
+		sample_input = GLUE.sample_input,
+		fill_frame = proc(_: ^godot.Frame(toy.Game, Bound_View, MultiView)) {},
+	}
+	problems := godot.install_problems(&toy.GAME, glue)
+	testing.expectf(t, len(problems) == 0, "%v", problems)
+}

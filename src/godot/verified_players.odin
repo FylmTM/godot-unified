@@ -16,10 +16,12 @@
 // release build has no sampler: a nil check.
 //
 // A sample's view data rides with it, whatever its kind's size: every holder of samples (the fills' ring, the queue to
-// the main thread, each view's history) keeps their data in one flat buffer beside them, a slot per sample, each slot
-// the largest view data of the kinds that can be sampled (`.Verified` ones; every kind in a dev UI build, which can
-// force them all). They are allocated when the session starts (a view's history when the view first plays late), never
-// on a step. A session holds VERIFIED_RING × VERIFIED_PER_TICK + VERIFIED_QUEUE slots and each remote view
+// the main thread, each view's history) keeps their data in one flat buffer beside them, a slot per sample. The
+// session's slots are as wide as its largest `.Verified` kind, allocated when it starts; the dev UI's switch, which
+// forces every kind, widens them to the largest kind once, the first time it is on (the session thread's ring at once,
+// the queue with a second buffer the samples queued from then on use: the main thread may be reading the first). A
+// view's history has slots of its own kind's size, allocated when the view first plays late. Nothing allocates on a
+// step otherwise. A session holds VERIFIED_RING × VERIFIED_PER_TICK + VERIFIED_QUEUE slots and each remote view
 // VERIFIED_HISTORY more, so install refuses a kind whose data is past VIEW_DATA_MAX.
 package godot
 
@@ -44,10 +46,10 @@ VERIFIED_WINDOW_TICKS :: 12
 VERIFIED_RATE_MAX :: 0.1
 // The samples a view keeps on the main thread.
 VERIFIED_HISTORY :: 32
-// The most bytes of view data a scene view kind has (its View_ struct's size): install refuses a kind past it. Samples
-// on the verified timeline carry their data in slots of the largest sampled kind's size (the file's header), so this
-// bounds what a session holds for them: (VERIFIED_RING × VERIFIED_PER_TICK + VERIFIED_QUEUE) slots, 20 MiB at this
-// bound, and VERIFIED_HISTORY slots (128 KiB) per remote view.
+// The most bytes of view data a scene view kind has (its View_ struct's size; this much is accepted): install refuses
+// a kind past it. Samples on the verified timeline carry their data in slots of the largest sampled kind's size (the
+// file's header), so this bounds what a session holds for them: VERIFIED_RING × VERIFIED_PER_TICK + VERIFIED_QUEUE
+// slots, 20 MiB at this bound, and VERIFIED_HISTORY slots (128 KiB) per remote view.
 VIEW_DATA_MAX :: 4096
 
 @(private)
@@ -66,6 +68,7 @@ Verified_Sample :: struct {
 	data_size: u16, // bytes of view data (0: none)
 	key:       u64,
 	pose:      Pose,
+	wide:      bool, // queued, its data is in the sampler's wide buffer (`queue_wide`)
 	data_type: typeid, // nil: no data
 }
 
@@ -211,19 +214,25 @@ verified_generations: u64
 // The session thread's side, one per live session (when some kind asks for it, and in dev UI builds): the views of
 // recent predicted fills by tick, and the samples for the main thread (`queue`: verified_sampler_peek, queue_pop).
 Verified_Sampler :: struct {
-	generation:  u64,
-	kinds:       [256]bool, // the view kinds whose policy is .Verified
-	any_kind:    bool, // some is
-	data_stride: int, // the most bytes of view data a sample carries: a slot of `ring_data` and of `queue_data`
-	ring:        [VERIFIED_RING]Verified_Fill,
-	queue:       Queue(Verified_Sample, VERIFIED_QUEUE), // full: dropped (the main thread takes them every frame)
-	ring_data:   []u8, // the fills' samples' view data, a slot per sample (VERIFIED_RING × VERIFIED_PER_TICK)
-	queue_data:  []u8, // the queued samples' view data, a slot per queue index (VERIFIED_QUEUE)
-	was_on:      bool,
-	overflow:    bool, // atomic: a fill had more views than VERIFIED_PER_TICK (the main thread reports it once)
-	dropped:     bool, // atomic: the queue was full (the main thread reports it once)
-	out:         Frame_Data, // a final tick's fill (the driver's)
-	poses:       Pose_Memory, // left empty: a final tick's fill remembers no poses
+	generation:    u64,
+	kinds:         [256]bool, // the view kinds whose policy is .Verified
+	any_kind:      bool, // some is
+	forced_stride: int, // the slot width the dev UI's switch needs: the largest kind's data (0: no switch)
+	ring:          [VERIFIED_RING]Verified_Fill,
+	ring_stride:   int, // the most bytes of view data a fill's sample carries: a slot of `ring_data`
+	ring_data:     []u8, // the fills' samples' view data, a slot per sample (VERIFIED_RING × VERIFIED_PER_TICK)
+	queue:         Queue(Verified_Sample, VERIFIED_QUEUE), // full: dropped (the main thread takes them every frame)
+	queue_stride:  int, // a slot of `queue_data`
+	queue_data:    []u8, // the queued samples' view data, a slot per queue index (VERIFIED_QUEUE)
+	// The same at forced_stride (nil until the dev UI's switch is first on), for every sample queued from then on
+	// (Verified_Sample.wide): the main thread may still be reading `queue_data`.
+	queue_wide:    []u8,
+	was_on:        bool,
+	forced:        bool, // the dev UI's switch as verified_sampler_live last read it: the slots are wide when on
+	overflow:      bool, // atomic: a fill had more views than VERIFIED_PER_TICK (the main thread reports it once)
+	dropped:       bool, // atomic: the queue was full (the main thread reports it once)
+	out:           Frame_Data, // a final tick's fill (the driver's)
+	poses:         Pose_Memory, // left empty: a final tick's fill remembers no poses
 }
 
 // The views one fill pushed.
@@ -236,25 +245,42 @@ Verified_Fill :: struct {
 	data:    []u8, // its samples' view data, a slot each: its part of the sampler's ring_data
 }
 
-// A new sampler for a session whose `.Verified` view kinds are `kinds` (none: only the dev UI's switch turns it on),
-// whose samples carry up to `data_stride` bytes of view data: the largest View_ struct of the kinds it may sample
-// (every kind's in a dev UI build), at most VIEW_DATA_MAX. It allocates (VERIFIED_RING × VERIFIED_PER_TICK +
-// VERIFIED_QUEUE) × `data_stride` bytes for their data; verified_sampler_free frees it.
-verified_sampler_new :: proc(kinds: []u8, data_stride: int) -> ^Verified_Sampler {
-	assert(data_stride >= 0 && data_stride <= VIEW_DATA_MAX)
+// A new sampler for a session whose `.Verified` view kinds are `kinds` (none: only the dev UI's switch turns it on).
+// Its samples carry up to `data_stride` bytes of view data, the largest View_ struct of those kinds, and up to
+// `forced_stride` once the dev UI's switch forces every kind: the largest of them all (0: a build without the switch).
+// Both are at most VIEW_DATA_MAX. It allocates (VERIFIED_RING × VERIFIED_PER_TICK + VERIFIED_QUEUE) × `data_stride`
+// bytes for their data, and that many at `forced_stride` the first time the switch is on (verified_sampler_live);
+// verified_sampler_free frees it.
+verified_sampler_new :: proc(kinds: []u8, data_stride: int, forced_stride := 0) -> ^Verified_Sampler {
+	assert(data_stride >= 0 && data_stride <= VIEW_DATA_MAX && forced_stride <= VIEW_DATA_MAX)
 	sampler := new(Verified_Sampler)
 	sampler.generation = sync.atomic_add(&verified_generations, 1) + 1
 	for kind in kinds do sampler.kinds[kind] = true
 	sampler.any_kind = len(kinds) > 0
-	sampler.data_stride = data_stride
-	if data_stride > 0 {
-		sampler.ring_data = make([]u8, VERIFIED_RING * VERIFIED_PER_TICK * data_stride)
-		sampler.queue_data = make([]u8, VERIFIED_QUEUE * data_stride)
-	}
-	fill_bytes := VERIFIED_PER_TICK * data_stride
-	for &fill, i in sampler.ring do fill.data = sampler.ring_data[i * fill_bytes:][:fill_bytes]
+	sampler.forced_stride = forced_stride
+	sampler.queue_stride = data_stride
+	if data_stride > 0 do sampler.queue_data = make([]u8, VERIFIED_QUEUE * data_stride)
+	verified_ring_resize(sampler, data_stride)
 	sampler.out.alloc = context.allocator
 	return sampler
+}
+
+// The fills' slots at `stride` bytes (session thread): a new ring_data, the kept samples' data moved into it.
+@(private)
+verified_ring_resize :: proc(sampler: ^Verified_Sampler, stride: int) {
+	old, old_stride := sampler.ring_data, sampler.ring_stride
+	sampler.ring_data = stride > 0 ? make([]u8, VERIFIED_RING * VERIFIED_PER_TICK * stride) : nil
+	sampler.ring_stride = stride
+	fill_bytes := VERIFIED_PER_TICK * stride
+	for &fill, i in sampler.ring {
+		previous := fill.data
+		fill.data = sampler.ring_data[i * fill_bytes:][:fill_bytes]
+		for sample, j in fill.samples[:fill.count] {
+			size := int(sample.data_size)
+			copy(fill.data[j * stride:][:size], previous[j * old_stride:][:size])
+		}
+	}
+	delete(old)
 }
 
 // Frees a sampler (nil: none) when its session is torn down.
@@ -265,6 +291,7 @@ verified_sampler_free :: proc(sampler: ^Verified_Sampler) {
 	delete(sampler.out.data, sampler.out.alloc)
 	delete(sampler.ring_data)
 	delete(sampler.queue_data)
+	delete(sampler.queue_wide)
 	free(sampler)
 }
 
@@ -274,17 +301,25 @@ verified_sampler_peek :: proc(sampler: ^Verified_Sampler) -> (sample: ^Verified_
 	index, queued := queue_oldest_index(&sampler.queue)
 	if !queued do return
 	sample = &sampler.queue.items[index]
-	if sample.data_size > 0 do data = sampler.queue_data[index * sampler.data_stride:][:sample.data_size]
-	return
+	if sample.data_size == 0 do return
+	// a wide sample was pushed after queue_wide was set (the push releases what this index acquired)
+	buffer, stride := sampler.queue_data, sampler.queue_stride
+	if sample.wide do buffer, stride = sampler.queue_wide, sampler.forced_stride
+	return sample, buffer[index * stride:][:sample.data_size]
 }
 
 // Whether sampling is on: some kind asks for it, or the dev UI forces it. Switched off, the ring is dropped: the
-// rollbacks while off were not seen.
+// rollbacks while off were not seen. Forced the first time, the slots widen to forced_stride.
 @(private)
 verified_sampler_live :: proc(sampler: ^Verified_Sampler) -> bool {
-	on := sampler.any_kind || sync.atomic_load(&verified_players_on)
+	forced := sync.atomic_load(&verified_players_on)
+	on := sampler.any_kind || forced
 	if !on && sampler.was_on do for &fill in sampler.ring do fill.valid = false
-	sampler.was_on = on
+	sampler.was_on, sampler.forced = on, forced
+	if forced && sampler.ring_stride < sampler.forced_stride {
+		verified_ring_resize(sampler, sampler.forced_stride)
+		sampler.queue_wide = make([]u8, VERIFIED_QUEUE * sampler.forced_stride)
+	}
 	return on
 }
 
@@ -292,10 +327,9 @@ verified_sampler_live :: proc(sampler: ^Verified_Sampler) -> bool {
 // local player's too: a view whose player changes needs its samples), every player view when forced.
 @(private)
 verified_collect :: proc(sampler: ^Verified_Sampler, out: ^Frame_Data, tick: u32, fill: ^Verified_Fill) {
-	forced := sync.atomic_load(&verified_players_on)
 	fill.tick, fill.valid, fill.count = tick, true, 0
 	for &item in out.views[:out.n_views] {
-		if item.player == 0 || !(forced || sampler.kinds[item.kind]) do continue
+		if item.player == 0 || !(sampler.forced || sampler.kinds[item.kind]) do continue
 		if fill.count == VERIFIED_PER_TICK {
 			sync.atomic_store(&sampler.overflow, true)
 			break
@@ -309,9 +343,13 @@ verified_collect :: proc(sampler: ^Verified_Sampler, out: ^Frame_Data, tick: u32
 			pose = {item.pos, item.rot},
 		}
 		if item.data_type != nil && item.data_size > 0 {
-			// fits: the stride is the largest data of the kinds sampled (verified_sampler_new)
+			// the slot is the largest data of the kinds sampled (verified_sampler_new, verified_sampler_live)
+			assert(
+				int(item.data_size) <= sampler.ring_stride,
+				"a view's data is wider than the verified samples' slot",
+			)
 			sample.data_type, sample.data_size = item.data_type, u16(item.data_size)
-			slot := fill.data[fill.count * sampler.data_stride:][:item.data_size]
+			slot := fill.data[fill.count * sampler.ring_stride:][:item.data_size]
 			copy(slot, out.data[item.data_offset:][:item.data_size])
 		}
 		fill.count += 1
@@ -342,14 +380,18 @@ verified_sampler_verified :: proc(sampler: ^Verified_Sampler, tick: u32, final: 
 	} else if !fill.valid || fill.tick != tick {
 		return
 	}
-	stride := sampler.data_stride
-	for sample, i in fill.samples[:fill.count] {
+	wide := sampler.queue_wide != nil // from then on every sample's data goes there
+	buffer, stride := sampler.queue_data, sampler.queue_stride
+	if wide do buffer, stride = sampler.queue_wide, sampler.forced_stride
+	for &sample, i in fill.samples[:fill.count] {
 		index, room := queue_next_index(&sampler.queue)
 		if !room {
 			sync.atomic_store(&sampler.dropped, true)
 			break
 		}
-		copy(sampler.queue_data[index * stride:][:sample.data_size], fill.data[i * stride:][:sample.data_size])
+		size := int(sample.data_size)
+		copy(buffer[index * stride:][:size], fill.data[i * sampler.ring_stride:][:size])
+		sample.wide = wide
 		queue_push(&sampler.queue, sample)
 	}
 }
@@ -437,7 +479,7 @@ verified_players_sync :: proc(frame: ^Frame_Data, fresh: bool, dt_s: f32) {
 		if sample == nil do break
 		if VP.wanted { 	// (else a sample of before it was switched off)
 			id := View_Id{sample.kind, sample.key}
-			if id not_in VP.histories do VP.histories[id] = verified_history_make(sampler.data_stride)
+			if id not_in VP.histories do VP.histories[id] = verified_history_make(api.view_types[sample.kind].size)
 			history := &VP.histories[id]
 			if history.count > 0 {
 				newest := verified_history_at(history, history.count - 1).tick

@@ -131,14 +131,14 @@ such a view is never cancelled.
 **Remote players on the verified timeline** (`Remote.Verified`, `verified_players.odin`): a kind whose views of other
 players must never snap back, at the price of showing them late. Only that: a view of such a kind that shows a player
 who isn't local plays final ticks; the local players' views, data-only views, the things a remote player carries and
-MultiMesh instances stay on the prediction (a game wanting a carried thing late too gives it a kind of its own that shows the
-player). Such a view's data and events follow its pose: each final tick's sample carries the view's data whole, in
-slots as wide as the largest kind that can be sampled, allocated when the session starts, never on a step (so install
-refuses a kind past `godot.VIEW_DATA_MAX`, which bounds that memory); an event reaches it when playback reaches the
-event's tick, CONFIRMED only, never ahead of the body it belongs to, while the session's `sim_event` signal still has
-it on the prediction. A view whose player becomes local, or stops being, snaps between the timelines. Predicted is the default:
-a remote player in a co-op game is usually predicted well enough, and late is worse than corrected where players
-interact closely.
+MultiMesh instances stay on the prediction (a game wanting a carried thing late too gives it a kind of its own that
+shows the player). Such a view's data and events follow its pose: each final tick's sample carries the view's data
+whole, in slots as wide as the largest kind that can be sampled, allocated when the session starts (the dev UI's switch,
+which forces every kind, widens them once when first on), never on a step otherwise; install refuses a kind past
+`godot.VIEW_DATA_MAX`, which bounds that memory; an event reaches it when playback reaches the event's tick, CONFIRMED
+only, never ahead of the body it belongs to, while the session's `sim_event` signal still has it on the prediction. A
+view whose player becomes local, or stops being, snaps between the timelines. Predicted is the default: a remote player
+in a co-op game is usually predicted well enough, and late is worse than corrected where players interact closely.
 
 **What a player sees is the game's choice, not a secret** (`src/sim/README.md`, Hidden information): every client
 holds the whole state, and `fill_frame` decides what is shown. A card in an ally's hand pushed face down

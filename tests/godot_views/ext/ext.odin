@@ -61,7 +61,12 @@ View_Plain3D :: struct {
 View_Scripted3D :: struct {}
 View_Bench2D :: struct {}
 View_Rider3D :: struct {}
-View_Predicted3D :: struct {}
+// The predicted3d view's data, like View_Remote3D's but wider than any `.Verified` kind's: forced onto the verified
+// timeline (verified_check.gd, --verified-players), its samples need the dev UI's wider slots.
+View_Predicted3D :: struct {
+	tick:  u32,
+	trail: [48]u32,
+}
 
 // The decoy views' data. Their scene has no script, so no `data` for it, on purpose: the host reports that as an error
 // the suite expects.
@@ -555,7 +560,11 @@ remote_walk :: proc(f: ^Frame) {
 	godot.push_view(f, f.local_players[0], item, data)
 	predicted := item
 	predicted.player = REMOTE_PLAYER
-	godot.push_view(f, sim.entity(REMOTE_THING), predicted, View_Predicted3D{})
+	predicted_data := View_Predicted3D {
+		tick = f.tick,
+	}
+	for &later, i in predicted_data.trail do later = f.tick + u32(i)
+	godot.push_view(f, sim.entity(REMOTE_THING), predicted, predicted_data)
 	item.player = REMOTE_PLAYER if f.tick % REMOTE_PERIOD < REMOTE_PERIOD / 2 else f.local_players[0]
 	godot.push_view(f, sim.entity(REMOTE_THING), item, View_Rider3D{})
 	if f.tick >= REMOTE_BLINK_FROM && f.tick < REMOTE_BLINK_TO {

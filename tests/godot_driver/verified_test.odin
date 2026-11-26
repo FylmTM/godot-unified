@@ -206,3 +206,106 @@ verified_sampler_on_a_session :: proc(t: ^testing.T) {
 	}
 	testing.expect(t, agreed > 0)
 }
+
+// A verified tick's views as a final fill would push them: QUEUE_VIEWS player views of the sampled kind, each with
+// Queue_Data that tells its tick and key (queue_data_of).
+@(private = "file")
+QUEUE_VIEWS :: 8
+
+@(private = "file")
+Queue_Data :: [200]u8
+
+@(private = "file")
+queue_data_of :: proc(tick: u32, key: u64) -> (data: Queue_Data) {
+	for &byte, i in data do byte = u8(int(tick) * 13 + int(key) * 7 + i)
+	return
+}
+
+@(private = "file")
+queue_fill :: proc(out: ^godot.Frame_Data, tick: u32) {
+	out.n_views, out.n_data = 0, 0
+	for key in u64(1) ..= QUEUE_VIEWS {
+		data := queue_data_of(tick, key)
+		out.views[out.n_views] = {
+			key         = key,
+			kind        = SAMPLED,
+			player      = key,
+			rot         = {0, 0, 0, 1},
+			data_type   = Queue_Data,
+			data_offset = u32(out.n_data),
+			data_size   = size_of(Queue_Data),
+		}
+		copy(out.data[out.n_data:], data[:])
+		out.n_views += 1
+		out.n_data += size_of(Queue_Data)
+	}
+}
+
+// Verifies ticks `from ..< to` (each stepped as final: its fill pushed), the main thread taking none.
+@(private = "file")
+queue_verify :: proc(sampler: ^godot.Verified_Sampler, out: ^godot.Frame_Data, from, to: u32) {
+	for tick in from ..< to {
+		queue_fill(out, tick)
+		godot.verified_sampler_verified(sampler, tick, out)
+	}
+}
+
+// Takes every queued sample (the main thread's side): how many, the ticks they span, and how many carry another
+// tick's or view's data.
+@(private = "file")
+queue_drain :: proc(sampler: ^godot.Verified_Sampler) -> (count: int, first, last: u32, wrong: int) {
+	for {
+		sample, data := godot.verified_sampler_peek(sampler)
+		if sample == nil do break
+		want := queue_data_of(sample.tick, sample.key)
+		if len(data) != size_of(Queue_Data) || (^Queue_Data)(raw_data(data))^ != want do wrong += 1
+		if count == 0 do first = sample.tick
+		last = sample.tick
+		count += 1
+		_, _ = godot.queue_pop(&sampler.queue)
+	}
+	return
+}
+
+// The queue to the main thread, full and wrapping: a sampler the main thread doesn't drain drops what doesn't fit
+// (`dropped`) and keeps what it queued intact, each sample with its own data, also across the queue's wrap (which
+// starts mid-queue here, after a first batch was taken).
+@(test)
+verified_queue_fills_and_wraps :: proc(t: ^testing.T) {
+	sampler := godot.verified_sampler_new({SAMPLED}, size_of(Queue_Data))
+	defer godot.verified_sampler_free(sampler)
+	out := godot.Frame_Data {
+		views = make([]godot.View_Out, QUEUE_VIEWS),
+		data  = make([]u8, QUEUE_VIEWS * size_of(Queue_Data)),
+	}
+	defer delete(out.views)
+	defer delete(out.data)
+	capacity := len(sampler.queue.items)
+	ticks_fit := u32(capacity / QUEUE_VIEWS)
+
+	// a first batch, taken: the next starts mid-queue
+	queue_verify(sampler, &out, 1, 101)
+	count, _, _, wrong := queue_drain(sampler)
+	testing.expect(t, count == 100 * QUEUE_VIEWS && wrong == 0 && !sampler.dropped)
+
+	// more than fits, none taken: what fits stays intact (across the wrap), the rest is dropped
+	queue_verify(sampler, &out, 101, 101 + ticks_fit + 20)
+	testing.expect(t, sampler.dropped, "a full queue drops (reported)")
+	first, last: u32
+	count, first, last, wrong = queue_drain(sampler)
+	testing.expectf(
+		t,
+		count == capacity && first == 101 && last == 100 + ticks_fit,
+		"%d samples, ticks %d ..= %d",
+		count,
+		first,
+		last,
+	)
+	testing.expectf(t, wrong == 0, "%d samples carry another's data", wrong)
+
+	// drained, it queues again from where it wrapped to
+	sampler.dropped = false
+	queue_verify(sampler, &out, 500, 530)
+	count, first, last, wrong = queue_drain(sampler)
+	testing.expect(t, count == 30 * QUEUE_VIEWS && first == 500 && last == 529 && wrong == 0 && !sampler.dropped)
+}
