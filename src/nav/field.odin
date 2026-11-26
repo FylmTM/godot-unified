@@ -71,7 +71,7 @@ fields_destroy :: proc(fields: ^Fields, allocator := context.allocator) {
 // nothing). The pointer stays valid until `len(fields.slots)` other goals have been asked for. A goal outside the mesh
 // (NO_POLY, or any index a crafted or stale value holds) gives nil.
 field :: proc(fields: ^Fields, goal: Poly) -> ^Field {
-	if goal < 0 || int(goal) >= poly_count(fields.mesh) do return nil
+	if !in_mesh(fields.mesh, goal) do return nil
 	fields.clock += 1
 	oldest := 0
 	for &slot, i in fields.slots {
@@ -88,7 +88,7 @@ field :: proc(fields: ^Fields, goal: Poly) -> ^Field {
 
 // Dijkstra from the goal over the polygons, a step costing the distance from one polygon's centre through the middle
 // of the edge between them to the other's; the queue ordered by (cost, polygon index), so the result is one function
-// of the mesh and the goal. `heap` is scratch.
+// of the mesh and the goal. `heap` is scratch. A goal outside the mesh leaves every polygon UNREACHABLE.
 field_compute :: proc(mesh: ^Mesh, goal: Poly, out: ^Field, heap: ^[dynamic]Heap_Item) {
 	out.goal = goal
 	for p in 0 ..< poly_count(mesh) {
@@ -96,6 +96,7 @@ field_compute :: proc(mesh: ^Mesh, goal: Poly, out: ^Field, heap: ^[dynamic]Heap
 		out.next[p] = -1
 	}
 	clear(heap)
+	if !in_mesh(mesh, goal) do return
 	out.cost[goal] = 0
 	heap_push(heap, {0, goal})
 	for len(heap) > 0 {

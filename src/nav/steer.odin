@@ -14,10 +14,11 @@ MOVE_STEPS :: 64
 // Where a walker on `poly` at `pos` heads next on its way to `goal` (a point on the field's goal polygon): the first
 // corner the shortest path through the next LOOKAHEAD portals turns at (the funnel of the portals' ends, pulled taut),
 // TURN_INSET inside its portal, or `goal` itself when nothing is in the way (a turn the walker stands on is passed).
-// On the goal polygon: `goal`. When the goal can't be reached, or without a field or a polygon: `pos` (stay). The mesh
-// is already shrunk by the bake's agent radius, so a corner is where a walker of that radius can stand.
+// On the goal polygon: `goal`. When the goal can't be reached, or without a field or a polygon (NO_POLY or any index
+// outside the mesh): `pos` (stay). The mesh is already shrunk by the bake's agent radius, so a corner is where a walker
+// of that radius can stand.
 steer :: proc(mesh: ^Mesh, field: ^Field, poly: Poly, pos, goal: [3]f32) -> [3]f32 {
-	if field == nil || poly == NO_POLY do return pos
+	if field == nil || !in_mesh(mesh, poly) do return pos
 	if poly == field.goal do return goal
 	if field.next[poly] < 0 do return pos
 	// The portals ahead as the walker sees them: leaving a counter-clockwise polygon through its edge a → b, b is on
@@ -93,9 +94,9 @@ standing_on :: #force_inline proc "contextless" (pos, point: [3]f32) -> bool {
 // sliding along a wall it meets (a millimetre inside), at most MOVE_STEPS edges. The polygon it ends on and where, at
 // that polygon's height (`to`'s height is not read). A walker moved only by `move` stays on the mesh; one that
 // something else moved off its polygon (a push, a crowd's separation) starts from the point of `poly` nearest to
-// `from`.
+// `from`. Without a polygon (NO_POLY or any index outside the mesh): NO_POLY and `from`, not moved.
 move :: proc(mesh: ^Mesh, poly: Poly, from, to: [3]f32) -> (Poly, [3]f32) {
-	if poly == NO_POLY do return poly, from
+	if !in_mesh(mesh, poly) do return NO_POLY, from
 	at, current, target := poly, from, to
 	if !contains(mesh, poly, from) {
 		inside := closest_xz(mesh, poly, from.xz)

@@ -30,8 +30,8 @@ like any tick package.
 - **Determinism**: f32 with `+ − × ÷ sqrt`, fixed iteration orders, ties broken by index, and no allocation after
   `build` and `fields_make` (a miss of the memo computes into a slot it already has).
 - **Every lookup is total.** A `Poly` a game keeps in its State can be stale or crafted, and no library check sees the
-  game's fields, so a polygon outside the mesh is no polygon to every query (no field, no island), never an index out
-  of range.
+  game's fields, so a polygon outside the mesh is no polygon to every call that takes one (no field, no island, no
+  floor; a walker on it stays where it is), never an index out of range.
 
 ## Decisions
 

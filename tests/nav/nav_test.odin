@@ -249,6 +249,56 @@ fields_cached_equal_fresh :: proc(t: ^testing.T) {
 	testing.expect(t, nav.connected(&mesh, 0, 0))
 }
 
+// The calls a walker makes every tick are total too: a Poly outside the mesh (NO_POLY, a crafted value, one kept from
+// a bigger level) is no polygon to steer, move, contains, height_at and field_compute, never an index out of range;
+// a stale one still inside the mesh (another polygon than the walker's) is a polygon, and move walks from the point
+// of it nearest the walker.
+@(test)
+walker_calls_are_total :: proc(t: ^testing.T) {
+	mesh, _, ok := yard(t)
+	if !ok do return
+	defer nav.destroy(&mesh)
+	fields := nav.fields_make(&mesh, 1)
+	defer nav.fields_destroy(&fields)
+	goal := nav.Poly(0)
+	field := nav.field(&fields, goal)
+	pos := mesh.centers[nav.poly_count(&mesh) - 1]
+	outside := []nav.Poly{nav.NO_POLY, -2, min(nav.Poly), nav.Poly(nav.poly_count(&mesh)), max(nav.Poly)}
+	for poly in outside {
+		testing.expectf(t, nav.steer(&mesh, field, poly, pos, mesh.centers[goal]) == pos, "steer from %d moved", poly)
+		moved_poly, moved := nav.move(&mesh, poly, pos, pos + {1, 0, 1})
+		testing.expectf(
+			t,
+			moved_poly == nav.NO_POLY && moved == pos,
+			"move from %d: %d at %v",
+			poly,
+			moved_poly,
+			moved,
+		)
+		testing.expectf(t, !nav.contains(&mesh, poly, pos), "%d contains a point", poly)
+		testing.expectf(t, nav.height_at(&mesh, poly, pos) == pos.y, "%d has a floor", poly)
+		nav.field_compute(&mesh, poly, &fields.slots[0], &fields.heap)
+		for p in 0 ..< nav.poly_count(&mesh) {
+			if fields.slots[0].cost[p] != nav.UNREACHABLE || fields.slots[0].next[p] != -1 {
+				testing.expectf(t, false, "a field toward %d reaches polygon %d", poly, p)
+				break
+			}
+		}
+	}
+	// A stale polygon inside the mesh: the walker is far from it, and move starts from its nearest point, on the mesh.
+	stale := nav.Poly(0)
+	far := mesh.centers[nav.poly_count(&mesh) - 1]
+	end_poly, end := nav.move(&mesh, stale, far, far + {0.1, 0, 0})
+	testing.expect(
+		t,
+		end_poly != nav.NO_POLY && nav.contains(&mesh, end_poly, end),
+		"a stale polygon's move leaves the mesh",
+	)
+	field = nav.field(&fields, goal)
+	turn := nav.steer(&mesh, field, stale, far, mesh.centers[goal])
+	testing.expect(t, turn == mesh.centers[goal], "a walker on the goal polygon heads for the goal")
+}
+
 // A walker on a field: steer, then move at most `speed * dt` toward where it heads.
 @(private = "file")
 Walker :: struct {

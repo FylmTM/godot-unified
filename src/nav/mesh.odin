@@ -150,6 +150,13 @@ poly_count :: #force_inline proc "contextless" (mesh: ^Mesh) -> int {
 	return len(mesh.first) - 1
 }
 
+// Whether `poly` is a polygon of the mesh: NO_POLY and any other index outside it (a stale or crafted value in a
+// State) are none, to every lookup (src/nav/README.md, How it works).
+@(private)
+in_mesh :: #force_inline proc "contextless" (mesh: ^Mesh, poly: Poly) -> bool {
+	return poly >= 0 && int(poly) < poly_count(mesh)
+}
+
 // The polygon under `pos` seen from above whose surface is within `max_dy` of its height, the nearest in height (then
 // the lowest index); NO_POLY when none is. On stacked floors (a deck over a yard) the height picks the floor.
 locate :: proc(mesh: ^Mesh, pos: [3]f32, max_dy: f32) -> Poly {
@@ -192,17 +199,19 @@ nearest :: proc(mesh: ^Mesh, pos: [3]f32, max_distance: f32) -> (poly: Poly, poi
 	return
 }
 
-// The height of a polygon's plane at pos's x and z.
+// The height of a polygon's plane at pos's x and z; pos.y for a polygon outside the mesh (no floor to take).
 height_at :: proc(mesh: ^Mesh, poly: Poly, pos: [3]f32) -> f32 {
+	if !in_mesh(mesh, poly) do return pos.y
 	center, normal := mesh.centers[poly], mesh.normals[poly]
 	return center.y - (normal.x * (pos.x - center.x) + normal.z * (pos.z - center.z)) / normal.y
 }
 
 // A polygon's island: the set of polygons joined to it by shared edges, numbered from 0 in the order of their lowest
-// polygon (Mesh.island_count of them); -1 for NO_POLY or any other index outside the mesh. A walker on one island never reaches another, and a field's goal
-// on one leaves every other unreachable. Computed once in build: a lookup, fine in a tick.
+// polygon (Mesh.island_count of them); -1 for NO_POLY or any other index outside the mesh. A walker on one island never
+// reaches another, and a field's goal on one leaves every other unreachable. Computed once in build: a lookup, fine in
+// a tick.
 island_of :: #force_inline proc "contextless" (mesh: ^Mesh, poly: Poly) -> i32 {
-	return mesh.islands[poly] if poly >= 0 && int(poly) < len(mesh.islands) else -1
+	return mesh.islands[poly] if in_mesh(mesh, poly) else -1
 }
 
 // Whether a walker on polygon `a` can reach polygon `b` (the same island); false when either is NO_POLY or outside the
@@ -236,8 +245,10 @@ find_islands :: proc(mesh: ^Mesh) {
 	}
 }
 
-// Whether pos is inside a polygon seen from above (a millimetre's margin: a point on an edge is in both polygons).
+// Whether pos is inside a polygon seen from above (a millimetre's margin: a point on an edge is in both polygons);
+// false for a polygon outside the mesh.
 contains :: proc(mesh: ^Mesh, poly: Poly, pos: [3]f32) -> bool {
+	if !in_mesh(mesh, poly) do return false
 	first, last := mesh.first[poly], mesh.first[poly + 1]
 	for k in first ..< last {
 		if edge_side(mesh, poly, k, pos) < -0.001 * mesh.edge_len[k] do return false
