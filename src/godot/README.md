@@ -110,7 +110,8 @@ back. A long move with no bump still snaps past the smoothing's `teleport_dist`,
 **View kinds.** A scene view kind is a struct, the data its views carry, and the game's scene views are a union of
 them (`View :: union {View_Card, View_Enemy}`; a kind with no data is an empty struct), as events, commands and session
 data are: the type is the kind. `push_view` takes the data and so names the kind, and a value of a type the union
-lacks does not compile; nothing pairs a kind with its data at run time. The kind's name is its type's without `View_`,
+lacks does not compile; nothing pairs a kind with its data at run time. A game whose screen is drawn from session data
+alone has no kinds (`View :: union {}`): no scene needs a marker, and a push does not compile. The kind's name is its type's without `View_`,
 lowercased (`card`: its scenes' marker, the view index, `EnumView.CARD`). A MultiMesh kind carries no data, so the
 MultiMesh kinds stay an enum. How a kind is shown is its **policy** (`Glue.view_policy`, by its type, only for a kind
 that isn't the default; `multi_policy`): Odin literals, not properties spread over the kinds' scenes: a kind's
@@ -425,7 +426,9 @@ that every view kind has a scene and every indexed kind is one of them.
   It waits also when the old session ended already: a script the session calls may be running on its last Frame,
   which is freed only once that frame's sync is over, and the old session's result (its line, its recording) is
   taken first. For the same reason the node leaving the tree from such a script ends its session once the frame is
-  done. The new session starts with none of the old one's views. A session is one match: a host that restarts ends
+  done. A start still waiting when the node leaves the tree (a script that restarts, then moves the node to another
+  scene) is kept, not dropped: it begins once the node is back, and until then the status stays `CONNECTING`. The new
+  session starts with none of the old one's views. A session is one match: a host that restarts ends
   it for every player who joined (they get its goodbye and join the new one again), so a co-op game that plays
   another round without losing its players does that inside its sim, not with a restart.
 - **Quitting** (`quit.odin`). Godot reports a sound's playback still held by the AudioServer at exit as a leak, so the

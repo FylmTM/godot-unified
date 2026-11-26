@@ -87,8 +87,8 @@ jobs:
     runs-on: >-
       ${{ fromJSON('{"linux-x64": "ubuntu-24.04", "linux-arm64": "ubuntu-24.04-arm",
       "windows-x64": "windows-2025", "macos-arm64": "macos-15"}')[matrix.platform] }}
-    # a run takes 4-7 minutes; a cache miss (a pins.cfg change) downloads and builds everything once
-    timeout-minutes: 15
+    # stops a hung run; room for a cache miss (a pins.cfg change), which downloads and builds everything once
+    timeout-minutes: 30
     strategy:
       fail-fast: false
       matrix:
@@ -165,8 +165,8 @@ jobs:
     needs: nightly
     if: ${{ !cancelled() && needs.nightly.result == 'skipped' }}
     runs-on: ubuntu-24.04
-    # a run takes about 5 minutes; a cache miss downloads Godot and imports every game afresh
-    timeout-minutes: 20
+    # stops a hung run; room for a cache miss, which downloads Godot and imports every game afresh
+    timeout-minutes: 30
     defaults:
       run:
         shell: bash

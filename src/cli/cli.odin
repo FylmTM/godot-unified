@@ -159,13 +159,15 @@ on_failure :: proc(undo: proc(data: rawptr), data: rawptr = nil) {
 	append(&state.undo, Undo{undo, data})
 }
 
-// Runs every registered undo once, newest first, and forgets them (what every failing exit of a command does). An
-// undo that itself fails with `fatal` stops there; the older ones still run.
+// Runs every registered undo once, newest first, and forgets them (what every failing exit of a command does), then
+// releases every lock the command still holds (lock_release_all: os.exit runs no `defer`). An undo that itself fails
+// with `fatal` stops there; the older ones still run.
 unwind :: proc() {
 	for len(state.undo) > 0 {
 		undo := pop(&state.undo)
 		undo.undo(undo.data)
 	}
+	lock_release_all()
 }
 
 // Set by --verbose for the processes the CLI starts (another uni reads it).
@@ -269,7 +271,7 @@ print_help :: proc() {
 		fmt.printf("  %s\n      %s\n", strings.trim_space(command_usage(command)), command.summary)
 	}
 	fmt.printf(
-		"\nEvery command prints how long it took (stderr); `bench` times the simulation itself.\nOdin: the release pins.cfg pins, downloaded once by the shims (./uni, uni.cmd) into the per-user cache and put first on PATH.\nThe per-user cache (%s), shared by every checkout: the shims' Odin, the pinned Godot, the unified-box3d zip; `clean --cache` clears what the CLI put there.\n",
+		"\nEvery command prints how long it took (stderr); `bench` times the simulation itself.\nOdin: the release pins.cfg pins, downloaded once by the shims (./uni, uni.cmd) into the per-user cache and put first on PATH.\nThe per-user cache (%s), shared by every checkout: the shims' Odin, and what the CLI puts there (`clean --cache` clears it): the pinned Godot, the unified-box3d zip, odinfmt.\n",
 		USER_CACHE,
 	)
 }

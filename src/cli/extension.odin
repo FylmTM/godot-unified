@@ -56,14 +56,14 @@ extension_lib :: proc(game: Game) -> string {
 }
 
 // The build of the game's GDExtension (simulation/extension) as a shared library for `mode`, with the Box3D
-// and EOS defines it needs and the game's view index (view_index_define); ensure_extension runs it when stale.
+// and EOS defines it needs and the game's view index (view_index_defines); ensure_extension runs it when stale.
 extension_build :: proc(game: Game, mode: Mode) -> Build {
 	flags: [dynamic]string
 	append(&flags, "-build-mode:dll")
 	append(&flags, ..mode_flags(mode))
 	append(&flags, ..box3d_defines(mode, game_uses_box3d(game)))
 	append(&flags, ..eos_defines(game))
-	append(&flags, view_index_define(game.dir)) // a view scene added, moved or renamed rebuilds the extension
+	append(&flags, ..view_index_defines(game.dir)) // a view scene added, moved or renamed rebuilds the extension
 	return {
 		pkg   = join(game.dir, "simulation", "extension"),
 		out   = extension_lib(game),
@@ -161,13 +161,13 @@ ensure_project_extension :: proc(dir, pkg, stem: string) {
 }
 
 // The `mode` build of a test project's GDExtension (package `pkg`, library `stem`) to <dir>/.out/bin/, with the
-// project's view index (view_index_define) when it has view scenes: a test project's extension may not import
-// unified:godot, and Odin refuses a define nothing reads.
+// project's view index (view_index_defines: none without view scenes, which matters here too: a test project's
+// extension may not import unified:godot, and Odin refuses a define nothing reads).
 project_extension_build :: proc(dir, pkg, stem: string, mode: Mode = .dev) -> Build {
 	flags: [dynamic]string
 	append(&flags, "-build-mode:dll")
 	append(&flags, ..mode_flags(mode))
-	if index, _ := view_index(dir); index != "" do append(&flags, view_index_define(dir))
+	append(&flags, ..view_index_defines(dir))
 	return {pkg = pkg, out = join(dir, ".out", "bin", lib_name(stem)), flags = flags[:]}
 }
 

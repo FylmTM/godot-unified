@@ -279,7 +279,8 @@ Lobby :: struct {
 	// Optional: the local user's platform account once open_host succeeded (the host's own player's).
 	account:       proc() -> (Account, bool),
 	// Optional, main thread: whether open_host and open_join can work on this machine at all (the service's library
-	// and credentials are there), without starting the service, and why not, a sentence for a player: a menu greys
+	// and credentials are there, and it has not already failed to start), without starting the service, and why not, a
+	// sentence for a player: a menu greys
 	// its online buttons instead of failing after a click. Nil: assumed so.
 	available:     proc() -> (ok: bool, why: string),
 	// Optional: the join code's format, for a menu's code field: the characters a code is made of, its length, and

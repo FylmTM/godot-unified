@@ -719,10 +719,10 @@ Coop_Opts :: struct {
 	crash:        bool `usage:"the joiner's process dies mid-match (no goodbye) and the same player joins again (by its EOS account, or its LAN token with --lan): timed"`,
 	lan:          bool `usage:"direct UDP on 127.0.0.1 instead of EOS"`,
 	menus:        bool `usage:"no session flags: each side starts through the game's coop script (_start_host, _start_join: its own menus)"`,
-	host_profile: string `hint:"<k=v,..>" usage:"the host's Profile (--profile's syntax: class=Knight), over one after --"`,
+	host_profile: string `hint:"<k=v,..>" usage:"the host's Profile (--profile's syntax: role=Runner), over one after --"`,
 	join_profile: string `hint:"<k=v,..>" usage:"the joiner's Profile likewise: two players arriving with different choices"`,
 	record:       string `hint:"<replay>" usage:"once both sides pass, the host's recording becomes the game's replay regression simulation/tests/replays/<replay>/ (a name: letters, digits, _ and -; these options kept in its coop.args), checked by the game's tests with --bless narrowed to that folder (any other pin that moved refuses it); refused, failed or killed, the folder is put back as it was"`,
-	rerecord:     string `hint:"<replay>" usage:"--record <replay> again, with the options in its coop.args (with [game] and --window only)"`,
+	rerecord:     string `hint:"<replay>" usage:"--record <replay> again, with the options in its coop.args (with [game] and --window only; no game: the one whose replay it is)"`,
 	overflow:     [dynamic]string `hint:"[-- args]" after:"--" usage:"after --: game arguments for both processes (dev flags such as --lag, --verified-players)"`,
 }
 
@@ -859,8 +859,9 @@ cmd_coop :: proc(args: []string) -> Result {
 	return coop_keep(selected, opts, host_result, {ok = ok, summary = summary})
 }
 
-// --rerecord <replay>: the options its folder's coop.args kept (replay_args, coop_saved_opts), with this run's game,
-// --window and --record <replay>. Any other option is refused: the replay is recorded again the way it was.
+// --rerecord <replay>: the options its folder's coop.args kept (replay_args, coop_saved_opts), with this run's game
+// (unnamed: the one whose replay it is, rerecord_game), --window and --record <replay>. Any other option is refused:
+// the replay is recorded again the way it was.
 @(private)
 coop_rerecord :: proc(opts: Coop_Opts) -> Coop_Opts {
 	if opts.record != "" ||
@@ -879,7 +880,9 @@ coop_rerecord :: proc(opts: Coop_Opts) -> Coop_Opts {
 	if !replay_name_ok(opts.rerecord) {
 		usage("--rerecord %q: a replay folder's name (letters, digits, _ and -)", opts.rerecord)
 	}
-	folder := replay_folder(game(opts.game).dir, opts.rerecord)
+	game_name := opts.game
+	if game_name == "" do game_name = rerecord_game(state.project.games, opts.rerecord)
+	folder := replay_folder(game(game_name).dir, opts.rerecord)
 	saved, found := replay_args(folder)
 	if !found {
 		usage("%s has no %s: record it with --record <replay> and its options first", folder, REPLAY_ARGS_FILE)
@@ -887,8 +890,22 @@ coop_rerecord :: proc(opts: Coop_Opts) -> Coop_Opts {
 	again, problem := coop_saved_opts(saved)
 	if problem != "" do usage("%s: %s", join(folder, REPLAY_ARGS_FILE), problem)
 	log("uni: coop --rerecord %s: %s", opts.rerecord, strings.join(saved, " "))
-	again.game, again.window, again.record = opts.game, opts.window, opts.rerecord
+	again.game, again.window, again.record = game_name, opts.window, opts.rerecord
 	return again
+}
+
+// The game `coop --rerecord <replay>` names none of: the only one, or else the only one whose replay folder `replay`
+// holds a REPLAY_ARGS_FILE (a failing replay's hint names no game: its test binary holds every game's suite); "" when
+// none or several do (`game` then asks for a name).
+rerecord_game :: proc(games: []Game, replay: string) -> string {
+	if len(games) == 1 do return games[0].name
+	found := ""
+	for candidate in games {
+		if !os.is_file(join(replay_folder(candidate.dir, replay), REPLAY_ARGS_FILE)) do continue
+		if found != "" do return ""
+		found = candidate.name
+	}
+	return found
 }
 
 // The coop options a replay's coop.args holds (`saved`, as coop_record_args wrote them), or why they aren't a
@@ -1160,12 +1177,14 @@ view_index :: proc(dir: string) -> (index: string, ok: bool) {
 	return strings.join(entries, ";"), ok
 }
 
-// The extension build's -define that passes it the view index of the project at `dir` (view_index); a bad marker
-// stops the command, naming it.
-view_index_define :: proc(dir: string) -> string {
+// The extension build's flags that pass it the view index of the project at `dir` (view_index): its -define, or none
+// when the project has no view scenes (Odin rejects an empty value; src/godot's default is the empty index). A bad
+// marker stops the command, naming it.
+view_index_defines :: proc(dir: string) -> []string {
 	index, ok := view_index(dir)
 	if !ok do fatal("%s: its view scenes' markers are wrong (above)", rel(dir))
-	return aprintf("-define:%s=%s", VIEW_INDEX_DEFINE, index)
+	if index == "" do return nil
+	return strs(aprintf("-define:%s=%s", VIEW_INDEX_DEFINE, index))
 }
 
 // The .tscn files Godot sees in the project at `dir`, sorted (godot_files).

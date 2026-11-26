@@ -1,6 +1,7 @@
 extends CanvasLayer
-## The in-game HUD (hud.tscn): the run clock and the personal best time (Settings), the checkpoint, a crosshair, the local player's state
-## (holding, charge, held, stunned, fallen), the session panel and controls list, and banners for run events.
+## The in-game HUD (hud.tscn): the run clock, the player's personal best time (Settings.best_time, which a confirmed
+## finish faster than it sets; the sim's data holds no best time), the checkpoint, a crosshair, the local player's
+## state (holding, charge, held, stunned, fallen), the session panel and controls list, and banners for run events.
 ## Redrawn when the session data (Unified.data.hud), the roster, the join code or the input device changes.
 
 ## The controls list per state (action, what it does): see ControlsPanel.refresh.

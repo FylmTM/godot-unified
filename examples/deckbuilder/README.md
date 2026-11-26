@@ -5,10 +5,10 @@ of `FLOORS` floors together, each with their own deck, hand, energy and relics, 
 their cards, all playing at once. It shows what rollback netcode does for a game where nothing moves: the sim is pure
 rules on a state block (card tables, piles as `sim.List`s, keyed random streams), plays are commands, the shared
 "what I'm about to play" is each player's Input, a run saves and continues through the session's Setup, and the
-whole Godot side is Controls fed with view data, drawn in code on a felt table (no image assets). A Godot project (this folder is `res://`): the sim, its tests, the
-headless binary and the GDExtension in `simulation/` (Odin), everything Godot in `game/`. `uni run deckbuilder`
-plays it; `uni coop deckbuilder` opens two windows in one session. How to write gameplay that survives rollback:
-`docs/gameplay.md`.
+whole Godot side is Controls fed with view data, drawn in code on a felt table (no image assets). A Godot project
+(this folder is `res://`): the sim, its tests, the headless binary and the GDExtension in `simulation/` (Odin),
+everything Godot in `game/`. `uni run deckbuilder` plays it; `uni coop deckbuilder` opens two windows in one session.
+How to write gameplay that survives rollback: `docs/gameplay.md`.
 
 Every rule number is a named constant in `simulation/deckbuilder/tuning.odin` (the cards' and enemies' own numbers in
 their tables, `CARDS` and `ENEMIES`); this README names them. There is no physics and no World (`sim.No_World`).
@@ -43,12 +43,12 @@ events, at once on an emitted event (a prediction shows them), banners and the l
 ## Heroes
 
 A run's heroes are kept in the State, apart from the players: the session forgets its longest-absent member, and a
-run outlives that. `Command_Start_Run` gives each present player a hero, in slot order, of their Profile's class (Vanguard
-`VANGUARD_HP`, Arcanist `ARCANIST_HP`) with its starter deck (`STARTER_VANGUARD`, `STARTER_ARCANIST`). A hero whose
-player is away **sleeps**: it is skipped, never targeted, and counts as ready and as having voted and picked, so the
-others play on. A player who arrives takes their own hero back, else the lowest sleeping hero (`Event_Hero_Claimed`),
-else watches; a watcher takes a hero as soon as one falls asleep. Hands are open: every player sees every hand and
-every ally's aim.
+run outlives that. `Command_Start_Run` gives each present player a hero, in slot order, of their Profile's class
+(Vanguard `VANGUARD_HP`, Arcanist `ARCANIST_HP`) with its starter deck (`STARTER_VANGUARD`, `STARTER_ARCANIST`). A
+hero whose player is away **sleeps**: it is skipped, never targeted, and counts as ready and as having voted and
+picked, so the others play on. A player who arrives takes their own hero back, else the lowest sleeping hero
+(`Event_Hero_Claimed`), else watches; a watcher takes a hero as soon as one falls asleep. Hands are open: every player
+sees every hand and every ally's aim.
 
 ## A run
 
@@ -60,7 +60,8 @@ every ally's aim.
   that node (`Event_Node_Entered`). Entering a node is the **save point**.
 - **Fight, Elite, Boss**: a fight (below). Won: the **Reward**, `OFFERS` cards per hero (`LUCKY_COIN_OFFERS` with the
   Lucky Coin) from their own stream, and a relic each after an elite; each hero takes one or skips
-  (`Command_Pick_Reward`, `Event_Reward_Picked`), a deck past `DECK_MAX` losing it. Won against the boss: the run is won.
+  (`Command_Pick_Reward`, `Event_Reward_Picked`), a deck past `DECK_MAX` losing it. Won against the boss: the run is
+  won.
 - **Rest**: each hero heals `REST_HEAL_PCT` of their max HP or upgrades a card of their deck (`Command_Rest`,
   `Event_Rested`).
 - **Treasure**: a relic each (`Event_Relic_Gained`), then the map.
@@ -96,7 +97,8 @@ included) and up to three ops, each with what an upgrade adds; `Unified.constant
 extension writes from it. Attack damage counts the hero's Strength, Weak and the target's Vulnerable (three halves).
 The co-op cards act on an ally (block, energy, draws from their own pile, healing) or for the party: Taunt (every
 single-target attack hits the taunter), Execute (energy for every hero when it kills), and Hand Off, which moves
-another card from the player's hand to the ally's until the fight ends. The rewards offer every card from `REWARD_FIRST` on.
+another card from the player's hand to the ally's until the fight ends. The rewards offer every card from
+`REWARD_FIRST` on.
 
 ## Enemies
 
@@ -116,8 +118,8 @@ targets an ally), the Mender's Pouch (`MENDERS_POUCH_HEAL` after each fight won)
 
 1. `claim_heroes`: who arrived takes a hero (Heroes).
 2. `apply_commands`: each slot's commands in slot order (`Command_Start_Run`, `Command_Play_Card`, `Command_End_Turn`,
-   `Command_Vote`, `Command_Pick_Reward`, `Command_Rest`; `Command_Dev_Win_Fight` in a dev UI build). A command outside its phase is
-   ignored.
+   `Command_Vote`, `Command_Pick_Reward`, `Command_Rest`; `Command_Dev_Win_Fight` in a dev UI build). A command
+   outside its phase is ignored.
 3. The phase: `count_votes` on the map, `heroes_turn` and `enemies_turn` in a fight, `check_picked` at a reward or a
    rest, `over_hold` at the end.
 
@@ -131,9 +133,9 @@ when the heroes' turn starts, never when a play lands.
 ## The save
 
 `Game.save` gives the run as it entered its last node (`State.save`, a `Setup`: the floor and lane, the run's seed and
-each hero's class, HP, relics and deck), and nothing at the camp or after the run's end. The `Game` autoload writes it to
-`user://deckbuilder_save.json` whenever it changes (`UnifiedSession.save_changed`, `UnifiedSetup.to_json`), on every
-player's machine, so any of them can host the continuation. Continue starts a single session with it
+each hero's class, HP, relics and deck), and nothing at the camp or after the run's end. The `Game` autoload writes it
+to `user://deckbuilder_save.json` whenever it changes (`UnifiedSession.save_changed`, `UnifiedSetup.to_json`), on
+every player's machine, so any of them can host the continuation. Continue starts a single session with it
 (`UnifiedSetup.from_json`); its tick 0 restores the heroes, asleep until their players come, and enters the node
 again. A save this build can't read (`UnifiedSetup.json_problem`) is named at the camp instead of offered.
 
@@ -145,13 +147,15 @@ and the bench run it).
 
 ## Scripted inputs
 
-The scripted player (`script.odin`) acts on (seed, slot, tick) and names what it acts on by place. It can't see its
-hand: it names its own starter cards by where a run deals them in the card table, every `SCRIPT_PLAY_EVERY` ticks at
-the first enemies and an ally, ends its turn every `SCRIPT_END_TURN_EVERY`, votes, picks and rests every
-`SCRIPT_CHOOSE_EVERY`, and slot 0 starts a run every `SCRIPT_START_EVERY` at the camp. A new run or fight deals the
-same places under new handles, so it reads the handles from the state it is given: it steers by the state, and a
-session's client may send a handle its prediction had and the verified state doesn't. Many of its plays are refused, which keeps the refusal path
-exercised. Its Profile alternates the classes by slot (`scripted_profile`).
+The scripted player (`script.odin`) decides what to do from (seed, slot, tick) and names what it acts on by place. It
+can't see its hand: it names its own starter cards by where a run deals them in the card table, every
+`SCRIPT_PLAY_EVERY` ticks at the first enemies and an ally, ends its turn every `SCRIPT_END_TURN_EVERY`, votes, picks
+and rests every `SCRIPT_CHOOSE_EVERY`, and slot 0 starts a run every `SCRIPT_START_EVERY` at the camp. A new run or
+fight deals the same places under new handles (a table's generations outlive its clears, so a handle never names a
+later run's card), so it reads the handles from the state it is given: it steers by the state (the suite's
+`script_reads_state`), and a session's client may send a handle its prediction had and the verified state doesn't.
+Many of its plays are refused, which keeps the refusal path exercised. Its Profile alternates the classes by slot
+(`scripted_profile`).
 
 ## View contract (`simulation/extension`)
 

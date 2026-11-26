@@ -22,7 +22,7 @@ extends RefCounted
 ## any change that bakes the same inputs differently: the merge, the lightening, the matrices, the table's layout
 ## (UnifiedCrowdClips). A forgotten bump is caught anyway, later and less plainly: UnifiedCrowdCheck bakes again and
 ## compares, and fails a committed bake that differs.
-const BAKE_VERSION := 1
+const BAKE_VERSION := 2
 ## Weights kept per vertex: the shader skins with four.
 const WEIGHTS := 4
 ## The angles generate_lods takes (degrees): normals closer than the first merge, farther than the second split. The
@@ -202,9 +202,10 @@ static func bake_clips(rig: Node3D, recipe: UnifiedCrowdRecipe, arrays: Array) -
 	for clip_index in clip_count:
 		var clip := recipe.clips[clip_index]
 		var clip_length := clips.length(clip_index)
+		var clip_rate := clips.rate(clip_index)  # the table's: the time a player reads each frame at
 		var last := frame_counts[clip_index] - 1
 		for frame in frame_counts[clip_index]:
-			pose.call(clip.animation, minf(frame / clip.rate, clip_length))
+			pose.call(clip.animation, minf(frame / clip_rate, clip_length))
 			var matrices := skinning(rig, skeleton, bind_poses)
 			for bone in bone_count:
 				var m := matrices[bone]
@@ -229,18 +230,24 @@ static func clip_loops(rig: Node3D, recipe: UnifiedCrowdRecipe, clip_index: int)
 
 
 ## How `recipe` poses `rig`: `func(clip: StringName, seconds: float)`, its recipe's pose, else the rig's
-## AnimationPlayer, a loop wrapped and a one-shot held at its ends, seeked at once.
+## AnimationPlayer, a loop wrapped and a one-shot held at its ends, seeked at once. Each pose is the clip's own,
+## whatever was posed before: a new clip starts from the skeleton's rest (a bone it doesn't key stands there, not where
+## the last clip left it) and plays with no blend (a seek advances no time, so the player's blend time from the last
+## clip would never decay: every frame would hold the last clip's pose).
 static func posing(rig: Node3D, recipe: UnifiedCrowdRecipe) -> Callable:
 	if recipe.pose.is_valid():
 		var game_pose := recipe.pose
 		return func(clip: StringName, seconds: float) -> void: game_pose.call(rig, clip, seconds)
 	var player := _player_of(rig)
+	var skeleton := skeleton_of(rig)
 	var looping: Dictionary[StringName, bool] = {}
 	for clip_index in recipe.clips.size():
 		looping[recipe.clips[clip_index].animation] = clip_loops(rig, recipe, clip_index)
 	return func(clip: StringName, seconds: float) -> void:
 		if player.current_animation != clip:
-			player.play(clip)
+			player.stop()
+			skeleton.reset_bone_poses()
+			player.play(clip, 0.0)
 		var clip_length := player.get_animation(clip).length
 		player.seek(fposmod(seconds, clip_length) if looping.get(clip, false) else clampf(seconds, 0.0, clip_length), true)
 

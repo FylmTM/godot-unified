@@ -162,7 +162,9 @@ replays_reproduce :: proc(t: ^testing.T, game: ^$G, dir: string) {
 			log.warnf("replays_reproduce: blessed %s (%s)", name, result.report)
 			bless_record({check = "replays_reproduce", file = shown_path(folder), value = name, new = result.report})
 		case result.status == .Broken:
-			// a folder `uni coop --record` made says how it was recorded (its coop.args): one command records it again
+			// a folder `uni coop --record` made says how it was recorded (its coop.args): one command records it again.
+			// No game named: `game` may be a variant of the game uni names (a quick rule set), and uni finds the game
+			// whose replay it is (cli.rerecord_game).
 			again := ""
 			if os.exists(fmt.tprintf("%s/coop.args", folder)) {
 				again = fmt.tprintf("; record it again: ./uni coop --rerecord %s", filepath.base(folder))

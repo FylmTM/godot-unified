@@ -580,6 +580,30 @@ driver_sessions :: proc(t: ^testing.T) {
 		godot.install(&toy.STILL, sampling)
 		testing.expectf(t, len(godot.api.problems) == 1, "a sample_input without an Input: %v", godot.api.problems)
 	}
+
+	// A game with no scene views (`View :: union {}`: its screen drawn from session data alone): it installs with no
+	// view kind, and its sessions run, filling and publishing frames.
+	{
+		No_View :: union {}
+		empty := godot.Glue(toy.Game, No_View, MultiView) {
+			sample_input = GLUE.sample_input,
+			fill_frame = proc(_: ^godot.Frame(toy.Game, No_View, MultiView)) {sync.atomic_add(&seen.extracted, 1)},
+		}
+		problems := godot.install_problems(&toy.GAME, empty)
+		testing.expectf(t, len(problems) == 0, "an empty View union is no install problem: %v", problems)
+		godot.install(&toy.GAME, empty)
+		testing.expectf(t, godot.api.installed, "an empty View union installs: %v", godot.api.problems)
+		testing.expect_value(t, len(godot.api.view_names), 0)
+		filled := sync.atomic_load(&seen.extracted)
+		ok, err := godot.api.start({mode = .Single, seed = 7, ticks = 24, name = "solo"})
+		testing.expect(t, ok, err)
+		godot.api.sample_input()
+		messages := make([dynamic]godot.Message, context.temp_allocator)
+		testing.expect(t, drain(&messages, WAIT_MS, is_result), "the session ends with a result")
+		for godot.api.running() do time.sleep(time.Millisecond)
+		godot.api.wait()
+		testing.expect(t, sync.atomic_load(&seen.extracted) > filled, "its frames were filled")
+	}
 }
 
 // The Glue of the toy without an Input: no sample_input; fill_frame keeps the local player's bump count.

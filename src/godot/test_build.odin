@@ -3,7 +3,8 @@
 // The host is generic over the game, and an import used only inside generic procs counts as unused until something
 // instantiates them, so this file does it once, for a game of one empty player: never called, it costs next to
 // nothing to compile and keeps the package whole under -vet. An executable that installs no game (`uni bench`'s wake
-// row: measure_wakes) needs the same.
+// row: measure_wakes) needs the same. Its View is empty, the union of a game with no scene views, so every build
+// proves the host compiles for one.
 package godot
 
 @(require) import "unified:sim" // used only in a test build (and linked anyway: the host is built on it)
@@ -38,13 +39,16 @@ when ODIN_TEST || ODIN_BUILD_MODE == .Executable {
 	)
 
 	@(private = "file")
-	Vet_View :: enum u8 {
+	Vet_View :: union {}
+
+	@(private = "file")
+	Vet_Multi_View :: enum u8 {
 		None,
 	}
 
 	@(private = "file")
 	vet_host :: proc() {
 		@(static) game: Vet_Game
-		install(&game, Glue(Vet_Game, Vet_View, Vet_View){})
+		install(&game, Glue(Vet_Game, Vet_View, Vet_Multi_View){})
 	}
 }

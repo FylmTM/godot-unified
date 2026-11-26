@@ -882,4 +882,13 @@ session_state_machine :: proc(t: ^testing.T) {
 	eos.shutdown()
 	testing.expect_value(t, fake.released, 1)
 	testing.expect_value(t, fake.shut_down, 1)
+
+	// EOS off with a reason (shut down here; a failed init the same: init keeps its first result for the process, and
+	// a test can't fail one without the session above) is unavailable with that reason, whatever library and
+	// credentials there are: every open would fail.
+	service = eos.lobby({lib_dirs = no_sdk[:]})
+	available, why = service.available()
+	testing.expect(t, !available && strings.contains(why, "shut down"), why)
+	testing.expect(t, !opened(service.open_host(BUILD)), "EOS started again")
+	_ = eos.lobby({})
 }

@@ -137,3 +137,22 @@ despawn_all_keeps_the_generations :: proc(t: ^testing.T) {
 	testing.expect(t, sim.handle_key(again) != sim.handle_key(first))
 	testing.expect(t, sim.get(&table, first) == nil && sim.get(&table, again) != nil)
 }
+
+// A Table's size is a multiple of 8 for any T and N, odd counts of 4-byte items too, so a u64 after one in a State
+// needs no pad of the game's: plain_violation passes.
+@(test)
+table_size_is_a_multiple_of_8 :: proc(t: ^testing.T) {
+	#assert(size_of(sim.Table(u32, 3)) == 3 * 4 + 4 + 3 * 8 + 16)
+	#assert(size_of(sim.Table([3]u32, 1)) == 12 + 4 + 8 + 16)
+	#assert(size_of(sim.Table(u8, 5)) == 5 + 3 + 5 * 8 + 16)
+	#assert(size_of(sim.Table(u32, 4)) == 4 * 4 + 4 * 8 + 16)
+	#assert(size_of(sim.Table(u64, 3)) == 3 * 8 + 3 * 8 + 16)
+	With_Wide_After :: struct {
+		odd:  sim.Table(u32, 3),
+		big:  u64,
+		more: sim.Table([3]u32, 1),
+		last: u64,
+	}
+	testing.expect_value(t, sim.plain_violation(type_info_of(With_Wide_After), "State"), "")
+	testing.expect_value(t, sim.plain_violation(type_info_of(sim.Table(u8, 7))), "")
+}

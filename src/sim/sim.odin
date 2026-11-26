@@ -713,15 +713,7 @@ create_with_setup :: proc(
 	setup: $S,
 ) -> ^Sim(G) where intrinsics.type_is_specialization_of(G, Game) &&
 	S == part(G, GAME_SETUP) {
-	if reason := game_violation(game); reason != "" {
-		panic(reason)
-	}
-	checked := setup
-	if reason := setup_violation(game, &checked); reason != "" {
-		panic(fmt.tprintf("%s: the session's Setup %s", game.name, reason))
-	}
-	layout := layout_hash(part(G, GAME_STATE))
-	return create_checked(game, seed, setup, {content_hash(game.levels), layout, compat_with(game, layout, {})})
+	return create_checked(game, seed, setup, created_identity(game, setup))
 }
 
 // create holding the game's benchmark population (the headless `bench`, Godot's `-- --bench N`): Game.bench_prepare
@@ -734,6 +726,23 @@ create_bench :: proc(
 	count: int,
 ) -> ^Sim(G) where intrinsics.type_is_specialization_of(G, Game) &&
 	S == part(G, GAME_SETUP) {
+	return create_checked(game, seed, setup, created_identity(game, setup), bench = dmath.max(count, 0))
+}
+
+// What identifies a game build's sims (Sim.content_hash, layout, compat), worked out once by create or from_snapshot.
+@(private)
+Sim_Identity :: struct {
+	content, layout, compat: u64,
+}
+
+// The identity of a sim create or create_bench makes, once the game and the session's Setup are checked: panics with
+// game_violation's reason, or setup_violation's (a Setup that does not read as sent).
+@(private)
+created_identity :: proc(
+	game: ^$G,
+	setup: $S,
+) -> Sim_Identity where intrinsics.type_is_specialization_of(G, Game) &&
+	S == part(G, GAME_SETUP) {
 	if reason := game_violation(game); reason != "" {
 		panic(reason)
 	}
@@ -742,14 +751,7 @@ create_bench :: proc(
 		panic(fmt.tprintf("%s: the session's Setup %s", game.name, reason))
 	}
 	layout := layout_hash(part(G, GAME_STATE))
-	identity := Sim_Identity{content_hash(game.levels), layout, compat_with(game, layout, {})}
-	return create_checked(game, seed, setup, identity, bench = dmath.max(count, 0))
-}
-
-// What identifies a game build's sims (Sim.content_hash, layout, compat), worked out once by create or from_snapshot.
-@(private)
-Sim_Identity :: struct {
-	content, layout, compat: u64,
+	return {content_hash(game.levels), layout, compat_with(game, layout, {})}
 }
 
 // create's body once the game and the Setup are checked (game_violation, setup_violation) and its identity known.

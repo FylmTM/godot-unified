@@ -449,6 +449,8 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 		{"f :: proc(a, b: f32) -> f32 {\n\treturn real(complex(a, b))\n}\n", true},
 		{"f :: proc(q: Q) -> Q {\n\treturn conj(q)\n}\n", true},
 		{"f :: proc(x, y, z, w: f32) -> f32 {\n\treturn kmag(quaternion(w = w, x = x, y = y, z = z))\n}\n", true},
+		{"r :: real\n", true}, // an alias: the call no longer looks like one
+		{"f :: proc(z: Z) -> f32 {\n\treturn (imag)(z)\n}\n", true},
 		// untyped float right-hand sides beyond a lone literal: each declares an f64
 		{"f :: proc() {\n\ta, b := 1.0, 2.0\n}\n", true},
 		{"f :: proc(c: bool) {\n\tx := c ? 1.0 : 2.0\n}\n", true},
@@ -488,6 +490,11 @@ lint_catches_escape_hatches :: proc(t: ^testing.T) {
 		{"import intr \"base:intrinsics\"\nV :: intr.type_is_enum(T)\n", false},
 		{"#assert(ODIN_ENDIAN == .Little)\n", false},
 		{"f :: proc(v: V) -> f32 {\n\treturn v.real + v.imag\n}\n", false}, // fields named like the builtins
+		// declarations named like them: a struct's fields, parameters, a local, a named argument
+		{"V :: struct {\n\treal, imag: f32,\n\tconj:       bool,\n}\n", false},
+		{"f :: proc(real, complex: f32, quaternion: i32) -> f32 {\n\treturn real * complex\n}\n", false},
+		{"f :: proc() -> f32 {\n\tconj := f32(1)\n\treturn g(real = conj)\n}\n", false},
+		{"f :: proc(v: V) -> f32 {\n\treturn real(v)\n}\n", true}, // ... but a call is caught
 		{"f :: proc(y: f32) {\n\tx := 1.5 * y\n\tz := HALF\n\tlo := max(u16)\n}\n", false}, // typed; a constant
 		{"f :: proc() {\n\tn := 3 / 2\n\tp := proc() {}\n}\n", false},
 	}

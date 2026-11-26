@@ -21,8 +21,9 @@
 // forces every kind, widens them to the largest kind once, the first time it is on (the session thread's ring at once,
 // the queue with a second buffer the samples queued from then on use: the main thread may be reading the first). A
 // view's history has slots of its own kind's size, allocated when the view first plays late. Nothing allocates on a
-// step otherwise. A session holds VERIFIED_RING × VERIFIED_PER_TICK + VERIFIED_QUEUE slots and each remote view
-// VERIFIED_HISTORY more, so install refuses a kind whose data is past VIEW_DATA_MAX.
+// step otherwise. A session holds VERIFIED_RING × VERIFIED_PER_TICK + VERIFIED_QUEUE slots (VERIFIED_QUEUE more, the
+// wide queue's, once the switch has widened them) and each remote view VERIFIED_HISTORY more, so install refuses a kind
+// whose data is past VIEW_DATA_MAX.
 package godot
 
 import "core:fmt"
@@ -49,7 +50,8 @@ VERIFIED_HISTORY :: 32
 // The most bytes of view data a scene view kind has (its View_ struct's size; this much is accepted): install refuses
 // a kind past it. Samples on the verified timeline carry their data in slots of the largest sampled kind's size (the
 // file's header), so this bounds what a session holds for them: VERIFIED_RING × VERIFIED_PER_TICK + VERIFIED_QUEUE
-// slots, 20 MiB at this bound, and VERIFIED_HISTORY slots (128 KiB) per remote view.
+// slots, 20 MiB at this bound; up to 28 MiB once the dev UI's switch has widened them (VERIFIED_QUEUE wide slots
+// beside the first queue's); and VERIFIED_HISTORY slots (128 KiB) per remote view.
 VIEW_DATA_MAX :: 4096
 
 @(private)

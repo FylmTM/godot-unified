@@ -418,17 +418,18 @@ cmd_setup :: proc(args: []string) -> Result {
 		uses_eos = uses_eos || extension_uses_eos(game)
 	}
 	append(&deps, Dep{"odin", aprintf("%s (%s)", ODIN_VERSION, ODIN_VERSION_HASH), which("odin"), true})
-	ensure_odinfmt()
+	odinfmt := ensure_odinfmt()
 	ensure_bindings()
 	if uses_box3d {
 		ensure_box3d(build = true)
 	}
 	godot()
-	odinfmt := join(state.project.out, "odinfmt", aprintf("odinfmt%s", EXE))
-	append(
-		&deps,
-		Dep{"odinfmt", aprintf("OLS %s", pin("odinfmt", "commit")[:10]), "built from the pin", os.is_file(odinfmt)},
-	)
+	append(&deps, Dep {
+		"odinfmt",
+		aprintf("OLS %s", pin("odinfmt", "commit")[:10]),
+		aprintf("built from the pin, shared by every checkout (%s)", odinfmt),
+		os.is_file(odinfmt),
+	})
 	if uses_box3d {
 		version, src :=
 			pin("box3d", "tag"), aprintf("pinned release (.out/unified-box3d; the zip in %s/downloads)", user_cache())
@@ -482,14 +483,14 @@ env_source :: proc(key: string) -> string {
 
 @(private)
 Clean_Opts :: struct {
-	cache: bool `usage:"also the per-user cache's Godot and unified-box3d downloads, shared by every checkout (the shims' Odin stays)"`,
+	cache: bool `usage:"also the per-user cache's Godot, unified-box3d zip and odinfmt, shared by every checkout (the shims' Odin stays)"`,
 }
 
 // Removes what the CLI built or fetched: every .out/ and .godot/ in the project (outside hidden directories, so not
 // another checkout's under .claude/), and the generated Godot bindings. The running
 // CLI stays, with its manifest and `current` (Windows can't delete a running .exe; the next command needs no
-// bootstrap). What every checkout shares stays: the per-user cache (Godot, the unified-box3d zip; `--cache` clears
-// them) and Godot's export templates (Godot's user directory).
+// bootstrap). What every checkout shares stays: the per-user cache (Godot, the unified-box3d zip, odinfmt; `--cache`
+// clears them) and Godot's export templates (Godot's user directory).
 @(private)
 cmd_clean :: proc(args: []string) -> Result {
 	opts: Clean_Opts

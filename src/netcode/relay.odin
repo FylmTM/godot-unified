@@ -57,10 +57,13 @@ IMAGE_WAIT_MS :: 3000 // how long a typed desync report waits for its two snapsh
 // fetch takes, and the most a connection waits to be resynced (resync_step).
 IMAGE_GIVE_UP_MS :: 30_000
 SNAP_STALL_US :: 5_000_000 // a joiner's snapshot provider that sends nothing this long is replaced by another
-// A connection whose Hello the relay has not seated this long after it opened is dropped (a forged or garbled
-// datagram's connection holds no slot of MAX_PEERS for long), once what it was sent (a Reject) is acked, or twice as
-// long at most.
+// A connection that said no Hello the relay took or refused this long after it opened is dropped (a forged or garbled
+// datagram's connection holds no slot of MAX_PEERS for long). One the relay refused lingers instead (REJECT_LINGER_US).
 HELLO_WAIT_US :: 2_000_000
+// A refused connection (its Hello, or the whole connection once in: Relay_Conn.rejected_us) stays open, reading
+// nothing but a Leave, until its Reject is acked or this long at most: the channel resends the Reject meanwhile, so a
+// lost datagram doesn't leave the client to take the end of its connection for a lost one and come back.
+REJECT_LINGER_US :: 2 * HELLO_WAIT_US
 // The session's members at most: a member id is a u16, 0 being none.
 @(private)
 MEMBERS_MAX :: int(max(u16))
@@ -110,8 +113,11 @@ Queued_Report :: struct {
 // A person of the session: its member id is its index + 1 (never reused).
 @(private)
 Relay_Member :: struct {
-	key:   string, // what recognizes them: "<platform>:<id>" of a vouched account, "token:<hex>", or "" (nothing)
-	entry: Roster_Entry, // what the clients get (the account its link vouched for, never the token)
+	key:     string, // what recognizes them: "<platform>:<id>" of a vouched account, "token:<hex>", or "" (nothing)
+	entry:   Roster_Entry, // what the clients get (the account its link vouched for, never the token)
+	// Why the relay refused the connection they were last seated on (refuse_conn), until they are seated again: a
+	// resuming Hello of theirs (the refused program, back after its connection ended) is refused the same (on_hello).
+	refused: Maybe(Reject_Reason),
 }
 
 // A typed desync report waiting for the snapshots it diffs.
@@ -128,6 +134,9 @@ Pending_Image :: struct {
 // (src/netcode/README.md, Relay: Connections and seats). Emptied with one assignment (relay_conn_reset) when it ends.
 Relay_Conn :: struct {
 	connected:       bool,
+	// When the relay refused it (a Reject of its Hello or of the whole connection; 0: not): it lingers until the Reject
+	// is acked, REJECT_LINGER_US at most, reading nothing but a Leave.
+	rejected_us:     i64,
 	welcomed:        bool,
 	done:            bool, // verified the last tick of a fixed-length session
 	base_known:      bool, // finalized ticks can be streamed to this client
@@ -516,21 +525,29 @@ free_join_tick :: proc(relay: ^Relay($G), from: u32) -> u32 {
 	return tick
 }
 
-// Refuses a Hello (`local` ALL_LOCALS: the whole connection) or one Join (that local player only).
+// Refuses a Hello (`local` ALL_LOCALS: the whole connection, which then lingers for its Reject: REJECT_LINGER_US) or one
+// Join (that local player only).
 @(private)
 reject :: proc(relay: ^Relay($G), peer: Peer, why: Reject_Reason, now: i64, local := ALL_LOCALS) {
 	writer := msg_begin(&relay.w, .Reject)
 	wire.w_u8(writer, u8(why))
 	wire.w_u8(writer, local)
 	channel_send(relay.ch, peer, writer.buf[:], .Reliable, now)
+	if local == ALL_LOCALS do relay.conns[peer].rejected_us = now
 }
 
-// Refuses a connection that is in already (its snapshot failed, it fell too far behind): it gets Reject and is gone,
-// with every seat it held.
+// Refuses a connection that is in already (its snapshot failed, it fell too far behind, it diverged): every seat it
+// held empties and it gets Reject, which it lingers for (REJECT_LINGER_US). Its members are marked refused, so if the
+// Reject never gets through and the client comes back resuming, it is refused the same (on_hello).
 @(private)
 refuse_conn :: proc(relay: ^Relay($G), peer: Peer, why: Reject_Reason, now: i64) {
-	reject(relay, peer, why, now)
+	for slot in relay.conns[peer].locals {
+		if slot >= 0 && relay.seats[slot].member != NO_MEMBER {
+			relay.members[relay.seats[slot].member - 1].refused = why
+		}
+	}
 	conn_left(relay, peer, fmt.tprintf("refused (%v)", why), now)
+	reject(relay, peer, why, now)
 }
 
 // A client's Hello: every seat it asks for fits, or it is refused whole (Reject, ALL_LOCALS) and nobody is seated.
@@ -561,6 +578,16 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 	new_members := 0
 	for &ask, i in asks {
 		known[i] = find_member(relay, member_key(base, ask.local))
+		if known[i] >= 0 && hello.resume_tick != 0 {
+			// The program whose connection the relay refused, back after the Reject was lost (its connection ended
+			// before the Reject got through): the refusal stands. A Hello that resumes nothing is a new try (a restarted
+			// game, the menu's retry), a late joiner like any other.
+			if why, refused := relay.members[known[i]].refused.?; refused {
+				reject(relay, peer, why, now)
+				log.infof("member %d: refused earlier (%v), its resuming Hello too", known[i] + 1, why)
+				return
+			}
+		}
 		if known[i] < 0 {
 			if !relay.open {
 				reject(relay, peer, .Closed, now)
@@ -782,6 +809,7 @@ seat_member :: proc(relay: ^Relay($G), peer: Peer, slot: int, ask: ^Seat_Ask, ke
 			entry.account = text_of(ACCOUNT_MAX, account.id)
 		}
 	}
+	relay.members[known].refused = nil // seated again: a refusal of theirs is over
 	entry := &relay.members[known].entry
 	entry.name = ask.name
 	entry.slot = u8(slot)
@@ -1889,14 +1917,15 @@ handle_relay_msg :: proc(relay: ^Relay($G), peer: Peer, data: []u8, now: i64) {
 	}
 	reader := wire.reader_make(data)
 	kind := Msg(wire.r_u8(&reader))
-	if kind == .Hello {
-		on_hello(relay, peer, &reader, now)
+	conn := &relay.conns[peer]
+	if kind == .Hello && conn.rejected_us == 0 {
+		on_hello(relay, peer, &reader, now) // (a refused connection's is never read: its refusal stands)
 		return
 	}
-	conn := &relay.conns[peer]
 	if !conn.connected {
 		if kind == .Leave {
 			channel_drop(relay.ch, peer, now) // refused earlier: its connection is free at once, not in DISCONNECT_US
+			conn.rejected_us = 0
 		}
 		return
 	}
@@ -2060,6 +2089,7 @@ relay_shift :: proc(relay: ^Relay($G), gap_us: i64, now: i64) {
 		conn.snap_us += gap_us
 		conn.snap_deadline += gap_us
 		if conn.resync_since != 0 do conn.resync_since += gap_us
+		if conn.rejected_us != 0 do conn.rejected_us += gap_us
 	}
 	relay.pending_us += gap_us
 	relay.pending_from += gap_us
@@ -2077,18 +2107,29 @@ relay_shift :: proc(relay: ^Relay($G), gap_us: i64, now: i64) {
 relay_step :: proc(relay: ^Relay($G), now: i64) -> (wake_us: i64) {
 	for event in channel_poll(relay.ch, now) {
 		switch event.kind {
-		case .Connected, .Incompatible:
+		case .Incompatible:
+		case .Connected:
+			relay.conns[event.peer].rejected_us = 0 // a new connection on this peer number: no refusal of its own yet
 		case .Disconnected:
 			if relay.conns[event.peer].connected {
 				conn_left(relay, event.peer, "disconnected", now)
 			}
+			relay.conns[event.peer].rejected_us = 0
 		case .Message:
 			handle_relay_msg(relay, event.peer, event.data, now)
 		}
 	}
+	// Connections that hold no seat: one refused lingers until its Reject is acked, REJECT_LINGER_US at most (the
+	// channel resends it meanwhile); one that said no Hello the relay took or refused goes after HELLO_WAIT_US.
 	for &conn, peer in relay.conns {
 		if conn.connected || !channel_connected(relay.ch, Peer(peer)) do continue
-		if age := channel_age_us(relay.ch, Peer(peer), now); age > HELLO_WAIT_US {
+		if conn.rejected_us != 0 {
+			if channel_idle(relay.ch, Peer(peer)) || now - conn.rejected_us > REJECT_LINGER_US {
+				channel_drop(relay.ch, Peer(peer), now)
+				conn.rejected_us = 0
+			}
+		} else if age := channel_age_us(relay.ch, Peer(peer), now); age > HELLO_WAIT_US {
+			// once what it was sent (an End) is acked, or twice as long at most
 			if channel_idle(relay.ch, Peer(peer)) || age > 2 * HELLO_WAIT_US do channel_drop(relay.ch, Peer(peer), now)
 		}
 	}

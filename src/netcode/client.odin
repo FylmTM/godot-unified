@@ -1929,6 +1929,7 @@ client_step :: proc(client: ^Client($G), now: i64) -> (wake_us: i64) {
 		if client.end_us == 0 do reconnect(client, client.reconnect_us)
 	}
 	if client_finished(client) {
+		channel_flush(client.ch, now) // the ack of what ended it (a Reject): the relay frees the connection at once
 		return now + 100_000
 	}
 	if !client.hello_sent {

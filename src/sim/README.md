@@ -384,7 +384,9 @@ is near a point: a counting sort of ids into square cells. It is scratch in the 
 it rebuilds it from the block, which costs microseconds, so a rollback can never leave it stale (the sync-tests fail on
 any tick where stale scratch reaches the state). Its answers come in a fixed order, by row, column and then the order
 the ids were added, so walking a table in index order gives each cell's ids in index order and no hashing or pointer
-order reaches the simulation.
+order reaches the simulation. A pairwise pass (a crowd's separation) walks each neighbouring pair once instead of
+twice (`grid_pairs`): every item, in the grid's order, meets only the neighbours after it, as runs of grid positions,
+so the pass reads a copy of its items laid out in that order and adds each pair's force to both.
 
 `due` spreads work too costly to run every tick for every entity: each key's turn comes once per period, and dense
 keys share the ticks evenly.

@@ -160,8 +160,9 @@ plate's mass, a spawn per slot, an item kind or platform mode the sim knows).
   below the level and an item sent home teleport a body, which moves its warp epoch on (`physics.body_warp`): the
   view snaps there instead of gliding. An event about a player goes to that player's view, so grabbed, dropped and thrown stay
   with the holder; one about a marker alone goes to that marker's view.
-- Session data `Data_Hud` (`Unified.data.hud`): the phase, the run's and best times, the checkpoint, the reset
-  countdown, and each slot's player (`DataHudPlayer`).
+- Session data `Data_Hud` (`Unified.data.hud`): the phase, the run's time, the checkpoint, the reset countdown, and
+  each slot's player (`DataHudPlayer`). The HUD's best time is the player's own (`Settings.best_time`, kept from each
+  confirmed finish), not the session's.
 - Constants (`Unified.constants`): the player capsule (radius, half height, feet), the heavy crate's
   `handle_outset`, each item kind's size (`item_sizes`), which the item markers draw, and the hold point
   (`hold_dist`, `hold_up`, `hold_pitch`) a held item is drawn at.
