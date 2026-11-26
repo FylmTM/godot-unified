@@ -24,7 +24,8 @@
 #    `changed`): the restart waits for the end of the frame (its last Frame is in use), and the ended session's result
 #    is kept (its recording).
 # 13. the session node taken out of the tree from a script the session calls: its session ends once that frame is
-#    done with it; put back, it runs sessions again; a paused SceneTree doesn't stop it.
+#    done with it; put back, it runs sessions again; a paused SceneTree doesn't stop it; taken out by a script while a
+#    start resets the session data, the start starts nothing (FAILED).
 # 14. `paused` set in the frame a start method was called starts the session paused on its first tick, a restart's
 #    too; a pause is no silence of the host (host_silent_ms).
 # 15. a second local player on the keyboard: a tap pressed and released within one frame reaches the sim; on a pad,
@@ -567,6 +568,30 @@ func _removed_from_a_callback() -> bool:
 	var after: int = s.tick
 	paused = false
 	check("a paused SceneTree doesn't stop the session", after > before + 5, [before, after])
+	# A restart on it, and a script that takes the node out while the start resets the session data (Unified.data's
+	# signals, called once the new session's start dropped the last one's Frame: no local player then): the start
+	# starts nothing, FAILED saying why, and no session runs on without its node.
+	var taken: Array[bool] = [false]
+	var take := func() -> void:
+		if taken[0] or s.local_player != 0:
+			return
+		taken[0] = true
+		root.remove_child(s)
+	Unified.data.toy.changed.connect(take)
+	_statuses.clear()
+	check("a restart on the running session", s.start_single())
+	if not await _wait_for(func() -> bool: return taken[0], 5.0, "the start's data reset calls a script that takes the node out"):
+		return false
+	Unified.data.toy.changed.disconnect(take)
+	for i in 3:
+		await process_frame
+	check("a start whose data reset took the node out starts nothing: FAILED, saying why, no session runs",
+		not s.running and _statuses.any(func(x: String) -> bool: return x.begins_with("failed:") and x.contains("left the tree")),
+		[s.running, _statuses])
+	root.add_child(s)
+	check("back in the tree again, start single player", s.start_single())
+	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.local_player != 0 and s.tick > 5, 5.0, "the node runs a session again after the failed start"):
+		return false
 	s.leave()
 	return await _wait_for(func() -> bool: return not s.running, 5.0, "the session ends")
 

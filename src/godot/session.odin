@@ -629,7 +629,7 @@ register_session_class :: proc() {
 
 // What every start method's doc ends with: how a start meets the session before it.
 @(private)
-START_LEAVES_DOC :: "A session before it is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced; one that ended already is replaced at the end of the frame, its result kept); a host's restart ends the session for every player who joined: they get its goodbye and must join again."
+START_LEAVES_DOC :: "A session before it is left first, as [method leave] does, and this one starts once it has said goodbye (a start already waiting for that is replaced; one that ended already is replaced at the end of the frame, its result kept); a host's restart ends the session for every player who joined: they get its goodbye and must join again. The session data is reset as the session starts (its signals call scripts): a script that takes this node out of the tree then ends the start, which starts nothing: [constant STATUS_FAILED], its detail saying why (the method returns false when that happened in its own call)."
 
 // The link's slow flag changed (Message.Link_Slow), or went with the session: link_slow_changed, and a mark in the dev
 // UI's timeline.
@@ -1112,7 +1112,13 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	}
 	views_check_index()
 	views_session_reset() // the last session's views belong to it, even where this one has the same keys
+	// data_reset's signals run scripts: one that takes the node out of the tree ends this node's sessions
+	// (session_exit), and then this start starts nothing (a node not yet in the tree starts its session as it enters)
+	inside := gd.Node_is_inside_tree(node_of(session))
 	data_reset()
+	if inside && !gd.Node_is_inside_tree(node_of(session)) {
+		return fail_start(session, "the session node left the tree while the start reset the session data")
+	}
 	// A new session starts with local player 0 alone: the others join it with add_local_player.
 	for local in 1 ..< LOCAL_MAX {
 		input_sample.active[local] = false
