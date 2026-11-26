@@ -28,15 +28,16 @@ Handle :: struct($T: typeid) {
 
 // Indices are stable (no swap-remove); freed slots are reused LIFO and zeroed (equal states hash equal).
 // The zero value is an empty table (no init call needed). Padding-free for any T of alignment up to 8 (a 16-aligned
-// T, a u128, does not compile), as the state block requires: the pads are computed from T and N.
+// T, a u128, does not compile), as the state block requires: the pads are computed from T and N, and its size is
+// always a multiple of 8, so a field after it (a u64 too) needs no pad of the game's.
 Table :: struct($T: typeid, $N: int) where N > 0 && N <= 1 << 30 && align_of(T) <= 8 {
 	items:      [N]T,
-	_pad_items: [(4 - N * size_of(T) % 4) % 4]u8, // keeps `slots` 4-aligned
+	_pad_items: [(8 - N * size_of(T) % 8) % 8]u8, // brings `items` to a multiple of 8 bytes
 	slots:      [N]Slot,
 	free_head:  i32, // index + 1 of the first free slot below high_water (0: none)
 	high_water: i32, // one past the highest slot used since the table was last empty by despawn_all or zeroing
 	count:      i32,
-	_pad:       i32, // keeps the size a multiple of 8
+	_pad:       i32, // with the 8-byte slots and the pad after `items`: the size is a multiple of 8
 }
 
 // Allocates a zeroed item. ok = false when the table is full.
@@ -161,10 +162,11 @@ table_next :: #force_inline proc(iterator: ^Table_Iterator($T, $N)) -> (item: ^T
 }
 
 // The next item of a table walk (iterate), a player walk (iterate_present, iterate_known: players.odin), a bit-set
-// walk (iterate) or a grid's rows (grid_box: grid.odin).
+// walk (iterate), a grid's rows (grid_box: grid.odin) or a grid's pairs (grid_pairs).
 next :: proc {
 	table_next,
 	players_next,
 	bits_next,
 	grid_box_next,
+	grid_pairs_next,
 }

@@ -69,50 +69,33 @@ enemy_set :: proc(enemy: ^Enemy, kind: Enemy_Kind, pos: [2]f32, wave: u32) {
 // Seek the nearest alive hero plus separation from the enemies in the 3×3 grid cells around (old positions), blended
 // in by ENEMY_STEER and capped at ENEMY_OVERSPEED times the kind's speed; then move, kept inside the arena.
 //
-// Separation visits each pair of neighbours once: the grid is walked cell by cell over a copy of each enemy's position
-// and radius in grid order (World.near), each enemy meets the neighbours after it in that order (its cell's and the
-// 8 around, all in contiguous runs), and a push counts for both, opposite ways. So an enemy's pushes add up in grid
-// order, not in the order of its own neighbour walk.
+// Separation visits each pair of neighbours once (sim.grid_pairs) over a copy of each enemy's position and radius in
+// grid order (World.near), and a push counts for both, opposite ways.
 steer_enemies :: proc(t: ^Tick) {
-	grid := &t.world.grid
-	for k in 0 ..< grid.count {
-		enemy := &t.state.enemies.items[grid.ids[k]]
+	ids := sim.grid_ids(&t.world.grid)
+	for index, k in ids {
+		enemy := &t.state.enemies.items[index]
 		t.world.near[k] = {enemy.pos, ENEMY_STATS[enemy.kind].radius}
 		t.world.push[k] = {}
 	}
-	for row in 0 ..< grid.rows {
-		for column in 0 ..< grid.columns {
-			cell := row * grid.columns + column
-			if grid.cell_start[cell] == grid.cell_start[cell + 1] do continue
-			// The cell's 3×3 neighbourhood as three runs of grid positions, one per row (as sim.grid_near).
-			runs: [3][2]i32
-			first, last := dmath.max(column - 1, 0), dmath.min(column + 1, grid.columns - 1)
-			for k in i32(0) ..< 3 {
-				near_row := row - 1 + k
-				if near_row < 0 || near_row >= grid.rows do continue
-				base := near_row * grid.columns
-				runs[k] = {grid.cell_start[base + first], grid.cell_start[base + last + 1]}
-			}
-			for k in grid.cell_start[cell] ..< grid.cell_start[cell + 1] {
-				enemy := t.world.near[k]
-				for run in runs {
-					for j in dmath.max(run[0], k + 1) ..< run[1] {
-						other := &t.world.near[j]
-						away := enemy.pos - other.pos
-						distance_sq := dmath.length_sq(away)
-						reach := enemy.radius + other.radius
-						if distance_sq < reach * reach && distance_sq > SEPARATION_MIN_SQ {
-							push := away * (SEPARATION / distance_sq)
-							t.world.push[k] += push
-							t.world.push[j] -= push
-						}
-					}
+	pairs := sim.grid_pairs(&t.world.grid)
+	for k, later in sim.next(&pairs) {
+		enemy := t.world.near[k]
+		for run in later {
+			for j in run.first ..< run.end {
+				other := &t.world.near[j]
+				away := enemy.pos - other.pos
+				distance_sq := dmath.length_sq(away)
+				reach := enemy.radius + other.radius
+				if distance_sq < reach * reach && distance_sq > SEPARATION_MIN_SQ {
+					push := away * (SEPARATION / distance_sq)
+					t.world.push[k] += push
+					t.world.push[j] -= push
 				}
 			}
 		}
 	}
-	for k in 0 ..< grid.count {
-		index := grid.ids[k]
+	for index, k in ids {
 		enemy := &t.state.enemies.items[index]
 		stats := ENEMY_STATS[enemy.kind]
 		desired: [2]f32

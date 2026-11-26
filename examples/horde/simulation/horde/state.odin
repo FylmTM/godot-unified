@@ -109,7 +109,7 @@ Gem :: struct {
 // The world outside the block: scratch, rebuilt every tick and never snapshotted.
 World :: struct {
 	grid:    Enemy_Grid,
-	near:    [MAX_ENEMIES]Near_Enemy, // in the grid's order (grid.ids): what the separation pass reads
+	near:    [MAX_ENEMIES]Near_Enemy, // in the grid's order (sim.grid_ids): what the separation pass reads
 	push:    [MAX_ENEMIES][2]f32, // in the grid's order: each enemy's separation, summed by the pass
 	new_vel: [MAX_ENEMIES][2]f32,
 	struck:  [CHAIN_MAX]i32, // one lightning strike's enemies so far

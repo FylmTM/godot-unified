@@ -241,6 +241,83 @@ grid_add_after_end_needs_another_end :: proc(t: ^testing.T) {
 	testing.expect(t, len(ids) == 2 && ids[0] == 1 && ids[1] == 2, "both adds sorted")
 }
 
+// An add refused at CAP changes nothing: a finished grid stays sorted, its ids as they were.
+@(test)
+grid_add_refused_at_cap_keeps_the_grid_sorted :: proc(t: ^testing.T) {
+	grid: sim.Grid(4, 2)
+	sim.grid_begin(&grid, {0, 0}, 2, 2, 2)
+	sim.grid_add(&grid, 1, {1, 1})
+	sim.grid_add(&grid, 2, {3, 3})
+	sim.grid_end(&grid)
+	testing.expect(t, !sim.grid_add(&grid, 3, {1, 1}), "CAP reached")
+	testing.expect(t, grid.sorted, "a refused add unsorted the grid")
+	ids := sim.grid_ids(&grid)
+	testing.expect(t, len(ids) == 2 && ids[0] == 1 && ids[1] == 2, "the ids changed")
+}
+
+// grid_pairs meets each pair of ids in neighbouring cells (the 3 × 3 around either) exactly once, the later in grid
+// order after the earlier, and no other pair; grid_ids is the grid's order, and grid_around is grid_near as positions.
+@(test)
+grid_pairs_meet_each_neighbouring_pair_once :: proc(t: ^testing.T) {
+	COLUMNS, ROWS, COUNT :: 7, 5, 150
+	grid: sim.Grid(40, COUNT)
+	points: [COUNT][2]f32
+	random := rand.create(23)
+	generator := rand.default_random_generator(&random)
+	for &point in points do point = {rand.float32_range(-3, 16, generator), rand.float32_range(-3, 12, generator)}
+	sim.grid_begin(&grid, {0, 0}, 2, COLUMNS, ROWS)
+	for point, i in points do sim.grid_add(&grid, i32(i), point)
+	sim.grid_end(&grid)
+	ids := sim.grid_ids(&grid)
+	testing.expect_value(t, len(ids), COUNT)
+	cell_of :: proc(grid: ^sim.Grid(40, COUNT), point: [2]f32) -> [2]i32 {
+		column, row := sim.grid_cell(grid, point)
+		return {column, row}
+	}
+	for k in 1 ..< len(ids) { 	// by row, then column, then the order added
+		before, after := cell_of(&grid, points[ids[k - 1]]), cell_of(&grid, points[ids[k]])
+		in_order :=
+			before.y < after.y ||
+			before.y == after.y && (before.x < after.x || before.x == after.x && ids[k - 1] < ids[k])
+		testing.expectf(t, in_order, "grid position %d out of order", k)
+	}
+	for point in points {
+		cell := cell_of(&grid, point)
+		near := sim.grid_near(&grid, point)
+		for run, row in sim.grid_around(&grid, cell.x, cell.y) {
+			testing.expect_value(t, len(near[row]), int(run.end - run.first))
+			if run.end > run.first do testing.expect(t, &near[row][0] == &ids[run.first], "grid_near and grid_around disagree")
+		}
+	}
+	met: [COUNT][COUNT]u8
+	pairs := sim.grid_pairs(&grid)
+	visited := 0
+	for k, later in sim.next(&pairs) {
+		testing.expect_value(t, int(k), visited)
+		visited += 1
+		for run in later {
+			for j in run.first ..< run.end {
+				testing.expectf(t, j > k, "position %d met %d, before it", k, j)
+				met[ids[k]][ids[j]] += 1
+				met[ids[j]][ids[k]] += 1
+			}
+		}
+	}
+	testing.expect_value(t, visited, COUNT)
+	for a in 0 ..< COUNT {
+		for b in 0 ..< COUNT {
+			if a == b do continue
+			offset := cell_of(&grid, points[a]) - cell_of(&grid, points[b])
+			neighbours := abs(offset.x) <= 1 && abs(offset.y) <= 1
+			testing.expectf(t, met[a][b] == (1 if neighbours else 0), "ids %d and %d met %d times", a, b, met[a][b])
+		}
+	}
+	sim.grid_begin(&grid, {0, 0}, 2, COLUMNS, ROWS)
+	sim.grid_end(&grid)
+	empty := sim.grid_pairs(&grid)
+	for _, _ in sim.next(&empty) do testing.fail(t)
+}
+
 // A game's table beside the grid indexes cells as the grid files them: grid_cell_index is row × columns + column, in
 // 0 ..< grid_cells, and a position outside counts in the nearest edge cell, as grid_add files it.
 @(test)

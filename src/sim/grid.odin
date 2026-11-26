@@ -53,11 +53,12 @@ grid_cells :: #force_inline proc(grid: ^Grid($CELLS, $CAP)) -> int {
 	return int(grid.columns * grid.rows)
 }
 
-// Adds an id at a position (between grid_begin and grid_end); false when CAP ids were added already. An add after
-// grid_end makes the grid unsorted again: a query asserts until the next grid_end, which sorts everything added.
+// Adds an id at a position (between grid_begin and grid_end); false when CAP ids were added already, which changes
+// nothing. An add after grid_end makes the grid unsorted again: a query asserts until the next grid_end, which sorts
+// everything added.
 grid_add :: proc(grid: ^Grid($CELLS, $CAP), id: i32, pos: [2]f32) -> bool {
-	grid.sorted = false
 	if grid.count >= i32(CAP) do return false
+	grid.sorted = false
 	column, row := grid_cell(grid, pos)
 	grid.added_id[grid.count] = id
 	grid.added_cell[grid.count] = row * grid.columns + column
@@ -90,14 +91,90 @@ grid_end :: proc(grid: ^Grid($CELLS, $CAP)) {
 grid_near :: proc(grid: ^Grid($CELLS, $CAP), pos: [2]f32) -> (rows: [3][]i32) {
 	assert(grid.sorted, "sim.grid_near: call grid_end first")
 	column, row := grid_cell(grid, pos)
+	for run, k in grid_around(grid, column, row) do rows[k] = grid.ids[run.first:run.end]
+	return
+}
+
+// A run of grid positions, first ..< end: the ids at grid_ids(grid)[first:end]. A position is an id's index in the
+// grid's order, so a pass that copies what it reads of each item into an array by position (once, before walking
+// pairs) reads its neighbours from contiguous memory.
+Grid_Run :: struct {
+	first, end: i32,
+}
+
+// Every id added since grid_begin, in the grid's order: by row from the smallest y, then column, then the order added.
+// An id's index in it is its grid position, what Grid_Run and grid_pairs name.
+grid_ids :: proc(grid: ^Grid($CELLS, $CAP)) -> []i32 {
+	assert(grid.sorted, "sim.grid_ids: call grid_end first")
+	return grid.ids[:grid.count]
+}
+
+// The 3 × 3 cells around the cell at `column`, `row` (grid_cell's, on the grid) as three runs of grid positions, one
+// per row from the smallest y: grid_near as positions. A row's three cells are one run, a row off the grid an empty
+// one.
+grid_around :: proc(grid: ^Grid($CELLS, $CAP), column, row: i32) -> (rows: [3]Grid_Run) {
+	assert(grid.sorted, "sim.grid_around: call grid_end first")
+	assert(column >= 0 && column < grid.columns && row >= 0 && row < grid.rows, "sim.grid_around: a cell off the grid")
 	first, last := dmath.max(column - 1, 0), dmath.min(column + 1, grid.columns - 1)
 	for k in 0 ..< i32(3) {
 		near_row := row - 1 + k
 		if near_row < 0 || near_row >= grid.rows do continue
 		base := near_row * grid.columns
-		rows[k] = grid.ids[grid.cell_start[base + first]:grid.cell_start[base + last + 1]]
+		rows[k] = {grid.cell_start[base + first], grid.cell_start[base + last + 1]}
 	}
 	return
+}
+
+// A walk over every id in grid order, each with its neighbours after it (grid_pairs, then next).
+Grid_Pairs :: struct($CELLS: int, $CAP: int) {
+	grid:         ^Grid(CELLS, CAP),
+	position:     i32, // the next to yield
+	cell:         i32, // the cell holding the last yielded
+	cell_end:     i32, // one past the cell's last position
+	row_end:      i32, // one past the position of the last id in the cell after it in its row (or in it, at the edge)
+	next_row_run: Grid_Run, // the 3 cells below it in the next row
+}
+
+// Starts a walk that meets each pair of ids in neighbouring cells (the 3 × 3 around either) once: `next` yields every
+// position in grid order with `later`, two runs of the positions after it in its 3 × 3 cells (the rest of its cell and
+// the cell after it in its row, then the next row's three). A pass that sums a pairwise force adds it to both items,
+// opposite ways, and visits each pair once instead of twice:
+//
+//	pairs := sim.grid_pairs(grid)
+//	for k, later in sim.next(&pairs) {
+//		for run in later do for j in run.first ..< run.end { ... }
+//	}
+//
+// Each item's sums then add up in grid order, not in the order of its own neighbour walk.
+grid_pairs :: proc(grid: ^Grid($CELLS, $CAP)) -> Grid_Pairs(CELLS, CAP) {
+	assert(grid.sorted, "sim.grid_pairs: call grid_end first")
+	return {grid = grid, cell = -1}
+}
+
+// The next position of a grid_pairs walk, with the two runs of its neighbours after it in grid order; ok is false
+// past the last id.
+grid_pairs_next :: proc(walk: ^Grid_Pairs($CELLS, $CAP)) -> (position: i32, later: [2]Grid_Run, ok: bool) {
+	grid := walk.grid
+	if walk.position >= grid.count do return
+	if walk.position >= walk.cell_end {
+		for walk.cell_end <= walk.position { 	// the next cell with ids: cell_start[columns × rows] is count
+			walk.cell += 1
+			walk.cell_end = grid.cell_start[walk.cell + 1]
+		}
+		column, row := walk.cell % grid.columns, walk.cell / grid.columns
+		walk.row_end = grid.cell_start[row * grid.columns + dmath.min(column + 1, grid.columns - 1) + 1]
+		walk.next_row_run = {}
+		if row + 1 < grid.rows {
+			base := (row + 1) * grid.columns
+			walk.next_row_run = {
+				grid.cell_start[base + dmath.max(column - 1, 0)],
+				grid.cell_start[base + dmath.min(column + 1, grid.columns - 1) + 1],
+			}
+		}
+	}
+	position = walk.position
+	walk.position += 1
+	return position, {{position + 1, walk.row_end}, walk.next_row_run}, true
 }
 
 // A walk over the rows of cells a box covers (grid_box, then next): each yields that row's run of ids.
