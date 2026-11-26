@@ -1,7 +1,8 @@
 # UnifiedTool's own checks (tools_godot/tool.gd, mirrored as res://unified/tools_godot/): run headless by
 # `uni test --suite godot-bindings`. A headless run's window is the project's window size, not Godot's 64x64; click
 # and click_at give real mouse events of the button asked for, where they aim (a target past 64x64 is hit); pad_button
-# and pad_axis give a pad's events as the pad asked for.
+# and pad_axis give a pad's events as the pad asked for; the --frames log splits a drawn frame into its scene process
+# and render draw.
 # Prints one line per check and "TOOL TESTS: <n> failed"; a failure fails the run.
 extends UnifiedTool
 
@@ -57,6 +58,39 @@ func _run() -> void:
 		Input.get_joy_axis(1, JOY_AXIS_LEFT_X))
 	await pad_axis(JOY_AXIS_LEFT_X, 0.0, 1)
 	check("pad_axis 0 lets go", Input.get_joy_axis(1, JOY_AXIS_LEFT_X) == 0.0, Input.get_joy_axis(1, JOY_AXIS_LEFT_X))
+	check_frame_split()
 	print("TOOL TESTS: %d failed" % failures)
 	if failures > 0:
 		fail("%d checks failed" % failures)
+
+
+# UnifiedFrameLog splits a drawn frame into its scene process (its start to frame_pre_draw) and render draw
+# (frame_pre_draw to frame_post_draw). A headless run draws nothing, so the check emits RenderingServer's two signals
+# itself, around sleeps of known length.
+func check_frame_split() -> void:
+	var split_log := UnifiedFrameLog.new()
+	split_log.frame()
+	OS.delay_usec(15000)  # the scene process
+	RenderingServer.frame_pre_draw.emit()
+	OS.delay_usec(12000)  # the render draw
+	RenderingServer.frame_post_draw.emit()
+	OS.delay_usec(1000)
+	split_log.frame()  # frame 0: drawn, a hitch (over 25 ms)
+	OS.delay_usec(2000)
+	split_log.frame()  # frame 1: not drawn
+	RenderingServer.frame_pre_draw.emit()
+	OS.delay_usec(2000)
+	split_log.frame()  # frame 2: a pre-draw with no post-draw is not drawn
+	var report := split_log.report()
+	check("frame log: every frame counted, only the drawn one split", report.count == 3 and report.drawn == 1,
+		report)
+	var hitches: Array[Dictionary] = report.hitches
+	if not hitches.is_empty():
+		var hitch := hitches[0]
+		check("frame log: the drawn frame's process and draw at least their sleeps",
+			hitch.frame == 0 and hitch.process_ms >= 15.0 and hitch.draw_ms >= 12.0, hitch)
+		check("frame log: process + draw within the frame", hitch.process_ms + hitch.draw_ms <= hitch.ms, hitch)
+	check("frame log: one hitch, the drawn frame", hitches.size() == 1, hitches)
+	check("frame log: the summary's split is the drawn frame's", report.get("process_max_ms", 0.0) >= 15.0
+		and report.get("draw_max_ms", 0.0) >= 12.0
+		and report.get("process_max_ms", 0.0) + report.get("draw_max_ms", 0.0) <= report.max_ms, report)

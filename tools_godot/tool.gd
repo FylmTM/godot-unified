@@ -15,8 +15,9 @@ extends SceneTree
 ## It knows no game's menus: a game drives its own UI from its tool scripts (game/tools/).
 ##
 ## Arguments come after `--`: `arg("name")` reads `--name=value` (or `--name value`), `flag("name")` `--name`. Every
-## tool takes `--shots=<dir>` (PNGs from `shot()`, a windowed run), `--frames` (frame times and first-use hitches,
-## UnifiedFrameLog; a script tags its own moments with `frame_tag()`) and `--window-size=WxH` (uni tool --size).
+## tool takes `--shots=<dir>` (PNGs from `shot()`, a windowed run), `--frames` (frame times, each drawn frame's
+## scene process and render draw, and first-use hitches: UnifiedFrameLog; a script tags its own moments with
+## `frame_tag()`) and `--window-size=WxH` (uni tool --size).
 
 ## How far left of the leftmost screen a window too big for it goes (`--window-size`): past its frame's shadow.
 const OFF_SCREEN_GAP := 64

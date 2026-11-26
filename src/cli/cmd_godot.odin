@@ -544,6 +544,12 @@ tool_details :: proc() -> string {
 		"`%s`. With --json, the whole UNIFIED_RESULT object\n" +
 		"(steps, errors and the script's own keys) is the result's `data`. To read a value out of Godot, a script\n" +
 		"puts it in `result`.\n\n" +
+		"`-- --frames` logs every frame's time (UnifiedFrameLog, tools_godot/frame_log.gd) and prints its p50, p99\n" +
+		"and max; over the drawn frames (a --window run's) the scene process (the main loop's process start to\n" +
+		"RenderingServer's frame_pre_draw: scripts, nodes, the view sync) and the render draw (frame_pre_draw to\n" +
+		"frame_post_draw); each hitch over 25 ms with its split and tags; and the worst frame after each first\n" +
+		"use: `frames: 600, p50 16.7 ms, ..., 1 over 25 ms; drawn 600: process p50 2.1 ms, ..., draw p50 1.3 ms,\n" +
+		"...`. Godot's TIME_PROCESS counts the draw as process: the split tells a script's cost from the renderer's.\n\n" +
 		"<script> is a name (game/tools/<name>.gd, else unified's) or a .gd file by path, anywhere: a throwaway\n" +
 		"script an agent writes to make or change the project's files through Godot's own API (a level scene\n" +
 		"saved with ResourceSaver, input actions with ProjectSettings.save()), run without joining the project.\n" +
