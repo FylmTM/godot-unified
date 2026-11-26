@@ -6,7 +6,10 @@ var data: ViewRemote3d:
 	set(value):
 		data = value
 		tick = value.tick
+		if int(value.trail[0]) != tick or int(value.trail[-1]) != tick + value.trail.size() - 1:
+			torn += 1
 var tick := 0  # data.tick: the tick its data is of (on the verified timeline, its sample's)
+var torn := 0  # data set whose trail isn't its tick's (ext/ext.odin's View_Remote3D): not one sample's whole data
 var shown_early := false  # visible before it had data: posed without a sample
 # [x, data tick, the session's verified tick, the frame's delta (s), the frame's number] each frame it shows, until it
 # despawns

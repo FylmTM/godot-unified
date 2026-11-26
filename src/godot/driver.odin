@@ -526,8 +526,12 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		// the dev UI can force it on for every kind; a replay has none: every tick it shows is final
 		if (api.remote_verified || DEVUI) && request.mode != .Replay {
 			kinds := make([dynamic]u8, context.temp_allocator)
-			for policy, kind in api.view_policy do if policy.remote == .Verified do append(&kinds, u8(kind))
-			driver.sampler = verified_sampler_new(kinds[:])
+			data_stride := 0 // the largest data of a kind it may sample: every kind's in a dev UI build
+			for policy, kind in api.view_policy {
+				if policy.remote == .Verified do append(&kinds, u8(kind))
+				if policy.remote == .Verified || DEVUI do data_stride = max(data_stride, api.view_types[kind].size)
+			}
+			driver.sampler = verified_sampler_new(kinds[:], data_stride)
 		}
 		input_sample_reset()
 		triple_init(&driver.states)
@@ -899,8 +903,9 @@ policy_problems :: proc(policy: View_Policy, kind: string, multi: bool, problems
 // fill_frame, no sample_input for a game with an Input (or one for a game without), a bad view_scale, a MultiView enum
 // that doesn't count up from 0, sim.game_violation, netcode.game_violation, a Glue.data, constants, input values or
 // View kind type that isn't a struct, isn't plain (pointers, implicit padding) or holds one of Godot's own types, a
-// view policy it refuses (or one naming a type that is no View kind, or a kind twice). A game's own test calls it (the template's `the_extension_installs`), so `uni test` reports
-// these in a second, without Godot. The list and its strings live as long as the process.
+// View kind larger than VIEW_DATA_MAX, a view policy it refuses (or one naming a type that is no View kind, or a kind
+// twice). A game's own test calls it (the template's `the_extension_installs`), so `uni test` reports these in a
+// second, without Godot. The list and its strings live as long as the process.
 install_problems :: proc {
 	install_problems_with_constants,
 	install_problems_without_constants,
@@ -970,7 +975,20 @@ problems_of :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: type
 		append(&problems, strings.clone(reason))
 	}
 	data_problems(glue.data, constants, glue.input_values, &problems)
-	for variant in sim.union_variants(View) do struct_problems("the view kind", variant, true, &problems)
+	for variant in sim.union_variants(View) {
+		struct_problems("the view kind", variant, true, &problems)
+		if variant.size > VIEW_DATA_MAX {
+			append(
+				&problems,
+				fmt.aprintf(
+					"the view kind %v is %d bytes, past VIEW_DATA_MAX (%d): its remote views' samples on the verified timeline would hold too much",
+					variant.id,
+					variant.size,
+					VIEW_DATA_MAX,
+				),
+			)
+		}
+	}
 	// every type GDScript reads by field names and classes
 	named := make([dynamic]^runtime.Type_Info, context.temp_allocator)
 	for variant in sim.union_variants(sim.part(G, sim.GAME_EVENT)) do append(&named, variant)

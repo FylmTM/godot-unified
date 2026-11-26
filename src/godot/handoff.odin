@@ -69,6 +69,22 @@ queue_peek :: proc(queue: ^Queue($T, $N)) -> ^T {
 	return &queue.items[head % u32(N)]
 }
 
+// Where the next queue_push puts its item (producer thread; an index into `items`), false when the queue is full. A
+// caller keeping more of each item beside the queue (an array of N, by this index) writes it there before the push.
+queue_next_index :: proc(queue: ^Queue($T, $N)) -> (index: int, ok: bool) {
+	tail := sync.atomic_load_explicit(&queue.tail, .Relaxed)
+	if tail - sync.atomic_load_explicit(&queue.head, .Acquire) >= u32(N) do return
+	return int(tail % u32(N)), true
+}
+
+// Where the oldest item is (consumer thread; an index into `items`), false when the queue is empty: what a caller
+// keeps beside it (queue_next_index) is read there before queue_pop releases it.
+queue_oldest_index :: proc(queue: ^Queue($T, $N)) -> (index: int, ok: bool) {
+	head := sync.atomic_load_explicit(&queue.head, .Relaxed)
+	if head == sync.atomic_load_explicit(&queue.tail, .Acquire) do return
+	return int(head % u32(N)), true
+}
+
 // Takes the oldest item on the consumer thread; `ok` is false when the queue is empty.
 queue_pop :: proc(queue: ^Queue($T, $N)) -> (item: T, ok: bool) {
 	head := sync.atomic_load_explicit(&queue.head, .Relaxed)

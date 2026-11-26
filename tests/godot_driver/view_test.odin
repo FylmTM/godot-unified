@@ -708,24 +708,54 @@ smoothing_ramp :: proc(t: ^testing.T) {
 @(test)
 verified_pose_interpolates_between_final_ticks :: proc(t: ^testing.T) {
 	history: godot.Verified_History
-	_, empty, _ := godot.verified_pose_at(&history, 10, 4)
+	_, empty, _, _ := godot.verified_pose_at(&history, 10, 4)
 	testing.expect(t, !empty)
 	godot.verified_history_push(&history, {tick = 10, pose = {pos = {0, 0, 0}, rot = godot.IDENTITY}})
 	godot.verified_history_push(&history, {tick = 12, pose = {pos = {2, 0, 0}, rot = godot.IDENTITY}}) // 11: no sample
-	pose, ok, at := godot.verified_pose_at(&history, 11.5, 4)
+	pose, ok, at, _ := godot.verified_pose_at(&history, 11.5, 4)
 	testing.expect(t, ok)
 	testing.expect(t, math.abs(pose.pos.x - 1.5) < 1e-5) // across the missing tick
 	testing.expect(t, at != nil && at.tick == 10) // the sample whose data shows: the one at or before the clock
-	before, _, _ := godot.verified_pose_at(&history, 3, 4)
+	before, _, _, _ := godot.verified_pose_at(&history, 3, 4)
 	testing.expect_value(t, before.pos.x, 0) // before the oldest: the oldest
-	after, _, _ := godot.verified_pose_at(&history, 20, 4)
+	after, _, _, _ := godot.verified_pose_at(&history, 20, 4)
 	testing.expect_value(t, after.pos.x, 2) // past the newest: held, never extrapolated
 	godot.verified_history_push(&history, {tick = 13, warp = 1, pose = {pos = {3, 0, 0}, rot = godot.IDENTITY}})
-	warped, _, _ := godot.verified_pose_at(&history, 12.5, 4)
+	warped, _, _, _ := godot.verified_pose_at(&history, 12.5, 4)
 	testing.expect_value(t, warped.pos.x, 2) // no interpolation across a warp
 	godot.verified_history_push(&history, {tick = 5, pose = {pos = {9, 0, 0}, rot = godot.IDENTITY}})
-	restarted, _, _ := godot.verified_pose_at(&history, 12, 4)
+	restarted, _, _, _ := godot.verified_pose_at(&history, 12, 4)
 	testing.expect_value(t, restarted.pos.x, 9) // an older tick: a new timeline
+}
+
+// A sample's view data of any size rides with it (here hundreds of bytes): the data that shows is its sample's, also
+// once the ring wrapped and when the newest tick comes again.
+@(test)
+verified_history_keeps_each_samples_data :: proc(t: ^testing.T) {
+	Big :: [300]u8
+	big_of :: proc(tick: u32) -> (data: Big) {
+		for &byte, i in data do byte = u8(int(tick) * 7 + i)
+		return
+	}
+	history := godot.verified_history_make(size_of(Big))
+	defer godot.verified_history_destroy(&history)
+	for tick in u32(1) ..= godot.VERIFIED_HISTORY + 9 {
+		data := big_of(tick)
+		godot.verified_history_push(&history, {tick = tick, data_type = Big, data_size = size_of(Big)}, data[:])
+	}
+	again := big_of(1000)
+	newest := u32(godot.VERIFIED_HISTORY + 9)
+	godot.verified_history_push(&history, {tick = newest, data_type = Big, data_size = size_of(Big)}, again[:])
+	for play in ([]u32{0, 12, 20, newest - 1, newest}) {
+		_, ok, at, data := godot.verified_pose_at(&history, f64(play), 4)
+		want := play == newest ? again : big_of(at.tick)
+		testing.expectf(t, ok && at.data_size == size_of(Big), "at %d: a sample with its data's size", play)
+		testing.expectf(t, len(data) == size_of(Big) && (^Big)(raw_data(data))^ == want, "at %d: its own data", play)
+	}
+	// no data: none
+	godot.verified_history_push(&history, {tick = newest + 1})
+	_, _, at, data := godot.verified_pose_at(&history, f64(newest + 1), 4)
+	testing.expect(t, at.tick == newest + 1 && data == nil)
 }
 
 @(test)

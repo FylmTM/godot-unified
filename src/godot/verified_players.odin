@@ -14,6 +14,13 @@
 // playback clock that runs at the tick rate, nudged toward its target by at most VERIFIED_RATE_MAX, never past the
 // newest verified tick, and reset when it strays VERIFIED_WINDOW_TICKS from the target. With no `.Verified` kind, a
 // release build has no sampler: a nil check.
+//
+// A sample's view data rides with it, whatever its kind's size: every holder of samples (the fills' ring, the queue to
+// the main thread, each view's history) keeps their data in one flat buffer beside them, a slot per sample, each slot
+// the largest view data of the kinds that can be sampled (`.Verified` ones; every kind in a dev UI build, which can
+// force them all). They are allocated when the session starts (a view's history when the view first plays late), never
+// on a step. A session holds VERIFIED_RING × VERIFIED_PER_TICK + VERIFIED_QUEUE slots and each remote view
+// VERIFIED_HISTORY more, so install refuses a kind whose data is past VIEW_DATA_MAX.
 package godot
 
 import "core:fmt"
@@ -37,45 +44,70 @@ VERIFIED_WINDOW_TICKS :: 12
 VERIFIED_RATE_MAX :: 0.1
 // The samples a view keeps on the main thread.
 VERIFIED_HISTORY :: 32
-// The view data a sample carries, in bytes; a kind whose data is larger keeps the prediction's (reported once).
-VERIFIED_DATA_MAX :: 96
+// The most bytes of view data a scene view kind has (its View_ struct's size): install refuses a kind past it. Samples
+// on the verified timeline carry their data in slots of the largest sampled kind's size (the file's header), so this
+// bounds what a session holds for them: (VERIFIED_RING × VERIFIED_PER_TICK + VERIFIED_QUEUE) slots, 20 MiB at this
+// bound, and VERIFIED_HISTORY slots (128 KiB) per remote view.
+VIEW_DATA_MAX :: 4096
 
 @(private)
 VERIFIED_RING :: 64 // the predicted fills the session thread keeps, by tick
 @(private)
 VERIFIED_PER_TICK :: 48 // the views kept per tick (more: dropped, reported once)
+@(private)
+VERIFIED_QUEUE :: 2048 // the samples on their way to the main thread (more: dropped, reported once)
 
-// One view's pose and data at a verified tick, in sim units.
+// One view's pose at a verified tick, in sim units, and its view data's type and size (the bytes are in a slot beside
+// it, in whatever holds it: verified_sampler_peek, verified_pose_at).
 Verified_Sample :: struct {
 	tick:      u32,
 	kind:      u8,
 	warp:      u8, // its warp epoch: playback never interpolates across a change
-	data_size: u8, // bytes of `data` (0: none, or more than VERIFIED_DATA_MAX)
+	data_size: u16, // bytes of view data (0: none)
 	key:       u64,
 	pose:      Pose,
 	data_type: typeid, // nil: no data
-	data:      [VERIFIED_DATA_MAX]u8,
 }
 
-// A view's verified samples (main thread): a ring, ticks increasing from the oldest.
+// A view's verified samples (main thread): a ring, ticks increasing from the oldest, and their view data in a slot of
+// `stride` bytes each (verified_history_make).
 Verified_History :: struct {
 	samples: [VERIFIED_HISTORY]Verified_Sample,
+	data:    []u8, // VERIFIED_HISTORY slots, by the samples' ring index (nil: stride 0, no data)
+	stride:  int,
 	head:    u32, // where the next sample goes
 	count:   int,
 }
 
-// Appends a sample. The newest tick again replaces it; an older tick starts the history over (a new timeline: another
-// session, a seek).
-verified_history_push :: proc(history: ^Verified_History, sample: Verified_Sample) {
+// A history whose samples carry up to `stride` bytes of view data: it allocates VERIFIED_HISTORY × `stride` bytes,
+// freed by verified_history_destroy. A zero history holds samples without data.
+verified_history_make :: proc(stride: int) -> Verified_History {
+	return {data = stride > 0 ? make([]u8, VERIFIED_HISTORY * stride) : nil, stride = stride}
+}
+
+// Frees a history's data (verified_history_make).
+verified_history_destroy :: proc(history: ^Verified_History) {
+	delete(history.data)
+	history.data = nil
+}
+
+// Appends a sample with its view data (`data`: sample.data_size bytes, at most the history's stride; copied). The
+// newest tick again replaces it; an older tick starts the history over (a new timeline: another session, a seek).
+verified_history_push :: proc(history: ^Verified_History, sample: Verified_Sample, data: []u8 = nil) {
+	assert(len(data) == int(sample.data_size) && len(data) <= history.stride)
+	ring_slot := history.head % VERIFIED_HISTORY
 	if history.count > 0 {
-		newest := verified_history_at(history, history.count - 1)
+		newest_slot := (history.head - 1) % VERIFIED_HISTORY
+		newest := &history.samples[newest_slot]
 		if sample.tick == newest.tick {
 			newest^ = sample
+			copy(history.data[int(newest_slot) * history.stride:], data)
 			return
 		}
 		if sample.tick < newest.tick do history.count = 0
 	}
-	history.samples[history.head % VERIFIED_HISTORY] = sample
+	history.samples[ring_slot] = sample
+	copy(history.data[int(ring_slot) * history.stride:], data)
 	history.head += 1
 	history.count = min(history.count + 1, VERIFIED_HISTORY)
 }
@@ -89,7 +121,7 @@ verified_history_at :: proc(history: ^Verified_History, index: int) -> ^Verified
 // The pose at `play` (a fractional tick): between the samples around it, but never across a warp or a jump longer than
 // `teleport_dist` (it holds the older one until the newer one's tick). Before the oldest sample it is the oldest's,
 // past the newest the newest's (no extrapolation); false when the history is empty. `at` is the sample at or before
-// `play` (the oldest when none is): the one whose data shows.
+// `play` (the oldest when none is): the one whose data shows, `data` (valid until the next push).
 verified_pose_at :: proc(
 	history: ^Verified_History,
 	play: f64,
@@ -98,22 +130,28 @@ verified_pose_at :: proc(
 	pose: Pose,
 	ok: bool,
 	at: ^Verified_Sample,
+	data: []u8,
 ) {
 	if history.count == 0 do return
 	newer := 0
 	for newer < history.count && f64(verified_history_at(history, newer).tick) <= play do newer += 1
-	if newer == 0 {
-		at = verified_history_at(history, 0)
-		return at.pose, true, at
-	}
-	before := verified_history_at(history, newer - 1)
-	if newer == history.count do return before.pose, true, before
+	shown := max(newer - 1, 0)
+	at, data, ok = verified_history_at(history, shown), verified_history_data(history, shown), true
+	pose = at.pose
+	if newer == 0 || newer == history.count do return
 	after := verified_history_at(history, newer)
-	if before.warp != after.warp || dmath.length(after.pose.pos - before.pose.pos) > teleport_dist {
-		return before.pose, true, before
-	}
-	t := f32((play - f64(before.tick)) / f64(after.tick - before.tick))
-	return {lerp3(before.pose.pos, after.pose.pos, t), nlerp(before.pose.rot, after.pose.rot, t)}, true, before
+	if at.warp != after.warp || dmath.length(after.pose.pos - at.pose.pos) > teleport_dist do return
+	t := f32((play - f64(at.tick)) / f64(after.tick - at.tick))
+	pose = {lerp3(at.pose.pos, after.pose.pos, t), nlerp(at.pose.rot, after.pose.rot, t)}
+	return
+}
+
+// The history's `index`th sample's view data, the oldest first (nil: none). Valid until the next push.
+@(private)
+verified_history_data :: proc(history: ^Verified_History, index: int) -> []u8 {
+	ring_slot := int((history.head - u32(history.count) + u32(index)) % VERIFIED_HISTORY)
+	size := int(history.samples[ring_slot].data_size)
+	return size > 0 ? history.data[ring_slot * history.stride:][:size] : nil
 }
 
 // The playback clock (a fractional tick) after a render frame of `dt_s`: it runs at `tick_hz` toward the target
@@ -171,19 +209,21 @@ verified_players_on: bool
 verified_generations: u64
 
 // The session thread's side, one per live session (when some kind asks for it, and in dev UI builds): the views of
-// recent predicted fills by tick, and the samples for the main thread (`queue`, popped with queue_pop).
+// recent predicted fills by tick, and the samples for the main thread (`queue`: verified_sampler_peek, queue_pop).
 Verified_Sampler :: struct {
-	generation: u64,
-	kinds:      [256]bool, // the view kinds whose policy is .Verified
-	any_kind:   bool, // some is
-	ring:       [VERIFIED_RING]Verified_Fill,
-	queue:      Queue(Verified_Sample, 2048), // full: dropped (the main thread takes them every frame)
-	was_on:     bool,
-	overflow:   bool, // atomic: a fill had more views than VERIFIED_PER_TICK (the main thread reports it once)
-	dropped:    bool, // atomic: the queue was full (the main thread reports it once)
-	too_big:    u8, // atomic: a kind (+1) whose data is past VERIFIED_DATA_MAX (0: none)
-	out:        Frame_Data, // a final tick's fill (the driver's)
-	poses:      Pose_Memory, // left empty: a final tick's fill remembers no poses
+	generation:  u64,
+	kinds:       [256]bool, // the view kinds whose policy is .Verified
+	any_kind:    bool, // some is
+	data_stride: int, // the most bytes of view data a sample carries: a slot of `ring_data` and of `queue_data`
+	ring:        [VERIFIED_RING]Verified_Fill,
+	queue:       Queue(Verified_Sample, VERIFIED_QUEUE), // full: dropped (the main thread takes them every frame)
+	ring_data:   []u8, // the fills' samples' view data, a slot per sample (VERIFIED_RING × VERIFIED_PER_TICK)
+	queue_data:  []u8, // the queued samples' view data, a slot per queue index (VERIFIED_QUEUE)
+	was_on:      bool,
+	overflow:    bool, // atomic: a fill had more views than VERIFIED_PER_TICK (the main thread reports it once)
+	dropped:     bool, // atomic: the queue was full (the main thread reports it once)
+	out:         Frame_Data, // a final tick's fill (the driver's)
+	poses:       Pose_Memory, // left empty: a final tick's fill remembers no poses
 }
 
 // The views one fill pushed.
@@ -193,15 +233,26 @@ Verified_Fill :: struct {
 	valid:   bool, // no rollback re-simulated its tick since
 	count:   int,
 	samples: [VERIFIED_PER_TICK]Verified_Sample,
+	data:    []u8, // its samples' view data, a slot each: its part of the sampler's ring_data
 }
 
-// A new sampler for a session whose `.Verified` view kinds are `kinds` (none: only the dev UI's switch turns it on).
-// verified_sampler_free frees it.
-verified_sampler_new :: proc(kinds: []u8) -> ^Verified_Sampler {
+// A new sampler for a session whose `.Verified` view kinds are `kinds` (none: only the dev UI's switch turns it on),
+// whose samples carry up to `data_stride` bytes of view data: the largest View_ struct of the kinds it may sample
+// (every kind's in a dev UI build), at most VIEW_DATA_MAX. It allocates (VERIFIED_RING × VERIFIED_PER_TICK +
+// VERIFIED_QUEUE) × `data_stride` bytes for their data; verified_sampler_free frees it.
+verified_sampler_new :: proc(kinds: []u8, data_stride: int) -> ^Verified_Sampler {
+	assert(data_stride >= 0 && data_stride <= VIEW_DATA_MAX)
 	sampler := new(Verified_Sampler)
 	sampler.generation = sync.atomic_add(&verified_generations, 1) + 1
 	for kind in kinds do sampler.kinds[kind] = true
 	sampler.any_kind = len(kinds) > 0
+	sampler.data_stride = data_stride
+	if data_stride > 0 {
+		sampler.ring_data = make([]u8, VERIFIED_RING * VERIFIED_PER_TICK * data_stride)
+		sampler.queue_data = make([]u8, VERIFIED_QUEUE * data_stride)
+	}
+	fill_bytes := VERIFIED_PER_TICK * data_stride
+	for &fill, i in sampler.ring do fill.data = sampler.ring_data[i * fill_bytes:][:fill_bytes]
 	sampler.out.alloc = context.allocator
 	return sampler
 }
@@ -212,7 +263,19 @@ verified_sampler_free :: proc(sampler: ^Verified_Sampler) {
 	delete(sampler.out.views, sampler.out.alloc)
 	frame_multis_free(&sampler.out)
 	delete(sampler.out.data, sampler.out.alloc)
+	delete(sampler.ring_data)
+	delete(sampler.queue_data)
 	free(sampler)
+}
+
+// The oldest sample the session thread queued and its view data (main thread; nil: none), valid until
+// queue_pop(&sampler.queue) takes it.
+verified_sampler_peek :: proc(sampler: ^Verified_Sampler) -> (sample: ^Verified_Sample, data: []u8) {
+	index, queued := queue_oldest_index(&sampler.queue)
+	if !queued do return
+	sample = &sampler.queue.items[index]
+	if sample.data_size > 0 do data = sampler.queue_data[index * sampler.data_stride:][:sample.data_size]
+	return
 }
 
 // Whether sampling is on: some kind asks for it, or the dev UI forces it. Switched off, the ring is dropped: the
@@ -245,13 +308,11 @@ verified_collect :: proc(sampler: ^Verified_Sampler, out: ^Frame_Data, tick: u32
 			key  = item.key,
 			pose = {item.pos, item.rot},
 		}
-		if item.data_type != nil {
-			if item.data_size <= VERIFIED_DATA_MAX {
-				sample.data_type, sample.data_size = item.data_type, u8(item.data_size)
-				copy(sample.data[:], out.data[item.data_offset:][:item.data_size])
-			} else {
-				sync.atomic_store(&sampler.too_big, item.kind + 1)
-			}
+		if item.data_type != nil && item.data_size > 0 {
+			// fits: the stride is the largest data of the kinds sampled (verified_sampler_new)
+			sample.data_type, sample.data_size = item.data_type, u16(item.data_size)
+			slot := fill.data[fill.count * sampler.data_stride:][:item.data_size]
+			copy(slot, out.data[item.data_offset:][:item.data_size])
 		}
 		fill.count += 1
 	}
@@ -281,10 +342,15 @@ verified_sampler_verified :: proc(sampler: ^Verified_Sampler, tick: u32, final: 
 	} else if !fill.valid || fill.tick != tick {
 		return
 	}
-	for sample in fill.samples[:fill.count] {
-		if queue_push(&sampler.queue, sample) do continue
-		sync.atomic_store(&sampler.dropped, true)
-		break
+	stride := sampler.data_stride
+	for sample, i in fill.samples[:fill.count] {
+		index, room := queue_next_index(&sampler.queue)
+		if !room {
+			sync.atomic_store(&sampler.dropped, true)
+			break
+		}
+		copy(sampler.queue_data[index * stride:][:sample.data_size], fill.data[i * stride:][:sample.data_size])
+		queue_push(&sampler.queue, sample)
 	}
 }
 
@@ -366,27 +432,20 @@ verified_players_sync :: proc(frame: ^Frame_Data, fresh: bool, dt_s: f32) {
 			"unified: the verified timeline's samples came faster than the main thread took them: some were dropped",
 		)
 	}
-	if kind := sync.atomic_load(&sampler.too_big); kind > 0 {
-		report_once(
-			"verified-data",
-			fmt.tprintf(
-				"unified: view kind %d's data is larger than %d bytes: its remote views keep the prediction's data",
-				kind - 1,
-				VERIFIED_DATA_MAX,
-			),
-		)
-	}
 	for {
-		sample := queue_pop(&sampler.queue) or_break
-		if !VP.wanted do continue // samples of before it was switched off
-		id := View_Id{sample.kind, sample.key}
-		if id not_in VP.histories do VP.histories[id] = {}
-		history := &VP.histories[id]
-		if history.count > 0 {
-			newest := verified_history_at(history, history.count - 1).tick
-			if sample.tick > newest do verified_gaps_see(&VP.gaps, sample.tick - newest)
+		sample, data := verified_sampler_peek(sampler)
+		if sample == nil do break
+		if VP.wanted { 	// (else a sample of before it was switched off)
+			id := View_Id{sample.kind, sample.key}
+			if id not_in VP.histories do VP.histories[id] = verified_history_make(sampler.data_stride)
+			history := &VP.histories[id]
+			if history.count > 0 {
+				newest := verified_history_at(history, history.count - 1).tick
+				if sample.tick > newest do verified_gaps_see(&VP.gaps, sample.tick - newest)
+			}
+			verified_history_push(history, sample^, data)
 		}
-		verified_history_push(history, sample)
+		_, _ = queue_pop(&sampler.queue)
 	}
 	if !VP.wanted do return
 	if fresh {
@@ -398,7 +457,10 @@ verified_players_sync :: proc(frame: ^Frame_Data, fresh: bool, dt_s: f32) {
 				append(&gone, id)
 			}
 		}
-		for id in gone do delete_key(&VP.histories, id)
+		for id in gone {
+			_, history := delete_key(&VP.histories, id)
+			verified_history_destroy(&history)
+		}
 	}
 	verified_gaps_step(&VP.gaps, dt_s)
 	VP.play = verified_clock_step(VP.play, VP.started, frame.verified, verified_delay(VP.gaps), dt_s, frame.tick_hz)
@@ -441,17 +503,25 @@ verified_players_applies :: proc(scene_view: ^Scene_View) -> bool {
 }
 
 // How a scene view is posed this frame: from the prediction (`applies` false), hidden (it plays on the verified
-// timeline and has no sample yet), or the verified pose (sim units) with the sample whose data shows (`at`).
+// timeline and has no sample yet), or the verified pose (sim units) with the sample whose data shows (`at`, its view
+// data `data`).
 @(private)
-verified_players_pose :: proc(scene_view: ^Scene_View) -> (pose: Pose, applies: bool, at: ^Verified_Sample) {
-	if !verified_players_applies(scene_view) do return {}, false, nil
+verified_players_pose :: proc(
+	scene_view: ^Scene_View,
+) -> (
+	pose: Pose,
+	applies: bool,
+	at: ^Verified_Sample,
+	data: []u8,
+) {
+	if !verified_players_applies(scene_view) do return
 	applies = true
 	if !VP.started do return
 	history, has := &VP.histories[View_Id{scene_view.kind, scene_view.key}]
 	if !has do return
 	ok: bool
-	pose, ok, at = verified_pose_at(history, VP.play, kind_of(scene_view.kind).smoothing.teleport_dist)
-	if !ok do at = nil
+	pose, ok, at, data = verified_pose_at(history, VP.play, kind_of(scene_view.kind).smoothing.teleport_dist)
+	if !ok do at, data = nil, nil
 	return
 }
 
@@ -499,6 +569,7 @@ verified_players_hold :: proc(scene_view: ^Scene_View, event: gd.Variant, state:
 // ended, the option off).
 @(private)
 verified_players_forget :: proc() {
+	for _, &history in VP.histories do verified_history_destroy(&history)
 	clear(&VP.histories)
 	for &held in VP.pending {
 		if entry := set_get(&V.set, held.view); entry != nil do call_sim_event_now(entry.view, held.event, i64(Event_Action.Confirmed))

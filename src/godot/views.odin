@@ -893,8 +893,8 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 				V.by_player_ok = false
 				marker_update(scene_view)
 			}
-			// a view on the verified timeline takes its data from its samples (when its kind's data fits one)
-			late_data := verified_players_applies(scene_view) && item.data_size <= VERIFIED_DATA_MAX
+			// a view on the verified timeline takes its data from its samples
+			late_data := verified_players_applies(scene_view)
 			if !spawned && alive(scene_view.id) && item.data_type != nil && !late_data {
 				set_data(scene_view, frame.data[item.data_offset:][:item.data_size], false)
 			}
@@ -952,14 +952,12 @@ scene_sync :: proc(root: gd.Node, frame: ^Frame_Data, fresh: bool, alpha: f32, d
 		if decay^ < 0 do decay^ = track_decay(dt, smoothing)
 		pose := track_sample_decayed(&scene_view.track, frame.tick, alpha, decay^, dt, smoothing) // sim units
 		// Remote.Verified: the late pose and data (a snap from the prediction, no glide); hidden until its first sample
-		late, applies, sample := verified_players_pose(scene_view)
+		late, applies, sample, sample_data := verified_players_pose(scene_view)
 		hold_back(scene_view, applies && sample == nil)
 		if applies && sample == nil do continue
 		if applies {
 			pose = late
-			if sample.data_type != nil && sample.data_size > 0 {
-				set_data(scene_view, sample.data[:sample.data_size], false)
-			}
+			if sample.data_type != nil && len(sample_data) > 0 do set_data(scene_view, sample_data, false)
 		}
 		pose.pos = to_view_units(pose.pos)
 		// before every other node's _process (priority -1000): a view's script reads it. An unchanged pose (a crate at

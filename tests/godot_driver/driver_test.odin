@@ -1154,3 +1154,31 @@ a_class_name_collision_is_an_install_problem :: proc(t: ^testing.T) {
 		)
 	}
 }
+
+@(private = "file")
+View_Small :: struct {
+	hp: i32,
+}
+
+@(private = "file")
+View_Huge :: struct {
+	bytes: [godot.VIEW_DATA_MAX + 4]u8,
+}
+
+@(private = "file")
+Huge_View :: union {
+	View_Small,
+	View_Huge,
+}
+
+// A view kind past VIEW_DATA_MAX is an install problem naming it (its views' samples on the verified timeline would
+// hold too much), never a failure while a session runs.
+@(test)
+a_view_kind_past_the_data_bound_is_an_install_problem :: proc(t: ^testing.T) {
+	glue := godot.Glue(toy.Game, Huge_View, MultiView) {
+		sample_input = GLUE.sample_input,
+		fill_frame = proc(_: ^godot.Frame(toy.Game, Huge_View, MultiView)) {},
+	}
+	problems := godot.install_problems(&toy.GAME, glue)
+	testing.expectf(t, len(problems) == 1 && strings.contains(problems[0], "View_Huge"), "%v", problems)
+}

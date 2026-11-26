@@ -1,7 +1,7 @@
 // The verified-timeline sampler (godot.Verified_Sampler) on a real session: two toy clients behind a relay on
 // loopback links with WAN latency and loss, every participant stepped from one thread on a virtual clock. Each
 // client's frame and verified hooks feed its sampler the way the driver does; every sample it queues must be the final
-// state's pose of that view at that tick.
+// state's pose and view data of that view at that tick (hundreds of bytes of data: it rides its sample whole).
 package test_godot_driver
 
 import "core:testing"
@@ -16,6 +16,10 @@ import "../toy"
 SAMPLED :: 0 // the view kind whose policy is .Verified
 @(private = "file")
 PREDICTED :: 1 // a kind that stays on the prediction: never sampled
+
+// The sampled kind's view data: the player's position in every element (600 bytes).
+@(private = "file")
+Sampled_Data :: [50][3]f32
 
 @(private = "file")
 Sample_Key :: struct {
@@ -34,23 +38,32 @@ Sampling :: struct {
 	samples:   map[Sample_Key][3]f32, // what the sampler queued
 	from_fill: int, // samples queued from a kept predicted fill
 	from_step: int, // samples queued from a tick stepped as final
-	wrong:     int, // samples whose pose isn't the final state's (or of a tick never verified, or another kind)
+	wrong:     int, // samples whose pose or data isn't the final state's (or of a tick never verified, or another kind)
 }
 
-// The toy's fill: each present player's view of both kinds.
+// The toy's fill: each present player's view of both kinds, the sampled kind's with its data.
 @(private = "file")
 sampling_fill :: proc(out: ^godot.Frame_Data, state: ^toy.State) {
-	out.n_views = 0
+	out.n_views, out.n_data = 0, 0
 	players := sim.iterate_present(&state.players)
 	for data, player in sim.next(&players) {
 		key := sim.player_key(player)
+		pos := [3]f32{data.pos.x, 0, data.pos.y}
 		for kind in ([]u8{SAMPLED, PREDICTED}) {
 			out.views[out.n_views] = {
 				key    = key,
 				kind   = kind,
 				player = key,
-				pos    = {data.pos.x, 0, data.pos.y},
+				pos    = pos,
 				rot    = {0, 0, 0, 1},
+			}
+			if kind == SAMPLED {
+				view_data: Sampled_Data
+				for &element in view_data do element = pos
+				view := &out.views[out.n_views]
+				view.data_type, view.data_offset, view.data_size = Sampled_Data, u32(out.n_data), size_of(Sampled_Data)
+				copy(out.data[out.n_data:], ([^]u8)(&view_data)[:size_of(Sampled_Data)])
+				out.n_data += size_of(Sampled_Data)
 			}
 			out.n_views += 1
 		}
@@ -104,11 +117,15 @@ sampling_hooks :: proc(sampling: ^Sampling) -> netcode.Hooks(toy.Game) {
 @(private = "file")
 sampling_drain :: proc(sampling: ^Sampling) {
 	for {
-		sample := godot.queue_pop(&sampling.sampler.queue) or_break
+		sample, data := godot.verified_sampler_peek(sampling.sampler)
+		if sample == nil do break
 		at := Sample_Key{sample.tick, sample.key}
 		final, verified := sampling.finals[at]
-		if !verified || sample.kind != SAMPLED || sample.pose.pos != final do sampling.wrong += 1
+		data_final := sample.data_type == Sampled_Data && len(data) == size_of(Sampled_Data)
+		if data_final do for element in (^Sampled_Data)(raw_data(data)) do data_final &&= element == final
+		if !verified || sample.kind != SAMPLED || sample.pose.pos != final || !data_final do sampling.wrong += 1
 		sampling.samples[at] = sample.pose.pos
+		_, _ = godot.queue_pop(&sampling.sampler.queue)
 	}
 }
 
@@ -126,8 +143,11 @@ verified_sampler_on_a_session :: proc(t: ^testing.T) {
 	samplings: [2]Sampling
 	clients: [2]^netcode.Client(toy.Game)
 	for &sampling, i in samplings {
-		sampling.sampler = godot.verified_sampler_new({SAMPLED})
-		for out in ([]^godot.Frame_Data{&sampling.out, &sampling.final}) do out.views = make([]godot.View_Out, 2 * toy.PLAYERS)
+		sampling.sampler = godot.verified_sampler_new({SAMPLED}, size_of(Sampled_Data))
+		for out in ([]^godot.Frame_Data{&sampling.out, &sampling.final}) {
+			out.views = make([]godot.View_Out, 2 * toy.PLAYERS)
+			out.data = make([]u8, toy.PLAYERS * size_of(Sampled_Data))
+		}
 		link := netcode.netsim_wrap(
 			netcode.loopback_link(hub, netcode.Peer(i + 1)),
 			netcode.PROFILES[.Wan],
@@ -139,8 +159,10 @@ verified_sampler_on_a_session :: proc(t: ^testing.T) {
 	defer for &sampling, i in samplings {
 		netcode.client_destroy(clients[i])
 		godot.verified_sampler_free(sampling.sampler)
-		delete(sampling.out.views)
-		delete(sampling.final.views)
+		for out in ([]^godot.Frame_Data{&sampling.out, &sampling.final}) {
+			delete(out.views)
+			delete(out.data)
+		}
 		delete(sampling.finals)
 		if sampling.shadow != nil do sim.destroy(sampling.shadow)
 		delete(sampling.samples)

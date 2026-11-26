@@ -94,9 +94,11 @@ View_Typed2D :: struct {
 	area:   toy.Mark_Area, // a nested struct: an object of its class (DataMarkArea)
 }
 
-// The remote3d views' data: the tick it is of (on the verified timeline, the sample's).
+// The remote3d views' data: the tick it is of (on the verified timeline, the sample's), and that tick + i at each
+// trail[i]: over a hundred bytes of data, which must ride its verified sample whole.
 View_Remote3D :: struct {
-	tick: u32,
+	tick:  u32,
+	trail: [32]u32,
 }
 
 // The card view's data (a Control root: the host sets data, never a pose): one card per thing.
@@ -545,7 +547,10 @@ remote_walk :: proc(f: ^Frame) {
 		pos  = {remote_x(f.tick), 0, 0},
 		warp = u8(f.tick / (REMOTE_PERIOD / 2)), // a teleport at each jump
 	}
-	data := View_Remote3D{f.tick}
+	data := View_Remote3D {
+		tick = f.tick,
+	}
+	for &later, i in data.trail do later = f.tick + u32(i)
 	godot.push_view(f, REMOTE_PLAYER, item, data)
 	godot.push_view(f, f.local_players[0], item, data)
 	predicted := item

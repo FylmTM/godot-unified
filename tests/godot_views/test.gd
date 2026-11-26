@@ -468,6 +468,9 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 		and thing_local[0] == thing_local[1], [thing_remote, thing_local])
 	check("hidden until its first sample: never shown without data", not remote.get("shown_early"),
 		remote.get("shown_early"))
+	check("its data, over a hundred bytes, is its sample's whole (the trail is its tick's), on both timelines",
+		remote.get("torn") == 0 and local.get("torn") == 0 and remote.get("tick") > 0,
+		[remote.get("torn"), local.get("torn")])
 	# Each frame: the pose's tick (its data's tick plus how far the pose is past that tick's place on the walk) is never past the shown frame's verified tick, and never before its data's (the data is the sample at
 	# or before the pose: a prediction's would be ahead of it).
 	var pose_off: Array = []
