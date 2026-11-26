@@ -99,8 +99,11 @@ blessed with, so a refactor or a pin bump that computes nothing differently pass
 level fails at its first tick. After a meant change, `uni test --bless` writes a new expectation for each recording
 that diverges or has none (Re-pinning; a warning names each and where it diverged), committed with the change (the
 `unified-sim-change` skill). A new regression is a copied folder, then a bless. A recording whose Input, commands,
-Setup or Profile changed layout (or whose snapshot no longer loads) can't be blessed: record a new one. `uni init`
-leaves minimal_3d's recordings out of a new game: a game records its own.
+Setup or Profile changed layout (or whose snapshot no longer loads) can't be blessed: record a new one. A two-player
+recording is one command: `uni coop --record <name>` (the game's coop script plays it) puts the host's recording in the
+folder with the options that recorded it (`coop.args`), and the game's tests bless and judge it; a refused one leaves the
+folder as it was. Then `uni coop --rerecord <name>` records it again the same way, and the failure that says it can't
+be blessed names that command. `uni init` leaves minimal_3d's recordings out of a new game: a game records its own.
 
 ## Re-pinning
 

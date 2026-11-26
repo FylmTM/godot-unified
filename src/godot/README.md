@@ -301,13 +301,14 @@ timeline: what a client predicted is not in a recording.
 
 Every live session of a dev UI build is written to `<user data>/recordings/<local time>/` when it ends, also when the
 app quits or the session node leaves the tree first (then up to its last verified tick; the newest `RECORDINGS_KEPT`
-kept). A step back inside the sim's ring is a restore; further back, or forward past what was
-played, the replay loads the nearest portable snapshot it kept of a tick it passed and steps to the target without
-showing the ticks between, a slice of `REPLAY_SEEK_BUDGET` at a time, so a long seek never looks like a frozen
-session thread and a leave ends it at once. Such a jump starts a new epoch in the Frame: every view snaps, events
-still queued from before it are dropped (never shown, they never will be), and the events of ticks entered again
-going forward arrive again. A note starts some seconds before its tick (the one shown when F3 opened, no later than
-the recording reaches) and pauses on it.
+kept), and `UnifiedSession.recording` names the newest folder a node's sessions wrote (a tool script that keeps it, such
+as `uni coop --record`, reads it there). A step back inside the sim's ring is a restore; further back, or forward past
+what was played, the replay loads the nearest portable snapshot it kept of a tick it passed and steps to the target
+without showing the ticks between, a slice of `REPLAY_SEEK_BUDGET` at a time, so a long seek never looks like a frozen
+session thread and a leave ends it at once. Such a jump starts a new epoch in the Frame: every view snaps, events still
+queued from before it are dropped (never shown, they never will be), and the events of ticks entered again going forward
+arrive again. A note starts some seconds before its tick (the one shown when F3 opened, no later than the recording
+reaches) and pauses on it.
 
 The dev UI's Timeline panel drives a replay, and the Inspector's `changes` root is the op log: what the shown tick
 changed in the State against the tick before, a line per leaf field (`sim.state_changes`), computed on the main

@@ -30,6 +30,7 @@ Session_Node :: struct {
 	frame:         ^Frame_Data, // newest frame taken this process step (valid until the next one; nil once over)
 	ended:         bool, // the session's Result came: one more frame is taken (its last), then none
 	recorded:      bool, // the session's recording was saved (dev builds: at its Result, or when the node ends it)
+	recording:     string, // UnifiedSession.recording: the folder the newest recording was saved to ("": none yet)
 	over:          bool, // that last frame was shown: views keep their pose, nothing is synced until the next start
 	last_tick:     u32,
 	shown_time:    f64, // UnifiedSession.shown_time: the game time the views are posed at, in ticks
@@ -113,6 +114,7 @@ register_session_class :: proc() {
 			delete(session.name)
 			delete(session.detail)
 			delete(session.join_code)
+			delete(session.recording)
 		},
 		ready = proc(instance: rawptr) {session_ready((^Session_Node)(instance))},
 		process = proc(instance: rawptr, dt: f64) {session_process((^Session_Node)(instance), dt)},
@@ -448,6 +450,12 @@ register_session_class :: proc() {
 			"folder",
 		}, doc = "Replays a recording: an F3 note's folder, a session's under [code]user://recordings[/code], or a freeze's (its [code]inputs.unil[/code], and the [code]snapshot.unis[/code] it continues, if any). The game's views, events and session data work as live; every tick is final (events arrive EVENT_EMITTED and EVENT_CONFIRMED together); [member local_player] is [member replay_player]. A note starts some seconds before its noted tick and pauses on it; a recording of another build plays, checked against its checkpoints. False, with a failed status, when the folder holds no recording of this game. " +
 		START_LEAVES_DOC)
+	gd.bind_property(
+		class,
+		"recording",
+		proc(session: ^Session_Node) -> string {return session.recording},
+		doc = "The folder the newest recording of this node's sessions was saved to, an absolute path (\"\": none yet; dev UI builds only): a live session's recording is written under [code]user://recordings[/code] when it ends, as [method replay] opens it. A later session that saves one replaces it; one that saves none leaves it.",
+	)
 	gd.bind_property(
 		class,
 		"replay_speed",
@@ -1163,7 +1171,7 @@ session_end :: proc(session: ^Session_Node) {
 		api.join()
 		result_drain(session, quit = false) // (before clear_pending: the recording's mode depends on it)
 	}
-	if !session.recorded do dev_save_recording(session)
+	if !session.recorded do session_recorded(session, dev_save_recording(session))
 	session.recorded = true
 	clear_pending(session)
 	if api.installed do api.wait()
@@ -1182,12 +1190,20 @@ result_drain :: proc(session: ^Session_Node, quit := true) {
 	}
 }
 
+// Keeps where a session's recording was saved (`folder`; "" when none was: the last one's stays).
+@(private)
+session_recorded :: proc(session: ^Session_Node, folder: string) {
+	if folder == "" do return
+	delete(session.recording)
+	session.recording = strings.clone(folder)
+}
+
 // A session's Result came: its line (`unified: result {...}`, what uni's checks read), its recording, and the quit at
 // the end of a --quit-at-end run (`quit`; with exit code 0 unless a failure asked for 1 first).
 @(private)
 result_came :: proc(session: ^Session_Node, quit: bool) {
 	fmt.printfln("unified: result %s", api.result())
-	if !session.recorded do dev_save_recording(session)
+	if !session.recorded do session_recorded(session, dev_save_recording(session))
 	session.recorded = true
 	if quit && session.quit_at_end do quit_when_quiet(session, 0)
 }

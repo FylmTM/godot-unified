@@ -320,6 +320,7 @@ func _open_to_friends() -> bool:
 # 7. a replay of a recording and its controls
 func _replay() -> bool:
 	s.ticks = REPLAY_TICKS
+	var saved_before: String = s.recording
 	check("record a %d-tick single player" % REPLAY_TICKS, s.start_single())
 	if not await _wait_for(func() -> bool: return s.local_player != 0, 5.0, "the recorded session runs"):
 		return false
@@ -327,9 +328,11 @@ func _replay() -> bool:
 	if not await _wait_for(func() -> bool: return not s.running, 5.0, "the recorded session ends"):
 		return false
 	s.ticks = 0
-	# saved as its Result came (a folder is whole once its session.json is there: another process's may not be yet)
-	await _wait_for(func() -> bool: return _newest_recording(REPLAY_TICKS) != "", 5.0, "its recording is saved")
-	var folder := _private_copy(_newest_recording(REPLAY_TICKS))
+	# saved as its Result came, and named by UnifiedSession.recording (the other sections' processes save theirs beside it)
+	await _wait_for(func() -> bool: return s.recording != saved_before, 5.0, "its recording is saved")
+	var saved: Variant = JSON.parse_string(FileAccess.get_file_as_string(s.recording + "/session.json"))
+	check("UnifiedSession.recording names its folder, whole", saved is Dictionary and int((saved as Dictionary).get("to_tick", 0)) == REPLAY_TICKS, s.recording)
+	var folder := _private_copy(s.recording)
 	check("its recording was kept", folder != "", folder)
 	check("replay it", s.replay(folder))
 	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.replay_last_tick > 0, 5.0, "the replay runs"):
@@ -508,6 +511,7 @@ func _left_the_tree() -> bool:
 		if not before.has(name) and info is Dictionary and absi(int((info as Dictionary).get("to_tick", 0)) - paused_on) <= 2:
 			kept = name
 	check("a session ended by its node leaving the tree kept its recording", kept != "", "paused on %d" % paused_on)
+	check("and UnifiedSession.recording names it", s.recording == root_dir + "/" + kept, [s.recording, kept])
 	root.add_child(s)  # (its _ready ran already: back in the tree, it takes the session over again by itself)
 	check("back in the tree, start single player", s.start_single())
 	if not await _wait_for(func() -> bool: return s.local_player != 0 and s.tick > 10, 5.0, "the node runs a session again"):
@@ -537,6 +541,7 @@ func _restart_from_a_callback() -> bool:
 		return false
 	await _sleep(0.2)
 	check("the ended session's result was kept: its recording", _newest_recording(RESTARTED_TICKS) != "")
+	check("UnifiedSession.recording names it while the new one runs", s.recording == _newest_recording(RESTARTED_TICKS), s.recording)
 	s.leave()
 	return await _wait_for(func() -> bool: return not s.running, 5.0, "the restarted session ends")
 

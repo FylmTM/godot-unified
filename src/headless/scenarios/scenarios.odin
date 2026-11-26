@@ -6,6 +6,7 @@ package scenarios
 
 import "core:fmt"
 @(require) import "core:log" // only in reference_reproduces and replays_reproduce (generic)
+@(require) import "core:os" // only in replays_reproduce (generic)
 @(require) import "core:path/filepath" // only in replays_reproduce (generic)
 @(require) import "core:slice" // only in reference_reproduces (generic)
 @(require) import "core:strings" // only in reference_reproduces (generic)
@@ -160,7 +161,12 @@ replays_reproduce :: proc(t: ^testing.T, game: ^$G, dir: string) {
 			log.warnf("replays_reproduce: blessed %s (%s)", name, result.report)
 			bless_record({check = "replays_reproduce", file = shown_path(folder), value = name, new = result.report})
 		case result.status == .Broken:
-			testing.expectf(t, false, "replays_reproduce: %s: %s", name, result.report)
+			// a folder `uni coop --record` made says how it was recorded (its coop.args): one command records it again
+			again := ""
+			if os.exists(fmt.tprintf("%s/coop.args", folder)) {
+				again = fmt.tprintf("; record it again: ./uni coop --rerecord %s", filepath.base(folder))
+			}
+			testing.expectf(t, false, "replays_reproduce: %s: %s%s", name, result.report, again)
 		case result.status == .Unblessed:
 			testing.expectf(t, false, "replays_reproduce: %s: %s: ./uni test --bless", name, result.report)
 		case result.status == .Diverges && BLESS:

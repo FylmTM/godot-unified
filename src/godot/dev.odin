@@ -387,7 +387,8 @@ when DEVUI {
 	// Main thread, a live session's Result, or the session node ending it first (an app quit): its recording goes to
 	// <user data>/recordings/<local time>/ (snapshot.unis, inputs.unil, session.json: what UnifiedSession.replay
 	// opens; session.json comes last, so a folder without one is not whole yet), keeping the newest RECORDINGS_KEPT.
-	dev_save_recording :: proc(session: ^Session_Node) {
+	// The folder it wrote, globalized (temp-allocated; "": none).
+	dev_save_recording :: proc(session: ^Session_Node) -> (folder: string) {
 		snapshot, input_log: [dynamic]u8
 		defer delete(snapshot)
 		defer delete(input_log)
@@ -440,6 +441,7 @@ when DEVUI {
 		for entry in entries do if entry.type == .Directory do append(&names, entry.fullpath)
 		slice.sort(names[:]) // the local time sorts by name
 		for path in names[:max(len(names) - RECORDINGS_KEPT, 0)] do _ = os.remove_all(path)
+		return dir
 	}
 
 	// One input of a dev command's form, flattened from the command's struct by RTTI: where its value goes.
@@ -684,6 +686,6 @@ when DEVUI {
 	dev_begin :: proc() {}
 	dev_frame :: proc(session: ^Session_Node, dt: f64) {}
 	dev_draw_toggles :: proc(names: []string) -> u64 {return 0}
-	dev_save_recording :: proc(session: ^Session_Node) {}
+	dev_save_recording :: proc(session: ^Session_Node) -> string {return ""}
 	_ :: runtime
 }

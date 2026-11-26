@@ -17,6 +17,8 @@ extends UnifiedTool
 ## --crash (both roles): once the host has played, the joiner kills its own process (no goodbye, like a crash) and
 ## uni starts another with --after-crash and the same identity (its EOS account, or its LAN token): the host times
 ## how long it takes to have the friend back, the second joiner how long from starting to playing again.
+## --record (the host): once it left, its session's recording (UnifiedSession.recording) is its result's `recording`,
+## which `uni coop --record <replay>` makes a replay regression of the game's.
 ## A game's play and its app layer follow the session, whoever started it: a game whose session lives in an
 ## autoload goes to its play scene on its own, one that keeps it in its main scene gets that scene loaded here.
 
@@ -27,6 +29,8 @@ var crash := false
 var after_crash := false
 ## Each side starts through `_start_host()` / `_start_join(code)` (uni coop --menus), not from session flags.
 var menus := false
+## The host reports its session's recording (uni coop --record).
+var record := false
 ## Why the session's status last changed (status_changed's detail).
 var status_detail := ""
 
@@ -38,6 +42,7 @@ func _run() -> void:
 	crash = flag("crash")
 	after_crash = flag("after-crash")
 	menus = flag("menus")
+	record = flag("record")
 	tag = "[%s]" % role
 	result["role"] = role
 	if role not in ["host", "join"] or code_file == "":
@@ -142,9 +147,14 @@ func _host() -> void:
 		await wait_for(func() -> bool: return _present() >= 2, 60.0, "the friend rejoins")
 		step("friend rejoined: %s" % player_names())
 		await seconds(4.0)
+	var saved_before := session.recording
 	session.leave()
 	await wait_for(func() -> bool: return not _connected(), 10.0, "the host's session ends")
 	step("host left")
+	if record:
+		await wait_for(func() -> bool: return session.recording != saved_before, 10.0, "the host's recording is saved")
+		result["recording"] = session.recording
+		step("recorded %s" % session.recording)
 	await seconds(3.0)  # let the joiner notice
 
 
