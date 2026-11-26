@@ -7,6 +7,7 @@ import "base:runtime"
 import "core:testing"
 
 import "unified:physics"
+import "unified:sim"
 
 // A world with Box3D's defaults (gravity nil) or the given gravity.
 api_world :: proc(gravity: Maybe([3]f32) = nil, hit_event_threshold: f32 = 0) -> ^physics.World {
@@ -340,6 +341,68 @@ body_and_shape_names :: proc(t: ^testing.T) {
 	testing.expect(t, extra.restore(extra.data, 0))
 	testing.expect_value(t, string(physics.body_name(world, named.body)), "crate")
 	testing.expect_value(t, string(physics.shape_name(world, shape)), "lid")
+}
+
+// The block of names_roll_back_with_the_world.
+@(private = "file")
+Named_Bone :: struct {
+	body: physics.Body_Ref,
+}
+
+// A named body with a named shape.
+@(private = "file")
+make_named :: proc(world: ^physics.World, named: ^Named_Bone) {
+	body_def := physics.body_def(.Dynamic, {0, 2, 0})
+	body_def.name = "left forearm"
+	named.body = physics.create_body(world, body_def)
+	shape_def := physics.shape_def(CAT_BOX)
+	shape_def.name = "elbow"
+	physics.create_sphere_shape(world, named.body, shape_def, {{}, 0.25})
+}
+
+// The whole world's hash (the netcode's deep checksum).
+@(private = "file")
+deep_checksum :: proc(extra: ^sim.Extra) -> u64 {
+	buf: [dynamic]u8
+	defer delete(buf)
+	extra.hash(extra.data, 0, &buf) // tick 0: the whole world (sim.DEEP_CHECKSUM_EVERY)
+	return sim.hash_bytes(buf[:])
+}
+
+// A name is in the world's state only while a body or shape has it: a world rolled back to before a named body and
+// shape were made hashes as one that never saw their names, and making them again hashes as the first time did. (The
+// deep checksum of a re-simulation, a late joiner and a replay agree on every tick after a save that a ragdoll, whose
+// bones are named, was made after.)
+@(test)
+names_roll_back_with_the_world :: proc(t: ^testing.T) {
+	world := api_world()
+	defer physics.destroy(world)
+	named: Named_Bone
+	extra := physics.extra(world, Named_Bone)
+	box(world, {0, -0.5, 0}, {5, 0.5, 5})
+	extra.save(extra.data, 0)
+	before := deep_checksum(&extra)
+	make_named(world, &named)
+	first := deep_checksum(&extra)
+	testing.expect(t, first != before, "the named body is in the hash")
+
+	testing.expect(t, extra.restore(extra.data, 0))
+	named = {}
+	testing.expect_value(t, deep_checksum(&extra), before)
+	make_named(world, &named)
+	testing.expect_value(t, deep_checksum(&extra), first)
+
+	fresh := api_world()
+	defer physics.destroy(fresh)
+	fresh_named: Named_Bone
+	fresh_extra := physics.extra(fresh, Named_Bone)
+	box(fresh, {0, -0.5, 0}, {5, 0.5, 5})
+	anchor, _ := physics.resolve(fresh, physics.world_anchor(fresh))
+	physics.body_set_name(fresh, anchor, "elbow") // a name no body keeps
+	physics.body_set_name(fresh, anchor, "anchor")
+	testing.expect_value(t, deep_checksum(&fresh_extra), before)
+	make_named(fresh, &fresh_named)
+	testing.expect_value(t, deep_checksum(&fresh_extra), first)
 }
 
 // Every teleport moves the body's warp epoch on (a view snaps across it), in 3D and 2D; a body made anew starts at 0,

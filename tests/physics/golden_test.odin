@@ -16,7 +16,7 @@ import "unified:sim"
 // on this library moved without a bump, which golden_check refuses (the library-sim-change skill).
 GOLDEN_LIBRARY :: sim.Library {
 	version = 2,
-	box3d   = "3362633-r5",
+	box3d   = "3362633-r6",
 }
 
 // The library this build is.

@@ -35,9 +35,9 @@ LONGER_REFERENCE :: scenarios.Reference {
 	setup         = "life_bonus=5",
 	checkpoints   = {0x62e09e4542e4aa24, 0xab83a7846628a0b2, 0x9019a367470cc63f, 0x7434797ee8e8a445},
 	trace         = 0xd062dd1257622fab,
-	snapshot      = 0x8755f506c6d82cac,
-	log           = 0x67932730caa10deb,
-	compat        = 0x23d982a0683116b3,
+	snapshot      = 0x058a4c42dfd38369,
+	log           = 0x6c6971eefaafa92f,
+	compat        = 0x0f303ac9b70fc3ba,
 }
 
 @(test)
