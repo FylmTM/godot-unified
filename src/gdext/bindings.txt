@@ -38,6 +38,7 @@ InputEventKey
 InputEventAction
 InputEventMouseButton
 InputEventMouseMotion
+InputEventJoypadMotion
 InputMap
 # dev UI
 Control

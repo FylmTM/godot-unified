@@ -94,7 +94,7 @@ register_session_class :: proc() {
 		parent = "Node",
 		size = size_of(Session_Node),
 		doc_brief = "Runs a unified session (single player, host or join) and shows it: views, events, commands.",
-		doc = "One per app. The session runs the game's deterministic sim on its own thread; this node takes the newest frame every process step (at priority -1000, before every other node), moves the scene views under [member view_root], fills the MultiMesh views, and routes the sim's events to their views and to [signal sim_event]. The game's extension decides what the views are (src/godot/README.md). It processes always ([constant Node.PROCESS_MODE_ALWAYS], set when it enters the tree): it pumps the session, which runs on network time, so a paused SceneTree (a pause menu) never stalls it; a single player's pause is [member paused]. Taken out of the tree it ends its session; put back, it runs sessions again. Reach it typed: [code]@onready var session: UnifiedSession = %UnifiedSession[/code], or [code]Unified.session[/code]. Players are ints: a player's key, the same while they are in the session whatever slot they hold (0: nobody).",
+		doc = "One per app. The session runs the game's deterministic sim on its own thread; this node takes the newest frame every process step (at priority -1000, before every other node), moves the scene views under [member view_root], fills the MultiMesh views, and routes the sim's events to their views and to [signal sim_event]. The game's extension decides what the views are (src/godot/README.md). It processes always ([constant Node.PROCESS_MODE_ALWAYS], set when it enters the tree): it pumps the session, which runs on network time, so a paused SceneTree (a pause menu) never stalls it; a single player's pause is [member paused]. Taken out of the tree it ends its session; put back, it runs sessions again (a start still waiting for the ended session's goodbye, called just before, begins then). Reach it typed: [code]@onready var session: UnifiedSession = %UnifiedSession[/code], or [code]Unified.session[/code]. Players are ints: a player's key, the same while they are in the session whatever slot they hold (0: nobody).",
 		init = proc(instance: rawptr) {
 			session := (^Session_Node)(instance)
 			session.seed = 1 // local_name stays "": the roster shows "P" and the slot from 1
@@ -274,7 +274,7 @@ register_session_class :: proc() {
 	gd.bind_method(class, "clean_join_code", proc(session: ^Session_Node, text: string) -> string {
 			if lobby == nil || lobby.code_clean == nil do return ""
 			return lobby.code_clean(text)
-		}, {"text"}, doc = "What a player typed or pasted as an online join code, cleaned as [method join_online] reads it (any case, spaces and dashes dropped): the code, or \"\" when it isn't one.")
+		}, {"text"}, doc = "What a player typed or pasted as an online join code, cleaned as [method join_online] reads it (any case; spaces, dashes, tabs and line breaks dropped): the code, or \"\" when it isn't one.")
 	gd.bind_property(
 		class,
 		"join_code",
@@ -869,11 +869,12 @@ joy_connection_changed :: proc(_: rawptr, args: []^gd.Variant) -> gd.Variant {
 	return {}
 }
 
-// The node left the tree (or the extension unloads it): its session ends, its views and the dev UI go, and it no longer
-// runs sessions until it is back.
+// The node left the tree: its session ends, its views and the dev UI go, and it no longer runs sessions until it is
+// back. A start waiting for the ended session's goodbye is kept: it begins at the end of the node's first process step
+// back in the tree (start_pending), so a script that starts a session and then moves the node never strands it.
 @(private)
 session_exit :: proc(session: ^Session_Node) {
-	session_end(session)
+	session_end(session, keep_pending = true)
 	views_clear()
 	dev_shutdown()
 	active = nil
@@ -1076,12 +1077,16 @@ fail_start :: proc(session: ^Session_Node, reason: string) -> bool {
 	return false
 }
 
-// Starts a session with no other in the way (none ever ran, or start_pending freed the last one).
+// Starts a session with no other in the way (none ever ran, or start_pending freed the last one). It replaces a start
+// still waiting (one kept while the node was out of the tree: session_exit): the newest start wins.
 @(private)
 session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	assert(!session.syncing, "a session launched while session_process holds a Frame")
+	clear_pending(session)
 	session.frame = nil // it points into the finished session, which wait frees
-	session.last_tick = 0 // the last session's: the scripts data_reset's signals call below must not see it as this one's
+	// the last session's tick and shown time: the scripts data_reset's signals call below must not see them as this
+	// one's (a new session's start as on a new node: its first frame sets them)
+	session.last_tick, session.shown_time, session.shown_epoch = 0, 0, 0
 	session.ended, session.over, session.recorded = false, false, false
 	// a new session's roster is news even when its first shown tick seats the same slots as the last one's
 	session.slots_seen, session.known_seen = {}, -1
@@ -1163,9 +1168,10 @@ start_pending :: proc(session: ^Session_Node) {
 }
 
 // Ends the session for good (the node leaves the tree, the app quits): its goodbye on the main thread, its Result if it
-// came (else its recording from the verified ticks so far), then its memory. A waiting start never begins.
+// came (else its recording from the verified ticks so far), then its memory. A waiting start never begins, unless
+// `keep_pending` (the node left the tree and may come back: session_exit).
 @(private)
-session_end :: proc(session: ^Session_Node) {
+session_end :: proc(session: ^Session_Node, keep_pending := false) {
 	if api.installed {
 		api.hurry() // a goodbye of at most 1 s on the main thread, not 3 (an unreachable peer)
 		api.join()
@@ -1173,7 +1179,7 @@ session_end :: proc(session: ^Session_Node) {
 	}
 	if !session.recorded do session_recorded(session, dev_save_recording(session))
 	session.recorded = true
-	clear_pending(session)
+	if !keep_pending do clear_pending(session)
 	if api.installed do api.wait()
 	session.frame = nil
 	data_reset()

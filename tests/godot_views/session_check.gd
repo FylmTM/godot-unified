@@ -25,11 +25,13 @@
 #    is kept (its recording).
 # 13. the session node taken out of the tree from a script the session calls: its session ends once that frame is
 #    done with it; put back, it runs sessions again; a paused SceneTree doesn't stop it; taken out by a script while a
-#    start resets the session data, the start starts nothing (FAILED).
+#    start resets the session data, the start starts nothing (FAILED); a restart from such a script that then moves
+#    the node (or takes it out for a while) is kept and begins once the node is back, never a CONNECTING forever.
 # 14. `paused` set in the frame a start method was called starts the session paused on its first tick, a restart's
 #    too; a pause is no silence of the host (host_silent_ms).
 # 15. a second local player on the keyboard: a tap pressed and released within one frame reaches the sim; on a pad,
-#    the pad going away releases what it held (the next press is a press).
+#    the pad going away releases what it held (the next press is a press), and a slanted stick keeps its direction
+#    (one radial deadzone on the raw axes, as Input.get_vector).
 # Every run ends with UnifiedSession.quit while a sound plays: the quit stops it first, so no playback leaks at exit
 # (the suite fails on a leak).
 # (The LAN token's claim, each copy of a game a slot and a token of its own, is tested in tests/godot_driver.)
@@ -597,6 +599,46 @@ func _removed_from_a_callback() -> bool:
 	check("back in the tree again, start single player", s.start_single())
 	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.local_player != 0 and s.tick > 5, 5.0, "the node runs a session again after the failed start"):
 		return false
+	# A restart from a script the session calls (queued: the session exists), and then the same script moves the node
+	# to another parent: the start is kept, not dropped with the session (a CONNECTING forever), and begins there.
+	var holder := Node.new()
+	root.add_child(holder)
+	var moved: Array[bool] = [false]
+	var move := func() -> void:
+		if moved[0] or s.local_player == 0 or s.tick < 20:
+			return
+		moved[0] = true
+		_statuses.clear()
+		check("a restart from a callback that then moves the node is accepted", s.start_single())
+		root.remove_child(s)
+		holder.add_child(s)
+	Unified.data.toy.changed.connect(move)
+	if not await _wait_for(func() -> bool: return moved[0], 5.0, "a callback restarts, then moves the node"):
+		return false
+	Unified.data.toy.changed.disconnect(move)
+	if not await _wait_for(func() -> bool: return _statuses.has("connected") and s.running and s.local_player != 0, 5.0, "the restart begins under the node's new parent"):
+		return false
+	check("the restart's statuses: CONNECTING, then CONNECTED", _statuses == ["connecting", "connected"], _statuses)
+	# The same, the node taken out for a while: the start waits (CONNECTING, no session) and begins once it is back.
+	var out: Array[bool] = [false]
+	var take_out := func() -> void:
+		if out[0] or s.local_player == 0 or s.tick < 20:
+			return
+		out[0] = true
+		_statuses.clear()
+		check("a restart from a callback that then takes the node out is accepted", s.start_single())
+		holder.remove_child(s)
+	Unified.data.toy.changed.connect(take_out)
+	if not await _wait_for(func() -> bool: return out[0], 5.0, "a callback restarts, then takes the node out"):
+		return false
+	Unified.data.toy.changed.disconnect(take_out)
+	await _sleep(0.3)
+	check("out of the tree, the restart waits: CONNECTING, no session runs",
+		s.status == UnifiedSession.STATUS_CONNECTING and not s.running and _statuses == ["connecting"], [s.running, _statuses])
+	root.add_child(s)
+	holder.queue_free()
+	if not await _wait_for(func() -> bool: return _statuses.has("connected") and s.running and s.local_player != 0, 5.0, "back in the tree, the waiting restart begins"):
+		return false
 	s.leave()
 	return await _wait_for(func() -> bool: return not s.running, 5.0, "the session ends")
 
@@ -667,6 +709,20 @@ func _device_taps() -> bool:
 	if not await _wait_for(func() -> bool: return Unified.data.toy.spawned > spawned, 2.0, "pressed again after the pad went away, it spawns"):
 		return false
 	_pad(false)
+	# A stick half tilted 20 degrees off the x axis on that pad (project.godot's stick_* actions, deadzone 0.2):
+	# action_vector applies one radial deadzone to the raw axes, as Input.get_vector does, so the direction is kept;
+	# each action's own deadzone would read the y axis, 0.17, as 0.
+	_axis(JOY_AXIS_LEFT_X, 0.47)
+	_axis(JOY_AXIS_LEFT_Y, 0.171)
+	if not await _wait_for(func() -> bool: return Unified.data.toy.stick.x > 0, 2.0, "the stick reaches the sim"):
+		return false
+	var stick: Vector2i = Unified.data.toy.stick
+	check("a slanted stick under the deadzone on one axis keeps its direction (radial deadzone on the raw axes)",
+		absi(stick.x - 35) <= 1 and absi(stick.y - 13) <= 1, stick)
+	_axis(JOY_AXIS_LEFT_X, 0.0)
+	_axis(JOY_AXIS_LEFT_Y, 0.0)
+	if not await _wait_for(func() -> bool: return Unified.data.toy.stick == Vector2i.ZERO, 2.0, "the stick let go reads zero"):
+		return false
 	s.set_local_device(0, UnifiedSession.DEVICE_ANY)
 	s.leave()
 	return await _wait_for(func() -> bool: return not s.running, 5.0, "the session ends")
@@ -690,6 +746,15 @@ func _pad(pressed: bool) -> void:
 	root.push_input(event)  # straight to the nodes' _input, as a device's event comes
 
 
+# A stick axis on pad 0, at `value`.
+func _axis(axis: JoyAxis, value: float) -> void:
+	var event := InputEventJoypadMotion.new()
+	event.device = 0
+	event.axis = axis
+	event.axis_value = value
+	root.push_input(event)  # straight to the nodes' _input, as a device's event comes
+
+
 # 8. starting on a running session, without a leave: the start leaves it first; the newest start wins
 func _restart() -> bool:
 	check("start single player", s.start_single())
@@ -699,11 +764,13 @@ func _restart() -> bool:
 	var setup := UnifiedSetup.new()
 	setup.life_bonus = 3
 	# the new session's start resets the session data (Unified.data's signals call scripts) before its first frame:
-	# what they read of the session then is the new one's, not the last one's tick
+	# what they read of the session then is the new one's, not the last one's tick and shown time
 	var ticks_before_frame: Array[int] = []
+	var shown_before_frame: Array[float] = []
 	var see_tick := func() -> void:
 		if s.local_player == 0:
 			ticks_before_frame.append(s.tick)
+			shown_before_frame.append(s.shown_time)
 	Unified.data.toy.changed.connect(see_tick)
 	check("start_single on the running session is accepted", s.start_single(setup))
 	check("it is connecting while the old one says goodbye", s.status == UnifiedSession.STATUS_CONNECTING, s.status)
@@ -713,6 +780,9 @@ func _restart() -> bool:
 	check("a start shows no tick until its session's first frame (data_reset's signals see 0)",
 		not ticks_before_frame.is_empty() and ticks_before_frame.all(func(tick: int) -> bool: return tick == 0),
 		ticks_before_frame)
+	check("nor a shown time: the last session's is gone with its tick (data_reset's signals see 0)",
+		not shown_before_frame.is_empty() and shown_before_frame.all(func(time: float) -> bool: return time == 0.0),
+		shown_before_frame)
 	check("no failed/disconnected/left status reaches the game",
 		not _statuses.any(func(x: String) -> bool:
 			return x.begins_with("failed") or x.begins_with("disconnected") or x.begins_with("left")), _statuses)

@@ -196,8 +196,8 @@ Frame_Data :: struct {
 }
 
 // What a game provides, typed by its game (a sim.Game), its scene view kinds (`View`: a union of `View_` structs, one
-// per kind, each the data its views carry: src/godot/README.md, View kinds) and its MultiMesh kinds (`MultiView`: an
-// enum); install checks it. Its procs are named procs, never inline lambdas.
+// per kind, each the data its views carry; `union {}` for none: src/godot/README.md, View kinds) and its MultiMesh
+// kinds (`MultiView`: an enum); install checks it. Its procs are named procs, never inline lambdas.
 Glue :: struct($G, $View, $MultiView: typeid) where intrinsics.type_is_specialization_of(G, sim.Game) {
 	// Main thread, every frame, for each local player (`local`: its index): its Input from Godot's input (the action
 	// helpers read its device, input.odin; its input values: input_values). nil for a game without one (sim.No_Input):
@@ -514,7 +514,8 @@ roster_reset :: proc() {
 // does not compile; a kind always pushes one subject type). The subject is the view's identity and its key
 // (UnifiedView.key), and decides which events reach it (src/godot/README.md, Events): an event goes to the views pushed
 // with its subject's type and key. The data is the root script's `data`, an object of the kind's class (ViewShip), set
-// when the view spawns and whenever its bytes change; a kind with no data is an empty struct.
+// when the view spawns and whenever its bytes change; a kind with no data is an empty struct. A game with no scene
+// views (`View :: union {}`: its screen drawn from session data) pushes none: a push does not compile, saying so.
 //
 //   godot.push_view(f, player, {pos = ...}, View_Ship{...})    // a player's: keyed by sim.player_key
 //   godot.push_view(f, sim.entity(i), {pos = ...}, View_Gate{}) // a fixed thing's: keyed by its index
@@ -534,7 +535,8 @@ push_view_alone :: proc(
 	item: View_Item,
 	data: $D,
 	loc := #caller_location,
-) where intrinsics.type_is_variant_of(View, D) {
+) where intrinsics.type_is_variant_of(View, D) ||
+	intrinsics.type_union_variant_count(View) == 0 {
 	if item.player != {} do panic(ALONE_WITH_PLAYER, loc)
 	data := data
 	push_view_out(frame, item, 0, nil, D, ([^]u8)(&data)[:size_of(D)], loc)
@@ -550,7 +552,8 @@ push_view_of_player :: proc(
 	item: View_Item,
 	data: $D,
 	loc := #caller_location,
-) where intrinsics.type_is_variant_of(View, D) {
+) where intrinsics.type_is_variant_of(View, D) ||
+	intrinsics.type_union_variant_count(View) == 0 {
 	if player == {} do panic("push_view: the subject is nobody (Player{})", loc)
 	item, data := item, data
 	if item.player == {} do item.player = player
@@ -564,7 +567,8 @@ push_view_of_entity :: proc(
 	item: View_Item,
 	data: $D,
 	loc := #caller_location,
-) where intrinsics.type_is_variant_of(View, D) {
+) where intrinsics.type_is_variant_of(View, D) ||
+	intrinsics.type_union_variant_count(View) == 0 {
 	index, ok := sim.entity_index(entity)
 	if !ok do panic("push_view: the subject is the zero Entity (none)", loc)
 	data := data
@@ -578,7 +582,8 @@ push_view_of_handle :: proc(
 	item: View_Item,
 	data: $D,
 	loc := #caller_location,
-) where intrinsics.type_is_variant_of(View, D) {
+) where intrinsics.type_is_variant_of(View, D) ||
+	intrinsics.type_union_variant_count(View) == 0 {
 	if handle == {} do panic("push_view: the subject is the null handle", loc)
 	data := data
 	push_view_out(frame, item, sim.handle_key(handle), sim.Handle(T), D, ([^]u8)(&data)[:size_of(D)], loc)
@@ -601,6 +606,11 @@ push_view_out :: proc(
 	data: []u8,
 	loc := #caller_location,
 ) {
+	// (the push procs' `where` lets an empty View through to fail here, saying why)
+	#assert(
+		intrinsics.type_union_variant_count(View) > 0,
+		"push_view: the game's View union is empty (no scene view kinds, `View :: union {}`): it pushes no view; add a View_ struct to the union for a kind of scene view",
+	)
 	out := frame.out
 	kind := u8(view_kind_index(View, kind_type))
 	appears_verified := kind_appears_verified(api.view_policy, kind)

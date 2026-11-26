@@ -55,14 +55,15 @@ Latch :: struct {
 Tracked_Action :: struct {
 	action:   string,
 	name:     ^gd.StringName,
-	strength: [LOCAL_MAX]f32, // each local player's, 0..1
+	strength: [LOCAL_MAX]f32, // each local player's, 0..1, past the action's deadzone (Input.get_action_strength)
+	raw:      [LOCAL_MAX]f32, // each local player's, 0..1, before it (Input.get_action_raw_strength)
 	pressed:  [LOCAL_MAX]bool,
 }
 
 // Main thread, every frame, before sample_input: latches a tick has taken are cleared; game input is on unless the
 // dev UI has the keyboard or the game turned it off. Turning off drops the latches; coming back (or the window
-// getting the focus back) swallows the buttons still held (a direction reads at once). Losing the focus releases the keyboard players' actions (Godot
-// drops held keys without events).
+// getting the focus back) swallows the buttons still held (a direction reads at once). Losing the focus releases the
+// keyboard players' actions (Godot drops held keys without events).
 @(private)
 input_sample_begin :: proc(dev_keyboard: bool) {
 	for &latch in input_sample.latches {
@@ -75,7 +76,7 @@ input_sample_begin :: proc(dev_keyboard: bool) {
 	if !focused && input_sample.focused {
 		for &tracked in input_sample.tracked {
 			for device, local in input_sample.devices {
-				if device == DEVICE_KEYBOARD do tracked.strength[local], tracked.pressed[local] = 0, false
+				if device == DEVICE_KEYBOARD do tracked_release(&tracked, local)
 			}
 		}
 	}
@@ -114,6 +115,7 @@ input_event :: proc(event: gd.InputEvent) {
 		for &tracked in input_sample.tracked {
 			if !gd.InputEvent_is_action(event, tracked.name, false) do continue
 			strength := f32(gd.InputEvent_get_action_strength(event, tracked.name, false))
+			raw := event_raw_strength(event, tracked.name, strength)
 			pressed := gd.InputEvent_is_action_pressed(event, tracked.name, false, false)
 			if pressed && !tracked.pressed[local] && !input_sample.blocked {
 				// the next sample is the first that can hold it (`sampling` is the one this frame stored already, which
@@ -121,9 +123,21 @@ input_event :: proc(event: gd.InputEvent) {
 				latch := latch_of(tracked.action, local)
 				latch.latched, latch.seq = true, input_sample.sampling + 1
 			}
-			tracked.strength[local], tracked.pressed[local] = strength, pressed
+			tracked.strength[local], tracked.raw[local], tracked.pressed[local] = strength, raw, pressed
 		}
 	}
+}
+
+// An event's raw strength for an action it matches, before the action's deadzone, as Godot's Input keeps it for
+// get_vector: a stick axis's value in the action's direction (0 the other way), which the event's own strength
+// (`strength`: rescaled from the deadzone's edge, 0 under it) can't give back; a key's or a button's is its strength.
+@(private)
+event_raw_strength :: proc(event: gd.InputEvent, name: ^gd.StringName, strength: f32) -> f32 {
+	motion := gd.object_cast(gd.InputEventJoypadMotion, event)
+	if motion.ptr == nil do return strength
+	// an axis matches its action either way; matched exactly, it points the action's way
+	if !gd.InputEvent_is_action(event, name, true) do return 0
+	return min(abs(f32(gd.InputEventJoypadMotion_get_axis_value(motion))), 1)
 }
 
 @(private)
@@ -180,6 +194,12 @@ tracked_of :: proc(action: string) -> ^Tracked_Action {
 	return &input_sample.tracked[len(input_sample.tracked) - 1]
 }
 
+// `local`'s state of a tracked action back to released (its device's events no longer say what it holds).
+@(private)
+tracked_release :: proc(tracked: ^Tracked_Action, local: int) {
+	tracked.strength[local], tracked.raw[local], tracked.pressed[local] = 0, 0, false
+}
+
 @(private)
 latch_of :: proc(action: string, local: int) -> ^Latch {
 	for &known in input_sample.latches do if known.action == action && known.local == local do return &known
@@ -222,9 +242,7 @@ action_vector :: proc(negative_x, positive_x, negative_y, positive_y: string) ->
 		raw :: proc(action: string) -> (strength, deadzone: f32) {
 			tracked := tracked_of(action)
 			deadzone = gd.InputMap_action_get_deadzone(gd.InputMap_singleton(), tracked.name)
-			strength = tracked.strength[input_sample.current]
-			if strength > 0 do strength = strength * (1 - deadzone) + deadzone // the event's strength, rescaled back
-			return
+			return tracked.raw[input_sample.current], deadzone
 		}
 		left, left_zone := raw(negative_x)
 		right, right_zone := raw(positive_x)
@@ -295,7 +313,7 @@ buttons :: proc($Set: typeid/bit_set[$E;$U], actions: [E]string) -> (set: Set) {
 input_device_gone :: proc(device: int) {
 	for on, local in input_sample.devices {
 		if on != device do continue
-		for &tracked in input_sample.tracked do tracked.strength[local], tracked.pressed[local] = 0, false
+		for &tracked in input_sample.tracked do tracked_release(&tracked, local)
 		for &latch in input_sample.latches do if latch.local == local do latch.latched = false
 	}
 }
@@ -308,7 +326,7 @@ input_device_gone :: proc(device: int) {
 set_device :: proc(local: int, device: int) {
 	if local < 0 || local >= LOCAL_MAX || input_sample.devices[local] == device do return
 	input_sample.devices[local] = device
-	for &tracked in input_sample.tracked do tracked.strength[local], tracked.pressed[local] = 0, false
+	for &tracked in input_sample.tracked do tracked_release(&tracked, local)
 }
 
 // Main thread (sample_input): the device of local player `local` (DEVICE_ANY, DEVICE_KEYBOARD, or a joypad's id), for

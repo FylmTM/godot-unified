@@ -27,12 +27,14 @@ const VERIFIED_DELAY_TICKS := 4
 const VERIFIED_RATE_MAX := 0.1
 # a long frame: over VERIFIED_DELAY_MAX + REMOTE_EVENT_EVERY + 2 ticks, so playback jumps past the next event's tick
 const REMOTE_STALL_TICKS := 30
-const BLINK_FROM := 20  # ext/ext.odin's blink view (plain2d key 5): ticks BLINK_FROM ..< BLINK_TO
-const BLINK_TO := 40
 const REMOTE_PLAYER_KEY := (77 << 16) | 3  # sim.player_key(REMOTE_PLAYER)
 const REMOTE_BLINK_KEY := (78 << 16) | 2  # sim.player_key(REMOTE_BLINK)
+# ext/ext.odin's REMOTE_BLINK: ticks REMOTE_BLINK_FROM ..< REMOTE_BLINK_TO of every REMOTE_BLINK_PERIOD
 const REMOTE_BLINK_FROM := 60
 const REMOTE_BLINK_TO := 100
+const REMOTE_BLINK_PERIOD := 128
+## Frames a remote player's view must be seen held behind the verified tick by its clock's law (check_remote_views).
+const HELD_MIN := 10
 # ext/ext.odin's pooled views (pool_views)
 const POOL_PERIOD := 32  # ext/ext.odin's pool schedule (pool_views)
 const POOL_LIVE := 12
@@ -151,41 +153,39 @@ func _initialize() -> void:
 	var typed: Node = null
 	var decoy_events: Array = []  # a decoy view's (another table's handle with a thing's key): it gets no event
 	var decoys_seen := false
-	# The blink view (plain2d key 5) as it leaves the tree, freed: [its despawns, its position] (the host no longer posing
-	# it after _sim_despawned set it to (999, 999)), and the node. Taken as it goes, so a slow frame can't miss its linger.
+	# The blink view (plain2d key 5) as it first leaves the tree, freed: [its despawns, its position] (the host no longer
+	# posing it after _sim_despawned set it to (999, 999)), and the node. Taken as it goes, so a slow frame can't miss its
+	# linger. A view is made for a key of a frame the views were synced to: frames that stall past all of a blink's ticks
+	# (a loaded machine), or a level scene still loading then (the views wait for it), give it no view at all, so the
+	# blink comes back every BLINK_PERIOD ticks (ext/ext.odin) and the loop below waits for one that was shown.
 	var blink_exit: Array = []
 	views.child_exiting_tree.connect(func(node: Node) -> void:
 		var view_marker := node.get_node_or_null(^"UnifiedView") as UnifiedView
 		if view_marker != null and view_marker.kind == "plain2d" and view_marker.key == 5 and blink_exit.is_empty():
 			blink_exit.append_array([node.get("despawns"), (node as Node2D).position, node]))
-	# A view is made for a key of a frame the views were synced to: frames that stall past all of the blink's ticks (a
-	# loaded machine), or a level scene still loading then (the views wait for it), give it no view at all. The typed2d
-	# view's data carries every synced frame's tick (views/typed2d.gd's synced_ticks).
-	var blink_shown := func() -> bool:
-		var typed_now := child_of_kind(views, "typed2d")
-		if typed_now == null:
-			return false
-		var synced: Dictionary = typed_now.get("synced_ticks")
-		return range(BLINK_FROM, BLINK_TO).any(func(tick: int) -> bool: return synced.has(tick))
 	var card: Control = null  # the thing's data-only view, followed until it is freed
-	var remote_blink: Node3D = null  # ext/ext.odin's REMOTE_BLINK's remote3d view, followed until it despawns
-	var remote_blink_seen := {}
+	# ext/ext.odin's REMOTE_BLINK's remote3d views, a new one each blink: their records (views/remote3d.gd), which
+	# outlive them
+	var remote_blinks: Array[Dictionary] = []
+	var remote_blink_nodes: Array[Node] = []
 	var card_seen := {}  # what it showed while alive
 	var pressed_at := -1  # the iteration that pressed
-	for i in 150:  # up to ~3 s
+	var step := -1  # the loop's iteration
+	var loop_deadline := Time.get_ticks_msec() + 10000  # about 3 s unloaded: until all of the below was seen
+	while Time.get_ticks_msec() < loop_deadline:
+		step += 1
 		await create_timer(0.02).timeout
 		typed = child_of_kind(views, "typed2d")
 		var decoy := child_of_kind(views, "decoy2d")
 		if decoy != null and not decoys_seen:
 			decoys_seen = true
 			decoy_events = decoy.get("events")
-		if remote_blink == null:
-			for child in views.get_children():
-				var view_marker := child.get_node_or_null(^"UnifiedView") as UnifiedView
-				if view_marker != null and view_marker.kind == "remote3d" and view_marker.key == REMOTE_BLINK_KEY:
-					remote_blink = child as Node3D
-		if remote_blink != null and remote_blink_seen.is_empty():
-			remote_blink_seen = remote_blink.get("record")  # kept up to date by the view, outliving it
+		for child in views.get_children():
+			var view_marker := child.get_node_or_null(^"UnifiedView") as UnifiedView
+			if view_marker != null and view_marker.kind == "remote3d" and view_marker.key == REMOTE_BLINK_KEY \
+					and not remote_blink_nodes.has(child):
+				remote_blink_nodes.append(child)
+				remote_blinks.append(child.get("record"))
 		if card == null:
 			card = child_of_kind(hand, "card") as Control
 			if card != null:
@@ -200,13 +200,13 @@ func _initialize() -> void:
 		# card and its events no view
 		if pressed_at < 0 and typed != null:
 			press(&"ui_accept", true)
-			pressed_at = i
-		elif pressed_at >= 0 and i == pressed_at + 1:
+			pressed_at = step
+		elif pressed_at >= 0 and step == pressed_at + 1:
 			press(&"ui_accept", false)
 		if typed != null and typed.get("updates") > 1 and typed.get("ticks_sets") > 2 \
 				and typed_multi.visible_instance_count == 2 \
-				and (not blink_exit.is_empty() or session.tick >= BLINK_TO and not blink_shown.call()) \
-				and card != null and not is_instance_valid(card) and remote_blink_seen.get("despawns", 0) > 0 \
+				and not blink_exit.is_empty() \
+				and card != null and not is_instance_valid(card) and remote_blinks.any(remote_blink_outlived) \
 				and events.any(func(e: Array) -> bool:
 					return e[0] is EventExpired and e[1] == UnifiedSession.EVENT_CONFIRMED):
 			break
@@ -255,8 +255,7 @@ func _initialize() -> void:
 		and (p3.get("marker") as UnifiedView).key == 2, (p3.get("marker") as UnifiedView).key if p3 else null)
 	check("a view that leaves gets _sim_despawned once and is no longer posed while it lingers, then is freed",
 		blink_exit.size() == 3 and blink_exit[0] == 1 and blink_exit[1] == Vector2(999, 999) \
-		and not is_instance_valid(blink_exit[2]) or not blink_shown.call() and blink_exit.is_empty(),
-		[blink_shown.call(), blink_exit.slice(0, 2)])
+		and not is_instance_valid(blink_exit[2]), blink_exit.slice(0, 2))
 	check("session data on Unified: typed, changed when it changes", toy.x > 0 and toy_changes[0] > 2,
 		[toy.x, toy_changes[0]])
 	check("Unified.view_scale: the Glue's", near(Unified.view_scale, 10.0), Unified.view_scale)
@@ -287,7 +286,7 @@ func _initialize() -> void:
 	check_players(session, me, roster_changes[0])
 	check_view_lookup(session, typed, plain, me)
 	await check_hand(session, hand, me)
-	check_remote_blink(remote_blink_seen)
+	check_remote_blink(remote_blinks)
 	await check_remote_views(session, views, me)
 	await check_pool(events, me, typed.get("synced_ticks"))
 
@@ -411,10 +410,12 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 	var thing_remote := [0, 0]  # frames the thing matched the remote view / were compared, showing the remote player
 	var thing_local := [0, 0]  # and the local view, showing the local player
 	var start := session.tick
-	# until a period has passed and the thing was compared in a few frames of each half (slow frames take longer)
+	# until a period has passed, the thing was compared in a few frames of each half and the remote player's view was
+	# held behind in HELD_MIN frames (slow frames take longer)
 	for i in 600:
 		await create_timer(0.02).timeout
-		if session.tick > start + REMOTE_PERIOD + 8 and thing_remote[1] > 5 and thing_local[1] > 5:
+		if session.tick > start + REMOTE_PERIOD + 8 and thing_remote[1] > 5 and thing_local[1] > 5 \
+				and remote != null and frames_held(remote.get("poses")) >= HELD_MIN:
 			break
 		for child in views.get_children():
 			var view_marker := child.get_node_or_null(^"UnifiedView") as UnifiedView
@@ -478,7 +479,6 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 	var remote_poses: Array = remote.get("poses")
 	var latest := clock_latest(remote_poses)
 	var ahead: Array = []  # [pose tick, the latest its clock could be, verified tick] of frames past the clock's law
-	var held := 0  # frames whose clock had to be 2 ticks or more behind the verified tick
 	for i in remote_poses.size():
 		var pose: Array = remote_poses[i]
 		var pose_tick := remote_pose_tick(pose)
@@ -487,15 +487,17 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 			pose_off.append([pose_tick, pose[1], pose[2]])
 		if pose_tick > latest[i] + 0.02:
 			ahead.append([pose_tick, latest[i], pose[2]])
-		held += int(latest[i] <= (pose[2] as int) - 2)
 	check("on the verified timeline: its pose is final (at most the verified tick), its data its sample's",
 		compared > 20 and pose_off.is_empty(), [compared, pose_off.slice(0, 5)])
 	# Behind, by its playback clock's law and the frames' own deltas and verified ticks (clock_latest), not by how often
 	# frames come: a verified tick that stalls (a starved session thread) lets the clock catch up with it, and it falls
-	# back behind at a tenth of the tick rate, so how many frames find it behind depends on the load, not the library.
-	# The local player's view, on the prediction, is at the shown tick.
+	# back behind at a tenth of the tick rate, so the share of frames that find it behind depends on the load, not the
+	# library. So a count, which the walk above ran long enough to see: HELD_MIN frames whose clock had to be held 2 ticks
+	# or more behind. (The local player's view, on the prediction, is at the shown tick.)
+	var held := frames_held(remote_poses)
 	check("a remote player's view of a Remote.Verified kind plays back behind the newest verified tick: never past its clock",
-		compared > 20 and held > 0 and ahead.is_empty(), [held, compared, ahead.slice(0, 3)])
+		compared > 20 and held >= HELD_MIN and ahead.is_empty(),
+		{held = held, frames = compared, ahead = ahead.slice(0, 3)})
 	# Each event arrives in the first frame whose pose reached its tick: after the frame before's pose tick, at most
 	# this frame's.
 	var remote_events: Array = remote.get("events")
@@ -516,32 +518,63 @@ func check_remote_views(session: UnifiedSession, views: Node, me: int) -> void:
 		and remote_events.all(func(e: Array) -> bool: return e[0].get("player") == REMOTE_PLAYER_KEY), stray)
 
 
-# A remote player's view whose key leaves (ext/ext.odin's REMOTE_BLINK, ticks REMOTE_BLINK_FROM ..< REMOTE_BLINK_TO):
-# hidden until its first sample, it keeps playing after the prediction dropped it and despawns once its pose reached
-# its last tick.
-func check_remote_blink(seen: Dictionary) -> void:
-	check("a remote player's view that leaves: seen, then despawned", seen.get("despawns", 0) == 1, seen.keys())
-	if seen.get("despawns", 0) != 1:
+# The tick a remote blink's view left at (its blink's REMOTE_BLINK_TO), from its first shown pose's data tick (0: never
+# shown).
+func remote_blink_leave(record: Dictionary) -> int:
+	var poses: Array = record.poses
+	if poses.is_empty():
+		return 0
+	return int(poses[0][1]) / REMOTE_BLINK_PERIOD * REMOTE_BLINK_PERIOD + REMOTE_BLINK_TO
+
+
+# Whether a remote blink's view despawned after some frame showed it with the verified tick at the tick it left at or
+# past: single player's verified tick is the shown, predicted one, which no longer had it, so the view outlived the
+# prediction dropping it. A frame long enough to stride from before that tick to past the despawn shows none.
+func remote_blink_outlived(record: Dictionary) -> bool:
+	var leave := remote_blink_leave(record)
+	return record.get("despawns", 0) > 0 and leave > 0 \
+		and (record.poses as Array).any(func(pose: Array) -> bool: return int(pose[2]) >= leave)
+
+
+# Remote players' views whose key leaves (ext/ext.odin's REMOTE_BLINK, ticks REMOTE_BLINK_FROM ..< REMOTE_BLINK_TO of
+# each REMOTE_BLINK_PERIOD, a new view each time; `records`: each one's views/remote3d.gd record): hidden until its
+# first sample, it keeps playing after the prediction dropped it and despawns once its pose reached its last tick.
+func check_remote_blink(records: Array[Dictionary]) -> void:
+	var gone := records.filter(func(r: Dictionary) -> bool: return r.get("despawns", 0) > 0)
+	check("a remote player's view that leaves: seen, then despawned, once", gone.size() > 0 \
+		and gone.all(func(r: Dictionary) -> bool: return r.despawns == 1),
+		records.map(func(r: Dictionary) -> int: return r.get("despawns", 0)))
+	if gone.is_empty():
 		return
-	var poses: Array = seen.poses
-	check("hidden until its first sample", not seen.shown_early and poses.size() > 0
-		and poses[0][1] >= REMOTE_BLINK_FROM, poses.slice(0, 2))
-	var last: Array = poses[-1] if poses.size() > 0 else [0.0, 0, 0]
-	# where its last shown pose was on its walk, in ticks (its lane: REMOTE_SPEED a tick from REMOTE_BLINK_FROM)
-	var last_tick: float = (last[0] as float) / REMOTE_SPEED + REMOTE_BLINK_FROM
-	# it goes in the first frame whose playback reached the first tick without it (REMOTE_BLINK_TO or later): its clock
-	# could be there in that frame (clock_latest, the despawn's frame after its shown ones), and was short of it before.
-	# (A clock that caught up with a stalled verified tick, which single player's is the shown one, can reach it in the
-	# frame the prediction dropped it in.)
-	var frames: Array = poses.duplicate()
-	var despawn_frame: Array = seen.get("despawn_frame", [])
-	if not despawn_frame.is_empty():
+	var early := gone.filter(func(r: Dictionary) -> bool:
+		var poses: Array = r.poses
+		return r.shown_early or not poses.is_empty() and int(poses[0][1]) % REMOTE_BLINK_PERIOD < REMOTE_BLINK_FROM)
+	check("hidden until its first sample", early.is_empty(),
+		early.map(func(r: Dictionary) -> Array: return (r.poses as Array).slice(0, 2)))
+	var wrong: Array = []  # [the tick it left at, its last pose's tick, the latest its clock could be at its despawn]
+	for record: Dictionary in gone:
+		var leave := remote_blink_leave(record)
+		if leave == 0:
+			continue
+		var poses: Array = record.poses
+		# where its last shown pose was on its walk, in ticks (its lane: REMOTE_SPEED a tick from its blink's start)
+		var last_tick: float = (poses[-1][0] as float) / REMOTE_SPEED + leave - REMOTE_BLINK_TO + REMOTE_BLINK_FROM
+		# it goes in the first frame whose playback reached the first tick without it: its clock could be there in that
+		# frame (clock_latest, the despawn's frame after its shown ones). (A clock that caught up with a stalled verified
+		# tick, which single player's is the shown one, can reach it in the frame the prediction dropped it in.)
+		var despawn_frame: Array = record.despawn_frame
+		var frames: Array = poses.duplicate()
 		frames.append([0.0, 0, despawn_frame[0], despawn_frame[1], despawn_frame[2]])
-	var latest := clock_latest(frames)
-	var at_despawn: float = latest[-1] if not despawn_frame.is_empty() else -1.0
-	check("it despawns once playback reached the tick it left at (its pose at its last ticks), not when the prediction dropped it",
-		last_tick <= REMOTE_BLINK_TO - 1 + 0.01 and at_despawn >= REMOTE_BLINK_TO - 0.02,
-		[last_tick, at_despawn, seen.despawn_session_tick, last])
+		var at_despawn: float = clock_latest(frames)[-1]
+		if last_tick > leave - 1 + 0.01 or at_despawn < leave - 0.02:
+			wrong.append([leave, last_tick, at_despawn])
+	# Shown after the prediction dropped it: in at least one blink (the loop above waited for one), the direct proof. A
+	# blink a long frame strode across has only its clock's law to time its despawn: the detail counts them.
+	var outlived := gone.filter(remote_blink_outlived)
+	check("it despawns once playback reached the tick it left at (its pose at its last ticks), not when the prediction dropped it (shown after that at least once)",
+		wrong.is_empty() and outlived.size() > 0,
+		{shown_after_the_drop = outlived.size(), timed_by_the_law_only = gone.size() - outlived.size(),
+			wrong = wrong.slice(0, 3)})
 
 
 # The pooled kinds (ext/ext.odin's pool_views; views/pool2d.gd and pool_late2d.gd log every callback of every
@@ -558,7 +591,8 @@ func check_pool(events: Array[Array], me: int, synced: Dictionary) -> void:
 	var deadline := Time.get_ticks_msec() + 8000  # the schedule's period is half a second
 	while Time.get_ticks_msec() < deadline:
 		await create_timer(0.05).timeout
-		if _whats(log, "reused") >= 4 and _whats(log, "revived") >= 2 and _whats(late_log, "reused") >= 2:
+		if _whats(log, "reused") >= 4 and _whats(log, "revived") >= 2 and _whats(late_log, "reused") >= 2 \
+				and (_revives(log, synced)[0] as int) >= 2:
 			break
 	var reused := log.filter(func(e: Dictionary) -> bool: return e.what == "reused")
 	var readied := log.filter(func(e: Dictionary) -> bool: return e.what == "ready")
@@ -607,31 +641,16 @@ func check_pool(events: Array[Array], me: int, synced: Dictionary) -> void:
 		and keys_heard.values().any(func(keys: Dictionary) -> bool: return keys.size() >= 2) and sent_old.size() > 0,
 		[heard.size(), heard.filter(func(e: Dictionary) -> bool: return e.target != e.key).slice(0, 3), sent_old.size()])
 	var revived := log.filter(func(e: Dictionary) -> bool: return e.what == "revived")
-	# A key whose gap (ticks POOL_GAP_FROM ..< POOL_GAP_TO of its period) a frame showed despawned; the views see it
-	# again in the first synced frame after with a tick of the rest of its life. Back before its linger ran out by the
-	# host's clock, it is revived: certainly so when that frame set typed2d's data (after the host read its clock) less
-	# than the linger after the despawn's frame began (before the host read it). Slower frames may rightly pool it.
-	var owed: Array = []  # [key, µs from the despawn's frame to the return] of keys back in time but not revived
-	var in_time := 0  # despawns whose key was certainly back in time
-	for d: Dictionary in log:
-		if d.what != "despawned" or d.key >= POOL_BLIP_KEY:
-			continue
-		var start: int = (d.key - POOL_KEY) * POOL_PERIOD
-		var back := -1  # when the first synced frame after the despawn with the key back set typed2d's data
-		for tick in range(start + POOL_GAP_TO, start + POOL_LIVE):
-			if synced.has(tick) and synced[tick] > d.usec:
-				back = synced[tick]
-				break
-		if back < 0 or back - d.frame_usec >= POOL_LINGER_US - 2:
-			continue
-		in_time += 1
-		var next := _after(log, d)
-		if next.get("what", "") != "revived":
-			owed.append([d.key, back - d.frame_usec])
+	var revives := _revives(log, synced)
+	var in_time: int = revives[0]
+	var owed: Array = revives[1]
+	# at least two keys certainly back in time (the wait above ran until there were), every one of them revived; the
+	# detail counts the keys back too late to tell (slow frames), which are left out
 	check("a key gone for less than its linger is revived, not pooled: the same view, its key kept",
-		owed.is_empty() and revived.all(func(e: Dictionary) -> bool:
+		in_time >= 2 and owed.is_empty() and revived.all(func(e: Dictionary) -> bool:
 			var before := _before(log, e)
-			return before.what == "despawned" and before.key == e.key), [revived.size(), in_time, owed.slice(0, 3)])
+			return before.what == "despawned" and before.key == e.key),
+		{revived = revived.size(), certainly_in_time = in_time, too_late_to_tell = revives[2], owed = owed.slice(0, 3)})
 	var out := 0  # views of the kind out of the pool (alive or lingering), as the log goes
 	var most := 0
 	for e: Dictionary in log:
@@ -646,6 +665,37 @@ func check_pool(events: Array[Array], me: int, synced: Dictionary) -> void:
 	var marker := UnifiedView.new()
 	check("a kind's views are not pooled unless its marker says so", not marker.pool)
 	marker.free()
+
+
+# The pool's despawned keys that came back in time ([in time, owed, too late]). A key whose gap (ticks POOL_GAP_FROM ..<
+# POOL_GAP_TO of its period) a frame showed despawned; the views see it again in the first synced frame after with a
+# tick of the rest of its life. Back before its linger ran out by the host's clock, it is revived: certainly so when
+# that frame set typed2d's data (after the host read its clock) less than the linger after the despawn's frame began
+# (before the host read it). Slower frames may rightly pool it (too late). In time: how many keys were certainly back in
+# time; owed: [key, µs from the despawn's frame to the return] of those not revived. `synced`: views/typed2d.gd's
+# synced_ticks.
+func _revives(log: Array[Dictionary], synced: Dictionary) -> Array:
+	var owed: Array = []
+	var in_time := 0
+	var late := 0
+	for d: Dictionary in log:
+		if d.what != "despawned" or d.key >= POOL_BLIP_KEY:
+			continue
+		var start: int = (d.key - POOL_KEY) * POOL_PERIOD
+		var back := -1  # when the first synced frame after the despawn with the key back set typed2d's data
+		for tick in range(start + POOL_GAP_TO, start + POOL_LIVE):
+			if synced.has(tick) and synced[tick] > d.usec:
+				back = synced[tick]
+				break
+		if back < 0:
+			continue
+		if back - d.frame_usec >= POOL_LINGER_US - 2:
+			late += 1
+			continue
+		in_time += 1
+		if _after(log, d).get("what", "") != "revived":
+			owed.append([d.key, back - d.frame_usec])
+	return [in_time, owed, late]
 
 
 func _whats(log: Array[Dictionary], what: String) -> int:
@@ -671,6 +721,16 @@ func _before(log: Array[Dictionary], entry: Dictionary) -> Dictionary:
 		if e.id == entry.id and e.what != "event":
 			found = e
 	return found
+
+
+# How many of a view's frames (as clock_latest takes them) its playback clock had to be 2 ticks or more behind the
+# verified tick, by its law.
+func frames_held(frames: Array) -> int:
+	var latest := clock_latest(frames)
+	var held := 0
+	for i in frames.size():
+		held += int(latest[i] <= (frames[i][2] as int) - 2)
+	return held
 
 
 # The latest the verified timeline's playback clock can be at each of a view's frames ([x, data tick, verified tick,
@@ -973,10 +1033,12 @@ func check_card(card: Control, seen: Dictionary, hand: Node) -> void:
 		return
 	check("its data is set before its first _process", seen.first_life > 0, seen.first_life)
 	# at each tick its _process saw while it lived (its thing's life changes every tick), counted by the card itself: a
-	# thing lives 4 ticks or more, so slow frames can show its card at one tick only
+	# thing lives 4 ticks or more, but slow frames can show its card at one tick only, so the hand's cards (check_hand)
+	# must show a change at least once
 	var record: Dictionary = seen.record
-	check("its data is set again when it changes: at least once for each tick it is shown at while it lives",
-		record.life_sets >= maxi(record.ticks_shown, 1), [record.life_sets, record.ticks_shown])
+	check("its data is set at least once for each tick it is shown at while it lives",
+		record.life_sets >= 1 and record.life_sets >= record.ticks_shown,
+		{sets = record.life_sets, ticks_shown = record.ticks_shown})
 	check("the host never poses a data-only view: its container lays it out",
 		(seen.positions as Array).all(func(p: Vector2) -> bool: return p == Vector2.ZERO), seen.positions)
 	var on_card: Array = seen.events
@@ -1022,10 +1084,11 @@ func check_hand(session: UnifiedSession, hand: Container, me: int) -> void:
 		for k in range(1, cards.size()):
 			row = row and (cards[k] as Control).position.x > (cards[k - 1] as Control).position.x
 		# a tap a frame long, the next once the sim counted its thing (again if it hasn't after a second), while that
-		# thing still lives (it lives 4 to 63 ticks): until three cards were made and two things lived at once (at most
-		# sixteen things: a thing whose ticks no frame showed, slow frames, has no card)
+		# thing still lives (it lives 4 to 63 ticks): until three cards were made, two things lived at once and a card was
+		# shown at two ticks (at most sixteen things: a thing whose ticks no frame showed, slow frames, has no card)
 		var spawned := toy.spawned - from
-		var tapping := spawned < 16 and (Card.made.size() < 3 or together == 0)
+		var tapping := spawned < 16 and (Card.made.size() < 3 or together == 0 \
+			or not Card.made.any(func(r: Dictionary) -> bool: return r.ticks_shown >= 2))
 		if holding:
 			press(&"ui_accept", false)
 			holding = false
@@ -1052,6 +1115,12 @@ func check_hand(session: UnifiedSession, hand: Container, me: int) -> void:
 		[records.size(), toy.spawned - from, seen_live.size(), no_card, missing.slice(0, 3), row, together, most])
 	check("each card its own key and data", keys.size() >= 3 and keys.all(func(key: int) -> bool: return keys.count(key) == 1) \
 		and records.all(func(r: Dictionary) -> bool: return r.holder == me and r.life_sets > 0), records)
+	# its thing's life changes every tick: set at least once for each tick a card was shown at, and so again on a card
+	# shown at two ticks or more (the taps went on until one was)
+	check("a card's data is set again when it changes: at least once for each tick it is shown at while it lives",
+		records.any(func(r: Dictionary) -> bool: return r.ticks_shown >= 2) \
+		and records.all(func(r: Dictionary) -> bool: return r.life_sets >= r.ticks_shown),
+		records.map(func(r: Dictionary) -> Array: return [r.life_sets, r.ticks_shown]))
 	check("each card its own despawn and its own Expired, then the hand is empty",
 		records.all(func(r: Dictionary) -> bool: return r.despawns == 1 \
 			and (r.events as Array).any(func(e: Array) -> bool: return e[0] is EventExpired)) \

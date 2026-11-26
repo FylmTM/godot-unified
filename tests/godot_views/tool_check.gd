@@ -92,7 +92,11 @@ func check_frame_split() -> void:
 		check("frame log: the drawn frame's process and draw at least their sleeps",
 			hitch.frame == 0 and hitch.process_ms >= 15.0 and hitch.draw_ms >= 12.0, hitch)
 		check("frame log: process + draw within the frame", hitch.process_ms + hitch.draw_ms <= hitch.ms, hitch)
-	check("frame log: one hitch, the drawn frame", hitches.size() == 1, hitches)
+	# the drawn frame is the first hitch; the undrawn ones sleep 2 ms, which a loaded machine can stretch past
+	# HITCH_MS: any of them reported must have taken that long, and has no split
+	check("frame log: the drawn frame a hitch; an undrawn one only past HITCH_MS, with no split",
+		not hitches.is_empty() and hitches[0].frame == 0 and hitches.slice(1).all(func(h: Dictionary) -> bool:
+			return h.frame > 0 and h.ms > UnifiedFrameLog.HITCH_MS and h.process_ms == null), hitches)
 	check("frame log: the summary's split is the drawn frame's", report.get("process_max_ms", 0.0) >= 15.0
 		and report.get("draw_max_ms", 0.0) >= 12.0
 		and report.get("process_max_ms", 0.0) + report.get("draw_max_ms", 0.0) <= report.max_ms, report)
