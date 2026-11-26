@@ -18,7 +18,7 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "clean",
-			summary = "remove what the CLI built or fetched (.out/, .godot/, generated bindings); --cache: also the per-user cache's downloads",
+			summary = "remove what the CLI built or fetched (.out/, .godot/, generated bindings); --cache: also the per-user cache's Godot, unified-box3d zip and odinfmt",
 			options = option_types(Clean_Opts),
 			run     = cmd_clean,
 		},

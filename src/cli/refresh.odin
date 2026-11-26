@@ -66,12 +66,6 @@ RETIRED :: []Retired {
 	{"unified_index.tres", "metadata/views = {", "built into the extension"},
 }
 
-// How the game's code (copied from an older minimal_3d) named the guide, and what names it now.
-@(private = "file")
-GUIDE_REFERENCE :: "(GUIDE.md)"
-@(private = "file")
-GUIDE_NOW :: "(unified/docs/gameplay.md)"
-
 // The .gitignore line an older unified's mirror (res://addons/unified/) needed, and the export filters older unified
 // left out its tool scripts with: the mirror's, and the whole of res://unified/, which would leave out
 // godot_runtime/ (what a running game loads). Each becomes TOOLS_FILTER.
@@ -117,21 +111,6 @@ write_refresh :: proc(unified, root: string) {
 	for retired in RETIRED {
 		if is_retired_copy(root, retired) do os.remove(join(root, retired.path))
 	}
-	if !os.exists(join(root, "GUIDE.md")) {
-		for file in game_files(root) {
-			text, _ := read_text(file)
-			if strings.contains(text, GUIDE_REFERENCE) &&
-			   (strings.has_suffix(file, ".odin") || strings.has_suffix(file, ".gd")) {
-				repointed, _ := strings.replace_all(text, GUIDE_REFERENCE, GUIDE_NOW)
-				write_text(file, repointed)
-			} else if strings.contains(text, "GUIDE.md") {
-				log(
-					"uni: %s still names GUIDE.md (the game's own text): the guide is unified/docs/gameplay.md",
-					rel(file),
-				)
-			}
-		}
-	}
 	remove_legacy_tools(root)
 	if text, found := read_text(join(root, ".gitignore")); found {
 		if kept, changed := without_legacy_ignore(text); changed do write_text(join(root, ".gitignore"), kept)
@@ -167,14 +146,6 @@ refresh_problems :: proc(unified, root: string) -> []string {
 		append(&problems, aprintf("%s: not unified's (the formatter's style)", ODINFMT_CONFIG))
 	}
 	append(&problems, ..retired_copies(root))
-	if !os.exists(join(root, "GUIDE.md")) || is_retired_copy(root, RETIRED[0]) {
-		for file in game_files(root) {
-			if !strings.has_suffix(file, ".odin") && !strings.has_suffix(file, ".gd") do continue
-			if text, _ := read_text(file); strings.contains(text, GUIDE_REFERENCE) {
-				append(&problems, aprintf("%s: names %s (%s now)", rel_to(root, file), GUIDE_REFERENCE, GUIDE_NOW))
-			}
-		}
-	}
 	if os.is_file(join(root, LEGACY_TOOLS_DIR, MIRROR_STAMP)) {
 		append(&problems, aprintf("%s: an older unified's mirror (res://%s now)", LEGACY_TOOLS_DIR, TOOLS_DIR))
 	}
@@ -240,37 +211,6 @@ retired_copies :: proc(root: string) -> []string {
 is_retired_copy :: proc(root: string, retired: Retired) -> bool {
 	text, found := read_text(join(root, retired.path))
 	return found && strings.contains(text, retired.mark)
-}
-
-// The game repo's own text files at `root` (.odin, .gd, .md): not hidden, not in unified/ or addons/.
-@(private = "file")
-game_files :: proc(root: string) -> []string {
-	out: [dynamic]string
-	walked := walk_spelling(root)
-	walker := os.walker_create(root)
-	defer os.walker_destroy(&walker)
-	for info in os.walker_walk(&walker) {
-		path := respelled(root, walked, info.fullpath)
-		skipped :=
-			strings.has_prefix(info.name, ".") ||
-			path_key(os.dir(path)) == path_key(root) && (info.name == "unified" || info.name == "addons")
-		if skipped {
-			if info.type == .Directory do os.walker_skip_dir(&walker)
-			continue
-		}
-		if info.type != .Regular do continue
-		for suffix in ([]string{".odin", ".gd", ".md"}) {
-			if strings.has_suffix(info.name, suffix) do append(&out, path)
-		}
-	}
-	return out[:]
-}
-
-// `path` relative to `root`, with / separators.
-@(private = "file")
-rel_to :: proc(root, path: string) -> string {
-	relative := slashed(strings.trim_left(path[len(root):], "/\\"))
-	return relative
 }
 
 // `text` (an export_presets.cfg) with each exclude_filter's LEGACY_FILTERS replaced by TOOLS_FILTER (once, where the

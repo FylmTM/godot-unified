@@ -6,6 +6,7 @@ import "core:os"
 import "core:strings"
 import "core:sync"
 import "core:testing"
+import "core:time"
 import "unified:cli"
 
 // Children started together, each captured, the last still running when the others are collected: on Windows a child
@@ -81,7 +82,9 @@ a_reused_pid_is_not_the_instance :: proc(t: ^testing.T) {
 }
 
 // Two uni processes that would unpack or build the same thing take turns through a lock file; one left by a process
-// that is gone is taken over. A fresh copy renamed into place where another process already put one gives way to it.
+// that is gone, or one that never got its pid, is taken over; released, a lock another took over stays theirs, and a
+// failing exit releases what it holds. A fresh copy renamed into place where another process already put one gives
+// way to it.
 @(test)
 locks_and_renames_into_place :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator
@@ -97,6 +100,27 @@ locks_and_renames_into_place :: proc(t: ^testing.T) {
 	held, _ := os.read_entire_file(path, context.allocator)
 	testing.expect_value(t, strings.trim_space(string(held)), cli.aprintf("%d", os.get_pid()))
 	cli.lock_release(lock)
+	// a lock that never got its pid (its process killed in between): taken over once it is LOCK_UNWRITTEN old, also
+	// past a takeover guard a killed waiter left
+	long_ago := time.time_add(time.now(), -2 * cli.LOCK_UNWRITTEN)
+	testing.expect(t, cli.write_file(path, nil))
+	testing.expect(t, cli.write_file(cli.aprintf("%s.takeover", path), nil))
+	testing.expect(t, os.change_times(path, long_ago, long_ago) == nil)
+	testing.expect(t, os.change_times(cli.aprintf("%s.takeover", path), long_ago, long_ago) == nil)
+	lock = cli.lock_acquire(path, "test")
+	held, _ = os.read_entire_file(path, context.allocator)
+	testing.expect_value(t, strings.trim_space(string(held)), cli.aprintf("%d", os.get_pid()))
+	testing.expect(t, !os.exists(cli.aprintf("%s.takeover", path)), "the guard is gone")
+	// taken over meanwhile (this one judged stale): released, it stays theirs
+	testing.expect(t, cli.write_file(path, transmute([]byte)string("1\n")))
+	cli.lock_release(lock)
+	testing.expect(t, os.is_file(path), "another's lock stays")
+	os.remove(path)
+	// a failing exit runs no defer: unwind (fatal's, usage's) releases what is still held (lock_release_all; unwind
+	// itself would also run the undos other tests register)
+	lock = cli.lock_acquire(path, "test")
+	cli.lock_release_all()
+	testing.expect(t, !os.exists(path), "released by lock_release_all")
 	placed, tmp := cli.join(dir, "placed"), cli.join(dir, "placed.1.tmp")
 	testing.expect(t, cli.write_file(cli.join(placed, "ready"), transmute([]byte)string("theirs")))
 	testing.expect(t, cli.write_file(cli.join(tmp, "ready"), transmute([]byte)string("ours")))

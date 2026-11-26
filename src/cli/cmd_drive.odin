@@ -294,14 +294,16 @@ instance_alive :: proc(game: Game, instance: Drive_Instance) -> bool {
 // Arguments the OS doesn't give us count as a match: the pid is all there is to go on. (The arguments, not the command
 // line: core:os reads a Windows command line at twice its length, and the text it makes of it can come back empty.)
 // Linux and macOS can't wait on a process that isn't this one's child (another uni started it, or it is this one):
-// there an error from the wait means it runs while the OS still describes it.
+// there an error from the wait means it runs while the OS still describes it. The handle it opens is closed again
+// (lock_acquire asks every 100 ms).
 process_runs :: proc(pid: int, marker: string) -> bool {
 	if pid <= 0 do return false
 	process, err := os.process_open(pid)
 	if err != nil do return false
 	state, wait_err := os.process_wait(process, 0)
-	if wait_err == nil && state.exited do return false // our child, and it ended
+	if wait_err == nil && state.exited do return false // our child, and it ended (the wait closed the handle)
 	waited := wait_err == .Timeout // Timeout: still running
+	if waited do process_handle_close(process) // any other outcome closed it
 	when ODIN_OS == .Windows {
 		if !waited do return false // Windows waits on any process: an error is a process that is gone
 	}

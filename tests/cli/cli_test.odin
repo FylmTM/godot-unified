@@ -812,3 +812,27 @@ stray_positionals_come_before_double_dash :: proc(t: ^testing.T) {
 	testing.expect_value(t, strings.join(cli.stray_positionals({"survivor", "lan"}, {"lan"}), " "), "lan")
 	testing.expect_value(t, len(cli.stray_positionals({"survivor", "--mute"}, nil)), 0)
 }
+
+// A project with no view scenes passes no view index define (Odin rejects `-define:UNIFIED_VIEW_INDEX=`, and
+// src/godot's default is the empty index); one with a view scene passes its index.
+@(test)
+view_index_define_only_with_view_scenes :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	root, temp_err := os.make_directory_temp("", "unified-view-index-test-*", context.allocator)
+	testing.expect(t, temp_err == nil)
+	defer os.remove_all(root)
+	cli.write_text(
+		cli.join(root, "game", "main.tscn"),
+		"[gd_scene format=3]\n\n[node name=\"Main\" type=\"Node3D\"]\n",
+	)
+	testing.expect_value(t, len(cli.view_index_defines(root)), 0)
+	cli.write_text(
+		cli.join(root, "game", "views", "crate.tscn"),
+		"[gd_scene format=3]\n\n[node name=\"Crate\" type=\"Node3D\"]\n\n[node name=\"View\" type=\"UnifiedView\" parent=\".\"]\nkind = \"crate\"\n",
+	)
+	defines := cli.view_index_defines(root)
+	testing.expect_value(t, len(defines), 1)
+	if len(defines) == 1 {
+		testing.expect_value(t, defines[0], "-define:UNIFIED_VIEW_INDEX=crate=res://game/views/crate.tscn")
+	}
+}
