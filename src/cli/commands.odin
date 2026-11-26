@@ -73,7 +73,7 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "tool",
-			summary = "run a tool script, the game's or unified's (headless; --window: muted, on the leftmost screen, never taking focus); a script error fails the run at once",
+			summary = "run a tool script, the game's or unified's (headless; --window: muted, in the top-left corner of the leftmost screen, never taking focus); a script error fails the run at once",
 			options = option_types(Tool_Opts),
 			details = tool_details,
 			run     = cmd_tool,

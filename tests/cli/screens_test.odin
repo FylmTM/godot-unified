@@ -9,19 +9,31 @@ import "unified:cli"
 xrandr_monitors_in_order :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator
 	screens := cli.parse_xrandr_monitors(
-		"Monitors: 3\n 0: +*DP-1 2560/597x1440/336+0+0  DP-1\n 1: +HDMI-1 1920/527x1080/296+2560+180  HDMI-1\n 2: +eDP-1 1280/290x800/180+-1280+0  eDP-1\n",
+		"Monitors: 3\n 0: +*DP-1 2560/597x1440/336+0+0  DP-1\n 1: +HDMI-1 1920/527x1080/296+2560+180  HDMI-1\n 2: +eDP-1 1280/290x800/180+-1280+360  eDP-1\n",
 	)
 	testing.expect_value(t, len(screens), 3)
 	if len(screens) == 3 {
-		testing.expect_value(t, screens[0], cli.Screen{0, 2560, true})
-		testing.expect_value(t, screens[1], cli.Screen{2560, 4480, false})
-		testing.expect_value(t, screens[2], cli.Screen{-1280, 0, false})
+		testing.expect_value(
+			t,
+			screens[0],
+			cli.Screen{left = 0, right = 2560, top = 0, primary = true, corner = [2]i32{0, 0}},
+		)
+		testing.expect_value(
+			t,
+			screens[1],
+			cli.Screen{left = 2560, right = 4480, top = 180, primary = false, corner = [2]i32{2560, 180}},
+		)
+		testing.expect_value(
+			t,
+			screens[2],
+			cli.Screen{left = -1280, right = 0, top = 360, primary = false, corner = [2]i32{-1280, 360}},
+		)
 	}
 	testing.expect_value(t, len(cli.parse_xrandr_monitors("")), 0)
 	testing.expect_value(t, len(cli.parse_xrandr_monitors("Can't open display\n")), 0)
 }
 
-// The OS's screen list (Windows: the monitors; macOS: CoreGraphics' displays, the menu bar's first, as Godot numbers
+// The OS's screen list (Windows: the monitors, each with the corner an agent's window goes to; macOS: CoreGraphics' displays, the menu bar's first, as Godot numbers
 // them): at least one where a desktop runs (developers' machines, CI's Windows and macOS runners), exactly one
 // primary, each with a width. Linux reads xrandr, absent on CI's runners: checked only when it lists any.
 @(test)
@@ -35,6 +47,18 @@ os_screens_have_one_primary :: proc(t: ^testing.T) {
 	for screen in screens {
 		primaries += screen.primary ? 1 : 0
 		testing.expectf(t, screen.left < screen.right, "a screen without a width: %v", screen)
+		when ODIN_OS == .Windows {
+			// A window placed at the corner (an agent's) has its client area on the screen, below the title bar.
+			corner, known := screen.corner.?
+			testing.expectf(t, known, "no corner read: %v", screen)
+			testing.expectf(
+				t,
+				corner.x >= screen.left && corner.x < screen.right,
+				"a corner off the screen: %v",
+				screen,
+			)
+			testing.expectf(t, corner.y > screen.top, "a corner without room for the title bar: %v", screen)
+		}
 	}
 	if len(screens) > 0 {
 		testing.expect_value(t, primaries, 1)

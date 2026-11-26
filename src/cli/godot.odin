@@ -588,8 +588,9 @@ Window_Opts :: struct {
 	background: bool,
 }
 
-// The window of a check (tool --window, coop --window, this repo's view-bench --window): muted, on the leftmost
-// screen, never taking focus, so it never disturbs the developer's screen or keyboard.
+// The window of a check (tool --window, coop --window, drive start, this repo's view-bench --window): muted, in the
+// top-left corner of the leftmost screen (window_args), never taking focus, so it never disturbs the developer's
+// screen or keyboard.
 AGENT_WINDOW :: Window_Opts {
 	mute       = true,
 	screen     = "left",
@@ -632,11 +633,13 @@ with_window :: proc(dir: string, window: Window_Opts) -> (cleanup: proc(dir: str
 // The cleanup for a run that left nothing in the project to undo (no window, or one that may take focus).
 no_cleanup :: proc(_: string) {}
 
-// A screen as the OS lists it (os_screens, in Godot's screen order): its left and right edges in the desktop's
-// coordinates, and whether it is the primary one.
+// A screen as the OS lists it (os_screens, in Godot's screen order), in the desktop's coordinates: its left, right and
+// top edges, whether it is the primary one, and `corner`: where a window's client area goes for the window to sit in
+// the top-left corner of the screen's work area, its title bar on the screen (nil where not known: macOS).
 Screen :: struct {
-	left, right: i32,
-	primary:     bool,
+	left, right, top: i32,
+	primary:          bool,
+	corner:           Maybe([2]i32),
 }
 
 // How long `xrandr --listmonitors` may take (Linux, screens_linux.odin): it answers in milliseconds.
@@ -664,22 +667,48 @@ parse_xrandr_monitors :: proc(text: string) -> []Screen {
 		offsets := strings.split(geometry[plus + 1:], "+", context.temp_allocator)
 		width, width_ok := strconv.parse_int(geometry[:slash])
 		x, x_ok := strconv.parse_int(len(offsets) > 0 ? offsets[0] : "")
-		if !width_ok || !x_ok {
+		y, y_ok := strconv.parse_int(len(offsets) > 1 ? offsets[1] : "")
+		if !width_ok || !x_ok || !y_ok {
 			continue
 		}
-		append(&out, Screen{i32(x), i32(x + width), strings.contains(fields[1], "*")})
+		// The window manager frames a window placed at the corner on the screen.
+		append(&out, Screen {
+			left    = i32(x),
+			right   = i32(x + width),
+			top     = i32(y),
+			primary = strings.contains(fields[1], "*"),
+			corner  = [2]i32{i32(x), i32(y)},
+		})
 	}
 	return out[:]
 }
 
-// Godot's arguments for `window` (before --).
+// Godot's arguments for `window` (before --). A background window (an agent's) opens in the top-left corner of its
+// screen, where the OS tells where that is (Screen.corner), so it covers as little of that screen as it can and is
+// always in the same place; another opens where Godot puts it on its screen, centred.
 window_args :: proc(window: Window_Opts) -> []string {
 	args: [dynamic]string
 	if window.mute {
 		append(&args, "--audio-driver", "Dummy")
 	}
-	if window.screen != "" {
-		append(&args, "--screen", aprintf("%d", screen_index(window.screen)))
+	if window.screen == "" {
+		return args[:]
+	}
+	screens: []Screen
+	if _, is_index := strconv.parse_int(window.screen); !is_index || window.background {
+		screens = os_screens()
+	}
+	index := screen_index(window.screen, screens)
+	append(&args, "--screen", aprintf("%d", index))
+	if window.background && index < len(screens) {
+		if corner, known := screens[index].corner.?; known {
+			// Godot's coordinates start at the top-left of all the screens together.
+			origin := [2]i32{screens[0].left, screens[0].top}
+			for screen in screens {
+				origin = {min(origin.x, screen.left), min(origin.y, screen.top)}
+			}
+			append(&args, "--position", aprintf("%d,%d", corner.x - origin.x, corner.y - origin.y))
+		}
 	}
 	return args[:]
 }
@@ -695,15 +724,15 @@ parse_window_size :: proc(text: string) -> (size: [2]int) {
 	return {width, height}
 }
 
+// Godot's index of the screen `name` names (an index, or left / right / primary among `screens`, os_screens').
 @(private)
-screen_index :: proc(name: string) -> int {
+screen_index :: proc(name: string, screens: []Screen) -> int {
 	if index, ok := strconv.parse_int(name); ok && index >= 0 {
 		return index
 	}
 	if name != "left" && name != "right" && name != "primary" {
 		usage("--screen takes Godot's screen index, left, right or primary (got %q)", name)
 	}
-	screens := os_screens()
 	if len(screens) == 0 {
 		usage(
 			"--screen %s: this OS's screens can't be read here (Linux: needs xrandr and an X11 or XWayland display); pass Godot's screen index",

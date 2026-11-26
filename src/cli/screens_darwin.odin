@@ -41,7 +41,13 @@ os_screens :: proc() -> []Screen {
 			continue
 		}
 		rect := bounds(display)
-		screen := Screen{i32(rect.x), i32(rect.x + rect.width), display == main}
+		// No corner: Godot's macOS coordinates are pixels scaled from these points, so a window opens centred here.
+		screen := Screen {
+			left    = i32(rect.x),
+			right   = i32(rect.x + rect.width),
+			top     = i32(rect.y),
+			primary = display == main,
+		}
 		if screen.primary {
 			inject_at(&list, 0, screen)
 		} else {

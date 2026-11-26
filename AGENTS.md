@@ -60,7 +60,7 @@ example games in `examples/` prove it.
 - Commit messages end with the co-author line. Docs stay lean: fold what we learn into the right doc, delete what
   stops being true. History lives in git.
 - **Never disturb the developer's main screen or keyboard.** Any game window an agent opens (to look at it or as a
-  check) starts muted on the leftmost screen and never takes focus: `tool --window`, `coop --window` and `drive start`
+  check) starts muted in the top-left corner of the leftmost screen and never takes focus: `tool --window`, `coop --window` and `drive start`
   always do (a `tool --window --size` bigger than that screen goes just left of every screen instead); `run` takes
   `--mute --screen left --background`; the `unified-godot` skill. The editor always takes focus: open it only when the
   developer asks.

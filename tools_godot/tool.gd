@@ -363,9 +363,10 @@ func _size_headless_window() -> void:
 
 
 # `uni tool --window --size=WxH` (`--window-size`): a look at another window size. A window that fits the leftmost
-# screen stays on it, centred; a wider one moves just left of every screen before it grows, so at no moment does it
-# reach onto the next screen (Godot draws a window there, but won't create one off every screen: it opens on the
-# leftmost and moves). macOS pulls a window back onto a screen: there it grows on the leftmost one.
+# screen stays in its top-left corner, where uni opens an agent's window, its title bar on the screen; a wider one moves
+# just left of every screen before it grows, so at no moment does it reach onto the next screen (Godot draws a window
+# there, but won't create one off every screen: it opens on the leftmost and moves). macOS pulls a window back onto a
+# screen: there it grows in the leftmost one's corner.
 func _size_window() -> void:
 	var asked: String = arg("window-size")
 	if asked == "" or DisplayServer.get_name() == "headless":
@@ -375,11 +376,13 @@ func _size_window() -> void:
 	for screen: int in DisplayServer.get_screen_count():
 		if DisplayServer.screen_get_position(screen).x < DisplayServer.screen_get_position(leftmost).x:
 			leftmost = screen
-	var origin: Vector2i = DisplayServer.screen_get_position(leftmost)
-	var room: Vector2i = DisplayServer.screen_get_size(leftmost)
-	if (size.x <= room.x and size.y <= room.y) or OS.get_name() == "macOS":
-		root.position = origin + Vector2i((Vector2(room - size) / 2.0).floor())
+	var usable: Rect2i = DisplayServer.screen_get_usable_rect(leftmost)
+	if (size.x <= usable.size.x and size.y <= usable.size.y) or OS.get_name() == "macOS":
+		# The window's position is its client area's: the title bar above it goes on the screen.
+		var title := root.position.y - DisplayServer.window_get_position_with_decorations().y
+		root.position = usable.position + Vector2i(0, title)
 	else:
+		var origin: Vector2i = DisplayServer.screen_get_position(leftmost)
 		root.position = Vector2i(origin.x - size.x - OFF_SCREEN_GAP, origin.y)
 	root.size = size
 

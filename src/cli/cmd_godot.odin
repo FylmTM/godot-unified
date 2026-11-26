@@ -556,7 +556,7 @@ tool_details :: proc() -> string {
 
 @(private)
 Tool_Opts :: struct {
-	window:   bool `usage:"in a window: muted, on the leftmost screen, never taking focus (default: headless)"`,
+	window:   bool `usage:"in a window: muted, in the top-left corner of the leftmost screen, never taking focus (default: headless)"`,
 	size:     string `hint:"<WxH>" usage:"--window: its size (default: the project's); bigger than the leftmost screen, it moves just left of every screen (macOS: stays on the leftmost)"`,
 	offline:  bool `usage:"no online play, also where .env names the EOS SDK (as the godot suite's runs): a look pass that must not reach EOS"`,
 	shots:    bool `usage:"save screenshots to <game>/.out/shots/<script>/ (needs --window)"`,
@@ -708,7 +708,7 @@ os_data_dir :: proc(base := "") -> string {
 @(private)
 Coop_Opts :: struct {
 	game:         string `args:"pos=0" usage:"the game (default: the only one)"`,
-	window:       bool `usage:"the host in a window (muted, on the leftmost screen, never taking focus), with screenshots"`,
+	window:       bool `usage:"the host in a window (muted, in the top-left corner of the leftmost screen, never taking focus), with screenshots"`,
 	rejoin:       bool `usage:"the joiner leaves mid-match and joins again"`,
 	crash:        bool `usage:"the joiner's process dies mid-match (no goodbye) and the same player joins again (by its EOS account, or its LAN token with --lan): timed"`,
 	lan:          bool `usage:"direct UDP on 127.0.0.1 instead of EOS"`,

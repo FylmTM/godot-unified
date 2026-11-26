@@ -14,7 +14,7 @@ VIEW_BENCH_COUNTS :: []int{1000, 4000, 16000}
 VIEW_BENCH_SECONDS :: "2"
 
 View_Bench_Opts :: struct {
-	window: bool `usage:"in a window (muted, on the leftmost screen, never taking focus): the real renderer (default: headless, Godot's dummy one)"`,
+	window: bool `usage:"in a window (muted, in the top-left corner of the leftmost screen, never taking focus): the real renderer (default: headless, Godot's dummy one)"`,
 }
 
 // `view-bench -h`: what it measures.

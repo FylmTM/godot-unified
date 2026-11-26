@@ -88,8 +88,10 @@ starts the builds it needs at once.
 
 **Game windows.** A game window can be muted, placed on a screen and kept from taking focus (`Window_Opts`,
 `with_window`). `run` leaves each to its caller; a check's window (a tool script's, coop's, a driven game's, this
-repo's view bench) is always all three, on the leftmost screen (`AGENT_WINDOW`). The editor ignores the project
-override that keeps focus away, and takes focus.
+repo's view bench) is always all three, on the leftmost screen (`AGENT_WINDOW`). A window that never takes focus (an
+agent's, `run --background` too) opens in the top-left corner of its screen's work area, its title bar on the screen,
+always in the same place and over as little of the screen as it can; where the OS can't say where that is (macOS),
+Godot centres it. The editor ignores the project override that keeps focus away, and takes focus.
 
 ## Local settings
 

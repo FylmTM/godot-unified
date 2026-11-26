@@ -22,7 +22,7 @@ DRIVE_STOP_TIMEOUT :: 20 * time.Second
 @(private)
 Drive_Opts :: struct {
 	name:     string `usage:"the instance (start: default the first free number; any other verb: default the only one running)"`,
-	headless: bool `usage:"start: no window (shot then fails); default: a window, muted, on the leftmost screen, never taking focus"`,
+	headless: bool `usage:"start: no window (shot then fails); default: a window, muted, in the top-left corner of the leftmost screen, never taking focus"`,
 	strength: f64 `usage:"press: the action's strength (default 1)"`,
 	timeout:  f64 `usage:"seconds a waiting verb (pause, step, press for ticks, wait, shot, click) waits (default 10; for n ticks: 10 beyond twice their time)"`,
 	all:      bool `usage:"events: every event state kept, not only those since the last events"`,
