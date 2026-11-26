@@ -117,6 +117,18 @@ repin :: proc(dir, old, new: string) -> (file: string, changes: []Pin_Change, pr
 // changed, file, value, old and new, so the diff can be reviewed; false, with a failure saying why, when it can't.
 // `what` names the check in the messages. A test calls it under BLESS once its own rules allow the new value.
 bless_pin :: proc(t: ^testing.T, what, old, new: string, loc := #caller_location) -> bool {
+	if only := os.get_env(BLESS_ONLY_ENV, context.temp_allocator); !bless_narrowed(only, "") {
+		testing.expectf(
+			t,
+			false,
+			"%s moved, and this --bless may only write %s (%s): not re-pinned",
+			what,
+			only,
+			BLESS_ONLY_ENV,
+			loc = loc,
+		)
+		return false
+	}
 	dir: string
 	{
 		context.allocator = context.temp_allocator
@@ -326,9 +338,35 @@ repin_first :: proc(
 // --bless` sets it, as naming the game is the request; a bless of every game leaves a new game's reference unpinned.
 BLESS_FIRST_ENV :: "UNIFIED_BLESS_FIRST"
 
-// Whether this run pins values never pinned: under BLESS, with BLESS_FIRST_ENV set.
+// Whether this run pins values never pinned: under BLESS, with BLESS_FIRST_ENV set (and no BLESS_ONLY_ENV).
 bless_first :: proc() -> bool {
-	return BLESS && os.get_env(BLESS_FIRST_ENV, context.temp_allocator) != ""
+	return BLESS && os.get_env(BLESS_FIRST_ENV, context.temp_allocator) != "" && bless_allows("")
+}
+
+// The environment variable that narrows a bless run to one replay folder, its path (`uni coop --record` sets it):
+// only that folder's expectation is written, and anything else that moved fails as it would without --bless, so the
+// run re-pins nothing it wasn't asked to.
+BLESS_ONLY_ENV :: "UNIFIED_BLESS_ONLY"
+
+// Whether a bless run may write `path` (a replay folder; "" a pinned literal in a source): under BLESS, anything
+// unless BLESS_ONLY_ENV narrows the run (bless_narrowed).
+bless_allows :: proc(path: string) -> bool {
+	return BLESS && bless_narrowed(os.get_env(BLESS_ONLY_ENV, context.temp_allocator), path)
+}
+
+// Whether a bless narrowed to the folder `only` ("": not narrowed) may write `path` ("": a pinned literal, which a
+// narrowed bless never writes): the same folder, whatever its separators, a trailing one and (on Windows) its case.
+bless_narrowed :: proc(only, path: string) -> bool {
+	if only == "" do return true
+	return path != "" && path_key(only) == path_key(path)
+}
+
+@(private = "file")
+path_key :: proc(path: string) -> string {
+	key, _ := strings.replace_all(path, "\\", "/", context.temp_allocator)
+	key = strings.trim_right(key, "/")
+	when ODIN_OS == .Windows do key = strings.to_lower(key, context.temp_allocator)
+	return key
 }
 
 // The environment variable naming the file a bless run's records go to (bless_record): `uni test --bless` sets it and

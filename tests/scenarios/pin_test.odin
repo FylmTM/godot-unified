@@ -336,3 +336,17 @@ a_first_pin_writes_the_file_that_holds_it :: proc(t: ^testing.T) {
 	_, missing, _ := scenarios.repin_first(dir, "Reference", parameters, REFERENCE_OLD)
 	testing.expect(t, strings.contains(missing, "no .odin file"), missing)
 }
+
+// A bless narrowed to one replay folder (scenarios.BLESS_ONLY_ENV, which `uni coop --record` sets) writes that folder
+// alone, however its path is spelled, and never a pinned literal (""); not narrowed, it writes anything.
+@(test)
+a_narrowed_bless_writes_one_folder :: proc(t: ^testing.T) {
+	folder := "C:/game/simulation/tests/replays/lan_pair"
+	testing.expect(t, scenarios.bless_narrowed("", ""), "not narrowed: a literal")
+	testing.expect(t, scenarios.bless_narrowed("", folder), "not narrowed: any folder")
+	testing.expect(t, scenarios.bless_narrowed(folder, folder))
+	testing.expect(t, scenarios.bless_narrowed(folder, `C:\game\simulation\tests\replays\lan_pair\`))
+	testing.expect(t, !scenarios.bless_narrowed(folder, ""), "narrowed: no literal")
+	testing.expect(t, !scenarios.bless_narrowed(folder, "C:/game/simulation/tests/replays/other"))
+	testing.expect(t, !scenarios.bless_narrowed(folder, "C:/game/simulation/tests/replays/lan_pair_2"))
+}

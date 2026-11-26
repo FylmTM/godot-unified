@@ -534,6 +534,10 @@ suite_odin :: proc(games: []Game, opts: Test_Options) -> bool {
 // (scenarios.BLESS_LOG_ENV: the CLI imports none of the library).
 BLESS_LOG_ENV :: "UNIFIED_BLESS_LOG"
 
+// The environment variable that narrows a bless run's test binaries to one replay folder, its path
+// (scenarios.BLESS_ONLY_ENV): `coop --record` sets it around its `test --bless`.
+BLESS_ONLY_ENV :: "UNIFIED_BLESS_ONLY"
+
 // The environment variable that asks a bless run's test binaries to pin what was never pinned (scenarios.BLESS_FIRST_ENV):
 // set when `test --bless` names a game.
 BLESS_FIRST_ENV :: "UNIFIED_BLESS_FIRST"

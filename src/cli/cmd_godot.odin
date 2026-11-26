@@ -711,7 +711,7 @@ os_data_dir :: proc(base := "") -> string {
 
 // --- coop -------------------------------------------------------------------------------------------------------
 
-@(private)
+// `coop`'s options.
 Coop_Opts :: struct {
 	game:         string `args:"pos=0" usage:"the game (default: the only one)"`,
 	window:       bool `usage:"the host in a window (muted, in the top-left corner of the leftmost screen, never taking focus), with screenshots"`,
@@ -721,7 +721,7 @@ Coop_Opts :: struct {
 	menus:        bool `usage:"no session flags: each side starts through the game's coop script (_start_host, _start_join: its own menus)"`,
 	host_profile: string `hint:"<k=v,..>" usage:"the host's Profile (--profile's syntax: class=Knight), over one after --"`,
 	join_profile: string `hint:"<k=v,..>" usage:"the joiner's Profile likewise: two players arriving with different choices"`,
-	record:       string `hint:"<replay>" usage:"once both sides pass, the host's recording becomes the game's replay regression simulation/tests/replays/<replay>/ (these options kept in its coop.args), blessed and checked by the game's tests (test <game> --bless); refused, the folder keeps what it had"`,
+	record:       string `hint:"<replay>" usage:"once both sides pass, the host's recording becomes the game's replay regression simulation/tests/replays/<replay>/ (a name: letters, digits, _ and -; these options kept in its coop.args), checked by the game's tests with --bless narrowed to that folder (any other pin that moved refuses it); refused, failed or killed, the folder is put back as it was"`,
 	rerecord:     string `hint:"<replay>" usage:"--record <replay> again, with the options in its coop.args (with [game] and --window only)"`,
 	overflow:     [dynamic]string `hint:"[-- args]" after:"--" usage:"after --: game arguments for both processes (dev flags such as --lag, --verified-players)"`,
 }
@@ -742,9 +742,12 @@ cmd_coop :: proc(args: []string) -> Result {
 		usage("--crash and --rejoin are two different tests")
 	}
 	if opts.record != "" && !replay_name_ok(opts.record) {
-		usage("--record %q: a replay folder's name, not a path", opts.record)
+		usage("--record %q: a replay folder's name (letters, digits, _ and -)", opts.record)
 	}
 	selected := game(opts.game)
+	for folder in replay_restore_killed(join(selected.dir, ".out", REPLAY_BACKUPS)) {
+		log("uni: put back %s, which a killed coop --record left changed", folder)
+	}
 	if !has_extension(selected) {
 		usage("%s has no extension", selected.name)
 	}
@@ -856,8 +859,8 @@ cmd_coop :: proc(args: []string) -> Result {
 	return coop_keep(selected, opts, host_result, {ok = ok, summary = summary})
 }
 
-// --rerecord <replay>: the options its folder's coop.args kept (replay_args), with this run's game, --window and
-// --record <replay>. Any other option is refused: the replay is recorded again the way it was.
+// --rerecord <replay>: the options its folder's coop.args kept (replay_args, coop_saved_opts), with this run's game,
+// --window and --record <replay>. Any other option is refused: the replay is recorded again the way it was.
 @(private)
 coop_rerecord :: proc(opts: Coop_Opts) -> Coop_Opts {
 	if opts.record != "" ||
@@ -874,29 +877,34 @@ coop_rerecord :: proc(opts: Coop_Opts) -> Coop_Opts {
 		)
 	}
 	if !replay_name_ok(opts.rerecord) {
-		usage("--rerecord %q: a replay folder's name, not a path", opts.rerecord)
+		usage("--rerecord %q: a replay folder's name (letters, digits, _ and -)", opts.rerecord)
 	}
 	folder := replay_folder(game(opts.game).dir, opts.rerecord)
 	saved, found := replay_args(folder)
 	if !found {
 		usage("%s has no %s: record it with --record <replay> and its options first", folder, REPLAY_ARGS_FILE)
 	}
-	again: Coop_Opts
-	parse(&again, saved)
-	if again.record != "" || again.rerecord != "" || again.window || again.game != "" {
-		usage(
-			"%s: a recording's options, without a game, --window, --record or --rerecord",
-			join(folder, REPLAY_ARGS_FILE),
-		)
-	}
+	again, problem := coop_saved_opts(saved)
+	if problem != "" do usage("%s: %s", join(folder, REPLAY_ARGS_FILE), problem)
 	log("uni: coop --rerecord %s: %s", opts.rerecord, strings.join(saved, " "))
 	again.game, again.window, again.record = opts.game, opts.window, opts.rerecord
 	return again
 }
 
+// The coop options a replay's coop.args holds (`saved`, as coop_record_args wrote them), or why they aren't a
+// recording's: a game, --window, --record or --rerecord among them. A malformed one stops the command (parse), so
+// `coop` must be the command running.
+coop_saved_opts :: proc(saved: []string) -> (opts: Coop_Opts, problem: string) {
+	parse(&opts, saved)
+	if opts.record != "" || opts.rerecord != "" || opts.window || opts.game != "" {
+		return {}, "a recording's options, without a game, --window, --record or --rerecord"
+	}
+	return opts, ""
+}
+
 // The options of a --record run that recorded what it did, as coop.args keeps them (a line each): what --rerecord
-// passes again. Not the game, --window or --record: where and how it was watched, not what was played.
-@(private)
+// passes again (coop_saved_opts). Not the game, --window or --record: where and how it was watched, not what was
+// played.
 coop_record_args :: proc(opts: Coop_Opts) -> []string {
 	args: [dynamic]string
 	if opts.lan do append(&args, "--lan")
@@ -913,9 +921,8 @@ coop_record_args :: proc(opts: Coop_Opts) -> []string {
 }
 
 // --record <replay>, once both sides passed (`ran`): the host's session recording (its result's `recording`, which
-// UnifiedCoop reports from UnifiedSession.recording) becomes the replay folder's (replay_install), and the game's
-// tests bless and check it (test <game> --bless: the bless writes its expectation, the game's own tests judge what it
-// holds). A refused recording puts the folder back as it was and fails the run, naming where the refused one is.
+// UnifiedCoop reports from UnifiedSession.recording) is recorded as the replay folder's and checked by coop_bless
+// (replay_record: refused, failed or killed, the folder is put back).
 @(private)
 coop_keep :: proc(game: Game, opts: Coop_Opts, host: Tool_Result, ran: Result) -> Result {
 	if opts.record == "" || !ran.ok do return ran
@@ -933,43 +940,29 @@ coop_keep :: proc(game: Game, opts: Coop_Opts, host: Tool_Result, ran: Result) -
 		}
 	}
 	folder := slashed(replay_folder(game.dir, opts.record))
-	backup, problem := replay_install(folder, recording, coop_record_args(opts))
-	if problem != "" {
-		return {ok = false, summary = aprintf("coop %s --record: %s", game.name, problem)}
+	backups := join(game.dir, ".out", REPLAY_BACKUPS, opts.record)
+	// a fatal in the check (a build that can't start) unwinds: put the folder back (a no-op once replay_record returned)
+	on_failure(proc(data: rawptr) {replay_restore((^Replay_Backup)(data)^)}, new_clone(Replay_Backup{folder, backups}))
+	recorded := replay_record(game.name, folder, recording, coop_record_args(opts), backups, coop_bless)
+	return {
+		ok      = recorded.ok,
+		summary = aprintf("%s; --record %s: %s", ran.summary, opts.record, recorded.summary),
 	}
-	log(
-		"uni: coop --record: the host's recording %s is now %s; the game's tests bless and check it",
-		recording,
-		folder,
-	)
+}
+
+// coop --record's check of a new recording: `test <game> --bless`, narrowed to its folder (BLESS_ONLY_ENV): every
+// test runs, the bless writes that folder's expectation alone, and any other pin that moved fails the run.
+@(private)
+coop_bless :: proc(game, folder: string) -> Result {
+	_ = os.set_env(BLESS_ONLY_ENV, folder)
+	defer _ = os.unset_env(BLESS_ONLY_ENV)
+	log("uni: coop --record: the game's tests check %s (--bless writes that folder alone)", folder)
 	test := find_command("test")
 	self := state.command
 	state.command = test
-	checked := test.run({game.name, "--bless"})
+	checked := test.run({game, "--bless"})
 	state.command = self
-	if !checked.ok {
-		replay_restore(backup)
-		return {
-			ok      = false,
-			summary = aprintf(
-				"coop %s --record %s: the game's tests refused the new recording (%s), so %s keeps what it had; the refused one: %s",
-				game.name,
-				opts.record,
-				checked.summary,
-				folder,
-				recording,
-			),
-		}
-	}
-	return {
-		ok      = true,
-		summary = aprintf(
-			"%s; recorded %s (%s), blessed and checked by the game's tests",
-			ran.summary,
-			opts.record,
-			folder,
-		),
-	}
+	return checked
 }
 
 // A headless joiner of `uni coop`, its output kept in <game>/.out/<log_name>.

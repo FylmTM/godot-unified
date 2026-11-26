@@ -155,7 +155,8 @@ replays_reproduce :: proc(t: ^testing.T, game: ^$G, dir: string) {
 	if !game_ok(t, game) do return
 	for folder in headless.regression_folders(dir) {
 		name := fmt.tprintf("%s/%s", filepath.base(dir), filepath.base(folder)) // replays/<name>
-		result := headless.regression_run(game, folder, bless = BLESS, synctest = LONG)
+		bless := bless_allows(folder) // a bless narrowed to another folder (BLESS_ONLY_ENV) checks this one plainly
+		result := headless.regression_run(game, folder, bless = bless, synctest = LONG)
 		switch {
 		case result.blessed:
 			log.warnf("replays_reproduce: blessed %s (%s)", name, result.report)
@@ -169,7 +170,7 @@ replays_reproduce :: proc(t: ^testing.T, game: ^$G, dir: string) {
 			testing.expectf(t, false, "replays_reproduce: %s: %s%s", name, result.report, again)
 		case result.status == .Unblessed:
 			testing.expectf(t, false, "replays_reproduce: %s: %s: ./uni test --bless", name, result.report)
-		case result.status == .Diverges && BLESS:
+		case result.status == .Diverges && bless:
 			// refused: it diverged on the build that blessed it, and the report says which version to bump
 			testing.expectf(t, false, "replays_reproduce: %s: not blessed: %s", name, result.report)
 		case result.status == .Diverges:

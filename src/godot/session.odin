@@ -454,7 +454,7 @@ register_session_class :: proc() {
 		class,
 		"recording",
 		proc(session: ^Session_Node) -> string {return session.recording},
-		doc = "The folder the newest recording of this node's sessions was saved to, an absolute path (\"\": none yet; dev UI builds only): a live session's recording is written under [code]user://recordings[/code] when it ends, as [method replay] opens it. A later session that saves one replaces it; one that saves none leaves it.",
+		doc = "The folder the newest recording of this node's sessions was saved to, an absolute path (\"\": none yet; dev UI builds only): a live session's recording is written under [code]user://recordings[/code] when it ends, as [method replay] opens it. A later session that saves one replaces it; one that saves none leaves it. The folder may be gone since: the newest RECORDINGS_KEPT are kept under the user data, which other processes of the game on it (uni coop's two sides) share.",
 	)
 	gd.bind_property(
 		class,

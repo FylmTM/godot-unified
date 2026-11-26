@@ -96,14 +96,16 @@ on real play's inputs, which no scripted player sends, from the tick it starts a
 
 **The results decide, never the build's identity.** A recording replays whatever compat or levels it was recorded and
 blessed with, so a refactor or a pin bump that computes nothing differently passes, and a rules change or a re-baked
-level fails at its first tick. After a meant change, `uni test --bless` writes a new expectation for each recording
-that diverges or has none (Re-pinning; a warning names each and where it diverged), committed with the change (the
-`unified-sim-change` skill). A new regression is a copied folder, then a bless. A recording whose Input, commands,
-Setup or Profile changed layout (or whose snapshot no longer loads) can't be blessed: record a new one. A two-player
-recording is one command: `uni coop --record <name>` (the game's coop script plays it) puts the host's recording in the
-folder with the options that recorded it (`coop.args`), and the game's tests bless and judge it; a refused one leaves the
-folder as it was. Then `uni coop --rerecord <name>` records it again the same way, and the failure that says it can't
-be blessed names that command. `uni init` leaves minimal_3d's recordings out of a new game: a game records its own.
+level fails at its first tick. After a meant change, `uni test --bless` writes a new expectation for each recording that
+diverges or has none (Re-pinning; a warning names each and where it diverged), committed with the change (the
+`unified-sim-change` skill). A new regression is a copied folder, then a bless. A recording whose Input, commands, Setup
+or Profile changed layout (or whose snapshot no longer loads) can't be blessed: record a new one. A two-player recording
+is one command: `uni coop --record <name>` (the game's coop script plays it) puts the host's recording in the folder
+with the options that recorded it (`coop.args`), and the game's tests judge it under a bless narrowed to that folder
+(`scenarios.BLESS_ONLY_ENV`: any other pin that moved fails the run); a refused one, or a failed or killed run, leaves
+the folder as it was. Then `uni coop --rerecord <name>` records it again the same way, and the failure that says it
+can't be blessed names that command. `uni init` leaves minimal_3d's recordings out of a new game: a game records its
+own.
 
 ## Re-pinning
 
