@@ -13,10 +13,16 @@ extends MenuTool
 ## one. Then couch co-op (`_walk_couch()`). Splitting and destroying rocks and warping through a gate: the full tour
 ## (`uni tool drift tour`).
 
+## How long the hunt may take before the walk fails (seconds). With the single-player seed every rock of the first
+## wave drifts past out of a clear line (their keyed rolls decide where each goes), so the hit is on a rock of the
+## second wave, which comes WAVE_EVERY_TICKS (20 s) after the first: about 22 s into the hunt. 40 gives the second
+## wave's rocks their time to come in, with room to spare.
 const HUNT_S := 40
 ## How far the hunt shoots (pixels): well inside a bullet's reach (BULLET_SPEED × BULLET_LIFE_S ≈ 500 px), so a rock
 ## drifting while a bullet flies is still hit.
 const HUNT_RANGE := 400.0
+## The menus' host and join, which `uni coop drift --menus` goes through too.
+const MenuStart := preload("res://game/tools/menu_start.gd")
 
 ## Confirmed rock hits, from sim_event.
 var _rock_hits := 0
@@ -53,9 +59,7 @@ func _run() -> void:
 
 	await _walk_online()
 
-	await frames(3)
-	await click_menu("JoinAddress")
-	await click_menu("HostLan")
+	await MenuStart.host(self, game.lan_port)  # as `uni coop drift --lan --menus` hosts
 	await wait_for_scene("Arena", 5.0)
 	await frames(3)
 	var code := find(current_scene, ^"HUD/Root/Session/VBox/CodeRow/Code") as Label
@@ -79,7 +83,7 @@ func _run() -> void:
 	await frames(2)  # LineEdit emits text_changed deferred
 	expect(edit.text == "ZZZZZZ", "the code field cleans and uppercases its input (got '%s')" % edit.text)
 	await shot("07_join_code")
-	await click_menu("CodeJoin")
+	await MenuStart.join(self, "ZZZZZZ")  # as `uni coop drift --menus` joins a code
 	if game.flow == game.Flow.CONNECTING:  # a session without online play fails at once
 		await frames(3)
 		await shot("08_connecting")
@@ -265,7 +269,8 @@ func _aim_and_thrust() -> void:
 
 ## Fires while the first wave drifts in, then hunts until a bullet hits a rock. The ship holds still and aims at the
 ## nearest rock it can hit: in range, with nothing between (the level's walls, reefs and pillars, the station). The
-## rocks drift at the station, so one comes into a clear line within seconds; until then the aim sweeps.
+## rocks drift at the station, so one comes into a clear line, though maybe not before the next wave (HUNT_S); until
+## then the aim sweeps.
 func _fire_and_hunt() -> void:
 	Input.action_press(&"fire")
 	Input.action_press(&"aim_up", 1.0)
@@ -278,7 +283,7 @@ func _fire_and_hunt() -> void:
 	var start := Time.get_ticks_msec()
 	await wait_for(func() -> bool: return _rock_hits > 0 or _hunt_steer(start), HUNT_S,
 		"a bullet hits a rock (%d s of firing at them)" % HUNT_S)
-	step("hunt: a rock hit after %.1f s" % ((Time.get_ticks_msec() - start) / 1000.0))
+	step("hunt: a rock hit after %.1f s (wave %d)" % [(Time.get_ticks_msec() - start) / 1000.0, Unified.data.hud.wave])
 
 
 ## Steers the hunt for this frame (never done: the hunt ends on a hit).
