@@ -19,6 +19,13 @@ Physics_Report :: struct {
 	load_us:         cli.Bench_Stat, // its load into another world
 	characters:      int,
 	characters_us:   cli.Bench_Stat, // that many character_updates in one tick
+	// That many characters standing: a tick (their updates and the step) driven, at rest (character_rest), and the
+	// slab's step with none.
+	resting:         struct {
+		standing_us: cli.Bench_Stat,
+		resting_us:  cli.Bench_Stat,
+		empty_us:    cli.Bench_Stat,
+	},
 	snapshot_bytes:  int,
 	image_bytes:     int,
 	// The capacity against the frame budget: a smaller pile's forward step and its rollback at the prediction cap
@@ -67,7 +74,7 @@ physics_bench :: proc(work, binary: string) -> (data: any, ok: bool) {
 		return nil, false
 	}
 	cli.log(
-		"%-12s %d boxes in a pile: step %.0f us (p99 %.0f), save %.0f us (%d bytes), restore %.0f us, hash %.0f us (deep %.0f), %d rays %.0f us (rewound %.0f us); image %.0f us (live %.0f us, %d bytes), load %.0f us; %d characters %.0f us",
+		"%-12s %d boxes in a pile: step %.0f us (p99 %.0f), save %.0f us (%d bytes), restore %.0f us, hash %.0f us (deep %.0f), %d rays %.0f us (rewound %.0f us); image %.0f us (live %.0f us, %d bytes), load %.0f us; %d characters %.0f us, standing tick %.0f us (at rest %.1f us, none %.1f us)",
 		"physics",
 		report.bodies,
 		report.step_us.mean,
@@ -86,6 +93,9 @@ physics_bench :: proc(work, binary: string) -> (data: any, ok: bool) {
 		report.load_us.mean,
 		report.characters,
 		report.characters_us.mean,
+		report.resting.standing_us.mean,
+		report.resting.resting_us.mean,
+		report.resting.empty_us.mean,
 	)
 	for &row in ([]^Physics_Rollback{&report.rollback.workers_1, &report.rollback.workers_4}) {
 		row.bodies_fit = int(f64(report.rollback.bodies) * cli.BENCH_TARGET_US / max(row.step_plus_rollback_p90_us, 1))

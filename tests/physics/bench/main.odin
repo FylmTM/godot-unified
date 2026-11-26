@@ -13,7 +13,8 @@
 // (ROLLBACK_SIDE³ boxes, sized to the bench's time; the bodies that would fit the budget scale from it) steps and,
 // every tick, rolls back as the netcode does at its prediction cap (a restore, CAP steps with a save every 2nd tick, a
 // deep hash: it must hash as the forward tick did), on 1 and 4 workers. Then a large generated level (level.odin).
-// One JSON line.
+// Last, 64 standing characters' tick (their updates and the step) driven, put to rest (character_rest), and with no
+// characters at all, which resting ones should about match. One JSON line.
 package physics_bench
 
 import "core:fmt"
@@ -165,9 +166,10 @@ main :: proc() {
 	one, one_mismatches := run_rollback(1)
 	four, four_mismatches := run_rollback(4)
 	large_level := run_large_levels()
+	standing_us, resting_us, empty_us := run_resting() // last: its worlds leave the rows above as they were
 	mismatches += one_mismatches + four_mismatches
 	fmt.printfln(
-		`{{"mode":"physics-bench","bodies":%d,"ticks":%d,"rays":%d,"characters":%d,"step_us":%s,"save_us":%s,"hash_deep_us":%s,"hash_us":%s,"restore_us":%s,"rays_us":%s,"rays_rewound_us":%s,"image_us":%s,"image_live_us":%s,"load_us":%s,"characters_us":%s,"snapshot_bytes":%d,"image_bytes":%d,"ray_hits":%d,"rewound_ray_hits":%d,"rollback":{{"bodies":%d,"cap":%d,"workers_1":%s,"workers_4":%s}},"large_level":%s,"mismatches":%d}}`,
+		`{{"mode":"physics-bench","bodies":%d,"ticks":%d,"rays":%d,"characters":%d,"step_us":%s,"save_us":%s,"hash_deep_us":%s,"hash_us":%s,"restore_us":%s,"rays_us":%s,"rays_rewound_us":%s,"image_us":%s,"image_live_us":%s,"load_us":%s,"characters_us":%s,"resting":{{"standing_us":%s,"resting_us":%s,"empty_us":%s}},"snapshot_bytes":%d,"image_bytes":%d,"ray_hits":%d,"rewound_ray_hits":%d,"rollback":{{"bodies":%d,"cap":%d,"workers_1":%s,"workers_4":%s}},"large_level":%s,"mismatches":%d}}`,
 		BODIES,
 		TICKS,
 		RAYS,
@@ -183,6 +185,9 @@ main :: proc() {
 		stat_json(image_live_us[:]),
 		stat_json(load_us[:]),
 		stat_json(characters_us[:]),
+		stat_json(standing_us[:]),
+		stat_json(resting_us[:]),
+		stat_json(empty_us[:]),
 		snapshot_bytes,
 		image_bytes,
 		hits,
@@ -283,5 +288,35 @@ run_characters :: proc() -> (us: [CHARACTER_TICKS]f64) {
 		us[tick] = micros(start, time.tick_now())
 		physics.step(world)
 	}
+	return
+}
+
+// 64 characters standing on a slab: the time of a tick (their character_updates and the step) while they are driven,
+// then once put to rest (the updates leave a resting character be), and of a step of the slab alone: what a resting
+// character costs beside nothing.
+run_resting :: proc() -> (standing_us, resting_us, empty_us: [CHARACTER_TICKS]f64) {
+	world := physics.create({tick_hz = TICK_HZ})
+	defer physics.destroy(world)
+	physics.create_box(world, physics.body_def(.Static, {0, -0.5, 0}), physics.shape_def(1), {40, 0.5, 40})
+	empty := physics.create({tick_hz = TICK_HZ})
+	defer physics.destroy(empty)
+	physics.create_box(empty, physics.body_def(.Static, {0, -0.5, 0}), physics.shape_def(1), {40, 0.5, 40})
+	characters: [CHARACTERS]physics.Character
+	def := physics.CHARACTER_DEFAULT
+	def.category = 2
+	for &character, i in characters {
+		physics.character_create(world, &character, def, {f32(i % 8) * 4 - 14, 1.2, f32(i / 8) * 4 - 14})
+	}
+	tick :: proc(world: ^physics.World, characters: []physics.Character, def: physics.Character_Def) -> f64 {
+		start := time.tick_now()
+		for &character in characters do physics.character_update(world, &character, def, {}, false, 1)
+		physics.step(world)
+		return micros(start, time.tick_now())
+	}
+	for _ in 0 ..< SETTLE_TICKS do tick(world, characters[:], def)
+	for i in 0 ..< CHARACTER_TICKS do standing_us[i] = tick(world, characters[:], def)
+	for &character in characters do physics.character_rest(world, &character)
+	for i in 0 ..< CHARACTER_TICKS do resting_us[i] = tick(world, characters[:], def)
+	for i in 0 ..< CHARACTER_TICKS do empty_us[i] = tick(empty, nil, def)
 	return
 }

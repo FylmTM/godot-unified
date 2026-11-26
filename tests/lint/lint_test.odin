@@ -559,7 +559,7 @@ game_exports_leave_out_the_tools :: proc(t: ^testing.T) {
 		for line in strings.split_lines_iterator(&text) {
 			if !strings.has_prefix(line, "exclude_filter=") do continue
 			filters += 1
-			excluded: [dynamic]string
+			excluded := make([dynamic]string, context.temp_allocator)
 			value := strings.trim(strings.trim_prefix(line, "exclude_filter="), "\"")
 			for filter in strings.split_iterator(&value, ",") {
 				append(&excluded, strings.trim_space(filter))
