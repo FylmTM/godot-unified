@@ -49,7 +49,9 @@ func _run() -> void:
 		return
 
 	await click(Table.button(current_scene, "Start a run"))
-	await wait_for(func() -> bool: return Unified.data.run.phase == EnumPhase.MAP and Table.title(current_scene) == "Where next?", 3.0,
+	# a run's start is a session's start and the table's load: 10 s, as a wait for a step (not a timing claim), so a
+	# loaded machine (every suite in parallel under verify) doesn't fail it
+	await wait_for(func() -> bool: return Unified.data.run.phase == EnumPhase.MAP and Table.title(current_scene) == "Where next?", 10.0,
 		"the map after starting the run")
 	var hero := Table.local_row()
 	expect(hero != null and hero.in_run and hero.hero_class == EnumHeroClass.ARCANIST,
