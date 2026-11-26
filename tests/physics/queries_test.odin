@@ -1,8 +1,9 @@
 // The mover queries, the per-body and per-shape queries, contact data, body and joint events (src/physics/README.md,
 // What physics covers) through physics; entity tags in every kind of result and through save/restore and a portable
-// image; check_refs' orphans and broken refs; despawn and destroy_refs.
+// image; check_refs' orphans, broken refs and joint refs; despawn and destroy_refs.
 package test_physics
 
+import "core:fmt"
 import "core:strings"
 import "core:testing"
 
@@ -557,6 +558,76 @@ check_refs_despawn_and_destroy_refs :: proc(t: ^testing.T) {
 	physics.destroy_refs(world, &block.loose)
 	testing.expect(t, block.loose == Item{})
 	testing.expect(t, !physics.body_valid(world, physics.link(loose.body)) && !physics.joint_valid(world, loose.hinge))
+	testing.expect_value(t, physics.check_refs(world, &block), "")
+}
+
+// A block with an untyped joint ref beside a table of items with typed ones.
+Ref_Joint_Block :: struct {
+	any:   physics.Joint_Ref,
+	items: sim.Table(Item, 2),
+}
+
+// check_refs on joint refs, the one guard left against a crafted block now that a stale joint ref is legal: an untyped
+// Joint_Ref may name a live joint of any type, a typed one only its own type's; a stale one passes, an index past
+// every joint too; a negative index fails, typed or untyped, in a table item too. Each message names the offset.
+@(test)
+check_refs_joint_refs :: proc(t: ^testing.T) {
+	block: Ref_Joint_Block
+	world := api_world()
+	defer physics.destroy(world)
+	ground, _ := box(world, {0, -0.5, 0}, {20, 0.5, 20}, .Static)
+	_ = physics.extra(world, Ref_Joint_Block)
+	item, _, _ := sim.spawn(&block.items)
+	item_make(world, ground, item, 0, 1)
+	hinge := item.hinge
+	weld := physics.create_weld_joint(
+		world,
+		physics.link(ground),
+		physics.link(item.body),
+		physics.default_weld_joint_def(),
+	)
+	testing.expect_value(t, physics.check_refs(world, &block), "")
+
+	// The untyped ref: any live joint, any stale one; a negative index is refused.
+	block.any = weld.joint
+	testing.expect_value(t, physics.check_refs(world, &block), "")
+	block.any = hinge.joint
+	testing.expect_value(t, physics.check_refs(world, &block), "")
+	block.any = {
+		index1     = max(i32),
+		generation = 7,
+	}
+	testing.expect_value(t, physics.check_refs(world, &block), "")
+	block.any = {
+		index1 = -1,
+	}
+	testing.expect_value(
+		t,
+		physics.check_refs(world, &block),
+		"the joint ref at block offset 0 has a negative index (-1)",
+	)
+	block.any = {}
+
+	// The typed ref in a table item: a live joint of another type and a negative index are refused, a stale one passes.
+	hinge_at := offset_of(Ref_Joint_Block, items) + offset_of(Item, hinge)
+	item.hinge = {weld.joint}
+	testing.expect_value(
+		t,
+		physics.check_refs(world, &block),
+		fmt.tprintf("the Revolute joint ref at block offset %d names a Weld joint", hinge_at),
+	)
+	item.hinge = {physics.Joint_Ref{index1 = -5, generation = 1}}
+	testing.expect_value(
+		t,
+		physics.check_refs(world, &block),
+		fmt.tprintf("the joint ref at block offset %d has a negative index (-5)", hinge_at),
+	)
+	item.hinge = {physics.Joint_Ref{index1 = max(i32), generation = 1}}
+	testing.expect_value(t, physics.check_refs(world, &block), "")
+	item.hinge = {weld.joint}
+	physics.destroy_joint(world, &weld) // now a stale ref to a weld: no type to check
+	testing.expect_value(t, physics.check_refs(world, &block), "")
+	item.hinge = hinge
 	testing.expect_value(t, physics.check_refs(world, &block), "")
 }
 

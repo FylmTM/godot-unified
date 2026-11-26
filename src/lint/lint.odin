@@ -15,7 +15,7 @@ import "core:testing"
 // What a package is, which says what it may not do:
 //
 //   Tick      code inside a tick: only its listed imports, none of SIM_IDENTS, no `ODIN_` constant but ODIN_ENDIAN,
-//             no `intrinsics.` name off INTRINSICS_ALLOWED, none of BUILTIN_NUMBERS, no call or alias of
+//             no `intrinsics.` name off INTRINSICS_ALLOWED, no call or alias of BUILTIN_NUMBERS, nor of
 //             BUILTIN_CALLS with two or more arguments (dmath's instead), no field of SIM_FIELDS but its
 //             allow_fields, no `matrix`, `#simd`, `foreign`, `map`, `---`, `#config` or `x := 1.5` (a right-hand side
 //             of untyped numeric literals with a float among them is f64), and no mutable package-level variables
@@ -85,8 +85,9 @@ SIM_IDENTS :: []string {
 	"thread_local",
 }
 
-// The builtins of complex and quaternion numbers a tick may not call (`real(z)`; a field named like one, `.real`, is
-// fine): the types are banned (SIM_IDENTS), and these make or take them without naming one.
+// The builtins of complex and quaternion numbers a tick may not call (`real(z)`) nor alias (`r :: real`, `(real)(z)`):
+// the types are banned (SIM_IDENTS), and these make or take them without naming one. A declaration, a field or a
+// parameter named like one (`real: f32`, `v.real`, `f(real = 1)`) is fine.
 @(private)
 BUILTIN_NUMBERS :: []string{"complex", "quaternion", "real", "imag", "jmag", "kmag", "conj"}
 
@@ -362,7 +363,9 @@ scan :: proc(rule: Rule, name, src: string, allocator := context.temp_allocator)
 					allocator,
 				)
 			}
-			if prev[0] != .Period && slice.contains(bans.numbers, tok.text) {
+			if prev[0] != .Period &&
+			   slice.contains(bans.numbers, tok.text) &&
+			   (called(scanner) || builtin_aliased(scanner, prev)) {
 				report(&out, tok, name, fmt.tprintf("the builtin `%s`", tok.text), rule, allocator)
 			}
 			if prev[0] != .Period && slice.contains(bans.calls, tok.text) && builtin_aliased(scanner, prev) {
@@ -434,6 +437,14 @@ intrinsic_allowed :: proc(name: string) -> bool {
 	if slice.contains(INTRINSICS_ALLOWED, name) do return true
 	for prefix in INTRINSICS_ALLOWED_PREFIXES do if strings.has_prefix(name, prefix) do return true
 	return false
+}
+
+// Whether a name (`scanner` is right after it) is called: an `(` follows it. Scans a copy: the caller's position
+// doesn't move.
+@(private)
+called :: proc(scanner: tokenizer.Tokenizer) -> bool {
+	ahead := scanner
+	return tokenizer.scan(&ahead).kind == .Open_Paren
 }
 
 // Whether a builtin's name (`scanner` is right after it; `prev` the tokens before it) is aliased rather than called:
