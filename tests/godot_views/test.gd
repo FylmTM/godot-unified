@@ -108,6 +108,8 @@ func _initialize() -> void:
 	var typed_multi := multimesh_view(world, true, true, true, "multi2d")
 	var plain_multi := multimesh_view(world, true, false, false, "multi2d")
 	var multi3d := multimesh_view(world, false, true, false, "smooth3d")  # smooth: GLUE.multi_policy
+	# a mesh posed in its shader (a skinned crowd) declares its reach in custom_aabb, beyond its bind-pose box
+	(multi3d.mesh as PrimitiveMesh).custom_aabb = AABB(Vector3(-3, -1, -3), Vector3(6, 4, 6))
 	const GAME_BOUNDS := AABB(Vector3(-1, -1, -1), Vector3(2, 2, 2))
 	plain_multi.custom_aabb = GAME_BOUNDS  # the game's own bounds: the host keeps them
 	var views := Node2D.new()
@@ -323,6 +325,9 @@ func _initialize() -> void:
 		and t3.basis.get_scale().is_equal_approx(Vector3(1, 2, 1)) and near_all(b3.slice(12, 16), [0, 1, 0, 1]),
 		[multi3d.visible_instance_count, t3, want_rot])
 	# bounds: the host sets custom_aabb (Godot needn't recompute it from the buffer), holding every instance's mesh
+	check("3D bounds hold the mesh's declared reach (custom_aabb), not only its bind-pose box",
+		multi3d.custom_aabb.encloses(t3 * (multi3d.mesh as PrimitiveMesh).custom_aabb),
+		[multi3d.custom_aabb, t3 * (multi3d.mesh as PrimitiveMesh).custom_aabb])
 	check("3D bounds hold the instance", multi3d.custom_aabb.encloses(t3 * multi3d.mesh.get_aabb()),
 		[multi3d.custom_aabb, t3 * multi3d.mesh.get_aabb()])
 	var bounds2d := typed_multi.custom_aabb

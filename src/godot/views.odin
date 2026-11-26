@@ -1364,6 +1364,21 @@ multi_bounds :: proc(multi: ^Multi_View) -> gd.AABB {
 			box := gd.Mesh_get_aabb(mesh)
 			lo := [3]f32{box.position.x, box.position.y, box.position.z}
 			hi := lo + {box.size.x, box.size.y, box.size.z}
+			// A mesh posed in its shader (a skinned crowd, a vertex wobble) declares how far it reaches in its
+			// custom_aabb (ArrayMesh, PrimitiveMesh), which get_aabb leaves out: its bind-pose box would cull the
+			// posed instances and their shadows early.
+			if gd.Object_has_method(gd.Object(mesh), "get_custom_aabb") {
+				custom_variant := gd.Object_call(gd.Object(mesh), "get_custom_aabb")
+				defer gd.variant_destroy(&custom_variant)
+				if custom, ok := gd.from_variant(gd.AABB, &custom_variant); ok && custom.size != {} {
+					custom_lo := [3]f32{custom.position.x, custom.position.y, custom.position.z}
+					custom_hi := custom_lo + {custom.size.x, custom.size.y, custom.size.z}
+					for axis in 0 ..< 3 {
+						lo[axis] = min(lo[axis], custom_lo[axis])
+						hi[axis] = max(hi[axis], custom_hi[axis])
+					}
+				}
+			}
 			far: [3]f32 // per axis, the face farther from the origin
 			for axis in 0 ..< 3 do far[axis] = max(abs(lo[axis]), abs(hi[axis]))
 			multi.mesh_reach = math.sqrt(far.x * far.x + far.y * far.y + far.z * far.z)
