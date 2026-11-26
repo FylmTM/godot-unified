@@ -446,3 +446,16 @@ unified's GDScript, in `tools_godot/` at unified's root, which every project see
 (`src/cli/README.md`, Tool scripts, says how). The scripts compile under a game's strict typing (no warnings rule
 exempts them), and a game's export leaves out `unified/*`. None of it knows a game's menus: a game drives its own UI
 from its own tool scripts (`game/tools/`), which extend these by class name; each script's header says what it is.
+
+**Crowds.** A crowd of one skinned character drawn as one MultiMesh, posed per instance on the GPU: its clips baked
+offline into a texture of bone matrices. `UnifiedCrowdRecipe` declares what to bake (the scene, its clips in the
+order instances name them, which loop, their rates, the parts kept whole and marked, where the bake goes);
+`UnifiedCrowdBake` merges the character's meshes and props into one lighter surface that keeps its skin, and bakes
+every frame of each clip as the bones' skinning matrices into an Image whose header row is the clip table
+(`UnifiedCrowdClips`). The game's spatial shader includes `crowd_skin.gdshaderinc` and skins with the clip and seconds
+it picks (from its instance's custom data, with `View_Policy.ages` turning stamps into seconds), so its material needs
+the one texture, and the look stays the game's. `UnifiedCrowdCheck` holds the committed bake fresh (a hash of its
+inputs, and a bake now against it) and true (parity: the baked skinning against the live Skeleton3D at and between the
+frames). A bone's matrices blend linearly between two frames where the scene turns it along an arc, so the rate a clip
+is baked at is what keeps the crowd on the scene's pose; parity measures it. The table and the include are the two
+files a running game loads; the rest is tooling.

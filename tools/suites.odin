@@ -19,7 +19,7 @@ private_suites :: proc() -> []cli.Suite {
 		},
 		{
 			name = "godot-bindings",
-			summary = "tests/godot and tests/godot_views (views, the level marker order, the session lifecycle, UnifiedTool) under headless Godot",
+			summary = "tests/godot and tests/godot_views (views, the level marker order, the session lifecycle, UnifiedTool, the crowd bake) under headless Godot",
 			run = suite_godot_bindings,
 			beside = true,
 			prepare = proc(_: []cli.Game, _: cli.Test_Options) {
@@ -185,7 +185,8 @@ udp_processes :: proc(binary, work: string, ticks: int) -> (detail: string, ok: 
 // --- godot-bindings ---------------------------------------------------------------------------------------------
 
 // The Godot-side library tests: the gdext bindings (tests/godot), unified:godot's views and send_command's refusals,
-// Unified.level_markers against the level exporter, its session lifecycle and UnifiedTool's helpers (tests/godot_views),
+// Unified.level_markers against the level exporter, its session lifecycle, UnifiedTool's helpers and the crowd bake
+// (tests/godot_views),
 // each an extension plus a test script under headless Godot.
 // `expected`: error lines the test provokes on purpose (they must show up, and nothing else may). A passing run says
 // nothing (--verbose: each PASS line); a failing one prints that Godot run's whole output.
@@ -230,6 +231,7 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 		},
 		{views, cli.join(views, "ext"), "views_test", "markers_check.gd", "MARKERS TESTS", nil, nil},
 		{views, cli.join(views, "ext"), "views_test", "tool_check.gd", "TOOL TESTS", nil, nil},
+		{views, cli.join(views, "ext"), "views_test", "crowd_test.gd", "CROWD TESTS", nil, nil},
 	}
 	// The session check mostly waits on purpose (goodbyes, timers), so its sections run in groups, each in a Godot
 	// process of its own beside the rest, so no group outlasts views' test.gd.
@@ -268,8 +270,8 @@ suite_godot_bindings :: proc(games: []cli.Game, opts: cli.Test_Options) -> bool 
 		}
 	}
 	// tests/godot runs unified's level exporter (mirrored as res://unified/tools_godot/, so it is imported first);
-	// tests/godot_views/markers_check.gd extends it (loaded by path), and tool_check.gd extends UnifiedTool (by its
-	// class name: imported too)
+	// tests/godot_views/markers_check.gd extends it (loaded by path), and tool_check.gd and crowd_test.gd extend
+	// UnifiedTool (by its class name: imported too)
 	cli.ensure_imported(projects[0].dir)
 	cli.ensure_imported(views)
 	// One more run beside them: a script error under the debugger (-d, as `uni tool` runs headless) must end the run

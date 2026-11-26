@@ -108,9 +108,10 @@ LF everywhere (`.gitattributes`), CRLF for batch files, which cmd.exe misreads w
 
 ## Tool scripts
 
-unified's own Godot tooling (`tools_godot/`: the tool base, validate, coop, the level exporter) is at
-`res://unified/tools_godot/` in every Godot project the CLI runs Godot on. In a game repo that is the submodule,
-which Godot scans in place: every other top-level directory of unified holds a `.gdignore` (the lint checks it).
+unified's own Godot tooling (`tools_godot/`: the tool base, validate, coop, the level exporter, the navigation and
+crowd bakers) is at `res://unified/tools_godot/` in every Godot project the CLI runs Godot on. In a game repo that is
+the submodule, which Godot scans in place: every other top-level directory of unified holds a `.gdignore` (the lint
+checks it).
 unified's own projects (`examples/<game>`, `tests/godot*`) sit inside the checkout rather than around it, so they get
 a git-ignored mirror at that path, refreshed before every Godot run (`sync_tools`). Everything else is where the game
 likes it, but for two fixed places: its tool scripts are `game/tools/<name>.gd` (`tool_script`), and a new level

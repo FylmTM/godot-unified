@@ -3,12 +3,13 @@ package cli
 import "core:os"
 import "core:strings"
 
-// unified's library tooling (src/godot/README.md, Library tooling): the tool base, validate, coop and the level
-// exporter, which every Godot project the CLI runs Godot on sees at res://unified/tools_godot/. In a game repo that is
-// the unified submodule itself: Godot scans it in place (every other top-level directory of unified holds a
-// .gdignore), so the game holds no copy. unified's own projects (examples/<game>, the test projects) are inside the
-// checkout, not around it, so they get a git-ignored mirror at that same path, refreshed before every Godot run
-// (ensure_imported, write_extension_list): one path for scripts and export filters everywhere.
+// unified's library tooling (src/godot/README.md, Library tooling): the tool base, validate, coop, the level
+// exporter and the navigation and crowd bakers, which every Godot project the CLI runs Godot on sees at
+// res://unified/tools_godot/. In a game repo that is the unified submodule itself: Godot scans it in place (every
+// other top-level directory of unified holds a .gdignore), so the game holds no copy. unified's own projects
+// (examples/<game>, the test projects) are inside the checkout, not around it, so they get a git-ignored mirror at
+// that same path, refreshed before every Godot run (ensure_imported, write_extension_list): one path for scripts and
+// export filters everywhere.
 TOOLS_SOURCE :: "tools_godot"
 TOOLS_DIR :: "unified/" + TOOLS_SOURCE
 // What the mirror wrote last (path and SHA-256 per file), to tell an in-place edit from a stale copy.
