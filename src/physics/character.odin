@@ -4,8 +4,8 @@
 // the ground normal) holds it above the ground found by ray probes. Standing on a kinematic body
 // attaches the mover joint to it, so platforms carry it. Changes from the sample: the 8 skirt
 // directions come from a fixed table (no trig), the state is a plain struct in the block, plus
-// coyote time, a jump buffer, a limp mode (held, stunned) and a resting state (character_rest: a
-// character parked for a while costs a step about nothing).
+// coyote time, a jump buffer, a limp mode (held, stunned) and a dormant state (character_set_dormant:
+// a character parked for a while costs a step about nothing).
 package physics
 
 import box3d "box3d:bindings"
@@ -18,14 +18,14 @@ Character_Flag :: enum u8 {
 	Walkable, // that ground is flat enough to walk on
 	Jumping, // left the ground on purpose: the pogo doesn't pull it back down
 	Limp, // no drive, no pogo (held, stunned)
-	Resting, // put to rest (character_rest): no joints, a kinematic capsule asleep, until character_wake
+	Dormant, // character_set_dormant: no joints, a kinematic capsule left to sleep, until woken
 }
 // A character's state flags (Character.flags).
 Character_Flags :: bit_set[Character_Flag;u8]
 
 // One character, in the block. Zero value: no character. Its joints hang on bodies it doesn't own (a platform, the
 // ground), so either may be stale after another system destroys that body: character_update makes them again (not
-// while limp or resting). A resting character has none (character_rest).
+// while limp or dormant). A dormant character has none (character_set_dormant).
 Character :: struct {
 	body:          Body_Ref,
 	move_joint:    Mover_Joint_Ref, // to the World's anchor, or the kinematic platform it stands on
@@ -184,8 +184,10 @@ drop_pogo :: proc(world: ^World, character: ^Character) {
 }
 
 // An outside impulse lifts the character (pads, hits, its own jump): the pogo stops pulling it down
-// until it lands again, from this step on (its joint may already be set up for this tick).
-character_launch :: proc(world: ^World, character: ^Character) {
+// until it lands again, from this step on (its joint may already be set up for this tick). A dormant character
+// asserts: wake it first.
+character_launch :: proc(world: ^World, character: ^Character, loc := #caller_location) {
+	assert(.Dormant not_in character.flags, "physics: a dormant character can't be launched: wake it first", loc)
 	character.flags -= {.On_Ground, .Walkable}
 	character.flags += {.Jumping}
 	character.jump_ticks = 0
@@ -194,8 +196,14 @@ character_launch :: proc(world: ^World, character: ^Character) {
 }
 
 // Limp: no drive force and no pogo (held, stunned); the body just tumbles along. Leaving limp
-// starts like a launch, so the character settles back onto the ground through the pogo.
-character_set_limp :: proc(world: ^World, character: ^Character, limp: bool) {
+// starts like a launch, so the character settles back onto the ground through the pogo. A dormant character asserts:
+// wake it first.
+character_set_limp :: proc(world: ^World, character: ^Character, limp: bool, loc := #caller_location) {
+	assert(
+		.Dormant not_in character.flags,
+		"physics: a dormant character can't go limp or leave it: wake it first",
+		loc,
+	)
 	if limp == (.Limp in character.flags) do return
 	if limp {
 		character.flags += {.Limp}
@@ -211,60 +219,64 @@ character_set_limp :: proc(world: ^World, character: ^Character, limp: bool) {
 		}
 	} else {
 		character.flags -= {.Limp}
-		character_launch(world, character)
+		character_launch(world, character, loc)
 	}
 }
 
-// Puts the character to rest, for one that stays put a while (a sleeping guard, a horde waiting off-screen): its joints
-// are destroyed and its capsule made kinematic, at a standstill and asleep, so it costs a step and a re-simulation
-// about nothing (a save still copies its body) until character_wake. Resting an already resting character does
-// nothing.
+// Makes the character dormant, or wakes it (`dormant` false), for one that stays put a while (a sleeping guard, a horde
+// waiting off-screen): its joints are destroyed and its capsule made kinematic, at a standstill and allowed to sleep, so
+// it costs a step and a re-simulation about nothing (a save still copies its body). It is put to sleep at once unless
+// another body's joint hangs on it (a character standing on it): then it falls asleep on its own once that joint goes,
+// and the bodies on it keep moving. Asking for the state it is in does nothing.
 //
-// A resting character stays exactly where it is, in the air too: it doesn't fall, nothing pushes it (a kinematic body
-// is immovable) and it doesn't ride a platform. It is still solid to every dynamic body (characters, props, a thrown
-// box), which collide with it as with a wall, and another character may stand on it (a still kinematic body: a
-// platform to its drive, as Character_Def.platform_material allows); an awake body touching it keeps it awake, still
-// unmoved, and it falls asleep again once they part. Casts, overlaps, sensors and shots find it as before (a shot rewound finds it where it
-// is: it has no velocity). Static and kinematic bodies pass through it (Box3D's rule).
+// A dormant character stays exactly where it is, in the air too: it doesn't fall, nothing pushes it (a kinematic body
+// is immovable) and it doesn't ride a platform; only what the game sets on its body moves it (body_set_transform,
+// body_set_linear_velocity: a kinematic body keeps the velocity it is given). It is still solid to every dynamic body
+// (characters, props, a thrown box), which collide with it as with a wall, and another character may stand on it (a
+// still kinematic body: a platform to its drive, as Character_Def.platform_material allows); an awake body touching it
+// keeps it awake, still unmoved, and it falls asleep again once they part. Casts, overlaps and shots find it as before
+// (a shot rewound finds it where it is: it has no velocity), and sensors see it as any body: one it is dormant in
+// keeps it, one it is teleported into or that moves over it begins it. Static and kinematic bodies pass through it
+// (Box3D's rule), so a platform may move into it, and waking it there pops it out.
 //
 // character_update leaves it be (returns false, as for a limp character), so a game can drive all its characters in
-// one loop; character_teleport moves it and it keeps resting. Its drive velocity, jump state, coyote time, slide time
-// and pogo warm start are cleared; whether it stood on ground and whether it is limp are kept for its wake.
-character_rest :: proc(world: ^World, character: ^Character) {
-	if .Resting in character.flags do return
-	drop_pogo(world, character)
-	destroy_joint(world, &character.move_joint)
+// one loop; character_teleport moves it and it stays dormant; character_launch and character_set_limp assert (wake it
+// first). Its drive velocity, jump state, coyote time, slide time, ground and pogo warm start are cleared; whether it
+// stood on walkable ground (character_grounded) and whether it is limp are kept for its wake.
+//
+// Waking makes it a dynamic capsule that never sleeps again, at a standstill. Its joints come back with the next
+// character_update (not while limp: when it leaves limp), which finds its ground again, so a game wakes it before
+// that tick's update: a world step in between lets it fall for a step. The type change recomputes its mass from its
+// shapes, so a body_set_mass_data override doesn't survive a dormant round trip.
+character_set_dormant :: proc(world: ^World, character: ^Character, dormant: bool) {
+	if dormant == (.Dormant in character.flags) do return
 	id := body_id(world, character.body)
-	box3d.Body_SetLinearVelocity(id, transmute(box3d.Vec3)[3]f32{})
-	box3d.Body_SetAngularVelocity(id, transmute(box3d.Vec3)[3]f32{})
-	box3d.Body_SetType(id, .kinematicBody)
-	box3d.Body_EnableSleep(id, true)
-	box3d.Body_SetAwake(id, false)
-	character.velocity = {}
-	character.time_sliding = 0
-	character.coyote = 0
-	character.jump_buffer = 0
-	character.jump_ticks = 0
-	character.flags -= {.Jumping}
-	character.flags += {.Resting}
+	if dormant {
+		drop_pogo(world, character)
+		destroy_joint(world, &character.move_joint)
+		box3d.Body_SetLinearVelocity(id, transmute(box3d.Vec3)[3]f32{})
+		box3d.Body_SetType(id, .kinematicBody)
+		box3d.Body_EnableSleep(id, true)
+		// Sleeping its island would put a body joined to it to sleep too (a character standing on it).
+		if box3d.Body_GetJointCount(id) == 0 do box3d.Body_SetAwake(id, false)
+		character.velocity = {}
+		character.time_sliding = 0
+		character.coyote = 0
+		character.jump_buffer = 0
+		character.jump_ticks = 0
+		character.flags -= {.Jumping}
+		character.flags += {.Dormant}
+	} else {
+		box3d.Body_SetType(id, .dynamicBody)
+		box3d.Body_EnableSleep(id, false)
+		box3d.Body_SetLinearVelocity(id, transmute(box3d.Vec3)[3]f32{})
+		character.flags -= {.Dormant}
+	}
 }
 
-// Wakes a resting character (character_rest) where it rests: a dynamic capsule that never sleeps again, at a
-// standstill, its drive joint made again (to the World's anchor, with no force while limp). Its pogo comes back with
-// the next character_update, which finds its ground again, so a game wakes it before that tick's update: a world step
-// in between lets it fall for a step. Waking a character that isn't resting does nothing.
-character_wake :: proc(world: ^World, character: ^Character, def: Character_Def) {
-	if .Resting not_in character.flags do return
-	id := body_id(world, character.body)
-	box3d.Body_SetType(id, .dynamicBody)
-	box3d.Body_EnableSleep(id, false)
-	character.flags -= {.Resting}
-	character.move_joint = create_move_joint(world, character, def, world.anchor)
-}
-
-// Whether the character is resting (character_rest).
-character_resting :: proc(character: ^Character) -> bool {
-	return .Resting in character.flags
+// Whether the character is dormant (character_set_dormant).
+character_dormant :: proc(character: ^Character) -> bool {
+	return .Dormant in character.flags
 }
 
 // Moves the character (respawn): velocities zeroed, ground forgotten, its body's warp epoch moved on (body_warp: a
@@ -282,14 +294,15 @@ character_teleport :: proc(world: ^World, character: ^Character, pos: [3]f32) {
 	warp_bump(world, character.body)
 }
 
-// Whether the character stands on walkable ground (what jumps and ground movement go by).
+// Whether the character stands on walkable ground (what jumps and ground movement go by). A dormant character's is
+// what its last update found before it went dormant.
 character_grounded :: proc(character: ^Character) -> bool {
 	return .On_Ground in character.flags && .Walkable in character.flags
 }
 
 // Advances the character's drive before the world step. `move` is the wanted horizontal direction in
 // world space (x, z), length ≤ 1; `jump` is a fresh press (edge); `speed_scale` scales max_speed (1: as tuned).
-// Returns true when it jumped this tick. A limp or resting character ignores it (returns false).
+// Returns true when it jumped this tick. A limp or dormant character ignores it (returns false).
 character_update :: proc(
 	world: ^World,
 	character: ^Character,
@@ -301,7 +314,7 @@ character_update :: proc(
 	jumped: bool,
 ) {
 	dt := world.dt
-	if character.flags & {.Limp, .Resting} != {} do return false
+	if character.flags & {.Limp, .Dormant} != {} do return false
 	body := body_id(world, character.body)
 
 	// Jump (from the previous update's ground state), with coyote time and a buffer.

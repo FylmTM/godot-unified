@@ -117,6 +117,11 @@ A dynamic character controller, ported from Box3D's dynamic mover sample, since 
 needs one: its state is a `Character` in the block, its tuning a `Character_Def` in game code. `character.odin`'s
 header says how it works.
 
+A Box3D character never sleeps and its joints solve every step, so a character that waits (a sleeping guard, a horde
+off-screen) would cost what a running one does. A game makes it **dormant** instead (`physics.character_set_dormant`):
+no joints, a kinematic capsule asleep, still solid and found by every query, at about no cost to a step or a
+re-simulation. It is state like the rest (a character flag and Box3D's body), so a rollback across it needs nothing.
+
 ## Ragdoll
 
 A ragdoll, ported from Box3D's sample human, since a co-op physics game knocks people over, throws them and piles them
