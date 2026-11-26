@@ -2,6 +2,7 @@
 // binary (modes.run) alike (src/eos/README.md).
 package eos
 
+import "core:fmt"
 import "core:os"
 import "core:path/filepath"
 import "core:strings"
@@ -59,10 +60,14 @@ LOBBY := netcode.Lobby {
 }
 
 // Lobby.available: the SDK library in one of the directories init looks in, and the product's credentials (compiled
-// in, or UNIFIED_EOS_* in the environment or .env); a running EOS is available.
+// in, or UNIFIED_EOS_* in the environment or .env); a running EOS is available. One that failed to start (the library
+// doesn't load, a symbol is missing, EOS_Initialize failed), or was shut down, is not: init keeps that first result for
+// the process, so every open would fail.
 @(private)
 lobby_available :: proc() -> (ok: bool, why: string) {
-	if status().stage != .Off do return true, ""
+	current := status()
+	if current.stage != .Off do return true, ""
+	if current.detail != "" do return false, fmt.tprintf("Online play couldn't start (%s).", current.detail)
 	dirs := lobby_config.lib_dirs
 	if len(dirs) == 0 do dirs = default_lib_dirs()
 	found := false
