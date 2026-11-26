@@ -13,11 +13,15 @@ var data: ViewTyped2d:
 			hp_sets += 1
 		if data == null or value.ticks != data.ticks:
 			ticks_sets += 1
+		synced_ticks[value.ticks] = Time.get_ticks_usec()
 		data = value
 		data_sets += 1
 var data_sets := 0
 var hp_sets := 0
 var ticks_sets := 0
+## Every tick its data was of (data.ticks: the frame's), the frames the views were synced to, and when its data was set
+## then (Time.get_ticks_usec: after the host read its clock for the frame).
+var synced_ticks := {}
 var data_at_ready: ViewTyped2d  # what _ready found: the host sets the data before it
 
 

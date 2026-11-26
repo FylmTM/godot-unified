@@ -289,7 +289,7 @@ register_session_class :: proc() {
 		class,
 		"tick",
 		proc(session: ^Session_Node) -> i64 {return i64(session.last_tick)},
-		doc = "The tick shown (the newest predicted one).",
+		doc = "The tick shown (the newest predicted one): 0 from a start until its session's first frame, the last tick of an ended session until the next start.",
 	)
 	gd.bind_property(
 		class,
@@ -1073,6 +1073,7 @@ fail_start :: proc(session: ^Session_Node, reason: string) -> bool {
 session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 	assert(!session.syncing, "a session launched while session_process holds a Frame")
 	session.frame = nil // it points into the finished session, which wait frees
+	session.last_tick = 0 // the last session's: the scripts data_reset's signals call below must not see it as this one's
 	session.ended, session.over, session.recorded = false, false, false
 	// a new session's roster is news even when its first shown tick seats the same slots as the last one's
 	session.slots_seen, session.known_seen = {}, -1

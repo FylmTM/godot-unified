@@ -668,10 +668,21 @@ func _restart() -> bool:
 	_statuses.clear()
 	var setup := UnifiedSetup.new()
 	setup.life_bonus = 3
+	# the new session's start resets the session data (Unified.data's signals call scripts) before its first frame:
+	# what they read of the session then is the new one's, not the last one's tick
+	var ticks_before_frame: Array[int] = []
+	var see_tick := func() -> void:
+		if s.local_player == 0:
+			ticks_before_frame.append(s.tick)
+	Unified.data.toy.changed.connect(see_tick)
 	check("start_single on the running session is accepted", s.start_single(setup))
 	check("it is connecting while the old one says goodbye", s.status == UnifiedSession.STATUS_CONNECTING, s.status)
 	if not await _wait_for(func() -> bool: return s.status == UnifiedSession.STATUS_CONNECTED and s.local_player != 0 and s.setup.life_bonus == 3, 5.0, "the new session runs with its Setup"):
 		return false
+	Unified.data.toy.changed.disconnect(see_tick)
+	check("a start shows no tick until its session's first frame (data_reset's signals see 0)",
+		not ticks_before_frame.is_empty() and ticks_before_frame.all(func(tick: int) -> bool: return tick == 0),
+		ticks_before_frame)
 	check("no failed/disconnected/left status reaches the game",
 		not _statuses.any(func(x: String) -> bool:
 			return x.begins_with("failed") or x.begins_with("disconnected") or x.begins_with("left")), _statuses)
