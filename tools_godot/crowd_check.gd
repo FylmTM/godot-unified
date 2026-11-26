@@ -6,10 +6,11 @@ extends RefCounted
 ## - **Whole:** the table's clips are the recipe's (their rates and looping too), its texture the table's size, the
 ##   mesh one surface.
 ## - **Fresh:** the hash of its inputs is today's (UnifiedCrowdBake.inputs); its mesh is the character merged and
-##   lightened as the bake does it now (every array bit for bit, but the normals within `normal_tolerance`: a mesh
-##   stores them compressed); and a bake now gives its matrices, bounds and last poses' bounds within
-##   `fresh_tolerance`. The bake now is the truth the hash stands in for: it catches what no input's hash shows (a
-##   pose script's change, a forgotten UnifiedCrowdBake.BAKE_VERSION bump).
+##   lightened as the bake does it now (its positions within `fresh_tolerance`, float noise across machines; its normals
+##   within `normal_tolerance`, a mesh stores them compressed; the rest bit for bit: _same_mesh); and a bake now gives
+##   its matrices, bounds and last poses' bounds within `fresh_tolerance`. The bake now is the truth the hash stands
+##   in for: it catches what no input's hash shows (a pose script's change, a forgotten UnifiedCrowdBake.BAKE_VERSION
+##   bump).
 ## - **Its rules:** within the recipe's max_triangles, each vertex's bones the skeleton's and its weights summing to 1,
 ##   each vertex masked as the material of the scene part it comes from says.
 ## - **Parity** (parity): the bake's vertices skinned as the shader does, from the baked matrices, stand where the live
@@ -18,8 +19,8 @@ extends RefCounted
 ## How far a baked vertex may stand from where the scene puts it, in metres, by default: at a baked frame it stands
 ## exactly there; between two the blend of their matrices cuts each bone's arc, which a clip's rate keeps small.
 const PARITY := 0.015
-## How near a fresh bake's matrices and bounds must come to the committed ones by default (float noise across
-## machines).
+## How near a fresh bake's mesh positions, matrices and bounds must come to the committed ones by default (float noise
+## across machines).
 const FRESH := 0.00001
 ## How near a fresh bake's normals must come to the committed mesh's by default.
 const NORMALS := 0.01
@@ -174,7 +175,8 @@ func _whole(rig: Node3D, mesh: ArrayMesh, clips: UnifiedCrowdClips) -> bool:
 			_problem("%s: its rows are not the table's" % clips.clips[clip], recipe.bones_path)
 			return false
 		var looping := UnifiedCrowdBake.clip_loops(rig, recipe, clip)
-		if clips.loops(clip) != looping or clips.rate(clip) != recipe.clips[clip].rate:
+		var rate := PackedFloat32Array([recipe.clips[clip].rate])[0]  # as the texture holds it: 32 bits (29.97 isn't)
+		if clips.loops(clip) != looping or clips.rate(clip) != rate:
 			_problem("%s: its looping or rate is not the recipe's (re-bake it)" % clips.clips[clip], recipe.bones_path)
 			return false
 		rows += clips.frame_count(clip)
@@ -188,17 +190,32 @@ func _whole(rig: Node3D, mesh: ArrayMesh, clips: UnifiedCrowdClips) -> bool:
 	return true
 
 
-## Whether the committed mesh's `arrays` are `fresh` (a bake's now), but its normals within normal_tolerance.
+## Whether the committed mesh's `arrays` are `fresh` (a bake's now): its positions within fresh_tolerance, its normals
+## within normal_tolerance, the rest bit for bit. The positions are arithmetic (a part placed by a transform), which
+## another machine's float math may round a bit apart (a fused multiply-add on arm64); the triangles, UVs, masks, bones
+## and weights are the scene's own numbers or the bake's choices (which vertices a lighter LOD keeps), the same anywhere
+## the inputs are: a difference there is a bake of other inputs.
 func _same_mesh(arrays: Array, fresh: Array) -> bool:
 	var same := true
 	var named: Dictionary[int, String] = {
-		Mesh.ARRAY_VERTEX: "positions", Mesh.ARRAY_TEX_UV: "UVs", Mesh.ARRAY_TEX_UV2: "masks",
-		Mesh.ARRAY_CUSTOM0: "bones", Mesh.ARRAY_CUSTOM1: "weights", Mesh.ARRAY_INDEX: "triangles",
+		Mesh.ARRAY_TEX_UV: "UVs", Mesh.ARRAY_TEX_UV2: "masks", Mesh.ARRAY_CUSTOM0: "bones",
+		Mesh.ARRAY_CUSTOM1: "weights", Mesh.ARRAY_INDEX: "triangles",
 	}
 	for array in named:
 		if arrays[array] != fresh[array]:
 			_problem("the crowd mesh's %s are not a bake's now (re-bake it)" % named[array], recipe.mesh_path)
 			same = false
+	var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	var fresh_positions: PackedVector3Array = fresh[Mesh.ARRAY_VERTEX]
+	var moved := positions.size() != fresh_positions.size()
+	if not moved:
+		for vertex in positions.size():
+			if not (positions[vertex].distance_to(fresh_positions[vertex]) <= fresh_tolerance):
+				moved = true
+				break
+	if moved:
+		_problem("the crowd mesh's positions are not a bake's now (re-bake it)", recipe.mesh_path)
+		same = false
 	var normals: PackedVector3Array = arrays[Mesh.ARRAY_NORMAL]
 	var fresh_normals: PackedVector3Array = fresh[Mesh.ARRAY_NORMAL]
 	if normals.size() != fresh_normals.size():

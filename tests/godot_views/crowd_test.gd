@@ -1,10 +1,11 @@
 # unified's crowd bake (tools_godot/crowd_*.gd and godot_runtime/crowd_*, mirrored under res://unified/): run headless
 # by `uni test --suite godot-bindings`. A small character built here (three bones; a two-surface skinned body, one
 # surface of eight weights a vertex and one masked with more than four; a dense head; a masked eye; a hidden mesh; a
-# turned prop on a BoneAttachment3D; a looping clip, a one-shot and a snap, each asymmetric in time) is baked and
-# checked against its skeleton: the header, every frame, the CPU blend's wrap and hold, the mesh (parts, masks,
-# weights, normals, bounds), the lightening, the refusals, the hash of its inputs, and the check passing the bake and
-# failing each wrong one. The skinning include compiles in a spatial shader.
+# turned prop on a BoneAttachment3D; a looping clip, a one-shot, a snap and a hand-only clip at a rate no 32-bit float
+# holds, each asymmetric in time) is baked and checked against its skeleton: the header, every frame (each clip's own,
+# though the player blends between them), the CPU blend's wrap and hold, the mesh (parts, masks, weights, normals,
+# bounds), the lightening, the refusals, the hash of its inputs, and the check passing the bake and failing each wrong
+# one. The skinning include compiles in a spatial shader.
 # Prints one line per check and "CROWD TESTS: <n> failed"; a failure fails the run.
 extends UnifiedTool
 
@@ -12,6 +13,9 @@ const DIR := "user://crowd_test/"
 const LOOP := &"Test/Loop"
 const ONCE := &"Test/Once"
 const SNAP := &"Test/Snap"
+const WAVE := &"Test/Wave"
+## WAVE's rate, which no 32-bit float holds exactly (the bone texture's header keeps it in one).
+const ODD_RATE := 29.97
 ## How near a baked matrix must come to the skeleton's pose (float noise).
 const NEAR := 0.00001
 ## How much larger than the poses the bounds may be (a bone's box, turned with it, holds its vertices loosely).
@@ -56,6 +60,7 @@ func _run() -> void:
 		_check_parity(rig, recipe, baked)
 		_check_corruptions(rig, recipe, baked)
 	_free(rig)
+	_check_own_poses(recipe)
 	_check_worst_pair(recipe)
 	_check_files(recipe)
 	print("CROWD TESTS: %d failed" % failures)
@@ -75,8 +80,8 @@ func _saved_material(material_name: String, color: Color) -> Material:
 ## space), its Skeleton3D a little above it holding three bones (root, arm, hand, a metre apart up the y axis); the
 ## body a 2 m column (eight weight slots, the two that weigh last) and a band round the arm (masked by `team`, six
 ## weights a vertex); a dense head on the hand; a masked eye; a hidden box; a turned prop held by a BoneAttachment3D;
-## and the AnimationPlayer: LOOP (1 s, looping in its Animation), ONCE (0.5 s) and SNAP (1 s, still but for a 170°
-## turn between 0.4 and 0.5 s).
+## and the AnimationPlayer: LOOP (1 s, looping in its Animation), ONCE (0.5 s), SNAP (1 s, still but for a 170°
+## turn between 0.4 and 0.5 s) and WAVE (30 frames at ODD_RATE, keying the hand alone).
 func _save_rig() -> void:
 	var rig := Node3D.new()
 	rig.name = "Rig"
@@ -129,6 +134,9 @@ func _save_rig() -> void:
 		[[0.0, 0.0, 0.0], [0.1, 70.0, 20.0], [0.5, 90.0, 30.0]]))
 	library.add_animation(&"Snap", _clip(1.0, Animation.LOOP_NONE,
 		[[0.0, 0.0, 0.0], [0.4, 0.0, 0.0], [0.5, 170.0, 0.0], [1.0, 170.0, 0.0]]))
+	var wave_length := 30.0 / ODD_RATE
+	library.add_animation(&"Wave", _clip(wave_length, Animation.LOOP_NONE,
+		[[0.0, 0.0, 0.0], [0.5, 0.0, 80.0], [wave_length, 0.0, 40.0]], false))
 	player.add_animation_library(&"Test", library)
 	_own(rig, rig, player)
 	var packed := PackedScene.new()
@@ -158,20 +166,24 @@ func _skinned(node_name: String, mesh: Mesh, skin: Skin) -> MeshInstance3D:
 	return node
 
 
-## A clip turning the arm about z and the hand about x: keys of [seconds, arm degrees, hand degrees].
-func _clip(clip_length: float, loop: Animation.LoopMode, keys: Array[Array]) -> Animation:
+## A clip turning the arm about z (unless `keys_arm` is false: it leaves the arm alone) and the hand about x: keys of
+## [seconds, arm degrees, hand degrees].
+func _clip(clip_length: float, loop: Animation.LoopMode, keys: Array[Array], keys_arm := true) -> Animation:
 	var clip := Animation.new()
 	clip.length = clip_length
 	clip.loop_mode = loop
-	var arm := clip.add_track(Animation.TYPE_ROTATION_3D)
-	clip.track_set_path(arm, NodePath("Skeleton:arm"))
+	var arm := -1
+	if keys_arm:
+		arm = clip.add_track(Animation.TYPE_ROTATION_3D)
+		clip.track_set_path(arm, NodePath("Skeleton:arm"))
 	var hand := clip.add_track(Animation.TYPE_ROTATION_3D)
 	clip.track_set_path(hand, NodePath("Skeleton:hand"))
 	for key: Array in keys:
 		var seconds: float = key[0]
 		var arm_degrees: float = key[1]
 		var hand_degrees: float = key[2]
-		clip.rotation_track_insert_key(arm, seconds, Quaternion(Vector3.BACK, deg_to_rad(arm_degrees)))
+		if keys_arm:
+			clip.rotation_track_insert_key(arm, seconds, Quaternion(Vector3.BACK, deg_to_rad(arm_degrees)))
 		clip.rotation_track_insert_key(hand, seconds, Quaternion(Vector3.RIGHT, deg_to_rad(hand_degrees)))
 	return clip
 
@@ -605,8 +617,8 @@ func _check_parity(rig: Node3D, recipe: UnifiedCrowdRecipe, baked: UnifiedCrowdB
 
 
 ## Each of the check's parts catches what only it sees: a matrix off by less than parity notices (fresh), a UV moved
-## (the mesh against a bake now), a vertex masked as no part is (the masks against the scene's materials), a mesh over
-## the recipe's triangles (its rules).
+## (the mesh against a bake now), a vertex masked as no part is (the masks against the scene's materials), a position
+## moved past float noise (one within it passes), a mesh over the recipe's triangles (its rules).
 func _check_corruptions(rig: Node3D, recipe: UnifiedCrowdRecipe, baked: UnifiedCrowdBake.Baked) -> void:
 	var nudged := _copy(baked.clips)
 	var texel := nudged.bones.get_pixel(3, 5)
@@ -624,6 +636,17 @@ func _check_corruptions(rig: Node3D, recipe: UnifiedCrowdRecipe, baked: UnifiedC
 	arrays[Mesh.ARRAY_TEX_UV2] = masks
 	_expect_problem("an eye vertex unmasked", recipe, rig, _mesh_of(arrays, baked.mesh), baked.clips,
 		"crowd vertex %d is masked 0, its scene part (Eye, surface 0) 1" % eye)
+	arrays = baked.mesh.surface_get_arrays(0)
+	var positions: PackedVector3Array = arrays[Mesh.ARRAY_VERTEX]
+	positions[0] += Vector3(0.000002, 0, 0)
+	arrays[Mesh.ARRAY_VERTEX] = positions
+	var noisy := UnifiedCrowdCheck.new(recipe)
+	check("the check passes a position a bake's within float noise", noisy.check_bake(rig, _mesh_of(arrays, baked.mesh),
+		baked.clips), _messages(noisy))
+	positions[0] += Vector3(0.001, 0, 0)
+	arrays[Mesh.ARRAY_VERTEX] = positions
+	_expect_problem("a position moved a millimetre", recipe, rig, _mesh_of(arrays, baked.mesh), baked.clips,
+		"positions are not a bake's now")
 	var capped := _copy_recipe(recipe)
 	capped.max_triangles = 10
 	_expect_problem("a mesh over the recipe's triangles", capped, rig, baked.mesh, baked.clips, "over 10")
@@ -645,6 +668,52 @@ func _mesh_of(arrays: Array, like: ArrayMesh) -> ArrayMesh:
 	mesh.add_surface_from_arrays(Mesh.PRIMITIVE_TRIANGLES, arrays, [], {}, custom)
 	mesh.custom_aabb = like.custom_aabb
 	return mesh
+
+
+## Each clip's frames are its own pose, whatever the bake posed before it, though the AnimationPlayer blends from one
+## clip to the next: ONCE ends with the arm turned, WAVE keys only the hand (its arm stands at rest, not where ONCE left
+## it), and each clip's first frame is its own, not the last clip's last. Each is compared with an instance that played
+## that clip alone. WAVE's rate, 29.97, isn't exact in 32 bits: the check passes the bake still.
+func _check_own_poses(recipe: UnifiedCrowdRecipe) -> void:
+	var blended := _copy_recipe(recipe)
+	blended.clips = [UnifiedCrowdClip.new(ONCE, 60.0, UnifiedCrowdClip.Loop.HOLDS), UnifiedCrowdClip.new(WAVE, ODD_RATE),
+		UnifiedCrowdClip.new(LOOP, 30.0)]
+	var rig := _instance(blended)
+	(rig.get_node("Player") as AnimationPlayer).playback_default_blend_time = 0.3
+	var baked := UnifiedCrowdBake.bake_rig(rig, blended)
+	check("the character bakes with a blend time", baked.errors.is_empty(), baked.errors)
+	if not baked.errors.is_empty():
+		_free(rig)
+		return
+	var clips := baked.clips
+	var first_worst := 0.0
+	var worst := 0.0
+	var worst_at := ""
+	for clip in clips.clips.size():
+		var alone := _instance(blended)
+		var player := alone.get_node("Player") as AnimationPlayer
+		var skeleton := alone.get_node("Skeleton") as Skeleton3D
+		player.play(clips.clips[clip])
+		for frame in clips.frame_count(clip):
+			player.seek(minf(frame / clips.rate(clip), clips.length(clip)), true)
+			var expected := _skeleton_matrices(alone, skeleton)
+			for bone in skeleton.get_bone_count():
+				var apart := _apart(clips.frame_matrix(clips.first_row(clip) + frame, bone), expected[bone])
+				if frame == 0:
+					first_worst = maxf(first_worst, apart)
+				if apart > worst:
+					worst = apart
+					worst_at = "%s frame %d bone %d" % [clips.clips[clip], frame, bone]
+		_free(alone)
+	check("with a blend time, each clip's first frame is its own pose", first_worst <= NEAR, first_worst)
+	check("with a blend time, every frame is its clip's own pose (a bone it doesn't key at rest)", worst <= NEAR,
+		"%f at %s" % [worst, worst_at])
+	check("29.97 is no 32-bit float: the table's rate is near it, not it", clips.rate(1) != ODD_RATE
+		and absf(clips.rate(1) - ODD_RATE) < 0.00001, clips.rate(1))
+	var crowd_check := UnifiedCrowdCheck.new(blended)
+	check("the check passes the bake, its 29.97 rate the recipe's", crowd_check.check_bake(rig, baked.mesh, clips),
+		_messages(crowd_check))
+	_free(rig)
 
 
 ## The pair of frames a bone turns fastest between is where parity looks: SNAP at 10 frames a second stands still but
