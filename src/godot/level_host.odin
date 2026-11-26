@@ -34,7 +34,8 @@ Level_Host :: struct {
 	marked:   bool,
 	// Loads requested and then dropped before they were taken (a new session, another target, the level_root gone):
 	// each is still taken once it ends (level_host_collect). Godot keeps a load nobody took until exit, and reports
-	// it as a leaked ObjectDB instance.
+	// it as a leaked ObjectDB instance. It counts the requests of a path, each taken by a get of its own, so a path
+	// requested again while dropped is here once per request (a seek back and forth across a level restart).
 	dropped:  [dynamic]string,
 }
 
@@ -68,7 +69,7 @@ level_host_collect :: proc(host: ^Level_Host, wait: bool) {
 		path := host.dropped[i]
 		status := gd.ResourceLoader_load_threaded_get_status(loader, path, progress)
 		if status == .THREAD_LOAD_IN_PROGRESS && !wait do continue
-		if status != .THREAD_LOAD_INVALID_RESOURCE { 	// (invalid: nobody's request any more, taken by a later one)
+		if status != .THREAD_LOAD_INVALID_RESOURCE { 	// (invalid: no request of this path is left to take)
 			loaded := gd.ResourceLoader_load_threaded_get(loader, path)
 			if loaded.ptr != nil do gd.unref(&loaded)
 		}
@@ -97,11 +98,7 @@ level_host_process :: proc(session: ^Session_Node, frame: ^Frame_Data) -> (hold:
 			gd.emit_signal(session.obj, gd.sn("level_changing"), i64(target.id))
 			if path := level_scene_path(target.id); level_root_of(session).ptr != nil && path != "" {
 				loader := gd.ResourceLoader_singleton()
-				if gd.ResourceLoader_load_threaded_request(loader, path, "PackedScene") == .OK {
-					host.loading = path
-					// a dropped load of the same scene is this request's now (Godot keeps one per path)
-					for i := len(host.dropped) - 1; i >= 0; i -= 1 do if host.dropped[i] == path do ordered_remove(&host.dropped, i)
-				}
+				if gd.ResourceLoader_load_threaded_request(loader, path, "PackedScene") == .OK do host.loading = path
 			}
 		}
 	}

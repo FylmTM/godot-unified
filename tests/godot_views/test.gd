@@ -381,11 +381,13 @@ func _initialize() -> void:
 	check("Unified.input reaches sample_input", toy.y > y0, [y0, toy.y])
 	check("input_wanted: every frame before the sample", wanted[0] >= 15, wanted[0])
 	await check_levels(session, level_root, level_signals)
+	var in_cave := session.tick  # the cave is the verified level here: a tick of it for check_replay_levels
 	await check_commands(session, toy)
 	await check_nested_values(session, toy)
 	await check_dropped_load(session)
-	await finish(session)
+	var recording: String = await finish(session)
 	check("session data back to zero when the session ends", toy.bumps == 0 and toy.x == 0.0, [toy.bumps, toy.x])
+	await check_replay_levels(recording, in_cave)
 	await check_unnamed()
 	print("VIEWS TESTS: %d failed" % failed)
 	quit(failed)
@@ -785,6 +787,57 @@ func check_dropped_load(session: UnifiedSession) -> void:
 		await create_timer(0.02).timeout
 	check("without a level_root the level changes all the same", session.level == EnumLevel.MEADOW \
 		and session.level_scene == null, [session.level, session.level_scene])
+
+
+# A replay of the session (meadow, the cave, meadow again) seeking across its level changes, as a viewer's seeks
+# do: from the cave to the first meadow, and in the next frame to the second (the same scene, another level stamp)
+# while the first's load is still in flight. Every load requested is taken: one left to Godot is an ObjectDB instance
+# leaked at exit, which fails the suite.
+func check_replay_levels(folder: String, in_cave: int) -> void:
+	check("the session was recorded", folder != "", folder)
+	if folder == "":
+		return
+	var session := UnifiedSession.new()
+	session.view_root = null
+	var level_root := Node2D.new()
+	root.add_child(level_root)
+	session.level_root = level_root
+	root.add_child(session)
+	session.paused = true
+	check("replay the session", session.replay(folder))
+	for i in 100:
+		if session.replay_last_tick > 0:
+			break
+		await create_timer(0.02).timeout
+	session.replay_seek(in_cave)
+	for i in 100:
+		if session.level == EnumLevel.CAVE and session.level_scene != null:
+			break
+		await create_timer(0.02).timeout
+	check("a seek into the cave shows it", session.level == EnumLevel.CAVE and session.level_scene != null,
+		[session.level, session.level_scene])
+	var last := session.replay_last_tick
+	# In the frame the first meadow's load is requested: seek on to the second, and give the replay the time to get
+	# there, so the next frame is the second meadow's.
+	session.level_changing.connect(func(_to: int) -> void:
+		session.replay_seek(last)
+		OS.delay_msec(200), CONNECT_ONE_SHOT)
+	session.replay_seek(session.replay_first_tick)
+	for i in 100:
+		if session.level == EnumLevel.MEADOW and session.tick == last and session.level_scene != null:
+			break
+		await create_timer(0.02).timeout
+	var arrived := session.level == EnumLevel.MEADOW and session.tick == last and session.level_scene != null
+	check("seeks across the level changes end on the second meadow", arrived,
+		[session.level, session.tick, session.level_scene])
+	session.leave()
+	for i in 50:
+		if not session.running:
+			break
+		await create_timer(0.02).timeout
+	session.queue_free()
+	level_root.queue_free()
+	await process_frame
 
 
 # The constants (Unified.constants: Data_Constants in ext/ext.odin) and an enum class, before any session.
@@ -1260,15 +1313,19 @@ func _layer_reaches(toy: DataToy, layer: int) -> void:
 			return
 
 
-func finish(session: UnifiedSession) -> void:
+# Ends the session and frees it and the test's world; returns its recording's folder ("": none yet).
+func finish(session: UnifiedSession) -> String:
+	var before := session.recording
 	session.leave()
 	for i in 50:
-		if not session.running:
+		if not session.running and session.recording != before:
 			break
 		await create_timer(0.02).timeout
+	var recording := session.recording if session.recording != before else ""
 	root.get_child(0).queue_free()
 	session.queue_free()
 	await process_frame
+	return recording
 
 
 # The view lookup: by kind and key, by kind and player, and every view of a kind (UnifiedSession.get_view...). An
