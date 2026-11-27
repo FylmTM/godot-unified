@@ -186,6 +186,15 @@ chunks and index rewritten for them (`avi_trim`), PNG frames renamed from 0 with
 the window size override in the run's `override.cfg`, which the movie writer records at (a game whose stretch mode is
 `viewport`: its viewport's size).
 
+A clip can be cut around a moment instead of ticks (`--at`): the game finds the n-th event of that type as it replays
+the recording (src/godot/README.md, Replays), so a recording made again, whose ticks moved, keeps its clip on the same
+moment, and the game's refusal (no such event, or fewer of them) is what `render` reports. Side by side (`--player
+1,2`) is a render per view, one after another (each opens the window the run's `override.cfg` sizes), on the same
+frame clock: each one's clip line says which of its movie frames are the clip, and frame i of the composite is frame i
+of every view's clip, whatever frame each game's play scene opened on. Their clips must show the same ticks in as many
+frames, else `render` refuses. The views' PNG frames are laid out left to right and written as PNG frames (the first
+view's sound) or encoded as one GIF; a video stays one view, since Godot's AVI is cut, not re-encoded.
+
 Nothing else is needed: no encoder or converter is a dependency. A video is Godot's MJPEG AVI. A GIF is encoded here
 (`gif.odin`) from the PNG frames Godot writes, read with `core:image/png`: one palette for the clip by median cut
 over frames spread across it, an optional ordered dither (stable from frame to frame, so a still area stays still),

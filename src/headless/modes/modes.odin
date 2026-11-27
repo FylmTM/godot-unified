@@ -4,10 +4,11 @@
 package modes
 
 // Used only inside generic procs (see netmodes.odin).
+@(require) import "base:runtime"
 @(require) import "core:fmt"
 @(require) import "core:os"
 @(require) import "core:slice"
-@(require) import "core:strings"
+@(require) import "core:strings" // only in generic procs
 
 // Imported as `uheadless`: `headless` reads as a run's name in the modes.
 import uheadless "unified:headless"
@@ -47,7 +48,7 @@ run :: proc(game: ^$G, variants: []^G = nil, lobbies: []^netcode.Lobby = nil, ow
 	}, Mode(G) {
 		name    = "replay",
 		options = Replay_Options,
-		help    = "replays an input log (from a snapshot's tick with --snapshot, as in an F3 note) against its checkpoints: the last agreeing and the first divergent; another build's only with --any-build",
+		help    = "replays an input log (from a snapshot's tick with --snapshot, as in an F3 note) against its checkpoints: the last agreeing and the first divergent; another build's only with --any-build; --events: every event it emits, [tick, type], in order (what uni render --at names)",
 		run     = mode_replay,
 	}, Mode(G) {
 		name    = "predict-stats",
@@ -320,6 +321,7 @@ Replay_Options :: struct {
 	snapshot:  string `hint:"F"`,
 	trace:     string `hint:"F"`,
 	any_build: bool,
+	events:    bool,
 }
 
 // The `replay` mode: replays an input log file (from tick 0, or from a portable snapshot: an F3 note's recording),
@@ -343,17 +345,41 @@ mode_replay :: proc(game: ^$G, args: ^Args) -> bool {
 		snapshot, read_err = os.read_entire_file(path, context.allocator)
 		if read_err != nil do die("replay: cannot read snapshot %s", path)
 	}
-	result, ok := uheadless.run_replay(game, &input_log, &trace, snapshot, options.any_build)
+	events: [dynamic]uheadless.Event_At
+	defer delete(events)
+	result, ok := uheadless.run_replay(
+		game,
+		&input_log,
+		&trace,
+		snapshot,
+		options.any_build,
+		options.events ? &events : nil,
+	)
 	if path := options.trace; result.final_tick != 0 && path != "" {
 		ok = uheadless.trace_write(&trace, path) && ok
 	}
+	listing := ""
+	if options.events {
+		// each event by its Odin type's name, as uni render --at and the replay's --replay-at take it
+		variants := sim.union_variants(sim.part(G, sim.GAME_EVENT))
+		builder := strings.builder_make(context.temp_allocator)
+		strings.write_string(&builder, `,"events":[`)
+		for event, i in events {
+			name := fmt.tprint(variants[event.kind].id)
+			if named, is_named := variants[event.kind].variant.(runtime.Type_Info_Named); is_named do name = named.name
+			fmt.sbprintf(&builder, `%s[%d,"%s"]`, i > 0 ? "," : "", event.tick, name)
+		}
+		strings.write_byte(&builder, ']')
+		listing = strings.to_string(builder)
+	}
 	fmt.printfln(
-		`{{"mode":"replay","ticks":%d,"final_checksum":"%016x","checkpoints":%d,"agreed_tick":%d,"diverged_tick":%d,"ok":%v}}`,
+		`{{"mode":"replay","ticks":%d,"final_checksum":"%016x","checkpoints":%d,"agreed_tick":%d,"diverged_tick":%d%s,"ok":%v}}`,
 		result.final_tick,
 		result.final_checksum,
 		result.checkpoints,
 		result.agreed_tick,
 		result.diverged_tick,
+		listing,
 		ok,
 	)
 	return ok

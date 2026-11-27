@@ -314,7 +314,10 @@ arrive again. A note starts some seconds before its tick (the one shown when F3 
 reaches) and pauses on it.
 
 The `--replay-*` flags make a replay a clip (`Replay_Clip`): where it starts and stops, its speed, whose view it follows,
-and its clock. On the **frame clock** (`--replay-fps`, what `uni render` uses) the replay no longer runs on the real
+and its clock. A clip can be cut around an event instead of ticks (`--replay-at`): the replay first steps the recording
+from its start to the step that emits the n-th event of that type (every tick of a recording is final, so every event
+it finds is a confirmed one), keeping the snapshots it passes, then seeks back to the clip's start; a recording made
+again keeps its clip on the same moment. Whose view a clip follows is the slot's holder where the clip starts. On the **frame clock** (`--replay-fps`, what `uni render` uses) the replay no longer runs on the real
 clock: every frame of the main thread is 1/fps s of the recording, the main thread waits for the session thread to
 reach that frame's tick, and the views are posed at that moment's alpha. So frame n always shows the same moment,
 whether the frame took a millisecond or a second to draw: with Godot's movie writer at a fixed frame rate the clip is

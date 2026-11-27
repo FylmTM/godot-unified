@@ -781,14 +781,23 @@ run_synctest_with_setup :: proc(
 	return run.result
 }
 
-// `replay`: re-simulates an input log with the Setup it recorded, recording every tick's checksum into `trace`
-// (optional). Fails when the log was recorded with other levels or by another build (its compat; 0: unknown, any).
+// One event a replay emitted (run_replay's `events`): the tick whose step emitted it, and its kind (its variant's index
+// in the game's Event union).
+Event_At :: struct {
+	tick: u32,
+	kind: u8,
+}
+
+// `replay`: re-simulates an input log with the Setup it recorded, recording every tick's checksum into `trace` and
+// every event it emits, in order, into `events` (both optional). Fails when the log was recorded with other levels or
+// by another build (its compat; 0: unknown, any).
 run_replay :: proc(
 	game: ^$G,
 	input_log: ^sim.Input_Log(G),
 	trace: ^Trace = nil,
 	snapshot: []u8 = nil,
 	any_build := false,
+	events: ^[dynamic]Event_At = nil,
 ) -> (
 	result: Run_Result,
 	ok: bool,
@@ -845,6 +854,9 @@ run_replay :: proc(
 		result.final_checksum = sim.checksum(simulation)
 		if trace != nil {
 			trace_add(trace, simulation.tick, result.final_checksum)
+		}
+		if events != nil {
+			for raw in sim.events_at(simulation, simulation.tick) do append(events, Event_At{simulation.tick, raw.kind})
 		}
 		for next < len(checkpoints) && checkpoints[next].tick <= simulation.tick {
 			checkpoint := checkpoints[next]

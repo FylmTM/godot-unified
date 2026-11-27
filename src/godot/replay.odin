@@ -31,6 +31,14 @@ REPLAY_SEEK_BUDGET :: 8 * time.Millisecond
 @(private)
 REPLAY_CLIP_LEAD_S :: 1
 
+// How much of the recording a clip cut around an event (--replay-at) shows before and after its tick, when
+// --replay-before and --replay-after don't say.
+REPLAY_AT_BEFORE_S :: 2
+REPLAY_AT_AFTER_S :: 3
+
+// The longest event name --replay-at takes (Replay_Event.name).
+REPLAY_EVENT_NAME_MAX :: 64
+
 // How often the session thread looks for the frame clock's next tick (replay_clock_ask): the main thread waits for it.
 @(private)
 REPLAY_CLOCK_POLL_US :: 250
@@ -47,6 +55,7 @@ Replay_View :: struct {
 	active:      bool,
 	first, last: u32, // the ticks it can show: the recording's first (its snapshot's) to its last
 	end:         u32, // where it stops (and a --quit-at-end run ends): `last`, or --replay-to's tick
+	at:          u32, // a clip cut around an event (--replay-at): the tick whose step emitted it (0: none)
 	fps:         u32, // the frame clock's frames per second (Replay_Clip.fps; 0: the real clock)
 	clip_from:   u32, // on the frame clock: where the clip starts (the lead before it is cut: REPLAY_CLIP_LEAD_S)
 	paused:      bool,
@@ -63,6 +72,12 @@ Replay_View :: struct {
 // clock, following whoever recorded it, a note stopping on its tick).
 Replay_Clip :: struct {
 	from, to: Replay_Point, // where it starts and where it stops (unset: the recording's first and last ticks)
+	// Instead of from and to: the clip is cut around the tick whose step emitted this event (the n-th of its type in
+	// the recording), `before` ahead of it and `after` past it (unset: REPLAY_AT_BEFORE_S, REPLAY_AT_AFTER_S), so a
+	// recording made again keeps its clip on the same moment.
+	at:       Replay_Event,
+	before:   Replay_Point,
+	after:    Replay_Point,
 	speed:    f32, // its speed at the start (0: 1), within REPLAY_SPEED_MIN and REPLAY_SPEED_MAX
 	player:   int, // follow the player in slot `player - 1` at `from` (0: whoever recorded it)
 	// The frame clock (> 0): every frame of the main thread is 1/fps s of the recording however long it takes to draw,
@@ -76,6 +91,44 @@ Replay_Point :: struct {
 	set:     bool,
 	seconds: bool,
 	value:   f64,
+}
+
+// An event of the game's as --replay-at names it: `Event_Boss_Slam#2`, the second Event_Boss_Slam (its Odin type, its
+// GDScript class EventBossSlam, or its name without the prefix, Boss_Slam; any case); `#n` left out: the first.
+Replay_Event :: struct {
+	set:      bool,
+	n:        int, // which one: 1, the first
+	name:     [REPLAY_EVENT_NAME_MAX]u8, // as written, without the #n
+	name_len: int,
+}
+
+// The name a Replay_Event was written with (without its #n).
+replay_event_name :: proc(event: ^Replay_Event) -> string {
+	return string(event.name[:event.name_len])
+}
+
+// The kind (the variant index in the game's event union `Event`) the name `name` stands for: its type's name
+// (Event_Boss_Slam, a library event's Event_Player_Joined), its GDScript class's (EventBossSlam) or the name without the
+// prefix (Boss_Slam), in any case; -1 when no event type has it.
+replay_event_kind :: proc(Event: typeid, name: string) -> int {
+	// lower case without underscores or the Event prefix: what the three spellings share
+	plain :: proc(name: string) -> string {
+		lowered := strings.to_lower(name, context.temp_allocator)
+		lowered, _ = strings.remove_all(lowered, "_", context.temp_allocator)
+		return strings.trim_prefix(lowered, "event")
+	}
+	wanted := plain(name)
+	for variant, kind in sim.union_variants(Event) {
+		if plain(sim.variant_name(variant, sim.EVENT_PREFIX)) == wanted do return kind
+	}
+	return -1
+}
+
+// The ticks `point` (a length: ticks, or seconds) spans at `tick_hz`; `fallback_s` seconds when unset.
+replay_point_ticks :: proc(point: Replay_Point, tick_hz: u32, fallback_s: f64) -> u32 {
+	if !point.set do return u32(math.round(fallback_s * f64(tick_hz)))
+	if point.seconds do return u32(math.round(point.value * f64(tick_hz)))
+	return u32(point.value)
 }
 
 // The tick `point` names in a recording whose first tick is `first`, at `tick_hz` (`fallback` when unset).
@@ -110,6 +163,34 @@ replay_clip_of :: proc(args: ^Args, problems: ^[dynamic]string) -> (clip: Replay
 	}
 	clip.from = point(problems, "--replay-from", args.replay_from)
 	clip.to = point(problems, "--replay-to", args.replay_to)
+	clip.before = point(problems, "--replay-before", args.replay_before)
+	clip.after = point(problems, "--replay-after", args.replay_after)
+	if args.replay_at != "" {
+		name, _, which := strings.partition(strings.trim_space(args.replay_at), "#")
+		n, n_ok := 1, true
+		if which != "" do n, n_ok = strconv.parse_int(which, 10)
+		if name == "" || len(name) > REPLAY_EVENT_NAME_MAX || !n_ok || n < 1 {
+			append(
+				problems,
+				fmt.tprintf(
+					"--replay-at wants an event's type and which one (Event_Boss_Slam, Event_Boss_Slam#2), got %q",
+					args.replay_at,
+				),
+			)
+		} else {
+			clip.at = {
+				set      = true,
+				n        = n,
+				name_len = len(name),
+			}
+			copy(clip.at.name[:], name)
+		}
+		if args.replay_from != "" || args.replay_to != "" {
+			append(problems, "--replay-at cuts the clip around its event: no --replay-from or --replay-to with it")
+		}
+	} else if args.replay_before != "" || args.replay_after != "" {
+		append(problems, "--replay-before and --replay-after are lengths around --replay-at's event: name one")
+	}
 	if clip.from.set && clip.to.set && clip.from.seconds == clip.to.seconds && clip.to.value <= clip.from.value {
 		append(problems, fmt.tprintf("--replay-to %s is not after --replay-from %s", args.replay_to, args.replay_from))
 	}
@@ -243,16 +324,34 @@ replay_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 	replay.view.paused = driver.req.paused
 	replay.view.end = replay.view.last
 	clip := driver.req.clip
-	if clip.from.set || clip.to.set || clip.fps > 0 {
+	followed := false // clip.player's holder was taken where the clip starts
+	if clip.at.set || clip.from.set || clip.to.set || clip.fps > 0 {
 		// a clip plays from where it asks to where it asks (a note's stop is not its own)
 		first, last, hz := replay.view.first, replay.view.last, u32(driver.game.tick_hz)
-		from := clamp(replay_point_tick(clip.from, first, hz, first), first, last)
-		replay.view.end = clamp(replay_point_tick(clip.to, first, hz, last), from, last)
+		from, end: u32
+		if clip.at.set {
+			at, problem := replay_find_event(driver, &clip.at)
+			if problem != "" do return fail(driver, problem)
+			from = at - min(replay_point_ticks(clip.before, hz, REPLAY_AT_BEFORE_S), at - first)
+			end = min(at + replay_point_ticks(clip.after, hz, REPLAY_AT_AFTER_S), last)
+			replay.view.at = at
+		} else {
+			from = clamp(replay_point_tick(clip.from, first, hz, first), first, last)
+			end = clamp(replay_point_tick(clip.to, first, hz, last), from, last)
+		}
+		replay.view.end = end
 		replay.view.fps = u32(clip.fps)
 		replay.view.clip_from = from
 		start := from
 		if clip.fps > 0 do start -= min(from - first, u32(REPLAY_CLIP_LEAD_S) * hz)
-		if start > first do replay_seek(driver, start)
+		if clip.player != 0 && start != from {
+			// whose view: the slot's holder where the clip starts, not where its lead does
+			replay_seek(driver, from)
+			replay_seek_run(driver, max(time.Duration))
+			replay_follow_slot(driver, clip.player) or_return
+			followed = true
+		}
+		replay_seek(driver, start)
 		replay_seek_run(driver, max(time.Duration)) // before the watchdog runs and anything is shown
 	} else if about.tick > replay.view.first {
 		// a note opens before its moment and stops on it; a note's tick past the recording (one noted ahead of the
@@ -263,22 +362,69 @@ replay_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 		replay_seek_run(driver, max(time.Duration)) // before the watchdog runs and anything is shown
 	}
 	if clip.speed != 0 do replay.view.speed = clip.speed
-	if clip.player != 0 {
-		slots := replay.simulation.state.players.slots[:]
-		holder := clip.player <= len(slots) ? slots[clip.player - 1] : {}
-		if holder == {} {
-			return fail(
-				driver,
-				fmt.tprintf("replay: nobody holds slot %d at tick %d", clip.player - 1, replay.simulation.tick),
-			)
-		}
-		replay.view.follow = sim.player_key(holder)
-	}
+	if clip.player != 0 && !followed do replay_follow_slot(driver, clip.player) or_return
 	sync.atomic_store(&driver.clock_target, replay.simulation.tick)
 	replay.due_us = netcode.now_us()
 	post_status(driver, .Connected, other_build ? "recorded by another build: checked against its checkpoints" : "")
 	replay_publish(driver, replay.simulation.tick)
 	return true
+}
+
+// Follows the player in slot `player - 1` at the playhead's tick; false with a Failed status when nobody holds it.
+@(private)
+replay_follow_slot :: proc(driver: ^Driver($G, $View, $MultiView), player: int) -> bool {
+	replay := driver.replay
+	slots := replay.simulation.state.players.slots[:]
+	holder := player <= len(slots) ? slots[player - 1] : {}
+	if holder == {} {
+		post_status(
+			driver,
+			.Failed,
+			fmt.tprintf("replay: nobody holds slot %d at tick %d", player - 1, replay.simulation.tick),
+		)
+		return false
+	}
+	replay.view.follow = sim.player_key(holder)
+	return true
+}
+
+// The tick whose step emitted the `event.n`-th event of `event`'s type, the playhead stepped forward from where it is
+// (the recording's start) until it, keeping the keyframes it passes, so the seek to the clip's start that follows is
+// short; why not, else "": no event type of that name, or the recording holds fewer of them.
+@(private)
+replay_find_event :: proc(driver: ^Driver($G, $View, $MultiView), event: ^Replay_Event) -> (at: u32, problem: string) {
+	replay := driver.replay
+	Event :: sim.part(G, sim.GAME_EVENT)
+	name := replay_event_name(event)
+	kind := replay_event_kind(Event, name)
+	if kind < 0 {
+		names := make([dynamic]string, context.temp_allocator)
+		for variant in sim.union_variants(Event) do append(&names, fmt.tprint(variant.id))
+		return 0, fmt.tprintf(
+			"replay: the game has no event %s: its events are %s",
+			name,
+			strings.join(names[:], ", ", context.temp_allocator),
+		)
+	}
+	seen := 0
+	for replay.simulation.tick < replay.view.last {
+		replay_forward(driver, publish = false)
+		tick := replay.simulation.tick
+		for raw in sim.events_at(replay.simulation, tick) {
+			if int(raw.kind) != kind do continue
+			seen += 1
+			if seen == event.n do return tick, ""
+		}
+	}
+	span := fmt.tprintf("ticks %d to %d", replay.view.first, replay.view.last)
+	if seen == 0 do return 0, fmt.tprintf("replay: %s never occurs in the recording (%s)", name, span)
+	return 0, fmt.tprintf(
+		"replay: %s#%d is past the last: the recording holds %d of them (%s)",
+		name,
+		event.n,
+		seen,
+		span,
+	)
 }
 
 // The zones' clock in a replay (sim.dev_attach).
@@ -534,6 +680,7 @@ Frame_Clock :: struct {
 	frames:      int, // how many it shows: from `from` to `end` at its speed, the lead included
 	from, end:   u32, // the ticks it starts (the lead's first) and stops at
 	clip_from:   u32, // the tick the clip starts at (Replay_View.clip_from)
+	at:          u32, // the event's tick of a clip cut around one (Replay_View.at; 0: none)
 	speed:       f32,
 	movie_frame: int, // Engine.get_process_frames() as frame 0 was drawn: the movie writer's number of it
 	clip_first:  int, // the clip's first frame: the frames before it are the lead (REPLAY_CLIP_LEAD_S), cut
@@ -570,6 +717,7 @@ frame_clock_start :: proc(session: ^Session_Node, frame: ^Frame_Data) {
 		from        = start,
 		end         = frame.replay.end,
 		clip_from   = clip_from,
+		at          = frame.replay.at,
 		speed       = speed,
 		frames      = max(frame_clock_frames(start, frame.replay.end, fps, frame.tick_hz, speed), lead + 1),
 		clip_first  = lead,
@@ -634,12 +782,13 @@ frame_clock_wait :: proc(session: ^Session_Node, newest: ^Frame_Data, newest_fre
 frame_clock_end :: proc(session: ^Session_Node, fps: int, tick_hz: u32) {
 	clock := &session.clock
 	fmt.printfln(
-		`%s{{"movie_frame":%d,"frames":%d,"from":%d,"to":%d,"fps":%d,"tick_hz":%d,"speed":%v}}`,
+		`%s{{"movie_frame":%d,"frames":%d,"from":%d,"to":%d,"at":%d,"fps":%d,"tick_hz":%d,"speed":%v}}`,
 		FRAME_CLOCK_MARKER,
 		clock.movie_frame + clock.clip_first,
 		clock.frames - clock.clip_first,
 		clock.clip_from,
 		clock.end,
+		clock.at,
 		fps,
 		tick_hz,
 		clock.speed,

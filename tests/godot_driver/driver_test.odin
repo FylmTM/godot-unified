@@ -4,6 +4,7 @@
 package test_godot_driver
 
 import "core:encoding/json"
+import "core:fmt"
 import "core:os"
 import "core:strconv"
 import "core:strings"
@@ -356,6 +357,7 @@ driver_sessions :: proc(t: ^testing.T) {
 	}
 
 	replay_events_after_a_seek(t)
+	replay_cuts_around_an_event(t)
 	sessions_start_paused(t)
 	local_commands_stay_their_players(t)
 	fill_frame_writing_is_reported(t)
@@ -745,6 +747,105 @@ replay_events_after_a_seek :: proc(t: ^testing.T) {
 	for event in events do testing.expectf(t, once[{event.id, .Emitted}] && once[{event.id, .Confirmed}], "%d both states", event.id)
 	godot.api.stop()
 	_ = drain(&messages, WAIT_MS, is_result)
+}
+
+// --replay-at (replay.odin, replay_find_event) on a recording of a scripted offline run: the clip is cut around the tick
+// whose step emitted the n-th event of the type, as an offline replay of the recording finds it (an n of 2 or more whose
+// event's tick no neighbour of its type shares, so an n off by one lands elsewhere); a type the game has not, one the
+// recording never emits and an n past the last are refused, saying so.
+@(private = "file")
+replay_cuts_around_an_event :: proc(t: ^testing.T) {
+	input_log: sim.Input_Log(toy.Game)
+	headless.run_sim(&toy.GAME, 400, 13, 2, input_log = &input_log)
+	dir :: #directory + "/../../.out/test/replay_at"
+	_ = os.remove_all(dir)
+	_ = os.make_directory_all(dir)
+	_ = os.write_entire_file(dir + "/inputs.unil", sim.log_encode(&input_log, context.temp_allocator))
+	messages := make([dynamic]godot.Message, context.temp_allocator)
+	defer sim.log_destroy(&input_log)
+	emitted: [dynamic]headless.Event_At
+	defer delete(emitted)
+	_, replayed := headless.run_replay(&toy.GAME, &input_log, events = &emitted)
+	testing.expect(t, replayed, "the recording replays offline")
+	LEFT :: 1 // sim.Event_Player_Left's kind
+	// an event to cut around: the n-th of its kind (n from 2), whose tick neither neighbour of its kind shares
+	kind, n, at, kind_count, left := -1, 0, u32(0), 0, 0
+	for event in emitted do if event.kind == LEFT do left += 1
+	pick: for event, i in emitted {
+		which, shared := 1, false
+		for other in emitted[:i] {
+			if other.kind != event.kind do continue
+			which += 1
+			shared = other.tick == event.tick
+		}
+		for other in emitted[i + 1:] {
+			if other.kind != event.kind do continue
+			shared ||= other.tick == event.tick
+			break
+		}
+		if shared || which < 2 do continue
+		kind, n, at = int(event.kind), which, event.tick
+		for other in emitted do if int(other.kind) == kind do kind_count += 1
+		break pick
+	}
+	if !testing.expectf(t, kind >= 0, "an event to cut around, with neighbours on other ticks: %v", emitted) do return
+	name := fmt.tprint(sim.union_variants(toy.Event)[kind].id)
+	first, last := input_log.from, input_log.from + u32(len(input_log.ticks))
+
+	replay_at :: proc(anchor: string, before := "", after := "") -> godot.Replay_Clip {
+		flags := make([dynamic]string, context.temp_allocator)
+		append(&flags, "--replay-at", anchor)
+		if before != "" do append(&flags, "--replay-before", before)
+		if after != "" do append(&flags, "--replay-after", after)
+		args, _, _ := godot.parse_command_line(flags[:], true)
+		delete(args.replay_at)
+		delete(args.replay_before)
+		delete(args.replay_after)
+		return args.clip
+	}
+	ok, err := godot.api.start(
+		{mode = .Replay, arg = dir, name = "viewer", clip = replay_at(fmt.tprintf("%s#%d", name, n), "3", "5")},
+	)
+	if !testing.expectf(t, ok, "replay start: %s", err) do return
+	frame, shown := replay_wait(WAIT_MS, proc(frame: ^godot.Frame_Data) -> bool {return frame.replay.at != 0})
+	if testing.expect(t, shown, "the clip is shown") {
+		testing.expectf(
+			t,
+			frame.replay.at == at,
+			"Event_Spawned#%d: on tick %d, the offline replay's %d",
+			n,
+			frame.replay.at,
+			at,
+		)
+		testing.expect_value(t, frame.replay.clip_from, max(at - 3, first))
+		testing.expect_value(t, frame.replay.end, min(at + 5, last))
+	}
+	godot.api.stop()
+	_ = drain(&messages, WAIT_MS, is_result)
+	for godot.api.running() do time.sleep(time.Millisecond)
+	godot.api.wait()
+
+	refusals := []struct {
+		anchor, want: string,
+	} {
+		{"Event_Nope", "the game has no event Event_Nope"},
+		{fmt.tprintf("%s#%d", name, kind_count + 1), fmt.tprintf("holds %d of them", kind_count)},
+		{"Event_Player_Left", "Event_Player_Left never occurs"},
+	}
+	for refusal, i in refusals {
+		if i == 2 && left > 0 do continue // the recording has a leave
+		ok, err = godot.api.start({mode = .Replay, arg = dir, name = "viewer", clip = replay_at(refusal.anchor)})
+		if !testing.expectf(t, ok, "replay start: %s", err) do continue
+		clear(&messages)
+		failed := drain(&messages, WAIT_MS, proc(message: godot.Message) -> bool {
+			return message.kind == .Status && message.status == .Failed
+		})
+		why := failed ? text(messages[len(messages) - 1]) : ""
+		testing.expectf(t, strings.contains(why, refusal.want), "--replay-at %s: refused with %q", refusal.anchor, why)
+		godot.api.stop()
+		for godot.api.running() do time.sleep(time.Millisecond)
+		godot.api.wait()
+	}
 }
 
 // Start.paused: a session started paused shows its first tick and waits (the GDScript `start_single(); paused = true`

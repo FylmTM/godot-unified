@@ -8,6 +8,8 @@ import "core:testing"
 
 import "unified:godot"
 
+import "../toy"
+
 @(test)
 command_line_reads_its_flags_and_leaves_the_games :: proc(t: ^testing.T) {
 	args, problems, ignored := godot.parse_command_line({
@@ -139,6 +141,57 @@ command_line_reads_the_replay_clip :: proc(t: ^testing.T) {
 		delete(bad.replay_from)
 		delete(bad.replay_to)
 		delete(bad.replay_speed)
+		if !testing.expectf(t, len(found) == 1, "%v: %d problems (%v)", test_case.args, len(found), found) do continue
+		testing.expectf(t, strings.contains(found[0], test_case.want), "%v: %q", test_case.args, found[0])
+	}
+}
+
+// --replay-at names an event and which one, --replay-before and --replay-after the lengths around it; the name is the
+// event's Odin type, its GDScript class or its name without the prefix, in any case.
+@(test)
+command_line_reads_an_event_anchor :: proc(t: ^testing.T) {
+	args, problems, _ := godot.parse_command_line(
+		{"--replay", "rec", "--replay-at", "Event_Spawned#3", "--replay-before", "1.5s", "--replay-after", "40"},
+		true,
+	)
+	defer delete(args.replay)
+	defer delete(args.replay_at)
+	defer delete(args.replay_before)
+	defer delete(args.replay_after)
+	testing.expect_value(t, len(problems), 0)
+	clip := args.clip
+	testing.expect(t, clip.at.set)
+	testing.expect_value(t, clip.at.n, 3)
+	testing.expect_value(t, godot.replay_event_name(&clip.at), "Event_Spawned")
+	testing.expect_value(t, godot.replay_point_ticks(clip.before, 64, 9), 96) // 1.5 s at 64 Hz
+	testing.expect_value(t, godot.replay_point_ticks(clip.after, 64, 9), 40)
+	testing.expect_value(t, godot.replay_point_ticks({}, 64, godot.REPLAY_AT_AFTER_S), 64 * godot.REPLAY_AT_AFTER_S)
+	plain, _, _ := godot.parse_command_line({"--replay-at", "spawned"}, true)
+	delete(plain.replay_at)
+	testing.expect(t, plain.clip.at.set && plain.clip.at.n == 1, "no #n: the first")
+	for name in ([]string{"Event_Spawned", "EventSpawned", "Spawned", "spawned", "EVENT_SPAWNED"}) {
+		testing.expectf(t, godot.replay_event_kind(toy.Event, name) == 2, "%s names Event_Spawned", name)
+	}
+	testing.expect_value(t, godot.replay_event_kind(toy.Event, "Event_Player_Joined"), 0) // a library event
+	testing.expect_value(t, godot.replay_event_kind(toy.Event, "PlayerJoined"), 0)
+	testing.expect_value(t, godot.replay_event_kind(toy.Event, "Event_Boss_Slam"), -1)
+	cases := []struct {
+		args: []string,
+		want: string,
+	} {
+		{{"--replay-at", "Event_Spawned#0"}, "--replay-at wants an event's type and which one"},
+		{{"--replay-at", "#2"}, "--replay-at wants an event's type and which one"},
+		{{"--replay-at", "Event_Spawned#x"}, "--replay-at wants an event's type and which one"},
+		{{"--replay-at", "Event_Spawned", "--replay-from", "3s"}, "no --replay-from or --replay-to with it"},
+		{{"--replay-before", "2s"}, "lengths around --replay-at's event"},
+		{{"--replay-at", "Event_Spawned", "--replay-after", "soon"}, "--replay-after wants a tick or seconds"},
+	}
+	for test_case in cases {
+		bad, found, _ := godot.parse_command_line(test_case.args, true)
+		delete(bad.replay_at)
+		delete(bad.replay_from)
+		delete(bad.replay_before)
+		delete(bad.replay_after)
 		if !testing.expectf(t, len(found) == 1, "%v: %d problems (%v)", test_case.args, len(found), found) do continue
 		testing.expectf(t, strings.contains(found[0], test_case.want), "%v: %q", test_case.args, found[0])
 	}

@@ -181,7 +181,7 @@ render_reads_its_output_and_the_clip_line :: proc(t: ^testing.T) {
 	testing.expect_value(t, cli.render_format("clip.mp4"), "")
 	output :=
 		"Godot Engine v4.7\nunified: result {}\n" +
-		`UNIFIED_CLIP {"movie_frame":3,"frames":150,"from":12,"to":652,"fps":15,"tick_hz":64,"speed":1}` +
+		`UNIFIED_CLIP {"movie_frame":3,"frames":150,"from":12,"to":652,"at":140,"fps":15,"tick_hz":64,"speed":1}` +
 		"\n"
 	clip, found := cli.render_clip_line(output)
 	testing.expect(t, found)
@@ -189,6 +189,7 @@ render_reads_its_output_and_the_clip_line :: proc(t: ^testing.T) {
 	testing.expect_value(t, clip.frames, 150)
 	testing.expect_value(t, clip.from, 12)
 	testing.expect_value(t, clip.to, 652)
+	testing.expect_value(t, clip.at, 140)
 	_, found = cli.render_clip_line("a game that quit early\n")
 	testing.expect(t, !found)
 }

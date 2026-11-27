@@ -78,9 +78,13 @@ Args :: struct {
 	setup:            string, // --setup key=value,...: the Setup of sessions this process hosts (the game's default with them)
 	profile:          string, // --profile key=value,...: set on Unified.profile at the start
 	replay:           string, // replay this folder at once
-	// --replay-from, --replay-to, --replay-speed, --replay-player, --replay-fps: how a replay plays (Replay_Clip)
+	// --replay-from, --replay-to, --replay-at, --replay-before, --replay-after, --replay-speed, --replay-player,
+	// --replay-fps: how a replay plays (Replay_Clip)
 	replay_from:      string,
 	replay_to:        string,
+	replay_at:        string,
+	replay_before:    string,
+	replay_after:     string,
 	replay_speed:     string,
 	replay_player:    int,
 	replay_fps:       int,
@@ -839,8 +843,12 @@ session_ready :: proc(session: ^Session_Node) {
 	session.args.replay = ""
 	delete(session.args.replay_from)
 	delete(session.args.replay_to)
+	delete(session.args.replay_at)
+	delete(session.args.replay_before)
+	delete(session.args.replay_after)
 	delete(session.args.replay_speed)
 	session.args.replay_from, session.args.replay_to, session.args.replay_speed = "", "", ""
+	session.args.replay_at, session.args.replay_before, session.args.replay_after = "", "", ""
 	session.args.autostart, session.args.host_port, session.args.join, session.args.online, session.args.join_code =
 		false, 0, "", false, ""
 }
@@ -1581,6 +1589,9 @@ FLAGS := [?]Flag {
 	{"--replay", true, .Text, offset_of(Args, replay), 0, 0, ""},
 	{"--replay-from", true, .Text, offset_of(Args, replay_from), 0, 0, "a tick or seconds (300, 4.5s)"},
 	{"--replay-to", true, .Text, offset_of(Args, replay_to), 0, 0, "a tick or seconds (900, 12s)"},
+	{"--replay-at", true, .Text, offset_of(Args, replay_at), 0, 0, "an event (Event_Boss_Slam, Event_Boss_Slam#2)"},
+	{"--replay-before", true, .Text, offset_of(Args, replay_before), 0, 0, "ticks or seconds (120, 2s)"},
+	{"--replay-after", true, .Text, offset_of(Args, replay_after), 0, 0, "ticks or seconds (180, 3s)"},
 	{"--replay-speed", true, .Text, offset_of(Args, replay_speed), 0, 0, "a speed (0.25 to 4)"},
 	{"--replay-player", true, .Int, offset_of(Args, replay_player), 1, sim.MAX_PLAYERS, ""},
 	{"--replay-fps", true, .Int, offset_of(Args, replay_fps), 1, 1000, ""},
