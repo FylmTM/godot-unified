@@ -1817,14 +1817,16 @@ send_joins :: proc(client: ^Client($G), now: i64) {
 	}
 }
 
-// Says Hello: every local player asked for, who this is, and what it can resume from: its verified tick V and its
-// checksum of the checksum tick at or before V (none without a checked sim, or before tick 16).
+// Says Hello: every local player asked for, who this is, whether it is our reconnect (Hello_Flags.Reconnect: a refusal
+// of ours stands through it, kept sim or not), and what it can resume from: its verified tick V and its checksum of the
+// checksum tick at or before V (none without a checked sim, or before tick 16).
 @(private)
 send_hello :: proc(client: ^Client($G), now: i64) {
 	hello := Hello {
 		compat  = client.cfg.compat,
 		token   = client.cfg.token,
 		sent_us = now,
+		flags   = client.reconnect_us != 0 ? {.Reconnect} : {},
 	}
 	if client.sim != nil && !client.checking && client.verified >= CHECKSUM_EVERY {
 		check_tick := client.verified - client.verified % CHECKSUM_EVERY

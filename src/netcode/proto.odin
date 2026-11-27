@@ -11,7 +11,7 @@ import "unified:wire"
 
 // Bump on any wire change: a datagram, a message, the snapshots a late joiner gets (the library-sim-change skill). Every
 // datagram starts with it (channel.odin), so peers on two versions never parse each other's messages.
-PROTOCOL_VERSION :: 3
+PROTOCOL_VERSION :: 4
 #assert(PROTOCOL_VERSION < 0x80) // the datagram's first byte: 0x80 | PROTOCOL_VERSION
 NAME_MAX :: 31 // bytes of a player name (UTF-8, truncated)
 PLATFORM_MAX :: 15 // bytes of an account's platform name ("eos")
@@ -162,7 +162,7 @@ Msg :: enum u8 {
 	// c->r R: the connection's fields, then the seats it asks for (write_hello): compat u64, token [16]u8, sent at
 	// i64 (the client's clock when this Hello first went out: the relay orders one person's tries by it), resume tick
 	// u32 and checksum u64 (its own verified tick to resume from and its checksum of the checksum tick at or before it;
-	// 0: none), seat count u8, then per seat: local u8, slot u8 (ANY_SLOT: any), join tick u32 (0: at start), name len
+	// 0: none), flags u8 (Hello_Flags), seat count u8, then per seat: local u8, slot u8 (ANY_SLOT: any), join tick u32 (0: at start), name len
 	// u8 + bytes, profile size u8 + the Profile's bytes
 	Hello = 1,
 	// r->c R: seed u64, tick_hz u16, ticks u32 (0: endless), flags u8 (Welcome_Flags), setup size u16 + the session's
@@ -212,6 +212,13 @@ Welcome_Flags :: bit_set[enum u8 {
 	Start, // a start client: build tick 0 from the seed and the Setup (else a snapshot comes)
 };u8]
 
+// What a Hello says of itself besides its fields.
+Hello_Flags :: bit_set[enum u8 {
+	// The client's own reconnect after its connection was lost, sim or none (client.reconnect), not a new try (a player's
+	// retry, a restarted game): a member the relay refused stays refused through it (Relay_Member.refused).
+	Reconnect,
+};u8]
+
 LOCAL_MAX :: 4 // the most seats (local players) one connection holds
 
 // One seat a Hello asks for: which of the client's local players, the slot (ANY_SLOT: any free one), the earliest
@@ -232,6 +239,7 @@ Hello :: struct {
 	sent_us:         i64, // the client's clock when this Hello first went out
 	resume_tick:     u32, // the client's newest verified tick, to resume from (0: none)
 	resume_checksum: u64, // its checksum of the checksum tick at or before resume_tick
+	flags:           Hello_Flags,
 	seat_count:      int,
 	seats:           [LOCAL_MAX]Seat_Ask,
 }
@@ -265,6 +273,7 @@ write_hello :: proc(writer: ^wire.Writer, hello: ^Hello) {
 	w_i64(writer, hello.sent_us)
 	wire.w_u32(writer, hello.resume_tick)
 	wire.w_u64(writer, hello.resume_checksum)
+	wire.w_u8(writer, transmute(u8)hello.flags)
 	wire.w_u8(writer, u8(hello.seat_count))
 	for &seat in hello.seats[:hello.seat_count] {
 		wire.w_u8(writer, seat.local)
@@ -284,6 +293,7 @@ read_hello :: proc(reader: ^wire.Reader) -> (hello: Hello, ok: bool) {
 	hello.sent_us = r_i64(reader)
 	hello.resume_tick = wire.r_u32(reader)
 	hello.resume_checksum = wire.r_u64(reader)
+	hello.flags = transmute(Hello_Flags)wire.r_u8(reader)
 	hello.seat_count = int(wire.r_u8(reader))
 	if !reader.ok || hello.seat_count < 1 || hello.seat_count > LOCAL_MAX {
 		return

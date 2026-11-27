@@ -137,8 +137,9 @@ peers at once), every (link, link peer) pair one channel peer, with the same min
   `Bad_Snapshot`), holds no seat but stays open, reading nothing but a Leave, until its Reject is acked
   (`REJECT_LINGER_US` at most), the channel resending it meanwhile: dropped at once, a lost Reject would leave the
   client to take the end of its connection for a lost one and come back. If the Reject never gets through, the
-  refused members' resuming Hello (that program, back with its sim) gets the same refusal; a Hello that resumes
-  nothing is a new try (a restarted game), a late joiner like any other.
+  client's own reconnect (its Hello says `Reconnect`, whether it kept its sim or dropped one it was still checking)
+  gets the same refusal; a Hello without it is a new try (the player retried, a restarted game), a late joiner like
+  any other, as after a Reject that got through.
 - **One new player per tick.** A tick carries at most one join record and its Profile: the start players become
   present on ticks 1, 2, ... in slot order, and a late join takes the first tick at or after its join tick on which no
   other seat joins (four start players are all present by tick 4). So the widest tick has one join, a Profile of up to
@@ -199,10 +200,11 @@ A player is a session **member**, the person, not a slot (the sim's side: `src/s
   arrives last: a cancelled try whose Hello comes late (lost once, or on a slower path) is refused
   (`Newer_Connection`) while the seated connection is live, instead of replacing the try its player made next. A
   silent seated connection is replaced whatever the order (a crashed game): one person's tries on one machine share a
-  clock, tries from two machines don't, so between two live ones there the order says nothing. A resuming Hello (a
-  lost connection's, the sim kept) never replaces a live one either: the same program's old connection ended before
-  its new one says Hello, so a live seat of the same person is another program's, and two programs with one identity
-  would replace each other without end; the resuming one is refused (`Newer_Connection`).
+  clock, tries from two machines don't, so between two live ones there the order says nothing. A reconnect (a lost
+  connection's: `Reconnect`, or a Hello resuming a sim) never replaces a live one either: the same program's old
+  connection ended before its new one says Hello, so a live seat of the same person is another program's, and two
+  programs with one identity would replace each other without end; the reconnecting one is refused
+  (`Newer_Connection`).
 - **The roster** is one reliable `Roster` message per member change (`Roster_Entry`: the vouched account, never a
   token). Everyone connected gets each change; a joiner gets every entry. Departed members' entries stay (not
   connected, no slot): a "left" message can name them after they are gone. The client keeps them by member id

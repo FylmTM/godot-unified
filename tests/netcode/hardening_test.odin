@@ -182,11 +182,18 @@ write_test_welcome :: proc(writer: ^wire.Writer, slot: u8, member: u16, first: u
 }
 
 // A Hello asking for `slot` (ANY_SLOT: any) with `token`, sent at `sent_us`.
-write_test_hello :: proc(writer: ^wire.Writer, slot: u8, token: netcode.Token, sent_us: i64) {
+write_test_hello :: proc(
+	writer: ^wire.Writer,
+	slot: u8,
+	token: netcode.Token,
+	sent_us: i64,
+	flags: netcode.Hello_Flags = {},
+) {
 	hello := netcode.Hello {
 		compat     = sim.compat_of(&toy.GAME),
 		token      = token,
 		sent_us    = sent_us,
+		flags      = flags,
 		seat_count = 1,
 	}
 	hello.seats[0].slot = slot
@@ -480,7 +487,14 @@ Evil :: struct {
 	acking:  bool, // acks the relay's finalized ticks (with no inputs), so it isn't dropped as too far behind
 }
 
-evil_seat :: proc(evil: ^Evil, session: ^Net, endpoint: int, slot: u8, token: netcode.Token = {}) {
+evil_seat :: proc(
+	evil: ^Evil,
+	session: ^Net,
+	endpoint: int,
+	slot: u8,
+	token: netcode.Token = {},
+	flags: netcode.Hello_Flags = {},
+) {
 	token := token
 	evil.slot = slot
 	evil.channel = netcode.channel_make()
@@ -488,7 +502,7 @@ evil_seat :: proc(evil: ^Evil, session: ^Net, endpoint: int, slot: u8, token: ne
 	evil.peer = netcode.channel_peer(evil.channel, link_index, 0)
 	evil.writer = wire.writer_make(64)
 	clear(&evil.writer.buf)
-	write_test_hello(&evil.writer, slot, token, session.clock.now)
+	write_test_hello(&evil.writer, slot, token, session.clock.now, flags)
 	evil_send(evil, session)
 }
 
@@ -1023,6 +1037,83 @@ a_refused_client_resuming_is_refused_again :: proc(t: ^testing.T) {
 	testing.expect(t, !back_in, "seated again after its refusal")
 	testing.expect_value(t, session.clients[0].status, netcode.Status.Connected)
 	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
+}
+
+// A refused client whose Reject never got through and who dropped its sim (it was checking a snapshot) reconnects with
+// nothing to resume: its Hello still says Reconnect, so the refusal stands. Its player trying again (a new try: no
+// Reconnect, as after a Reject that got through) is let in as a late joiner.
+@(test)
+a_refused_client_reconnecting_without_its_sim_is_refused_again :: proc(t: ^testing.T) {
+	planted: Planted // the fault this test plants warns by design: counted here, not printed
+	context.logger = planted_logger(&planted)
+	session: Net
+	defer net_destroy(&session)
+	_, peer, back_in := refuse_through_a_cut(&session, netcode.REJECT_LINGER_US + 2_000_000)
+	testing.expect(t, peer >= 0 && !back_in, "refused, never seated again")
+	reconnect: Evil // the same identity's reconnect, no sim: resume tick 0
+	evil_seat(&reconnect, &session, 6, netcode.ANY_SLOT, {1 = 9}, {.Reconnect})
+	defer evil_destroy(&reconnect)
+	reject := evil_run(&reconnect, &session, 1, .Reject)
+	testing.expect(t, len(reject) == 3 && netcode.Reject_Reason(reject[1]) == .Desynced, "the refusal stands")
+	retry: Evil // the player's new try
+	evil_seat(&retry, &session, 7, netcode.ANY_SLOT, {1 = 9})
+	defer evil_destroy(&retry)
+	testing.expect(t, evil_run(&retry, &session, 1, .Welcome) != nil, "a new try is let in")
+	testing.expectf(t, planted.warnings > 0, "the planted fault warned of nothing")
+}
+
+// A client's first Hello is a new try; once its connection is lost, its Hello on the new connection says Reconnect.
+@(test)
+a_reconnect_says_so_in_its_hello :: proc(t: ^testing.T) {
+	FLAGS_AT :: 1 + 8 + netcode.TOKEN_SIZE + 8 + 4 + 8 // after the type, compat, token, sent at, resume tick and checksum
+	hub := netcode.hub_create(2)
+	defer netcode.hub_destroy(hub)
+	fake: Fake_Relay
+	fake_make(&fake, hub)
+	defer fake_destroy(&fake)
+	client := netcode.client_create(&toy.GAME, {}, netcode.loopback_link(hub, 1), {})
+	defer netcode.client_destroy(client)
+	hellos: [dynamic]netcode.Hello_Flags
+	defer delete(hellos)
+	listen := proc(fake: ^Fake_Relay, hellos: ^[dynamic]netcode.Hello_Flags) {
+		netcode.channel_flush(fake.channel, fake.now)
+		for event in netcode.channel_poll(fake.channel, fake.now) {
+			if event.kind == .Connected || event.kind == .Message do fake.peer = event.peer
+			if event.kind == .Message && len(event.data) > FLAGS_AT && netcode.Msg(event.data[0]) == .Hello {
+				append(hellos, transmute(netcode.Hello_Flags)event.data[FLAGS_AT])
+			}
+		}
+	}
+	for len(hellos) == 0 && fake.now < 5_000_000 {
+		fake.now += 1000
+		netcode.client_step(client, fake.now)
+		listen(&fake, &hellos)
+	}
+	testing.expect_value(t, len(hellos), 1)
+	testing.expect_value(t, hellos[0], netcode.Hello_Flags{})
+	clear(&fake.writer.buf)
+	write_test_welcome(&fake.writer, 0, 1, 1)
+	fake_send(&fake)
+	for _ in 0 ..< 3 {
+		fake.now += 1000
+		netcode.client_step(client, fake.now)
+		listen(&fake, &hellos)
+	}
+	testing.expect_value(t, client.status, netcode.Status.Connected)
+	// The relay goes silent: the client takes its connection for lost and reconnects.
+	lost_until := fake.now + netcode.DISCONNECT_US + 2_000_000
+	for fake.now < lost_until {
+		fake.now += 100_000
+		netcode.client_step(client, fake.now)
+	}
+	testing.expect_value(t, client.stats.reconnects, 1)
+	for len(hellos) < 2 && fake.now < lost_until + 5_000_000 {
+		fake.now += 10_000
+		netcode.client_step(client, fake.now)
+		listen(&fake, &hellos)
+	}
+	testing.expect_value(t, len(hellos), 2)
+	if len(hellos) == 2 do testing.expect_value(t, hellos[1], netcode.Hello_Flags{.Reconnect})
 }
 
 // A relay time far off (a mangled first Finalized, a relay that is no relay) throws the client's clock far ahead, but
