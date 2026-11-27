@@ -56,11 +56,12 @@ RULES := []Rule {
 	{pkg = "lint", kind = .Realtime},
 	// Host side (Godot bindings and views, dev UI, the CLI): never feeds back into the sim. gdext's generated API imports
 	// its gdi sub-package relatively; the CLI imports Odin's own only, so editing the rest of the library never
-	// rebuilds it, and the OS's C library for what Odin's lack (posix_spawn's file actions, spawn_darwin.odin).
+	// rebuilds it, the OS's C library for what Odin's lack (posix_spawn's file actions, spawn_darwin.odin), and its
+	// patched copy of Odin's deflater (src/cli/deflate/README.md).
 	{pkg = "gdext", kind = .Host, imports = {"unified:gdext/gdi", "gdi"}},
 	{pkg = "devui", kind = .Host, imports = {"unified:gdext", "unified:gdext/gdi"}},
 	{pkg = "godot", kind = .Host, imports = GODOT_IMPORTS},
-	{pkg = "cli", kind = .Host, imports = {"system:c"}},
+	{pkg = "cli", kind = .Host, imports = {"system:c", "deflate"}},
 	// The navigation report `uni bake --report` builds and runs (the CLI imports no unified package): a level's mesh
 	// built the way a game builds it.
 	{pkg = "navreport", kind = .Host, imports = {"unified:level", "unified:nav", "unified:dmath"}},

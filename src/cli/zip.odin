@@ -1,6 +1,7 @@
 // Zip archives (README.md, Dependencies): reading the Godot editor, export templates (straight from the 1.3 GB
 // archive over HTTP byte ranges), writing Windows release zips. The reader takes stored and deflated members, Zip64
-// sizes, Unix modes and symlinks; the writer deflates every member and writes no Zip64 (Zip_Writer).
+// sizes, Unix modes and symlinks; the writer deflates every member and writes no Zip64 (Zip_Writer), with Odin's
+// deflater patched so Windows' extractor reads what it writes (deflate/README.md).
 package cli
 
 import "core:compress/deflate"
@@ -8,6 +9,8 @@ import "core:encoding/endian"
 import "core:hash"
 import "core:os"
 import "core:strings"
+
+import deflate_writer "deflate"
 
 // A member of an archive, from its central directory (zip_entries); zip_read reads its content.
 Zip_Entry :: struct {
@@ -276,7 +279,7 @@ Zip_Writer :: struct {
 // bytes.
 zip_add :: proc(writer: ^Zip_Writer, name: string, data: []byte, mode: u32 = 0o644) {
 	packed: [dynamic]byte
-	if err := deflate.deflate_raw(&packed, data, .Level_6); err != nil {
+	if err := deflate_writer.deflate_zip_member(&packed, data); err != nil {
 		fatal("deflate failed for %s: %v", name, err)
 	}
 	crc := hash.crc32(data)

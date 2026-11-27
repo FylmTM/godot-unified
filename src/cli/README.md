@@ -195,7 +195,8 @@ Every dependency is pinned (a SHA-256, or a git commit for odinfmt), checked, an
 renamed into place.
 
 - **Downloads:** the system curl (`download`); SHA-256 in Odin; our own zip reader and writer (`zip.odin`), which
-  reads only the members it needs out of a remote archive over HTTP byte ranges.
+  reads only the members it needs out of a remote archive over HTTP byte ranges. The writer deflates with a patched
+  copy of Odin's deflater (`deflate/README.md`): Windows' extractor refuses a stream the stock one writes.
 - **Godot:** the pinned editor in the per-user cache; `UNIFIED_GODOT` may name a local install that reports exactly
   the pinned version (`godot`).
 - **Box3D:** unified-box3d, Box3D ported to Odin, as a shared library with upstream's C API, headers and Odin bindings,
