@@ -97,6 +97,13 @@ public_commands :: proc() -> []Command {
 			run     = cmd_feedback,
 		},
 		{
+			name    = "render",
+			summary = "a recording as a clip for a README or a trailer: the game plays it in its own play scene in a window (muted, in the top-left corner of the leftmost screen, never taking focus) under Godot's movie writer, frame-exact at a fixed frame rate, written as .avi, an animated .gif (encoded by uni) or PNG frames",
+			options = option_types(Render_Opts),
+			details = render_details,
+			run     = cmd_render,
+		},
+		{
 			name    = "coop",
 			summary = "host and joiner processes in a real lobby (EOS, or --lan); EOS: one test at a time (docs/EOS.md)",
 			options = option_types(Coop_Opts),

@@ -7,9 +7,13 @@ package godot
 
 import "core:encoding/json"
 import "core:fmt"
+import "core:math"
 import "core:os"
+import "core:strconv"
+import "core:strings"
 import "core:sync"
 import "core:time"
+import gd "unified:gdext"
 import "unified:netcode"
 import "unified:sim"
 
@@ -22,6 +26,15 @@ REPLAY_LEAD_S :: 10
 @(private)
 REPLAY_SEEK_BUDGET :: 8 * time.Millisecond
 
+// How much of the recording before its --replay-from a replay on the frame clock plays first (cut from the clip), so the
+// game's cameras and the views' appearing have settled by the clip's first frame.
+@(private)
+REPLAY_CLIP_LEAD_S :: 1
+
+// How often the session thread looks for the frame clock's next tick (replay_clock_ask): the main thread waits for it.
+@(private)
+REPLAY_CLOCK_POLL_US :: 250
+
 // The slowest and fastest replay speeds.
 @(private)
 REPLAY_SPEED_MIN :: 0.25
@@ -33,6 +46,9 @@ REPLAY_SPEED_MAX :: 4
 Replay_View :: struct {
 	active:      bool,
 	first, last: u32, // the ticks it can show: the recording's first (its snapshot's) to its last
+	end:         u32, // where it stops (and a --quit-at-end run ends): `last`, or --replay-to's tick
+	fps:         u32, // the frame clock's frames per second (Replay_Clip.fps; 0: the real clock)
+	clip_from:   u32, // on the frame clock: where the clip starts (the lead before it is cut: REPLAY_CLIP_LEAD_S)
 	paused:      bool,
 	speed:       f32,
 	loop:        [2]u32, // a range it plays over and over ({0, 0}: none)
@@ -41,6 +57,81 @@ Replay_View :: struct {
 	agreed:      u32, // the last checkpoint that agreed (0: none yet)
 	diverged:    u32, // the first that didn't (0: none): "recorded by another build" or a real divergence
 	other_build: bool, // recorded by another build (replayed against its checkpoints)
+}
+
+// How a replay plays, as the --replay-* flags ask (Start.clip; zero: the whole recording at its own speed on the real
+// clock, following whoever recorded it, a note stopping on its tick).
+Replay_Clip :: struct {
+	from, to: Replay_Point, // where it starts and where it stops (unset: the recording's first and last ticks)
+	speed:    f32, // its speed at the start (0: 1), within REPLAY_SPEED_MIN and REPLAY_SPEED_MAX
+	player:   int, // follow the player in slot `player - 1` at `from` (0: whoever recorded it)
+	// The frame clock (> 0): every frame of the main thread is 1/fps s of the recording however long it takes to draw,
+	// and waits for the session thread to reach its tick, so frame n always shows the same moment (a movie written
+	// with Godot's --fixed-fps; `uni render`). The views start moving on the first frame they are shown in.
+	fps:      int,
+}
+
+// A moment of a recording as a flag names it: a tick (`300`), or seconds after its first tick (`4.5s`).
+Replay_Point :: struct {
+	set:     bool,
+	seconds: bool,
+	value:   f64,
+}
+
+// The tick `point` names in a recording whose first tick is `first`, at `tick_hz` (`fallback` when unset).
+replay_point_tick :: proc(point: Replay_Point, first: u32, tick_hz: u32, fallback: u32) -> u32 {
+	if !point.set do return fallback
+	if point.seconds do return first + u32(math.round(point.value * f64(tick_hz)))
+	return u32(point.value)
+}
+
+// Reads the --replay-* flags in `args` into a Replay_Clip; a line in `problems` for each bad value.
+@(private)
+replay_clip_of :: proc(args: ^Args, problems: ^[dynamic]string) -> (clip: Replay_Clip) {
+	point :: proc(problems: ^[dynamic]string, flag, text: string) -> (out: Replay_Point) {
+		if text == "" do return
+		trimmed := strings.trim_space(text)
+		ok: bool
+		if strings.has_suffix(trimmed, "s") {
+			out.value, ok = strconv.parse_f64(trimmed[:len(trimmed) - 1])
+			out.seconds = true
+		} else {
+			ticks: u64
+			ticks, ok = strconv.parse_u64(trimmed, 10)
+			ok = ok && ticks <= u64(max(u32))
+			out.value = f64(ticks)
+		}
+		if !ok || !(out.value >= 0) || out.value > f64(max(u32)) {
+			append(problems, fmt.tprintf("%s wants a tick or seconds (300, 4.5s), got %q", flag, text))
+			return {}
+		}
+		out.set = true
+		return
+	}
+	clip.from = point(problems, "--replay-from", args.replay_from)
+	clip.to = point(problems, "--replay-to", args.replay_to)
+	if clip.from.set && clip.to.set && clip.from.seconds == clip.to.seconds && clip.to.value <= clip.from.value {
+		append(problems, fmt.tprintf("--replay-to %s is not after --replay-from %s", args.replay_to, args.replay_from))
+	}
+	if args.replay_speed != "" {
+		speed, ok := strconv.parse_f32(strings.trim_space(args.replay_speed))
+		if !ok || !(speed >= REPLAY_SPEED_MIN && speed <= REPLAY_SPEED_MAX) {
+			append(
+				problems,
+				fmt.tprintf(
+					"--replay-speed wants a speed from %v to %v, got %q",
+					REPLAY_SPEED_MIN,
+					REPLAY_SPEED_MAX,
+					args.replay_speed,
+				),
+			)
+		} else {
+			clip.speed = speed
+		}
+	}
+	clip.player = args.replay_player
+	clip.fps = args.replay_fps
+	return
 }
 
 // A replay control from the main thread (UnifiedSession's replay methods; a small queue).
@@ -150,7 +241,20 @@ replay_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 	}
 	replay.view.follow = about.player
 	replay.view.paused = driver.req.paused
-	if about.tick > replay.view.first {
+	replay.view.end = replay.view.last
+	clip := driver.req.clip
+	if clip.from.set || clip.to.set || clip.fps > 0 {
+		// a clip plays from where it asks to where it asks (a note's stop is not its own)
+		first, last, hz := replay.view.first, replay.view.last, u32(driver.game.tick_hz)
+		from := clamp(replay_point_tick(clip.from, first, hz, first), first, last)
+		replay.view.end = clamp(replay_point_tick(clip.to, first, hz, last), from, last)
+		replay.view.fps = u32(clip.fps)
+		replay.view.clip_from = from
+		start := from
+		if clip.fps > 0 do start -= min(from - first, u32(REPLAY_CLIP_LEAD_S) * hz)
+		if start > first do replay_seek(driver, start)
+		replay_seek_run(driver, max(time.Duration)) // before the watchdog runs and anything is shown
+	} else if about.tick > replay.view.first {
 		// a note opens before its moment and stops on it; a note's tick past the recording (one noted ahead of the
 		// verified ticks the recording holds) stops on its last
 		lead := u32(REPLAY_LEAD_S * driver.game.tick_hz)
@@ -158,6 +262,19 @@ replay_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 		if replay.stop_at > replay.view.first + lead do replay_seek(driver, replay.stop_at - lead)
 		replay_seek_run(driver, max(time.Duration)) // before the watchdog runs and anything is shown
 	}
+	if clip.speed != 0 do replay.view.speed = clip.speed
+	if clip.player != 0 {
+		slots := replay.simulation.state.players.slots[:]
+		holder := clip.player <= len(slots) ? slots[clip.player - 1] : {}
+		if holder == {} {
+			return fail(
+				driver,
+				fmt.tprintf("replay: nobody holds slot %d at tick %d", clip.player - 1, replay.simulation.tick),
+			)
+		}
+		replay.view.follow = sim.player_key(holder)
+	}
+	sync.atomic_store(&driver.clock_target, replay.simulation.tick)
 	replay.due_us = netcode.now_us()
 	post_status(driver, .Connected, other_build ? "recorded by another build: checked against its checkpoints" : "")
 	replay_publish(driver, replay.simulation.tick)
@@ -207,7 +324,7 @@ replay_step :: proc(driver: ^Driver($G, $View, $MultiView), now: i64) -> (wake: 
 		case .Pause:
 			replay.view.paused = true
 		case .Play:
-			if playhead >= replay.view.last do replay_seek(driver, replay.view.first)
+			if playhead >= replay.view.end do replay_seek(driver, replay.view.first)
 			replay.view.paused, replay.due_us, replay.stop_at = false, now, 0
 		case .Speed:
 			replay.view.speed = clamp(control.speed, REPLAY_SPEED_MIN, REPLAY_SPEED_MAX)
@@ -231,15 +348,26 @@ replay_step :: proc(driver: ^Driver($G, $View, $MultiView), now: i64) -> (wake: 
 		if !replay_seek_run(driver, REPLAY_SEEK_BUDGET) do return now
 		replay.due_us, stepped = now, true
 	}
+	if replay.view.fps > 0 {
+		// the frame clock: the ticks the main thread's frame waits for (replay_clock_ask), as soon as it asks
+		target := min(sync.atomic_load(&driver.clock_target), replay.view.end)
+		for replay.simulation.tick < target {
+			replay_forward(driver)
+			stepped = true
+		}
+		replay.due_us = now - tick_us
+		if stepped do replay_publish(driver, replay.simulation.tick)
+		return now + REPLAY_CLOCK_POLL_US
+	}
 	for !replay.view.paused && now - replay.due_us >= tick_us {
 		if loop := replay.view.loop; loop != {} && replay.simulation.tick >= loop[1] {
 			replay_seek(driver, loop[0])
 			if !replay_seek_run(driver, REPLAY_SEEK_BUDGET) do return now
 		}
-		if replay.simulation.tick >= replay.view.last ||
+		if replay.simulation.tick >= replay.view.end ||
 		   (replay.stop_at != 0 && replay.simulation.tick >= replay.stop_at) {
 			replay.view.paused = true // the end (or the note's tick): it stays there until leave()
-			replay.done = driver.req.quit && replay.simulation.tick >= replay.view.last
+			replay.done = driver.req.quit && replay.simulation.tick >= replay.view.end
 			break
 		}
 		replay_forward(driver)
@@ -373,8 +501,148 @@ replay_view :: proc(replay: ^Replay($G), out: ^Frame_Data) {
 	out.tick_us = i64(1_000_000 / f32(replay.simulation.game.tick_hz) / replay.view.speed)
 }
 
+// Main thread: the frame clock's tick (Replay_Clip.fps): the session thread steps the replay up to it and publishes it.
+@(private)
+replay_clock_ask :: proc(target: u32) {
+	if api.installed && api.replay_clock != nil do api.replay_clock(target)
+}
+
 // Main thread: a control for the running replay (false: no replay, or its queue is full).
 @(private)
 replay_control :: proc(control: Replay_Control) -> bool {
 	return api.installed && api.replay_control != nil && api.replay_control(control)
+}
+
+// ---- the frame clock (main thread)
+
+// How long a frame on the frame clock waits for the session thread to reach its tick before it shows what it has.
+@(private)
+FRAME_CLOCK_WAIT :: 30 * time.Second
+
+// The marker of the line a clip on the frame clock prints once its last frame is on screen (`uni render` reads it).
+FRAME_CLOCK_MARKER :: "UNIFIED_CLIP "
+
+// A replay on the frame clock (Replay_Clip.fps), on the main thread: the frame on screen. Frame 0 is the first frame
+// the views are shown in (a game's play scene may open some frames after the replay started): before it the replay
+// holds its first tick. Frame n shows the recording `n / fps` seconds (at the clip's speed) after it. The clip starts
+// at the first frame at or after its --replay-from (`clip_first`), after a lead that lets the game settle.
+@(private)
+Frame_Clock :: struct {
+	started:     bool, // frame 0 was shown: the clock runs
+	over:        bool, // the clip's last frame was shown: it stays on it
+	frame:       int, // the frame on screen
+	frames:      int, // how many it shows: from `from` to `end` at its speed, the lead included
+	from, end:   u32, // the ticks it starts (the lead's first) and stops at
+	clip_from:   u32, // the tick the clip starts at (Replay_View.clip_from)
+	speed:       f32,
+	movie_frame: int, // Engine.get_process_frames() as frame 0 was drawn: the movie writer's number of it
+	clip_first:  int, // the clip's first frame: the frames before it are the lead (REPLAY_CLIP_LEAD_S), cut
+	alpha:       f32, // where the frame on screen sits between its tick and the one before (handoff's alpha)
+	waited:      int, // frames shown before frame 0 (FRAME_CLOCK_START_FRAMES)
+}
+
+// How many frames a clip on the frame clock waits for the game to show the replay's views (its play scene) before a
+// --quit-at-end run gives up and quits with exit code 1.
+@(private)
+FRAME_CLOCK_START_FRAMES :: 600
+
+// The tick the clip frame `frame` waits for (the first at or after its moment) and its alpha.
+frame_clock_tick :: proc(from: u32, frame, fps: int, tick_hz: u32, speed: f32) -> (tick: u32, alpha: f32) {
+	ticks := f64(frame) * f64(tick_hz) * f64(speed) / f64(fps) // after `from`
+	whole := math.ceil(ticks - 1e-6) // a moment within a millionth of a tick is that tick
+	return from + u32(whole), clamp(f32(1 - (whole - ticks)), 0, 1)
+}
+
+// How many frames a clip from `from` to `end` takes at `fps` and `speed` (at least 1: its first).
+frame_clock_frames :: proc(from, end: u32, fps: int, tick_hz: u32, speed: f32) -> int {
+	frames := math.ceil(f64(end - from) * f64(fps) / (f64(tick_hz) * f64(speed)) - 1e-6)
+	return max(int(frames), 1)
+}
+
+// Frame 0 is on screen (the lead's first, or the clip's when it has none): the clock starts.
+@(private)
+frame_clock_start :: proc(session: ^Session_Node, frame: ^Frame_Data) {
+	speed := frame.replay.speed != 0 ? frame.replay.speed : 1
+	fps, start, clip_from := int(frame.replay.fps), frame.tick, max(frame.replay.clip_from, frame.tick)
+	lead := clip_from > start ? frame_clock_frames(start, clip_from, fps, frame.tick_hz, speed) : 0
+	session.clock = {
+		started     = true,
+		from        = start,
+		end         = frame.replay.end,
+		clip_from   = clip_from,
+		speed       = speed,
+		frames      = max(frame_clock_frames(start, frame.replay.end, fps, frame.tick_hz, speed), lead + 1),
+		clip_first  = lead,
+		movie_frame = gd.Engine_get_process_frames(gd.Engine_singleton()),
+		alpha       = 1,
+	}
+}
+
+// The newest Frame once it holds the tick this frame of the clock shows: asks the session thread for it and waits (at
+// most FRAME_CLOCK_WAIT). The clip's last frame shown, it prints its FRAME_CLOCK_MARKER line, and a --quit-at-end run
+// quits.
+@(private)
+frame_clock_wait :: proc(session: ^Session_Node, newest: ^Frame_Data, newest_fresh: bool) -> (^Frame_Data, bool) {
+	frame, fresh := newest, newest_fresh
+	clock := &session.clock
+	fps := int(frame.replay.fps)
+	target := frame.tick // before frame 0: whatever the replay holds (its first tick)
+	if !clock.started {
+		clock.waited += 1
+		if clock.waited == FRAME_CLOCK_START_FRAMES && session.quit_at_end {
+			gd.print_error(
+				fmt.tprintf(
+					"unified: the replay's views were not shown in %d frames: no clip",
+					FRAME_CLOCK_START_FRAMES,
+				),
+			)
+			quit_when_quiet(session, 1)
+		}
+	} else {
+		if !clock.over {
+			clock.frame += 1
+			if clock.frame >= clock.frames {
+				clock.over = true
+				clock.frame = clock.frames - 1
+				frame_clock_end(session, fps, frame.tick_hz)
+			}
+		}
+		target, clock.alpha = frame_clock_tick(clock.from, clock.frame, fps, frame.tick_hz, clock.speed)
+		target = min(target, clock.end)
+	}
+	replay_clock_ask(target)
+	started := time.tick_now()
+	for frame.tick < target && api.running() {
+		if time.tick_since(started) > FRAME_CLOCK_WAIT {
+			gd.print_error(
+				fmt.tprintf("unified: the replay did not reach tick %d in time (at %d)", target, frame.tick),
+			)
+			break
+		}
+		time.sleep(100 * time.Microsecond)
+		if later, later_fresh := api.front(); later != nil {
+			frame = later
+			fresh = fresh || later_fresh
+		}
+	}
+	return frame, fresh
+}
+
+// The clip's last frame was shown: its line (which movie frames are the clip, its lead left out), and the quit of a
+// --quit-at-end run.
+@(private)
+frame_clock_end :: proc(session: ^Session_Node, fps: int, tick_hz: u32) {
+	clock := &session.clock
+	fmt.printfln(
+		`%s{{"movie_frame":%d,"frames":%d,"from":%d,"to":%d,"fps":%d,"tick_hz":%d,"speed":%v}}`,
+		FRAME_CLOCK_MARKER,
+		clock.movie_frame + clock.clip_first,
+		clock.frames - clock.clip_first,
+		clock.clip_from,
+		clock.end,
+		fps,
+		tick_hz,
+		clock.speed,
+	)
+	if session.quit_at_end do quit_when_quiet(session, 0)
 }

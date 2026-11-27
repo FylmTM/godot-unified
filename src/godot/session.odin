@@ -55,6 +55,7 @@ Session_Node :: struct {
 	// or the session meanwhile (session_launch is never reached; the node leaving the tree is put off: exit_deferred)
 	syncing:       bool,
 	exit_deferred: bool, // the node left the tree while syncing: the session ends once session_process unwinds
+	clock:         Frame_Clock, // a replay on the frame clock (--replay-fps): the clip frame on screen (replay.odin)
 }
 
 @(private)
@@ -77,6 +78,13 @@ Args :: struct {
 	setup:            string, // --setup key=value,...: the Setup of sessions this process hosts (the game's default with them)
 	profile:          string, // --profile key=value,...: set on Unified.profile at the start
 	replay:           string, // replay this folder at once
+	// --replay-from, --replay-to, --replay-speed, --replay-player, --replay-fps: how a replay plays (Replay_Clip)
+	replay_from:      string,
+	replay_to:        string,
+	replay_speed:     string,
+	replay_player:    int,
+	replay_fps:       int,
+	clip:             Replay_Clip, // the replay flags, read
 	no_watchdog:      bool, // no session-thread watchdog (watchdog.odin)
 	verified_players: bool, // other players start on the verified timeline (a dev option, verified_players.odin)
 	control:          string, // open the control socket and write its port to this file (control.odin)
@@ -817,7 +825,7 @@ session_ready :: proc(session: ^Session_Node) {
 	case session.args.online:
 		session_start(session, {mode = .Host_Online, scripted = session.args.scripted})
 	case session.args.replay != "":
-		session_start(session, {mode = .Replay, arg = globalize(session.args.replay)})
+		session_start(session, {mode = .Replay, arg = globalize(session.args.replay), clip = session.args.clip})
 	case session.args.join_code != "":
 		session_start(session, {
 			mode     = .Join_Online,
@@ -829,6 +837,10 @@ session_ready :: proc(session: ^Session_Node) {
 	delete(session.args.join_code)
 	delete(session.args.replay)
 	session.args.replay = ""
+	delete(session.args.replay_from)
+	delete(session.args.replay_to)
+	delete(session.args.replay_speed)
+	session.args.replay_from, session.args.replay_to, session.args.replay_speed = "", "", ""
 	session.args.autostart, session.args.host_port, session.args.join, session.args.online, session.args.join_code =
 		false, 0, "", false, ""
 }
@@ -1138,6 +1150,7 @@ session_launch :: proc(session: ^Session_Node, request: Start) -> bool {
 		set_device(local, DEVICE_ANY)
 	}
 	session.locals_seen = {}
+	session.clock = {} // a replay on the frame clock starts its clip again
 	level_host_reset(&session.level)
 	session.mode = request.mode
 	set_join_code(session, "")
@@ -1276,6 +1289,9 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 	fresh := false
 	if api.installed && !session.over {
 		session.frame, fresh = api.front()
+		if session.frame != nil && session.frame.replay.fps > 0 {
+			session.frame, fresh = frame_clock_wait(session, session.frame, fresh)
+		}
 		session.over = session.ended
 	} else {
 		session.frame = nil
@@ -1286,6 +1302,7 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 		session.last_tick = frame.tick
 		tick_us := frame.tick_us != 0 ? frame.tick_us : i64(1_000_000 / max(frame.tick_hz, 1))
 		alpha := alpha(now._nsec / 1000, frame.due_us, tick_us)
+		if frame.replay.fps > 0 do alpha = session.clock.started ? session.clock.alpha : 1
 		// a new epoch (a replay's seek) snaps every view to `tick`'s pose: the shown game time snaps with them
 		snapped := frame.epoch != session.shown_epoch
 		session.shown_epoch = frame.epoch
@@ -1298,7 +1315,12 @@ session_process :: proc(session: ^Session_Node, dt: f64) {
 			session.synced_root = root_id
 			view_space_check(root)
 		}
-		if !level_host_process(session, frame) do views_sync(root, frame, fresh, alpha, f32(dt))
+		shown := false
+		if !level_host_process(session, frame) {
+			views_sync(root, frame, fresh, alpha, f32(dt))
+			shown = root.ptr != nil
+		}
+		if shown && frame.replay.fps > 0 && !session.clock.started do frame_clock_start(session, frame)
 		debug_draw_sync(root, frame, fresh)
 		if fresh && !session.ended do data_sync(frame) // data went back to zero at the Result
 	}
@@ -1557,6 +1579,11 @@ FLAGS := [?]Flag {
 	{"--bench", true, .Int, offset_of(Args, bench), 0, 1 << 31 - 1, ""},
 	{"--draw", true, .Text, offset_of(Args, draw), 0, 0, ""},
 	{"--replay", true, .Text, offset_of(Args, replay), 0, 0, ""},
+	{"--replay-from", true, .Text, offset_of(Args, replay_from), 0, 0, "a tick or seconds (300, 4.5s)"},
+	{"--replay-to", true, .Text, offset_of(Args, replay_to), 0, 0, "a tick or seconds (900, 12s)"},
+	{"--replay-speed", true, .Text, offset_of(Args, replay_speed), 0, 0, "a speed (0.25 to 4)"},
+	{"--replay-player", true, .Int, offset_of(Args, replay_player), 1, sim.MAX_PLAYERS, ""},
+	{"--replay-fps", true, .Int, offset_of(Args, replay_fps), 1, 1000, ""},
 	{"--no-watchdog", true, .Switch, offset_of(Args, no_watchdog), 0, 0, ""},
 	{"--verified-players", true, .Switch, offset_of(Args, verified_players), 0, 0, ""},
 	{"--control", true, .Text, offset_of(Args, control), 0, 0, "a file for the port"},
@@ -1630,6 +1657,7 @@ parse_command_line :: proc(
 			(^string)(field)^ = strings.clone(value)
 		}
 	}
+	args.clip = replay_clip_of(&args, &found_problems)
 	return args, found_problems[:], found_ignored[:]
 }
 

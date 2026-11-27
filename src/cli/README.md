@@ -172,6 +172,25 @@ Benchmarks are no suite: `bench` runs each game's standard benchmarks (a row eac
 clock, plus the project's own rows, into `.out/bench.json`, reported and never gated by time (`uni bench -h`,
 `BENCH_TARGET_US`).
 
+## Rendering clips
+
+`render` makes a clip of a recording for a README or a trailer, re-rendered whenever the game changes, since a
+recording is inputs and the game recomputes it. The game itself plays it: the recording in its own play scene in
+replay mode (src/godot/README.md, Replays), in a window placed as every agent's window, with Godot's movie writer
+(`--write-movie`, `--fixed-fps`) and the replay on its frame clock, so each frame shows an exact moment however slow
+the machine draws. The movie writer records from the process's first frame to its last; the game says which frames
+were the clip (its first shown frame of the replay's views to the clip's end), and `render` keeps those: an AVI's
+chunks and index rewritten for them (`avi_trim`), PNG frames renamed from 0 with their audio (`wav_trim`). The size is
+the window size override in the run's `override.cfg`, which the movie writer records at (a game whose stretch mode is
+`viewport`: its viewport's size).
+
+Nothing else is needed: no encoder or converter is a dependency. A video is Godot's MJPEG AVI. A GIF is encoded here
+(`gif.odin`) from the PNG frames Godot writes, read with `core:image/png`: one palette for the clip by median cut
+over frames spread across it, an optional ordered dither (stable from frame to frame, so a still area stays still),
+each frame only the rectangle that changed since the one before with its unchanged pixels transparent, a frame that
+changed nothing folded into the one before, LZW with a dictionary that clears by generation instead of being wiped,
+on every core a batch of frames at a time. `uni bench`'s gif row times it.
+
 ## The template game
 
 `init` makes a game from `examples/minimal_3d`, the smallest complete game, which CI builds, tests and runs on every

@@ -420,10 +420,10 @@ godot_plan_runs_import_cache_writers_alone :: proc(t: ^testing.T) {
 	all := cli.godot_plan(nil, 28)
 	testing.expect_value(t, join(all.alone), "import,editor")
 	testing.expect_value(t, join(all.apart), "walk")
-	testing.expect_value(t, join(all.rest), "session,bake,validate,drive")
+	testing.expect_value(t, join(all.rest), "session,bake,validate,drive,render")
 	few := cli.godot_plan(nil, 4)
 	testing.expect_value(t, len(few.apart), 0)
-	testing.expect_value(t, join(few.rest), "session,bake,validate,walk,drive")
+	testing.expect_value(t, join(few.rest), "session,bake,validate,walk,drive,render")
 	testing.expect_value(t, join(cli.godot_plan({"walk"}, 28).rest), "walk")
 	testing.expect_value(t, len(cli.godot_plan({"editor"}, 28).rest), 0)
 }

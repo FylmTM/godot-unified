@@ -21,6 +21,7 @@ main :: proc() {
 			{name = "grid", program = {"grid_bench", "tests/sim/bench"}, run = grid_bench},
 			{name = "nav", program = {"nav_bench", "tests/nav/bench"}, run = nav_bench},
 			{name = "wake", program = {"wake_bench", "tests/godot_driver/bench"}, bindings = true, run = wake_bench},
+			{name = "gif", program = {"gif_bench", "tests/cli/bench"}, run = gif_bench},
 		},
 		bake              = {
 			{

@@ -607,24 +607,26 @@ window/size/no_focus=true
 `
 
 // Prepares the project for a window opened with `window` and returns the cleanup to run when the Godot process has ended.
+// `display`: more [display] settings for the run (`key=value` lines, a background window's only), such as `render`'s
+// window size override.
 // A background window opens without activation and clicks never activate it (Windows: SW_SHOWNA and
 // WS_EX_NOACTIVATE, kept on top of other windows; it never calls SetForegroundWindow), so the app in front keeps the
 // keyboard, and the game runs on while it isn't frontmost. macOS activates Godot anyway: a focus guard hands the
 // focus straight back (focus_darwin.odin). A window that may take focus removes an override a crashed run left behind.
-with_window :: proc(dir: string, window: Window_Opts) -> (cleanup: proc(dir: string)) {
+with_window :: proc(dir: string, window: Window_Opts, display := "") -> (cleanup: proc(dir: string)) {
 	path := join(dir, OVERRIDE_CFG)
 	if window.background {
-		write_text(path, BACKGROUND_OVERRIDE)
+		write_text(path, strings.concatenate({BACKGROUND_OVERRIDE, display}))
 		start_focus_guard()
 		return proc(dir: string) {
 				stop_focus_guard()
 				path := join(dir, OVERRIDE_CFG)
-				if text, ok := read_text(path); ok && text == BACKGROUND_OVERRIDE {
+				if text, ok := read_text(path); ok && strings.has_prefix(text, BACKGROUND_OVERRIDE) {
 					os.remove(path)
 				}
 			}
 	}
-	if text, ok := read_text(path); ok && text == BACKGROUND_OVERRIDE {
+	if text, ok := read_text(path); ok && strings.has_prefix(text, BACKGROUND_OVERRIDE) {
 		os.remove(path)
 	}
 	return no_cleanup

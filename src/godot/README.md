@@ -313,6 +313,18 @@ queued from before it are dropped (never shown, they never will be), and the eve
 arrive again. A note starts some seconds before its tick (the one shown when F3 opened, no later than the recording
 reaches) and pauses on it.
 
+The `--replay-*` flags make a replay a clip (`Replay_Clip`): where it starts and stops, its speed, whose view it follows,
+and its clock. On the **frame clock** (`--replay-fps`, what `uni render` uses) the replay no longer runs on the real
+clock: every frame of the main thread is 1/fps s of the recording, the main thread waits for the session thread to
+reach that frame's tick, and the views are posed at that moment's alpha. So frame n always shows the same moment,
+whether the frame took a millisecond or a second to draw: with Godot's movie writer at a fixed frame rate the clip is
+frame-exact and two renders are the same bytes. The clock starts on the first frame the views are shown in (a game
+whose menu adopts the replay opens its play scene some frames later; the replay holds its first tick until then). A
+clip from a later tick first plays `REPLAY_CLIP_LEAD_S` of the recording before it, so the game's cameras have caught
+up and its views have finished appearing by the clip's first frame, which is the first at or after its tick. Once the
+clip's last frame was shown the game prints which movie frames were the clip (`FRAME_CLOCK_MARKER`) and a
+`--quit-at-end` run quits: what came before and after is cut.
+
 The dev UI's Timeline panel drives a replay, and the Inspector's `changes` root is the op log: what the shown tick
 changed in the State against the tick before, a line per leaf field (`sim.state_changes`), computed on the main
 thread from the two states the session thread copies while the Inspector shows (live, after a rollback, the

@@ -401,6 +401,7 @@ Start :: struct {
 	watchdog:     bool,
 	dumps:        string,
 	quit:         bool, // Replay: the session ends at the recording's last tick (--quit-at-end) instead of pausing there
+	clip:         Replay_Clip, // Replay: where it starts and ends, its speed, whom it follows, its clock (the --replay-* flags)
 }
 
 @(private)

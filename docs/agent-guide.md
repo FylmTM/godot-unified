@@ -28,6 +28,7 @@ one's options. A game repo holds one game, so no command needs its name.
 - Play it: `./uni run`; a host and a joiner: `./uni coop`
 - Drive a running game (input, exact steps, state, screenshots, menus): `./uni drive`
 - The developer's playtest notes (F3, freezes): `./uni feedback`
+- A clip of a recording for a README (GIF, AVI, PNG frames): `./uni render`
 - Tool scripts (validate, the game's own): `./uni tool <script>`
 - Levels: `./uni bake`
 - Speed: `./uni bench`

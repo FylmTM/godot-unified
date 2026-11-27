@@ -108,6 +108,7 @@ Api :: struct {
 	// Ask a running single-player session to open to friends (Host_Online, Host_Direct on `port`) or to close (Single).
 	open:            proc(mode: Mode, port: int) -> bool,
 	replay_control:  proc(control: Replay_Control) -> bool, // queue a control for a running replay (false: full)
+	replay_clock:    proc(target: u32), // the frame clock's tick: step the replay up to it (Replay_Clip.fps)
 	// The State's `level` field (a sim.Active_Level): its byte offset (-1: none), and each level's scene (the res:// path
 	// its .level file names, "": none), in Game.levels' order.
 	level_offset:    int,
@@ -266,6 +267,7 @@ Driver :: struct($G: typeid, $View, $MultiView: typeid) {
 	// A replay session (Mode.Replay; replay.odin): its state, its controls from the main thread, the timeline's epoch
 	replay:          ^Replay(G),
 	replay_controls: Queue(Replay_Control, 16),
+	clock_target:    u32, // atomic: the tick the frame clock asks the replay to show (replay_clock_ask)
 	epoch:           u32,
 	sampler:         ^Verified_Sampler, // other players on the verified timeline (verified_players.odin)
 }
@@ -677,6 +679,11 @@ install :: proc(game: ^$G, glue: Glue(G, $View, $MultiView), constants: any = ni
 		if g_driver == nil do return false
 		driver := (^This_Driver)(g_driver)
 		return driver.req.mode == .Replay && queue_push(&driver.replay_controls, control)
+	}
+	api.replay_clock = proc(target: u32) {
+		if g_driver == nil do return
+		driver := (^This_Driver)(g_driver)
+		if driver.req.mode == .Replay do sync.atomic_store(&driver.clock_target, target)
 	}
 	api.send = proc(command: sim.Raw_Command, local: int) -> bool {
 		if g_driver == nil || local < 0 || local >= LOCAL_MAX do return false

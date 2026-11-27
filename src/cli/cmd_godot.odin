@@ -9,7 +9,7 @@ import "core:strings"
 import "core:time"
 
 // The godot suite's steps, in order; each runs when the game has what it needs (GODOT_STEP_CHECKS says what).
-GODOT_STEPS :: []string{"import", "editor", "session", "bake", "validate", "walk", "drive"}
+GODOT_STEPS :: []string{"import", "editor", "session", "bake", "validate", "walk", "drive", "render"}
 
 // What each of GODOT_STEPS checks, for `uni test -h`.
 GODOT_STEP_CHECKS :: []string {
@@ -20,6 +20,7 @@ GODOT_STEP_CHECKS :: []string {
 	"every script compiles with warnings as errors and every scene loads; game/tools/validate.gd adds the game's own checks",
 	"game/tools/ui_walk.gd, when the game has one: a walk through its menus and flows with real input events, then its play smoke (a game without menus has none: skipped)",
 	"the game headless under uni drive, as an agent drives it: status, pause, exact steps, a timed press, state, input, held input values, events, ui, find, eval, a script error named by file:line (games with an extension)",
+	"uni render of the game's first replay regression, its first second, in a window: PNG frames as many as a second at the frame rate, and a GIF of them that decodes (games with one; skipped with no display, as on CI's Linux)",
 }
 
 // The `session` step's length: 1 s of a 64 Hz game (`test --long`: 4 s).
@@ -193,6 +194,15 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 				ok = pass(game, "drive", drive_check(game), seconds_since(start)) && ok
 			} else {
 				skip(game, "drive", "no extension")
+			}
+		}
+		if slice.contains(plan.rest, "render") && !halted(game, ok, "render") {
+			start := time.tick_now()
+			passed, skipped := render_check(game)
+			if skipped != "" {
+				skip(game, "render", skipped)
+			} else {
+				ok = pass(game, "render", passed, seconds_since(start)) && ok
 			}
 		}
 		if running, apart_lane := lane.?; apart_lane {

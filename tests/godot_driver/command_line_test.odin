@@ -92,3 +92,75 @@ command_line_without_the_dev_ui_ignores_dev_flags :: proc(t: ^testing.T) {
 	testing.expect(t, args.lag_ms == 0 && args.bench == 0 && args.seed == 0)
 	testing.expect_value(t, args.ticks, 300) // not a dev flag: a release build's smoke test bounds its session with it
 }
+
+@(test)
+command_line_reads_the_replay_clip :: proc(t: ^testing.T) {
+	args, problems, _ := godot.parse_command_line({
+			"--replay",
+			"rec",
+			"--replay-from",
+			"4.5s",
+			"--replay-to",
+			"900",
+			"--replay-speed",
+			"2",
+			"--replay-player",
+			"2",
+			"--replay-fps",
+			"30",
+		}, true)
+	defer delete(args.replay)
+	defer delete(args.replay_from)
+	defer delete(args.replay_to)
+	defer delete(args.replay_speed)
+	testing.expect_value(t, len(problems), 0)
+	clip := args.clip
+	testing.expect(t, clip.from.set && clip.from.seconds)
+	testing.expect_value(t, clip.from.value, 4.5)
+	testing.expect(t, clip.to.set && !clip.to.seconds)
+	testing.expect_value(t, godot.replay_point_tick(clip.from, 100, 64, 0), 388) // 4.5 s after the first tick
+	testing.expect_value(t, godot.replay_point_tick(clip.to, 100, 64, 0), 900) // a tick is a tick
+	testing.expect_value(t, godot.replay_point_tick({}, 100, 64, 7), 7) // unset: the fallback
+	testing.expect_value(t, clip.speed, 2)
+	testing.expect_value(t, clip.player, 2)
+	testing.expect_value(t, clip.fps, 30)
+	cases := []struct {
+		args: []string,
+		want: string,
+	} {
+		{{"--replay-from", "soon"}, "--replay-from wants a tick or seconds"},
+		{{"--replay-to", "-3"}, "--replay-to wants a tick or seconds"},
+		{{"--replay-from", "10s", "--replay-to", "5s"}, "is not after --replay-from"},
+		{{"--replay-speed", "9"}, "--replay-speed wants a speed from 0.25 to 4"},
+		{{"--replay-fps", "0"}, "--replay-fps wants a whole number from 1 to 1000"},
+	}
+	for test_case in cases {
+		bad, found, _ := godot.parse_command_line(test_case.args, true)
+		delete(bad.replay_from)
+		delete(bad.replay_to)
+		delete(bad.replay_speed)
+		if !testing.expectf(t, len(found) == 1, "%v: %d problems (%v)", test_case.args, len(found), found) do continue
+		testing.expectf(t, strings.contains(found[0], test_case.want), "%v: %q", test_case.args, found[0])
+	}
+}
+
+@(test)
+frame_clock_shows_each_frames_moment :: proc(t: ^testing.T) {
+	// 64 Hz at 30 fps: frame n is 64n/30 ticks in, shown as the first tick at or after it and its alpha
+	tick, alpha := godot.frame_clock_tick(100, 0, 30, 64, 1)
+	testing.expect_value(t, tick, 100)
+	testing.expect_value(t, alpha, 1)
+	tick, alpha = godot.frame_clock_tick(100, 1, 30, 64, 1) // 2.13 ticks in
+	testing.expect_value(t, tick, 103)
+	testing.expectf(t, abs(alpha - 0.1333) < 0.001, "alpha %v", alpha)
+	tick, alpha = godot.frame_clock_tick(100, 15, 30, 64, 1) // exactly 32 ticks in
+	testing.expect_value(t, tick, 132)
+	testing.expect_value(t, alpha, 1)
+	tick, _ = godot.frame_clock_tick(0, 15, 15, 64, 2) // twice as fast: 128 ticks in
+	testing.expect_value(t, tick, 128)
+	// the clip's length: its ticks at its speed, in frames
+	testing.expect_value(t, godot.frame_clock_frames(0, 640, 15, 64, 1), 150) // 10 s at 15 fps
+	testing.expect_value(t, godot.frame_clock_frames(0, 640, 30, 64, 2), 150) // 5 s at 30 fps
+	testing.expect_value(t, godot.frame_clock_frames(0, 65, 30, 64, 1), 31) // a part frame is a frame
+	testing.expect_value(t, godot.frame_clock_frames(5, 5, 30, 64, 1), 1) // a clip of one tick: its frame
+}
