@@ -75,7 +75,13 @@ func _unhandled_input(event: InputEvent) -> void:
 ## Godot's shader compiles on worker threads instead of in the menu -> play frame. In Godot 4.7 a resource a script
 ## first loads with `preload()` on a worker thread is reported as leaked at exit, so the play scene's scripts load()
 ## what they need (the library's `validate` checks it: game/tools/validate.gd names the play scene).
+## A headless run loads nothing ahead: Godot 4.7.2's headless (dummy) renderer keeps its textures in storage that
+## isn't thread-safe, so the loading thread making the scene's textures while the main thread makes its own can fail
+## (`Parameter "t" is null`) and leak a texture at exit. The play scene then loads when it opens
+## (Game._change_to_play_scene), and headless has no shaders to compile.
 func _preload_play_scene() -> void:
+	if DisplayServer.get_name() == "headless":
+		return
 	for i in 2:
 		await get_tree().process_frame
 	if is_inside_tree():
