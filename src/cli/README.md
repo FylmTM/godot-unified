@@ -180,7 +180,9 @@ clock, plus the project's own rows, into `.out/bench.json`, reported and never g
 recording is inputs and the game recomputes it. The game itself plays it: the recording in its own play scene in
 replay mode (src/godot/README.md, Replays), in a window placed as every agent's window, with Godot's movie writer
 (`--write-movie`, `--fixed-fps`) and the replay on its frame clock, so each frame shows an exact moment however slow
-the machine draws. The movie writer records from the process's first frame to its last; the game says which frames
+the machine draws. Each frame is the same pixels on every render only where the game draws deterministically: GPU
+particles may not (two renders of a game with torch flames differ a little there), so the godot suite compares renders
+within a tolerance. The movie writer records from the process's first frame to its last; the game says which frames
 were the clip (its first shown frame of the replay's views to the clip's end), and `render` keeps those: an AVI's
 chunks and index rewritten for them (`avi_trim`), PNG frames renamed from 0 with their audio (`wav_trim`). The size is
 the window size override in the run's `override.cfg`, which the movie writer records at (a game whose stretch mode is

@@ -79,7 +79,7 @@ Replay_Clip :: struct {
 	before:   Replay_Point,
 	after:    Replay_Point,
 	speed:    f32, // its speed at the start (0: 1), within REPLAY_SPEED_MIN and REPLAY_SPEED_MAX
-	player:   int, // follow the player in slot `player - 1` at `from` (0: whoever recorded it)
+	player:   int, // follow the player in slot `player - 1` at `from` (0: whoever recorded it, else P1)
 	// The frame clock (> 0): every frame of the main thread is 1/fps s of the recording however long it takes to draw,
 	// and waits for the session thread to reach its tick, so frame n always shows the same moment (a movie written
 	// with Godot's --fixed-fps; `uni render`). The views start moving on the first frame they are shown in.
@@ -254,6 +254,7 @@ Replay :: struct($G: typeid) {
 	next_check:  int, // the first checkpoint not behind the playhead (checkpoints are sorted): replay_forward's cursor
 	seeking:     bool, // a seek is on its way to seek_to: nothing is shown until it arrives (replay_seek_run)
 	seek_to:     u32,
+	follow_p1:   bool, // nobody named whom to follow: P1 (slot 0's holder) once present (replay_publish)
 }
 
 // The files a replay folder holds (an F3 note's, a session recording's, a freeze's).
@@ -321,6 +322,8 @@ replay_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 		if err == nil do _ = json.unmarshal(text, &about)
 	}
 	replay.view.follow = about.player
+	// a recording that says not who recorded it (a replay regression, a coop run's) follows P1: its host
+	replay.follow_p1 = about.player == 0 && driver.req.clip.player == 0
 	replay.view.paused = driver.req.paused
 	replay.view.end = replay.view.last
 	clip := driver.req.clip
@@ -486,6 +489,7 @@ replay_step :: proc(driver: ^Driver($G, $View, $MultiView), now: i64) -> (wake: 
 			replay.view.loop = from < to ? {max(from, replay.view.first), min(to, replay.view.last)} : {}
 		case .Follow:
 			replay.view.follow = u64(control.value)
+			replay.follow_p1 = false
 		}
 	}
 	tick_us := i64(1_000_000 / f32(driver.game.tick_hz) / replay.view.speed)
@@ -628,6 +632,9 @@ replay_publish :: proc(driver: ^Driver($G, $View, $MultiView), tick: u32) {
 	simulation := replay.simulation
 	current := sim.state_at(simulation, tick)
 	if current == nil do current = &simulation.state
+	if replay.follow_p1 && replay.view.follow == 0 && current.players.slots[0] != {} {
+		replay.view.follow = sim.player_key(current.players.slots[0])
+	}
 	local: sim.Player
 	for holder in current.players.slots do if holder != {} && sim.player_key(holder) == replay.view.follow do local = holder
 	publish_frame(

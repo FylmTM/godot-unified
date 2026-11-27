@@ -299,7 +299,8 @@ game's own views, HUD and dev UI show a recording, an F3 note or a freeze folder
 loop. It feeds the sim from the recording instead of the network: no input, no commands, every tick final, so events
 arrive Emitted and Confirmed together, and the recording's checkpoints are checked as it passes them (a recording of
 another build plays and says where it first computes differently). `local_player` is the player it follows,
-whoever recorded it at first, so a camera that tracks the local player's view follows them. It shows the verified
+whoever recorded it at first (a recording that doesn't say, such as a replay regression or a co-op run's: P1, its host,
+once present), so a camera that tracks the local player's view follows them. It shows the verified
 timeline: what a client predicted is not in a recording.
 
 Every live session of a dev UI build is written to `<user data>/recordings/<local time>/` when it ends, also when the

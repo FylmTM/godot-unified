@@ -42,7 +42,7 @@ Render_Opts :: struct {
 	after:    string `hint:"<Ns|ticks>" usage:"with --at: how long after it the clip ends (default 3s)"`,
 	fps:      int `hint:"<n>" usage:"frames per second (default 30; a GIF 15, at most 50): the clip is frame-exact at any machine speed"`,
 	size:     string `hint:"<WxH>" usage:"the window and frame size (default: the project's window; a GIF 960x540, and never wider than 960); side by side: each pane's (default that size divided across the panes)"`,
-	player:   string `hint:"<n[,n...]>" usage:"whose view: the player shown as P<n> (slot n-1) where the clip starts (default: whoever recorded it); several (1,2; up to 4): each one's view of the same recording side by side, left to right, in one clip, frames in exact sync (a render each on the same frame clock), the sound the first one's; a GIF or PNG frames only (a video is one view)"`,
+	player:   string `hint:"<n[,n...]>" usage:"whose view: the player shown as P<n> (slot n-1) where the clip starts (default: whoever recorded it; a recording that doesn't say, such as a replay regression or a co-op run's: P1, its host); several (1,2; up to 4): each one's view of the same recording side by side, left to right, in one clip, frames in exact sync (a render each on the same frame clock), the sound the first one's; a GIF or PNG frames only (a video is one view)"`,
 	speed:    string `hint:"<x>" usage:"playback speed, 0.25 to 4 (default 1)"`,
 	dither:   bool `usage:"GIF: ordered dither (smoother gradients, a bigger file)"`,
 	overflow: [dynamic]string `hint:"[game] <recording>" usage:"the game (default: the only one) and the recording: a folder holding inputs.unil (a session recording, an F3 note, a freeze), a feedback note's name (uni feedback), or a replay regression's (simulation/tests/replays/<name>)"`,
@@ -57,7 +57,8 @@ render_details :: proc() -> string {
 	return(
 		"The game plays the recording in its own play scene, in replay mode, in a window (muted, in the top-left\n" +
 		"corner of the leftmost screen, never taking focus), with Godot's movie writer at a fixed frame rate: frame n\n" +
-		"always shows the same moment, however slow the machine. The clip starts on the first frame the game shows\n" +
+		"always shows the same moment, however slow the machine (the same pixels too, unless the game's GPU\n" +
+		"particles draw differently from run to run). The clip starts on the first frame the game shows\n" +
 		"the replay's views (a menu or a loading scene before it is cut). The window must fit the leftmost screen.\n" +
 		"Side by side (--player 1,2) renders each view in turn and lays their frames out in one clip.\n" +
 		"Re-render after the game changes: a recording of an older build plays on, checked against its checkpoints.\n" +
@@ -860,7 +861,8 @@ RENDER_CHECK_SIZE :: "480x270"
 // the recording's events (`replay --events`), and an event is picked whose tick no neighbour of its type shares. Then
 // `--at` it, P1's view, to PNG frames: the clip is on that event's tick and as many frames as its ticks at the frame
 // rate, and a GIF of them decodes; then P1's view twice side by side: each half of every frame is the single render's
-// frame, byte for byte. `skipped` says why it didn't run: no replay regression, or no display to open a window on
+// frame of that moment (render_views_in_sync: within a tolerance, since a game's GPU particles may draw differently
+// from run to run, and not a frame out of sync). `skipped` says why it didn't run: no replay regression, or no display to open a window on
 // (Linux without DISPLAY or WAYLAND_DISPLAY).
 render_check :: proc(game: Game) -> (ok: bool, skipped: string) {
 	if !has_extension(game) do return false, "no extension"
@@ -962,12 +964,10 @@ render_check :: proc(game: Game) -> (ok: bool, skipped: string) {
 		report.frames,
 		report.from,
 	)
-	for path, i in paths {
-		pair_path := join(pair_out, aprintf("%s%08d.png", RENDER_FRAME_PREFIX, i))
-		if differs := render_halves_equal(pair_path, path, 2); differs != "" {
-			expect(game, &ok, false, "side by side, frame %d: %s", i, differs)
-			break
-		}
+	pair_paths := make([]string, len(paths))
+	for &path, i in pair_paths do path = join(pair_out, aprintf("%s%08d.png", RENDER_FRAME_PREFIX, i))
+	if differs := render_views_in_sync(pair_paths, paths[:], 2); differs != "" {
+		expect(game, &ok, false, "side by side: %s", differs)
 	}
 	return ok, ""
 }
@@ -1027,32 +1027,89 @@ render_check_pick :: proc(events: [][2]json.Value) -> (name: string, n: int, at:
 	return json_string(events[best][1]), best_n, u32(json_int(events[best][0])), true
 }
 
-// Whether the PNG `composed` is `panes` copies of the PNG `pane` side by side, pixel for pixel; why not, else "".
-render_halves_equal :: proc(composed, pane: string, panes: int) -> string {
-	whole, whole_err := png.load_from_file(composed, {.alpha_add_if_missing}, context.allocator)
-	if whole_err != nil do return aprintf("%s does not load", composed)
-	defer png.destroy(whole)
-	part, part_err := png.load_from_file(pane, {.alpha_add_if_missing}, context.allocator)
-	if part_err != nil do return aprintf("%s does not load", pane)
-	defer png.destroy(part)
-	if whole.width != panes * part.width || whole.height != part.height {
-		return aprintf(
-			"%dx%d, not %d of %dx%d side by side",
-			whole.width,
-			whole.height,
-			panes,
-			part.width,
-			part.height,
-		)
+// How far a view laid side by side may come out from the single render of the same moment: the mean absolute
+// difference of a channel (of 255). Two renders of a game whose GPU particles are not deterministic differ there.
+RENDER_CHECK_NOISE :: 2.0
+
+// Whether every view of the side-by-side frames `composed` (each `panes` views wide) shows the moment the single
+// render's frames `single` show in the same place: each frame within RENDER_CHECK_NOISE of it, and nearer it, over the
+// clip, than the single render's frame before or after it (a view one frame out of sync is nearer one of those, where
+// anything moves); why not, else "".
+render_views_in_sync :: proc(composed, single: []string, panes: int) -> string {
+	load :: proc(path: string) -> ^png.Image {
+		img, err := png.load_from_file(path, {.alpha_add_if_missing}, context.allocator)
+		return err == nil ? img : nil
 	}
-	row := part.width * 4
-	for p in 0 ..< panes {
-		for y in 0 ..< part.height {
-			at := (y * panes + p) * row
-			if string(whole.pixels[at:at + row]) != string(part.pixels[y * row:(y + 1) * row]) {
-				return aprintf("view %d's row %d differs from the single render's", p + 1, y)
+	wholes := make([]^png.Image, len(composed))
+	parts := make([]^png.Image, len(single))
+	defer for img in wholes do if img != nil do png.destroy(img)
+	defer for img in parts do if img != nil do png.destroy(img)
+	if len(composed) != len(single) || len(single) == 0 {
+		return aprintf("%d frames side by side, %d single", len(composed), len(single))
+	}
+	for i in 0 ..< len(single) {
+		wholes[i], parts[i] = load(composed[i]), load(single[i])
+		if wholes[i] == nil do return aprintf("%s does not load", composed[i])
+		if parts[i] == nil do return aprintf("%s does not load", single[i])
+		whole, part := wholes[i], parts[i]
+		if whole.width != panes * part.width || whole.height != part.height {
+			return aprintf(
+				"frame %d is %dx%d, not %d of %dx%d side by side",
+				i,
+				whole.width,
+				whole.height,
+				panes,
+				part.width,
+				part.height,
+			)
+		}
+	}
+	for view in 0 ..< panes {
+		same, late, early: f64 // over the frames that have both neighbours' counterparts
+		for i in 0 ..< len(single) {
+			difference := render_view_difference(wholes[i], parts[i], panes, view)
+			if difference > RENDER_CHECK_NOISE {
+				return aprintf(
+					"view %d of frame %d is %.2f from the single render's (at most %.1f)",
+					view + 1,
+					i,
+					difference,
+					RENDER_CHECK_NOISE,
+				)
 			}
+			if i + 1 < len(single) {
+				same += difference
+				late += render_view_difference(wholes[i], parts[i + 1], panes, view)
+				early += render_view_difference(wholes[i + 1], parts[i], panes, view)
+			}
+		}
+		// in sync, a view is noise from its frame and motion plus noise from the next; a frame off, the other way round
+		allowance := 0.01 * f64(len(single))
+		if same > 2 * late + allowance || same > 2 * early + allowance {
+			return aprintf(
+				"view %d is out of sync: %.2f from the single render's frames, %.2f from the next ones, %.2f from the ones before",
+				view + 1,
+				same,
+				late,
+				early,
+			)
 		}
 	}
 	return ""
+}
+
+// The mean absolute difference of a channel (RGB, of 255) between view `view` of `whole` (`panes` views side by side)
+// and `part`.
+@(private)
+render_view_difference :: proc(whole, part: ^png.Image, panes, view: int) -> f64 {
+	row := part.width * 4
+	total := 0
+	for y in 0 ..< part.height {
+		got := whole.pixels[(y * panes + view) * row:][:row]
+		want := part.pixels[y * row:][:row]
+		for x := 0; x < row; x += 4 {
+			for c in 0 ..< 3 do total += abs(int(got[x + c]) - int(want[x + c]))
+		}
+	}
+	return f64(total) / f64(part.width * part.height * 3)
 }

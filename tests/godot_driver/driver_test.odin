@@ -752,7 +752,8 @@ replay_events_after_a_seek :: proc(t: ^testing.T) {
 // --replay-at (replay.odin, replay_find_event) on a recording of a scripted offline run: the clip is cut around the tick
 // whose step emitted the n-th event of the type, as an offline replay of the recording finds it (an n of 2 or more whose
 // event's tick no neighbour of its type shares, so an n off by one lands elsewhere); a type the game has not, one the
-// recording never emits and an n past the last are refused, saying so.
+// recording never emits and an n past the last are refused, saying so. The recording (two players) says not who
+// recorded it: the replay follows P1, the host; --replay-player 2 follows slot 1's holder.
 @(private = "file")
 replay_cuts_around_an_event :: proc(t: ^testing.T) {
 	input_log: sim.Input_Log(toy.Game)
@@ -812,18 +813,41 @@ replay_cuts_around_an_event :: proc(t: ^testing.T) {
 		testing.expectf(
 			t,
 			frame.replay.at == at,
-			"Event_Spawned#%d: on tick %d, the offline replay's %d",
+			"%s#%d: on tick %d, the offline replay's %d",
+			name,
 			n,
 			frame.replay.at,
 			at,
 		)
 		testing.expect_value(t, frame.replay.clip_from, max(at - 3, first))
 		testing.expect_value(t, frame.replay.end, min(at + 5, last))
+		testing.expectf(
+			t,
+			frame.slots[0] != 0 && frame.slots[1] != 0 && frame.local_player == frame.slots[0],
+			"nobody named: it follows P1 (%d), not %d",
+			frame.slots[0],
+			frame.local_player,
+		)
 	}
 	godot.api.stop()
 	_ = drain(&messages, WAIT_MS, is_result)
 	for godot.api.running() do time.sleep(time.Millisecond)
 	godot.api.wait()
+	second := replay_at(fmt.tprintf("%s#%d", name, n), "3", "5")
+	second.player = 2
+	ok, err = godot.api.start({mode = .Replay, arg = dir, name = "viewer", clip = second})
+	if testing.expectf(t, ok, "replay start: %s", err) {
+		frame, shown = replay_wait(WAIT_MS, proc(frame: ^godot.Frame_Data) -> bool {return frame.replay.at != 0})
+		testing.expectf(
+			t,
+			shown && frame.slots[1] != 0 && frame.local_player == frame.slots[1],
+			"--replay-player 2 follows slot 1's holder",
+		)
+		godot.api.stop()
+		_ = drain(&messages, WAIT_MS, is_result)
+		for godot.api.running() do time.sleep(time.Millisecond)
+		godot.api.wait()
+	}
 
 	refusals := []struct {
 		anchor, want: string,

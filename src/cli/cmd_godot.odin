@@ -20,7 +20,7 @@ GODOT_STEP_CHECKS :: []string {
 	"every script compiles with warnings as errors and every scene loads; game/tools/validate.gd adds the game's own checks",
 	"game/tools/ui_walk.gd, when the game has one: a walk through its menus and flows with real input events, then its play smoke (a game without menus has none: skipped)",
 	"the game headless under uni drive, as an agent drives it: status, pause, exact steps, a timed press, state, input, held input values, events, ui, find, eval, a note saved and read back by feedback --instance, a script error named by file:line; then, with a display, in a window: a screenshot and a note with one (games with an extension)",
-	"uni render of the game's first replay regression in a window, cut around an event the headless binary lists (--at): PNG frames on its tick, as many as its ticks at the frame rate, a GIF of them that decodes, and P1's view twice side by side whose halves are the single render's frames (games with one; skipped with no display, as on CI's Linux)",
+	"uni render of the game's first replay regression in a window, cut around an event the headless binary lists (--at): PNG frames on its tick, as many as its ticks at the frame rate, a GIF of them that decodes, and P1's view twice side by side whose halves are the single render's frames, within a tolerance (GPU particles) and not a frame out of sync (games with one; skipped with no display, as on CI's Linux)",
 }
 
 // The `session` step's length: 1 s of a 64 Hz game (`test --long`: 4 s).
