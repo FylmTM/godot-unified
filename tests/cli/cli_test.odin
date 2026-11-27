@@ -102,6 +102,28 @@ zip_round_trip :: proc(t: ^testing.T) {
 	testing.expect(t, !os.exists(cli.join(flat, "pkg-1.0")))
 }
 
+// Bytes without repeats but with a skewed spread (7 bits of 8) deflate to a dynamic block with no match. Its
+// distance tree must still hold a code: Windows' extractor refuses an empty one (src/cli/deflate/README.md).
+@(test)
+zip_matchless_block_has_a_distance_code :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	data := make([]byte, 1000)
+	seed: u32 = 12345
+	for &element in data {
+		seed = seed * 1664525 + 1013904223
+		element = byte(seed >> 25)
+	}
+	name :: "a.bin"
+	writer: cli.Zip_Writer
+	cli.zip_add(&writer, name, data)
+	archive := cli.zip_finish(&writer)
+	stream := archive[30 + len(name):] // the member's local header, then its deflate stream
+	block_type := (stream[0] >> 1) & 3
+	distance_codes := int(stream[1] & 0x1F) + 1 // HDIST: bits 8 to 12
+	testing.expect_value(t, block_type, 2)
+	testing.expect(t, distance_codes >= 2, "a dynamic block's distance tree is empty")
+}
+
 @(test)
 manifest_notices_changes :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
