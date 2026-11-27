@@ -19,7 +19,7 @@ GODOT_STEP_CHECKS :: []string {
 	"every .level file is current and every view marker sound (uni bake --check)",
 	"every script compiles with warnings as errors and every scene loads; game/tools/validate.gd adds the game's own checks",
 	"game/tools/ui_walk.gd, when the game has one: a walk through its menus and flows with real input events, then its play smoke (a game without menus has none: skipped)",
-	"the game headless under uni drive, as an agent drives it: status, pause, exact steps, a timed press, state, input, held input values, events, ui, find, eval, a script error named by file:line (games with an extension)",
+	"the game headless under uni drive, as an agent drives it: status, pause, exact steps, a timed press, state, input, held input values, events, ui, find, eval, a note saved and read back by feedback --instance, a script error named by file:line; then, with a display, in a window: a screenshot and a note with one (games with an extension)",
 	"uni render of the game's first replay regression, its first second, in a window: PNG frames as many as a second at the frame rate, and a GIF of them that decodes (games with one; skipped with no display, as on CI's Linux)",
 }
 
@@ -695,8 +695,14 @@ tool_own_result :: proc(result: json.Value) -> string {
 clear_shader_cache :: proc(game: Game) {
 	remove_tree(join(game.dir, ".godot", "shader_cache"))
 	remove_tree(join(game_user_dir(game.dir), "shader_cache"))
-	// a check's or a driven run's own (user_env)
+	// a check's own (user_env), and each drive instance's (drive_user_base: a directory of .out/user/)
 	remove_tree(join(game_user_dir(game.dir, user_base(game.dir)), "shader_cache"))
+	entries, _ := os.read_all_directory_by_path(user_base(game.dir), context.allocator)
+	for entry in entries {
+		if entry.type == .Directory {
+			remove_tree(join(game_user_dir(game.dir, drive_user_base(game.dir, entry.name)), "shader_cache"))
+		}
+	}
 	log("uni: cleared the shader caches of %s", game.name)
 }
 

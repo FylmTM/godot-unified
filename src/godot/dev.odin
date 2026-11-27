@@ -614,6 +614,15 @@ when DEVUI {
 		dev.note_at = {true, frame.tick, frame.verified, frame.local_player}
 	}
 
+	// The control socket's `note`: an F3 note saved with no one typing it (devui.note_save: the screenshot, this
+	// moment, then dev_feedback's recording). Its folder (temp allocated), or why none was written.
+	dev_save_note :: proc(text: string, tag_bug: bool) -> (folder: string, problem: string) {
+		if !devui.is_ready() do return "", "no dev UI yet: it starts with the first session (start one first)"
+		folder = devui.note_save(text, tag_bug)
+		if folder == "" do problem = "the note was not saved (the game's log says why)"
+		return
+	}
+
 	// devui's on_feedback (main thread, a note was just written to `dir`): the session's recording, so the note
 	// replays (`uni headless <game> -- replay --snapshot snapshot.unis --log inputs.unil`), and note.json. Its tick is
 	// the frame's when the note opened, no later than the recording's last (the recording holds verified ticks only,

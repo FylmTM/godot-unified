@@ -12,7 +12,7 @@ feedback_fixture :: proc(feedback: string) {
 		{"20261121-011449/note.txt", "[bug]\r\nFPS on this scene is horrible.\r\nwhy?"},
 		{
 			"20261121-011449/note.json",
-			`{"game": "g", "version": "0.1.0", "bug": true, "tick": 1234, "recording": true}`,
+			`{"game": "g-play", "version": "0.1.0", "bug": true, "tick": 1234, "recording": true}`,
 		},
 		{"20261121-011449/screenshot.png", ""},
 		{"20261121-011449/snapshot.unis", ""},
@@ -52,6 +52,7 @@ feedback_lists_reads_and_marks_notes_done :: proc(t: ^testing.T) {
 	testing.expect_value(t, bug.text, "FPS on this scene is horrible.\nwhy?")
 	testing.expect_value(t, bug.tick, 1234)
 	testing.expect_value(t, bug.version, "0.1.0")
+	testing.expect_value(t, bug.game, "g-play")
 	testing.expect(t, bug.recording && bug.screenshot != "")
 	note, _ := cli.feedback_read(cli.join(feedback, "20261121-011449-2"))
 	testing.expect_value(t, note.kind, "note")
@@ -88,6 +89,28 @@ feedback_lists_reads_and_marks_notes_done :: proc(t: ^testing.T) {
 	moved, problem = cli.feedback_mark_done(feedback, {"20261120-090000"})
 	testing.expect_value(t, problem, "")
 	testing.expect(t, os.is_directory(cli.join(done, "20261120-090000-2")))
+}
+
+// `feedback --instance <name>` reads a drive instance's notes: in the Godot user data `drive start` gave it
+// (.out/user/<name>/ in the game), never the developer's, and each instance its own.
+@(test)
+feedback_dir_of_a_drive_instance :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
+	game, temp_err := os.make_directory_temp("", "unified-instance-test-*", context.allocator)
+	testing.expect(t, temp_err == nil)
+	defer os.remove_all(game)
+	cli.write_text(cli.join(game, "project.godot"), "[application]\nconfig/name=\"My Game\"\n")
+	base := cli.join(game, ".out", "user", "1")
+	testing.expect_value(t, cli.drive_user_base(game, "1"), base)
+	testing.expect_value(t, cli.feedback_dir(game, "1"), cli.join(cli.game_user_dir(game, base), cli.FEEDBACK_DIR))
+	testing.expect_value(
+		t,
+		cli.feedback_dir(game, "1"),
+		cli.join(cli.godot_user_dir(base), "app_userdata", "My Game", cli.FEEDBACK_DIR),
+	)
+	testing.expect(t, cli.feedback_dir(game, "1") != cli.feedback_dir(game, "2"), "each instance its own")
+	testing.expect_value(t, cli.feedback_dir(game, ""), cli.join(cli.game_user_dir(game), cli.FEEDBACK_DIR))
+	testing.expect(t, cli.feedback_dir(game, "") != cli.feedback_dir(game, "1"), "never the developer's")
 }
 
 @(test)

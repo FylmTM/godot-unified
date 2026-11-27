@@ -80,14 +80,14 @@ public_commands :: proc() -> []Command {
 		},
 		{
 			name    = "drive",
-			summary = "drive a running game through its control socket: start it, press actions, step, query state, screenshots, menus (an agent plays it)",
+			summary = "drive a running game through its control socket: start it, press actions, step, query state, screenshots, menus, F3 notes (an agent plays it)",
 			options = option_types(Drive_Opts),
 			details = drive_details,
 			run     = cmd_drive,
 		},
 		{
 			name    = "feedback",
-			summary = "the notes a dev build saved (F3, a freeze) in the game's user data: list the open ones (--done: the handled), show one with its screenshot and the commands that replay it, mark notes done (moved to feedback/done/)",
+			summary = "the notes a dev build saved (F3, a freeze) in the game's user data: list the open ones (--done: the handled), show one with its screenshot and the commands that replay it, mark notes done (moved to feedback/done/); --instance: a drive instance's",
 			options = option_forms(
 				{"", Feedback_List_Opts},
 				{"show", Feedback_Show_Opts},

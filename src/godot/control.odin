@@ -416,6 +416,19 @@ when DEVUI {
 			client.text = strings.clone(args[0])
 			client.wait = .Shot // the next frame: what this one draws
 			return false
+		case "note":
+			if !want(args[:], 2, 2) || (args[0] != "note" && args[0] != "bug") do break
+			dir, problem := dev_save_note(args[1], args[0] == "bug")
+			if problem != "" do return control_reply(client, control_error("%s", problem))
+			reply = control_ok(
+				session,
+				fmt.tprintf(
+					`,"folder":%s,"screenshot":%v,"recording":%v`,
+					quoted(dir),
+					os.is_file(fmt.tprintf("%s/screenshot.png", dir)),
+					os.is_file(fmt.tprintf("%s/inputs.unil", dir)),
+				),
+			)
 		case "ui":
 			if !want(args[:], 0, 0) do break
 			reply = control_ui(session)

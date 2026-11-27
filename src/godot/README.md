@@ -355,6 +355,9 @@ and its reply, a JSON line each; `uni drive -h` lists the verbs.
   screenshot of the next drawn frame, a click's three frames of mouse events) keeps its connection until it is
   answered or times out. While the socket is open the session thread copies the newest state for every Frame (as
   for the Inspector), so a state query never waits for one.
+- **Notes.** `note` saves an F3 note as a player's F3 and send would (`devui.note_save`: the frame shown as its
+  screenshot, none headless; the moment; the session's recording through the same `on_feedback`), so a note an agent
+  makes is the note a player makes, read back and replayed the same way.
 - **What it reads.** State, session data and constants as JSON by RTTI (`sim.value_json`: a table by its live items,
   a player by its key, sim units); the event states the session delivered, kept in a ring with a serial per state;
   the visible controls with a text or a press, the dev UI's left out; a GDScript expression (Godot's `Expression`) on

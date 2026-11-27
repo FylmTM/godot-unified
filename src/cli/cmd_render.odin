@@ -328,6 +328,18 @@ render_clip_line :: proc(output: string) -> (clip: Render_Clip, found: bool) {
 	return
 }
 
+// Whether a game can open a window here: always on Windows and macOS, on Linux with an X or Wayland display (CI's Linux
+// has none).
+has_display :: proc() -> bool {
+	when ODIN_OS == .Linux {
+		return(
+			os.get_env("DISPLAY", context.temp_allocator) != "" ||
+			os.get_env("WAYLAND_DISPLAY", context.temp_allocator) != "" \
+		)
+	}
+	return true
+}
+
 // The size of a file in bytes (0: none).
 @(private)
 file_size :: proc(path: string) -> i64 {
@@ -556,12 +568,7 @@ RENDER_CHECK_FPS :: 15
 // didn't run: no replay regression, or no display to open a window on (Linux without DISPLAY or WAYLAND_DISPLAY).
 render_check :: proc(game: Game) -> (ok: bool, skipped: string) {
 	if !has_extension(game) do return false, "no extension"
-	when ODIN_OS == .Linux {
-		if os.get_env("DISPLAY", context.temp_allocator) == "" &&
-		   os.get_env("WAYLAND_DISPLAY", context.temp_allocator) == "" {
-			return false, "no display"
-		}
-	}
+	if !has_display() do return false, "no display"
 	entries, _ := os.read_all_directory_by_path(join(game.dir, REPLAYS_DIR), context.allocator)
 	folders: [dynamic]string
 	for entry in entries {

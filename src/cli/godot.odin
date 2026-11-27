@@ -534,11 +534,17 @@ script_header :: proc(text: string) -> (class_name, extends: string) {
 }
 
 // The environment of a game run that must never touch the developer's own data (the godot suite's runs, tool
-// scripts, `drive`, `coop`): Godot's user data directory, so the game's user:// (saves, settings, the LAN token), moved
+// scripts, `coop`): Godot's user data directory, so the game's user:// (saves, settings, the LAN token), moved
 // into the project's .out/user/, kept from run to run (a whole godot suite run clears it first); `extra` overrides on
-// top. `run` and `editor` keep the real one: they are the developer's own.
+// top. `run` and `editor` keep the real one: they are the developer's own; a `drive` instance has its own
+// (user_env_in, drive_user_base).
 user_env :: proc(dir: string, extra: ..string) -> []string {
-	home := user_base(dir)
+	return user_env_in(user_base(dir), ..extra)
+}
+
+// user_env's environment with Godot's user data directory under `home` (made if missing) instead of the project's
+// .out/user/.
+user_env_in :: proc(home: string, extra: ..string) -> []string {
 	make_dirs(home)
 	overrides: [dynamic]string
 	when ODIN_OS == .Windows {

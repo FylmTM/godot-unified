@@ -388,9 +388,7 @@ build_note :: proc() {
 @(private)
 note_open :: proc() {
 	note := &s.note
-	tex: gd.Ref(gd.ViewportTexture) = gd.Viewport_get_texture(s.root)
-	defer gd.unref(tex)
-	img := gd.Texture2D_get_image(tex)
+	img := note_capture()
 	if img.ptr == nil do return
 	note_discard()
 	note.shot = img
@@ -406,6 +404,27 @@ note_open :: proc() {
 	gd.Object_call_deferred(note.text, "grab_focus")
 }
 
+// The frame as the window shows it now (the caller unrefs it), or nil: none to read (a headless game draws nothing).
+@(private)
+note_capture :: proc() -> gd.Ref(gd.Image) {
+	if gd.DisplayServer_get_name(gd.DisplayServer_singleton()) == "headless" do return {}
+	tex: gd.Ref(gd.ViewportTexture) = gd.Viewport_get_texture(s.root)
+	defer gd.unref(tex)
+	return gd.Texture2D_get_image(tex)
+}
+
+// Saves a note as a player's F3 and send would, with no one typing it: the frame shown now as its screenshot (none in
+// a headless game), on_note_open's moment, `text` with the bug tag or not, then on_feedback (the host's recording).
+// Returns the note's folder (temp allocated), or "" when it could not be written (the log says why) or init has not
+// run. The note panel, open or not, is left as it is.
+note_save :: proc(text: string, tag_bug: bool) -> string {
+	if !s.inited do return ""
+	shot := note_capture()
+	defer if shot.ptr != nil do gd.unref(shot)
+	if s.on_note_open != nil do s.on_note_open()
+	return note_write(text, tag_bug, shot)
+}
+
 // The note's screenshot, dropped (the note was closed without sending, or a new one replaces it).
 @(private)
 note_discard :: proc() {
@@ -419,13 +438,24 @@ note_shutdown :: proc() {
 	if s.note.tex.ptr != nil do gd.unref(s.note.tex)
 }
 
-// Writes `<feedback dir>/<local time>[-n]/` with screenshot.png and note.txt, then calls on_feedback (the host adds
-// its own files there).
+// The note panel's send: its text and tag written with the screenshot taken when it opened (note_write), the panel
+// cleared and closed.
 @(private)
 note_send :: proc() {
 	note := &s.note
 	text := gd.TextEdit_get_text(note.text)
 	tag_bug := gd.BaseButton_is_pressed(note.tag_bug)
+	if note_write(text, tag_bug, note.shot) == "" do return
+	note.sent += 1
+	gd.Label_set_text(note.sent_l, fmt.tprintf("sent %d", note.sent))
+	gd.TextEdit_set_text(note.text, "")
+	panel_open(.Note, false) // drops the screenshot
+}
+
+// Writes `<feedback dir>/<local time>[-n]/` with screenshot.png (`shot`, when there is one) and note.txt, then calls
+// on_feedback (the host adds its own files there). Returns the folder (temp allocated), "" when it was not made.
+@(private)
+note_write :: proc(text: string, tag_bug: bool, shot: gd.Ref(gd.Image)) -> string {
 	// "2026-11-16T15:30:12" (local time) -> 20261116-153012; a second note within the second gets -2, -3, ...
 	stamp, _ := strings.replace_all(
 		gd.Time_get_datetime_string_from_system(gd.Time_singleton()),
@@ -439,11 +469,11 @@ note_send :: proc() {
 	for n := 2; os.exists(dir); n += 1 do dir = fmt.tprintf("%s/%s-%d", s.feedback_dir, stamp, n)
 	if err := os.make_directory_all(dir); err != nil {
 		gd.print_error(fmt.tprintf("devui: cannot create %s: %v", dir, err))
-		return
+		return ""
 	}
 	body := fmt.tprintf("%s\n%s", tag_bug ? "[bug]" : "[note]", text)
-	if note.shot.ptr != nil {
-		if err := gd.Image_save_png(note.shot, fmt.tprintf("%s/screenshot.png", dir)); err != .OK {
+	if shot.ptr != nil {
+		if err := gd.Image_save_png(shot, fmt.tprintf("%s/screenshot.png", dir)); err != .OK {
 			gd.print_error(fmt.tprintf("devui: the screenshot of %s was not saved: %v", dir, err))
 			body = fmt.tprintf("%s\n[screenshot not saved: %v]", body, err)
 		}
@@ -451,8 +481,5 @@ note_send :: proc() {
 	_ = os.write_entire_file(fmt.tprintf("%s/note.txt", dir), transmute([]u8)body)
 	if s.on_feedback != nil do s.on_feedback(dir, tag_bug)
 	gd.print(fmt.tprintf("devui: feedback saved to %s", dir))
-	note.sent += 1
-	gd.Label_set_text(note.sent_l, fmt.tprintf("sent %d", note.sent))
-	gd.TextEdit_set_text(note.text, "")
-	panel_open(.Note, false) // drops the screenshot
+	return dir
 }

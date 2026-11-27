@@ -25,25 +25,29 @@ Feedback_Note :: struct {
 	recording:  bool, // it holds inputs.unil (and the snapshot.unis it continues), so it replays
 	tick:       u32, // the tick shown when it was sent (a freeze: the one being stepped)
 	version:    string, // the game's version (note.json; "" for a freeze)
+	game:       string, // the name of the game (sim.Game.name: which of its variants) that recorded it (note.json; "": unknown)
 	about:      string, // note.json's or freeze.json's text: tick, verified tick, net stats, zones ("": none)
 }
 
 @(private)
 Feedback_List_Opts :: struct {
-	game: string `args:"pos=0" usage:"the game (default: the only one)"`,
-	done: bool `usage:"the handled notes (in feedback/done/) instead of the open ones"`,
+	game:     string `args:"pos=0" usage:"the game (default: the only one)"`,
+	done:     bool `usage:"the handled notes (in feedback/done/) instead of the open ones"`,
+	instance: string `hint:"name" usage:"a drive instance's notes (its own user data, .out/user/<name>/ in the game: what uni drive note saved) instead of the developer's"`,
 }
 
 @(private)
 Feedback_Show_Opts :: struct {
-	note: string `args:"pos=0,required" hint:"note" usage:"show: the note's folder name, as the list prints it (an open or a handled one)"`,
-	game: string `args:"pos=1" usage:"the game (default: the only one)"`,
+	note:     string `args:"pos=0,required" hint:"note" usage:"show: the note's folder name, as the list prints it (an open or a handled one)"`,
+	game:     string `args:"pos=1" usage:"the game (default: the only one)"`,
+	instance: string `hint:"name" usage:"show: a drive instance's note instead of the developer's"`,
 }
 
 @(private)
 Feedback_Done_Opts :: struct {
-	notes: string `args:"pos=0,required" hint:"note,..." usage:"done: the notes handled, comma-separated: moved to feedback/done/, never deleted"`,
-	game:  string `args:"pos=1" usage:"the game (default: the only one)"`,
+	notes:    string `args:"pos=0,required" hint:"note,..." usage:"done: the notes handled, comma-separated: moved to feedback/done/, never deleted"`,
+	game:     string `args:"pos=1" usage:"the game (default: the only one)"`,
+	instance: string `hint:"name" usage:"done: a drive instance's notes instead of the developer's"`,
 }
 
 // `feedback -h`'s details: what a note holds and what to do with one.
@@ -52,8 +56,9 @@ feedback_details :: proc() -> string {
 	return(
 		"A dev UI build writes a note when the player presses F3 and sends it, and the watchdog a freeze-<time> folder\n" +
 		"when the session thread stops stepping, both into the game's Godot user data (the developer's own: `run` and\n" +
-		"`editor` use it, a driven or checked run has its own under .out/user/). A note holds note.txt, screenshot.png,\n" +
-		"note.json and the session's recording (snapshot.unis, inputs.unil); `show` prints the commands that replay it.\n" +
+		"`editor` use it; a check's is .out/user/ in the game, a drive instance's .out/user/<name>/, which --instance\n" +
+		"<name> reads: what `uni drive note` saved). A note holds note.txt, screenshot.png, note.json and the session's\n" +
+		"recording (snapshot.unis, inputs.unil); `show` prints the commands that replay it.\n" +
 		"The unified-feedback skill is how an agent handles them." \
 	)
 }
@@ -63,32 +68,76 @@ cmd_feedback :: proc(args: []string) -> Result {
 	if len(args) > 0 && args[0] == "show" {
 		opts: Feedback_Show_Opts
 		parse(&opts, args[1:])
-		selected := game(opts.game)
-		feedback := join(game_user_dir(selected.dir), FEEDBACK_DIR)
-		note, ok := feedback_read(join(feedback, opts.note))
-		if !ok do note, ok = feedback_read(join(feedback, FEEDBACK_DONE_DIR, opts.note))
-		if !ok do fatal("no note %q in %s (uni feedback lists them)", opts.note, feedback)
-		return {ok = true, summary = feedback_show_text(selected, note), data = box(note)}
+		return feedback_show(opts)
 	}
 	if len(args) > 0 && args[0] == "done" {
 		opts: Feedback_Done_Opts
 		parse(&opts, args[1:])
-		feedback := join(game_user_dir(game(opts.game).dir), FEEDBACK_DIR)
-		moved, problem := feedback_mark_done(feedback, split_list(opts.notes))
-		if problem != "" do fatal("%s", problem)
-		return {
-			ok      = true,
-			summary = aprintf("moved %s to %s", strings.join(moved, ", "), join(feedback, FEEDBACK_DONE_DIR)),
-			data    = box(moved),
-		}
+		return feedback_done(opts)
 	}
 	opts: Feedback_List_Opts
 	parse(&opts, args)
+	return feedback_open(opts)
+}
+
+// `feedback`: the notes of the game (or of the drive instance it names), open or handled, newest first.
+@(private)
+feedback_open :: proc(opts: Feedback_List_Opts) -> Result {
 	selected := game(opts.game)
-	dir := join(game_user_dir(selected.dir), FEEDBACK_DIR)
+	dir := feedback_dir_of(selected, opts.instance)
 	if opts.done do dir = join(dir, FEEDBACK_DONE_DIR)
 	notes := feedback_list(dir)
-	return {ok = true, summary = feedback_list_text(selected, dir, notes, opts.done), data = box(notes)}
+	return {ok = true, summary = feedback_list_text(selected, dir, notes, opts.done, opts.instance), data = box(notes)}
+}
+
+// `feedback show`: one note, open or handled, with the commands that replay it; a name that is none stops the command.
+@(private)
+feedback_show :: proc(opts: Feedback_Show_Opts) -> Result {
+	selected := game(opts.game)
+	feedback := feedback_dir_of(selected, opts.instance)
+	note, ok := feedback_read(join(feedback, opts.note))
+	if !ok do note, ok = feedback_read(join(feedback, FEEDBACK_DONE_DIR, opts.note))
+	if !ok do fatal("no note %q in %s (uni feedback lists them)", opts.note, feedback)
+	return {ok = true, summary = feedback_show_text(selected, note), data = box(note)}
+}
+
+// `feedback done`: the notes named moved to the handled ones (feedback_mark_done); a problem stops the command.
+@(private)
+feedback_done :: proc(opts: Feedback_Done_Opts) -> Result {
+	feedback := feedback_dir_of(game(opts.game), opts.instance)
+	moved, problem := feedback_mark_done(feedback, split_list(opts.notes))
+	if problem != "" do fatal("%s", problem)
+	return {
+		ok      = true,
+		summary = aprintf("moved %s to %s", strings.join(moved, ", "), join(feedback, FEEDBACK_DONE_DIR)),
+		data    = box(moved),
+	}
+}
+
+// The feedback directory `feedback` reads: the developer's (`instance` ""), or that drive instance's; a name that
+// can't be an instance's, or an instance that never ran, stops the command.
+@(private)
+feedback_dir_of :: proc(selected: Game, instance: string) -> string {
+	if instance != "" {
+		if !replay_name_ok(instance) do usage("--instance %q: a drive instance's name (letters, digits, _ and -)", instance)
+		if base := drive_user_base(selected.dir, instance); !os.is_directory(base) {
+			fatal(
+				"%s has no drive instance %q: no user data in %s (uni drive start --name %s)",
+				selected.name,
+				instance,
+				base,
+				instance,
+			)
+		}
+	}
+	return feedback_dir(selected.dir, instance)
+}
+
+// The feedback directory of the game in `game_dir`: in the developer's own user data (the one `run` and the editor
+// use) when `instance` is "", else in that drive instance's (drive_user_base).
+feedback_dir :: proc(game_dir: string, instance: string) -> string {
+	if instance == "" do return join(game_user_dir(game_dir), FEEDBACK_DIR)
+	return join(game_user_dir(game_dir, drive_user_base(game_dir, instance)), FEEDBACK_DIR)
 }
 
 // Every note in `dir` (a game's feedback directory, or its done/), newest first; a folder that holds none of a
@@ -122,6 +171,7 @@ feedback_read :: proc(dir: string) -> (note: Feedback_Note, ok: bool) {
 	About :: struct {
 		tick:    u32,
 		version: string,
+		game:    string,
 		in_fill: bool,
 		zones:   []string,
 	}
@@ -137,7 +187,7 @@ feedback_read :: proc(dir: string) -> (note: Feedback_Note, ok: bool) {
 	if has_json {
 		note.about = strings.trim_space(json_text)
 		_ = json.unmarshal_string(json_text, &about)
-		note.tick, note.version = about.tick, about.version
+		note.tick, note.version, note.game = about.tick, about.version, about.game
 	}
 	if has_text {
 		// "[note]" or "[bug]", then what the player wrote
@@ -196,17 +246,24 @@ feedback_mark_done :: proc(feedback: string, names: []string) -> (moved: []strin
 
 // `feedback`'s list: a line per note, newest first.
 @(private)
-feedback_list_text :: proc(selected: Game, dir: string, notes: []Feedback_Note, done: bool) -> string {
+feedback_list_text :: proc(
+	selected: Game,
+	dir: string,
+	notes: []Feedback_Note,
+	done: bool,
+	instance: string,
+) -> string {
 	what := done ? "handled notes" : "open notes"
 	if len(notes) == 0 do return aprintf("no %s of %s in %s", what, selected.name, dir)
 	builder := strings.builder_make()
 	fmt.sbprintf(
 		&builder,
-		"%d %s of %s in %s, newest first (uni feedback show <note>):",
+		"%d %s of %s in %s, newest first (uni feedback show <note>%s):",
 		len(notes),
 		what,
 		selected.name,
 		dir,
+		instance != "" ? aprintf(" --instance %s", instance) : "",
 	)
 	for note in notes {
 		line, _, _ := strings.partition(note.text, "\n")
@@ -237,10 +294,14 @@ feedback_show_text :: proc(selected: Game, note: Feedback_Note) -> string {
 		name := len(state.project.games) > 1 ? aprintf(" %s", selected.name) : ""
 		snapshot := join(note.dir, "snapshot.unis")
 		snapshot_arg := os.is_file(snapshot) ? aprintf(" --snapshot \"%s\"", snapshot) : ""
+		// the variant that recorded it: a headless binary plays another by default (a stress tuning), whose build
+		// identity the log's is not
+		game_arg := note.game != "" ? aprintf(" --game %s", note.game) : ""
 		fmt.sbprintf(
 			&builder,
-			"\nreplay it headless (checked against its checkpoints): ./uni headless%s -- replay%s --log \"%s\"",
+			"\nreplay it headless (checked against its checkpoints): ./uni headless%s -- replay%s%s --log \"%s\"",
 			name,
+			game_arg,
 			snapshot_arg,
 			join(note.dir, "inputs.unil"),
 		)
@@ -249,6 +310,13 @@ feedback_show_text :: proc(selected: Game, note: Feedback_Note) -> string {
 			"\nwatch it in the game (paused on its tick; shot, state): ./uni drive%s start -- --replay \"%s\"",
 			name,
 			note.dir,
+		)
+		fmt.sbprintf(
+			&builder,
+			"\nkeep it as a replay regression: its inputs.unil%s copied into %s/, then ./uni test%s --bless",
+			snapshot_arg != "" ? " and snapshot.unis" : "",
+			replay_folder(selected.dir, "<name>"),
+			name,
 		)
 	} else {
 		fmt.sbprintf(&builder, "\nno recording: it doesn't replay")

@@ -33,4 +33,5 @@ playtest (F3 notes are how they report a problem); a public build turns it off. 
   it and shown in the note, and `on_note_open` lets the host note the moment (the tick the note is about, not the one
   it is sent at); closing without sending drops it. Enter sends: the note is written into a new directory
   under `<user data>/feedback/`, then `on_feedback` lets the host add the session's recording, so the note replays
-  (`src/godot/README.md`, How it works). Notes are a local tool: nothing is sent anywhere.
+  (`src/godot/README.md`, How it works). `note_save` writes one the same way with no one typing it (the host's
+  control socket). Notes are a local tool: nothing is sent anywhere.

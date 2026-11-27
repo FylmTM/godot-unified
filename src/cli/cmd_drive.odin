@@ -1,6 +1,7 @@
 // `uni drive`: an agent drives a running game through its control socket (src/godot/README.md, The control socket).
 // `start` launches the game with `--control` as a named instance, every other verb is one request to it, and `stop`
-// quits it and judges its log. An instance's record is examples/<game>/.out/drive/<name>.json.
+// quits it and judges its log. An instance's record is examples/<game>/.out/drive/<name>.json, its Godot user data
+// (saves, settings, recordings, F3 notes) examples/<game>/.out/user/<name>/ (drive_user_base).
 package cli
 
 import "core:encoding/json"
@@ -21,11 +22,12 @@ DRIVE_STOP_TIMEOUT :: 20 * time.Second
 
 @(private)
 Drive_Opts :: struct {
-	name:     string `usage:"the instance (start: default the first free number; any other verb: default the only one running)"`,
+	name:     string `usage:"the instance: letters, digits, _ and - (start: default the first free number; any other verb: default the only one running)"`,
 	headless: bool `usage:"start: no window (shot then fails); default: a window, muted, in the top-left corner of the leftmost screen, never taking focus"`,
 	strength: f64 `usage:"press: the action's strength (default 1)"`,
 	timeout:  f64 `usage:"seconds a waiting verb (pause, step, press for ticks, wait, shot, click) waits (default 10; for n ticks: 10 beyond twice their time)"`,
 	all:      bool `usage:"events: every event state kept, not only those since the last events"`,
+	bug:      bool `usage:"note: sent with the bug tag, as a player's F3 note with bug ticked"`,
 	overflow: [dynamic]string `hint:"[game] <verb> [args] [-- game args]" usage:"the game (default: the only one, or the only one with an instance), the verb and its arguments (below); start: the game's own arguments after --"`,
 }
 
@@ -79,9 +81,13 @@ drive_details :: proc() -> string {
 		"                           /root/Main/Start or root/Main/Start (what Git Bash makes of a leading / is undone)\n" +
 		"  eval <expression>        a GDScript expression on the current scene (session, tree, root, scene, Input, Engine): its value\n" +
 		"                           (its double quotes survive bash, PowerShell 5.1 and cmd alike; 'single' quotes work too)\n" +
+		"  note <text>              save an F3 note as a player's F3 and send would (--bug: with the bug tag): the text,\n" +
+		"                           the window's frame as its screenshot (none headless), the session's recording so far;\n" +
+		"                           prints its folder and the `uni feedback show` that reads it back (with its replays)\n" +
 		"Input goes through the game's own sampling and commands through the session's queue, so a driven session\n" +
 		"is a session like any other: deterministic, recorded, replayable. A paused session steps exactly; a running\n" +
-		"one moves on its own clock between verbs." \
+		"one moves on its own clock between verbs. An instance's Godot user data (saves, settings, recordings, notes) is\n" +
+		"its own, .out/user/<name>/ in the game, kept from run to run: `uni feedback --instance <name>` reads its notes." \
 	)
 }
 
@@ -157,6 +163,9 @@ cmd_drive :: proc(args: []string) -> Result {
 		if len(verb_args) == 1 do request.args = strs(node_path_unmangled(verb_args[0]))
 	case "eval":
 		request.args = strs(eval_expression(verb_args, raw_command_line()))
+	case "note":
+		if len(verb_args) == 0 do usage("note takes the note's text")
+		request.args = strs(opts.bug ? "bug" : "note", strings.join(verb_args, " "))
 	case "shot":
 		if len(verb_args) == 0 {
 			instance.shots += 1
@@ -182,7 +191,19 @@ cmd_drive :: proc(args: []string) -> Result {
 	}
 	drive_save(selected, instance)
 	replied_ok, _ := object["ok"].(json.Boolean)
+	if folder, has := object["folder"].(json.String); verb == "note" && replied_ok && has {
+		// what reads it back: the instance's own user data, not the developer's
+		reply = aprintf(`%s,"show":%q}`, strings.trim_suffix(reply, "}"), drive_note_show(selected, instance, folder))
+	}
 	return {ok = bool(replied_ok), summary = reply, data = box(value)}
+}
+
+// The `uni feedback show` that reads back a note the instance saved into `folder`.
+@(private)
+drive_note_show :: proc(game: Game, instance: Drive_Instance, folder: string) -> string {
+	game_word := len(state.project.games) > 1 ? aprintf(" %s", game.name) : ""
+	note := os.base(strings.trim_right(folder, "/\\"))
+	return aprintf("./uni feedback show %s%s --instance %s", note, game_word, instance.name)
 }
 
 // A request on the control socket (control.odin reads it).
@@ -234,6 +255,12 @@ drive_request :: proc(port: int, request: Drive_Request) -> (reply: string, ok: 
 @(private)
 drive_dir :: proc(game: Game) -> string {
 	return join(game.dir, ".out", "drive")
+}
+
+// Where the drive instance `name` of the game in `game_dir` keeps its Godot user data (user_env_in's home): its own,
+// beside the project's .out/user/ that checks and tool scripts share, so its notes and recordings are its alone.
+drive_user_base :: proc(game_dir, name: string) -> string {
+	return join(user_base(game_dir), name)
 }
 
 // The game's instance records, by name.
@@ -322,6 +349,7 @@ process_runs :: proc(pid: int, marker: string) -> bool {
 drive_start :: proc(game: Game, opts: Drive_Opts, game_args: []string) -> Result {
 	if !has_extension(game) do usage("%s has no extension to drive", game.name)
 	name := opts.name
+	if name != "" && !replay_name_ok(name) do usage("--name %q: an instance's name is letters, digits, _ and -", name)
 	taken := drive_instances(game)
 	for instance in taken {
 		if !instance_alive(game, instance) {
@@ -360,11 +388,13 @@ drive_start :: proc(game: Game, opts: Drive_Opts, game_args: []string) -> Result
 	// the game outlives this command: it must not hold our stdout open (a caller reading it to its end would wait
 	// for the game), so our stdio are not inherited while it starts
 	for file in ([]^os.File{os.stdin, os.stdout, os.stderr}) do set_inheritable(file, false)
-	process, err := spawn(
-		{command = cmd[:], env = user_env(game.dir), stdin = stdin, stdout = log_file, stderr = log_file},
-		stdin,
-		log_file,
-	)
+	process, err := spawn({
+			command = cmd[:],
+			env     = user_env_in(drive_user_base(game.dir, name)),
+			stdin   = stdin,
+			stdout  = log_file,
+			stderr  = log_file,
+		}, stdin, log_file)
 	for file in ([]^os.File{os.stdin, os.stdout, os.stderr}) do set_inheritable(file, true)
 	os.close(log_file)
 	if stdin != nil do os.close(stdin)
@@ -522,9 +552,10 @@ drive_failed :: proc(format: string, args: ..any) -> Result {
 // The godot suite's `drive` step: the game, headless with a single-player session at once, driven the way an agent
 // drives it: status, pause, exact steps, a timed press stepped while paused (an _unhandled_input handler sees it; the
 // action released after), the state, the sampled input, events, the menus' controls, a node found by its class, an
-// expression, a refused screenshot (no window), a resume and a wait on the session's own clock; its log clean until a
-// script with a parse error is loaded, which its log then names as `file:line` and which is all a stop finds. Quiet
-// unless it fails.
+// expression, a refused screenshot (no window), a resume and a wait on the session's own clock, a note saved and read
+// back (drive_check_note); its log clean until a script with a parse error is loaded, which its log then names as
+// `file:line` and which is all a stop finds. Then, where there is a display, the game in a window (drive_check_window).
+// Quiet unless it fails.
 drive_check :: proc(game: Game) -> bool {
 	NAME :: "suite-check"
 	if instance, ok := drive_find(game, NAME); ok && instance_alive(game, instance) {
@@ -642,6 +673,7 @@ func _unhandled_input(event: InputEvent) -> void:
 			waited,
 		)
 	}
+	drive_check_note(game, &instance, &failed)
 	// a clean log so far; then a script with a parse error loaded: status names it (drive_script_errors), and it is
 	// all stop finds
 	log_text, _ := read_text(instance.log)
@@ -671,6 +703,48 @@ func _unhandled_input(event: InputEvent) -> void:
 	check(&failed, len(problems) > 0, "stop found no problem with the broken script: %s", stopped.summary)
 	if failed != "" {
 		log("uni: %s drive: %s", game.name, failed)
+		if text, ok := read_text(instance.log); ok do log("%s", tail(text, 3000))
+		return false
+	}
+	return !has_display() || drive_check_window(game)
+}
+
+// The drive step's windowed part: the game in a window as an agent's (AGENT_WINDOW), a running session's screenshot
+// and a note with its screenshot (drive_check_note), and a clean log at its stop.
+@(private)
+drive_check_window :: proc(game: Game) -> bool {
+	NAME :: "suite-check-window"
+	if instance, ok := drive_find(game, NAME); ok && instance_alive(game, instance) {
+		drive_stop(game, instance) // a run that was cut short left it
+	}
+	started := drive_start(game, {name = NAME}, {"--autostart"})
+	if !started.ok {
+		log("uni: %s drive (window): start: %s", game.name, started.summary)
+		return false
+	}
+	instance, _ := drive_find(game, NAME)
+	failed := ""
+	deadline := time.tick_add(time.tick_now(), 20 * time.Second)
+	for failed == "" {
+		reply, _ := drive_request(instance.port, {op = "status", timeout = 10})
+		if strings.contains(reply, `"running":true`) && !strings.contains(reply, `"tick":0,`) do break
+		if time.tick_diff(deadline, time.tick_now()) > 0 do failed = aprintf("the session never ran: %s", reply)
+		time.sleep(50 * time.Millisecond)
+	}
+	if failed == "" {
+		shot := join(drive_dir(game), NAME + ".png")
+		os.remove(shot)
+		reply, _ := drive_request(instance.port, {op = "shot", args = {shot}, timeout = 10})
+		width, height := png_size(shot)
+		if !strings.has_prefix(reply, `{"ok":true`) || width == 0 || height == 0 {
+			failed = aprintf("shot: %s (a PNG of %dx%d)", reply, width, height)
+		}
+	}
+	drive_check_note(game, &instance, &failed)
+	stopped := drive_stop(game, instance)
+	if failed == "" && !stopped.ok do failed = aprintf("stop: %s", stopped.summary)
+	if failed != "" {
+		log("uni: %s drive (window): %s", game.name, failed)
 		if text, ok := read_text(instance.log); ok do log("%s", tail(text, 3000))
 	}
 	return failed == ""
@@ -757,6 +831,68 @@ drive_check_values :: proc(instance: ^Drive_Instance, failed: ^string) {
 	if ok, _ := cleared["ok"].(json.Boolean); (!ok || len(held_after) != 0) && failed^ == "" {
 		failed^ = aprintf("values clear: %s", reply_cleared)
 	}
+}
+
+// The drive step's `note` (a running session): a bug note saved as a player's F3 would, into the instance's own user
+// data, with its text, tag and the session's recording (a screenshot only from a window: none headless); `feedback
+// --instance` lists it and shows it with its replay, and `done` moves it to the handled ones.
+@(private)
+drive_check_note :: proc(game: Game, instance: ^Drive_Instance, failed: ^string) {
+	if failed^ != "" do return
+	TEXT :: "a note the drive step saved"
+	reply, reached := drive_request(instance.port, {op = "note", args = {"bug", TEXT}, timeout = 10})
+	value, _ := json.parse_string(reply)
+	object, _ := value.(json.Object)
+	replied_ok, _ := object["ok"].(json.Boolean)
+	folder, _ := object["folder"].(json.String)
+	if !reached || !replied_ok || folder == "" {
+		failed^ = aprintf("note: %s", reply)
+		return
+	}
+	shot, _ := object["screenshot"].(json.Boolean)
+	recorded, _ := object["recording"].(json.Boolean)
+	windowed := !instance.headless
+	if bool(shot) != windowed || !recorded {
+		failed^ = aprintf("note: a screenshot %v (a window: %v), a recording %v: %s", shot, windowed, recorded, reply)
+		return
+	}
+	name := os.base(strings.trim_right(string(folder), "/\\"))
+	for file in ([]string{"note.txt", "note.json", REPLAY_INPUTS, REPLAY_SNAPSHOT}) {
+		if !os.is_file(join(string(folder), file)) {
+			failed^ = aprintf("note: %s holds no %s", folder, file)
+			return
+		}
+	}
+	// read back as an agent reads it: `feedback --instance <name>`, the instance's user data, not the developer's
+	listed := feedback_open({game = game.name, instance = instance.name})
+	notes, _ := listed.data.([]Feedback_Note)
+	found := -1
+	for note, i in notes do if note.name == name do found = i
+	if found < 0 {
+		failed^ = aprintf("feedback --instance %s does not list %s: %s", instance.name, name, listed.summary)
+		return
+	}
+	note := notes[found]
+	if note.kind != "bug" || note.text != TEXT || !note.recording || (note.screenshot != "") != windowed {
+		failed^ = aprintf("feedback --instance %s read %s as %v", instance.name, name, note)
+		return
+	}
+	shown := feedback_show({note = name, game = game.name, instance = instance.name})
+	replays :=
+		strings.contains(shown.summary, "replay it headless") &&
+		strings.contains(shown.summary, aprintf(" --game %s", note.game)) &&
+		strings.contains(shown.summary, "replay regression")
+	if note.game == "" || !replays {
+		failed^ = aprintf("feedback show %s --instance %s prints no replay: %s", name, instance.name, shown.summary)
+		return
+	}
+	feedback_done({notes = name, game = game.name, instance = instance.name})
+	still_open, _ := feedback_open({game = game.name, instance = instance.name}).data.([]Feedback_Note)
+	handled, _ := feedback_open({game = game.name, instance = instance.name, done = true}).data.([]Feedback_Note)
+	moved := false
+	for entry in handled do if entry.name == name do moved = true
+	for entry in still_open do if entry.name == name do moved = false
+	if !moved do failed^ = aprintf("feedback done %s: not moved to the handled notes", name)
 }
 
 // The instance record `name`, if there is one.

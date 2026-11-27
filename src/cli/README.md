@@ -165,8 +165,10 @@ on PATH, and exits at once without it; any debugger that reads PDBs works there 
 project's own Godot suites, tool scripts, `tool`, `bake`, `drive`, `coop`'s host and joiners, `view-bench`) gets the
 project's own user data directory, `.out/user/` (`user_env`): the game's `user://` (a save, its settings, the LAN
 token: each running copy claims its own) is there, kept between such runs, cleared when the godot suite starts a whole
-run of a game, and with `.out/`. `run` and `editor` are the developer's own, with the real one: an agent play-checks
-with `drive`.
+run of a game, and with `.out/`. A `drive` instance has its own beside it, `.out/user/<name>/`, so what it saves (a
+session's recording, an F3 note `drive note` makes) is its alone and `feedback --instance <name>` reads it back: an
+agent makes a note and turns it into a replay regression without a person. `run` and `editor` are the developer's own,
+with the real one: an agent play-checks with `drive`.
 
 Benchmarks are no suite: `bench` runs each game's standard benchmarks (a row each) and its sessions on the virtual
 clock, plus the project's own rows, into `.out/bench.json`, reported and never gated by time (`uni bench -h`,
