@@ -204,6 +204,7 @@ a_recording_from_a_snapshot_reproduces :: proc(t: ^testing.T) {
 	testing.expect(t, diverging.synctest.mismatches > 0, "the sync-test catches the re-simulation")
 	testing.expect_value(t, diverging.synctest.first_tick, 150)
 	testing.expect_value(t, diverging.synctest.first_at, 150)
+	testing.expect_value(t, diverging.synctest.first_diff, "spawned 8 vs 9") // the forward run's, then the re-simulation's
 	changed := toy.GAME
 	changed.tick = spawns_more
 	testing.expect_value(t, headless.regression_run(&changed, folder).diverged_tick, 150)

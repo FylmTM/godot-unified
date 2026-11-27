@@ -97,12 +97,13 @@ rollback_every_tick :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 	testing.expectf(
 		t,
 		result.mismatches == 0,
-		"rollback_every_tick (window %d; %s): %d mismatches; first: tick %d re-simulated differently at tick %d",
+		"rollback_every_tick (window %d; %s): %d mismatches; first: tick %d re-simulated differently at tick %d: %s",
 		window,
 		params(suite),
 		result.mismatches,
 		result.first_tick,
 		result.first_at,
+		result.first_diff,
 	)
 	testing.expectf(
 		t,
@@ -135,10 +136,11 @@ expect_synced :: proc(t: ^testing.T, run: ^headless.Run($G), loc := #caller_loca
 	synced := testing.expectf(
 		t,
 		run.mismatches == 0,
-		"%d mismatches; first: tick %d re-simulated differently at tick %d",
+		"%d mismatches; first: tick %d re-simulated differently at tick %d: %s",
 		run.mismatches,
 		run.first_tick,
 		run.first_at,
+		run.first_diff,
 		loc = loc,
 	)
 	agreed := testing.expectf(t, run.check == "", "after restoring tick %d: %s", run.check_tick, run.check, loc = loc)
@@ -188,11 +190,12 @@ replays_reproduce :: proc(t: ^testing.T, game: ^$G, dir: string) {
 		testing.expectf(
 			t,
 			synctest.mismatches == 0,
-			"replays_reproduce (sync-tested): %s: %d mismatches; first: tick %d re-simulated differently at tick %d",
+			"replays_reproduce (sync-tested): %s: %d mismatches; first: tick %d re-simulated differently at tick %d: %s",
 			name,
 			synctest.mismatches,
 			synctest.first_tick,
 			synctest.first_at,
+			synctest.first_diff,
 		)
 		testing.expectf(
 			t,
@@ -243,11 +246,12 @@ presence_churn :: proc(t: ^testing.T, suite: ^Suite($G), window: u32 = 8) {
 	testing.expectf(
 		t,
 		result.mismatches == 0,
-		"%s: %d mismatches; first: tick %d re-simulated differently at tick %d",
+		"%s: %d mismatches; first: tick %d re-simulated differently at tick %d: %s",
 		what,
 		result.mismatches,
 		result.first_tick,
 		result.first_at,
+		result.first_diff,
 	)
 	testing.expectf(t, result.check == "", "%s: after restoring tick %d: %s", what, result.check_tick, result.check)
 	testing.expectf(t, result.problem == "", "%s: %s", what, result.problem)

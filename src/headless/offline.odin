@@ -351,6 +351,11 @@ Synctest_Result :: struct {
 	final_checksum: u64, // the last forward tick's
 	first_tick:     u32, // the first mismatching tick (0: none)
 	first_at:       u32, // the tick whose rollback re-simulated it differently
+	// What the first mismatch computed differently ("": no mismatch; temp-allocated): the first State field (in field
+	// order) the re-simulated block differs in from the forward run's, "path forward vs re-simulated"
+	// ("heroes[2].warp 0 vs 1", then how many more fields differ), else why there is none (the block agreed: the
+	// Extra or the tick's events differed; the tick could not be restored).
+	first_diff:     string,
 	check:          string, // the first problem sim.block_violation or sim.check_extra found after a restore ("": none; temp-allocated)
 	check_tick:     u32, // the tick it was restored to
 	// The first other problem ("": none; temp-allocated): a NaN in the state block after a forward tick (sim.find_nan),
@@ -566,6 +571,7 @@ run_step_inputs :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
 	if !sim.restore(simulation, from) {
 		if run.mismatches == 0 {
 			run.first_tick, run.first_at = from, tick
+			run.first_diff = "the ring no longer held the tick to restore"
 		}
 		run.mismatches += 1
 		return
@@ -578,7 +584,9 @@ run_step_inputs :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
 	sim.dev_enable(simulation, max(u64))
 	defer sim.dev_enable(simulation, 0)
 	for resim in from + 1 ..= tick {
-		sim.step(simulation, &run.recorded[resim - run.start])
+		// Saved after the comparison: until then the tick's ring slot still holds the block its forward step saved
+		// (or a re-simulation's of it, which matched: the same bytes), for the first mismatch's field diff.
+		sim.step(simulation, &run.recorded[resim - run.start], save = false)
 		run.resimulated += 1
 		events := sim.events_diff(
 			sim.events_at(simulation, resim),
@@ -591,10 +599,27 @@ run_step_inputs :: proc(run: ^Run($G), inputs: ^sim.Inputs(G)) {
 		if sim.checksum(simulation) != run.forward[resim - run.start] || events != "" {
 			if run.mismatches == 0 {
 				run.first_tick, run.first_at = resim, tick
+				forward := &simulation.ring[sim.ring_slot(simulation, resim)].state
+				run.first_diff = block_diff(type_info_of(sim.part(G, sim.GAME_STATE)), forward, &simulation.state)
 			}
 			run.mismatches += 1
 		}
+		sim.save(simulation)
 	}
+}
+
+// The first leaf field (in field order) of a State that differs between the forward block and the re-simulated one,
+// "path forward vs re-simulated", and how many more do; else that they agree (temp-allocated).
+@(private)
+block_diff :: proc(state: ^runtime.Type_Info, forward, resimulated: rawptr) -> string {
+	lines, total := sim.state_changes(state, forward, resimulated, 1)
+	switch total {
+	case 0:
+		return "the State agrees: the Extra or the tick's events differ"
+	case 1:
+		return lines[0]
+	}
+	return fmt.tprintf("%s (and %d more fields)", lines[0], total - 1)
 }
 
 // `member` (the relay's id; 0: nobody) holds `slot` from the next step on: run_inputs makes it present, with its join

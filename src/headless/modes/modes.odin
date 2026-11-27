@@ -287,7 +287,12 @@ mode_synctest :: proc(game: ^$G, args: ^Args) -> bool {
 	seed, players := check_seed(args, options.seed), options.players
 	result := uheadless.run_synctest(game, ticks, window, seed, players)
 	if result.mismatches > 0 {
-		fmt.eprintfln("synctest: tick %d re-simulated differently at %d", result.first_tick, result.first_at)
+		fmt.eprintfln(
+			"synctest: tick %d re-simulated differently at %d: %s",
+			result.first_tick,
+			result.first_at,
+			result.first_diff,
+		)
 	}
 	if result.check != "" {
 		fmt.eprintfln("synctest: after restoring tick %d: %s", result.check_tick, result.check)

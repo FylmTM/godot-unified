@@ -129,8 +129,8 @@ each time; the views show the newest guess and are told when it changes.
   `fill_frame`.
 - **A tap is lost or repeats.** A one-shot in `Input`, which prediction repeats and the relay replaces. Hold it in
   `buttons` and read `sim.buttons(t, player).pressed`, or send a command (`src/sim/README.md`, Input).
-- **Desync right after a rollback; the sync-test names a tick.** State outside the block: a World field the Extra
-  doesn't roll back, scratch kept across ticks (`src/sim/README.md`, World).
+- **Desync right after a rollback; the sync-test names a tick and a field.** State outside the block: a World field
+  the Extra doesn't roll back, scratch kept across ticks (`src/sim/README.md`, World).
 - **Desync only between different CPUs, or one CI platform fails the reference run.** A float trap: builtin
   `min`/`max` on floats, `core:math`, a NaN, an out-of-range float-to-int (`src/dmath/README.md`).
 - **Someone rejoins and gets another player's things.** Something keyed by slot: key it by `sim.Player`.
