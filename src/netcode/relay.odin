@@ -116,7 +116,7 @@ Relay_Member :: struct {
 	key:     string, // what recognizes them: "<platform>:<id>" of a vouched account, "token:<hex>", or "" (nothing)
 	entry:   Roster_Entry, // what the clients get (the account its link vouched for, never the token)
 	// Why the relay refused the connection they were last seated on (refuse_conn), until they are seated again: a
-	// resuming Hello of theirs (the refused program, back after its connection ended) is refused the same (on_hello).
+	// reconnect of theirs (the refused program, back after its connection ended) is refused the same (on_hello).
 	refused: Maybe(Reject_Reason),
 }
 
@@ -538,7 +538,7 @@ reject :: proc(relay: ^Relay($G), peer: Peer, why: Reject_Reason, now: i64, loca
 
 // Refuses a connection that is in already (its snapshot failed, it fell too far behind, it diverged): every seat it
 // held empties and it gets Reject, which it lingers for (REJECT_LINGER_US). Its members are marked refused, so if the
-// Reject never gets through and the client comes back resuming, it is refused the same (on_hello).
+// Reject never gets through and the client reconnects (Hello_Flags.Reconnect), it is refused the same (on_hello).
 @(private)
 refuse_conn :: proc(relay: ^Relay($G), peer: Peer, why: Reject_Reason, now: i64) {
 	for slot in relay.conns[peer].locals {
@@ -568,6 +568,8 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 		return
 	}
 	base := client_key(relay, peer, hello.token)
+	// The client's own reconnect, not a new try: it says so, and one that resumes a sim is one whatever it says.
+	reconnect := .Reconnect in hello.flags || hello.resume_tick != 0
 	known: [LOCAL_MAX]int
 	// Newest wins: a person still seated who connects again (a restarted game) replaces their old connection, once
 	// the new one is accepted (its seats count as free until then). Newest by when each try's Hello went out, not by
@@ -578,13 +580,14 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 	new_members := 0
 	for &ask, i in asks {
 		known[i] = find_member(relay, member_key(base, ask.local))
-		if known[i] >= 0 && hello.resume_tick != 0 {
+		if known[i] >= 0 && reconnect {
 			// The program whose connection the relay refused, back after the Reject was lost (its connection ended
-			// before the Reject got through): the refusal stands. A Hello that resumes nothing is a new try (a restarted
-			// game, the menu's retry), a late joiner like any other.
+			// before the Reject got through): the refusal stands, whether it kept its sim or dropped it (it was
+			// checking a snapshot). A new try (a restarted game, the menu's retry: no Reconnect) is a late joiner like
+			// any other: its player saw the reason and chose to try again.
 			if why, refused := relay.members[known[i]].refused.?; refused {
 				reject(relay, peer, why, now)
-				log.infof("member %d: refused earlier (%v), its resuming Hello too", known[i] + 1, why)
+				log.infof("member %d: refused earlier (%v), its reconnect too", known[i] + 1, why)
 				return
 			}
 		}
@@ -598,11 +601,10 @@ on_hello :: proc(relay: ^Relay($G), peer: Peer, reader: ^wire.Reader, now: i64) 
 		}
 		if !relay.members[known[i]].entry.connected do continue
 		seated := relay.seats[relay.members[known[i]].entry.slot].conn
-		// A resuming Hello (one with a sim of its own: a lost connection's) never replaces a live one either: the same
-		// program's old connection ended before its new one says Hello (the channel ends a peer that starts over), so
-		// a live seat of the same person is another program's (one identity in two places: they would replace each
-		// other without end).
-		earlier := hello.sent_us < relay.conns[seated].hello_us || hello.resume_tick != 0
+		// A reconnect (a lost connection's) never replaces a live one either: the same program's old connection ended
+		// before its new one says Hello (the channel ends a peer that starts over), so a live seat of the same person
+		// is another program's (one identity in two places: they would replace each other without end).
+		earlier := hello.sent_us < relay.conns[seated].hello_us || reconnect
 		if earlier && channel_silence_us(relay.ch, seated, now) < SEATED_LIVE_US {
 			reject(relay, peer, .Newer_Connection, now)
 			log.infof("member %d: seated on a live connection already, refused", known[i] + 1)
