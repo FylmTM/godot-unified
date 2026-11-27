@@ -152,8 +152,31 @@ short_commit :: proc(dir: string) -> string {
 	return strings.trim_space(ran.stdout)
 }
 
+// The steps of one game's release, in the order release_build takes them (release_step stops one taken out of it).
+// The import cache is made (ensure_imported, the editor's own import, its output not read) before the import whose
+// error lines fail the release: a fresh checkout's first import loads the project's theme before the textures it
+// names are imported, and says so in ERROR lines.
+RELEASE_STEPS :: []string {
+	"game extension (release)",
+	"Godot + export templates",
+	"import cache",
+	"import",
+	"export",
+	"sign + zip",
+	"smoke test",
+}
+
+// The next of RELEASE_STEPS in this game's release.
+@(private)
+release_next: int
+
 @(private)
 release_step :: proc(name: string) -> time.Tick {
+	steps := RELEASE_STEPS
+	if release_next >= len(steps) || steps[release_next] != name {
+		fatal("release step %q out of order (RELEASE_STEPS)", name) // a bug in release_build
+	}
+	release_next += 1
 	log("release: == %s", name)
 	return time.tick_now()
 }
@@ -162,6 +185,7 @@ release_step :: proc(name: string) -> time.Tick {
 @(private)
 release_build :: proc(game: Game, version: string, no_eos: bool, no_devui := false) -> string {
 	start := time.tick_now()
+	release_next = 0
 	if !os.is_file(join(game.dir, "export_presets.cfg")) {
 		fatal("%s has no export_presets.cfg", game.name)
 	}
@@ -205,7 +229,9 @@ release_build :: proc(game: Game, version: string, no_eos: bool, no_devui := fal
 	editor := godot()
 	ensure_templates()
 	log("release: Godot and templates in %.1fs", seconds_since(started))
-	write_extension_list(game)
+	started = release_step("import cache")
+	ensure_imported(game.dir) // also mirrors the tool scripts and lists the extension
+	log("release: import cache current in %.1fs", seconds_since(started))
 	target: string
 	{
 		// stamped for the export only, and put back right after it; a failure on the way puts them back too
@@ -545,13 +571,7 @@ release_export :: proc(editor: string, game: Game) -> string {
 	remove_tree(out_dir)
 	make_dirs(out_dir)
 	target := join(out_dir, aprintf("%s%s", game.name, ODIN_OS == .Darwin ? ".app" : ".exe"))
-	release_godot(
-		editor,
-		game,
-		strs("--export-release", HOST.preset, target),
-		aprintf("export (%s)", HOST.preset),
-		600,
-	)
+	release_godot(editor, game, strs("--export-release", HOST.preset, target), "export", 600)
 	if !os.exists(target) {
 		fatal("the export produced no %s", target)
 	}
