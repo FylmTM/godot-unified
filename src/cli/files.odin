@@ -158,6 +158,19 @@ copy_file :: proc(dst, src: string) {
 	}
 }
 
+// Moves the file `from` to `to`, replacing it: a rename, else a copy and `from` removed (a rename can't cross volumes or
+// filesystems: Windows' ERROR_NOT_SAME_DEVICE, POSIX's EXDEV). `rename` stands in for os.rename in a test. False when
+// neither worked (`from` stays).
+move_file :: proc(from, to: string, rename: proc(from, to: string) -> os.Error = os.rename) -> bool {
+	if rename(from, to) == nil do return true
+	data, err := os.read_entire_file(from, context.allocator)
+	if err != nil do return false
+	defer delete(data)
+	if !write_file(to, data) do return false
+	os.remove(from)
+	return true
+}
+
 // The SHA-256 of bytes, as lowercase hex.
 sha256_hex :: proc(data: []byte) -> string {
 	digest := hash.hash_bytes(.SHA256, data, context.temp_allocator)

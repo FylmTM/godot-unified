@@ -252,10 +252,12 @@ finds the State's `level` field (a `sim.Active_Level`, named so: `src/sim/README
 carries the level of its tick and of the newest verified tick. The level on screen (`UnifiedSession.level`) follows
 the **verified** one, so a mispredicted change never shows and a rollback across a change costs the view nothing:
 
-- **The scene.** With `level_root` set, the host loads the verified level's scene on a thread (the `res://` path its
-  `.level` file names, so no index or naming convention is needed), emitting `level_changing`; once it is loaded it
-  frees the old level's instance and every scene view, instances the new one under `level_root` and emits
-  `level_changed`. Without `level_root` the game shows its level itself (a single-level game's play scene instances
+- **The scene.** With `level_root` set, the host loads the verified level's scene (the `res://` path its `.level`
+  file names, so no index or naming convention is needed), emitting `level_changing`; once it is loaded it frees the
+  old level's instance and every scene view, instances the new one under `level_root` and emits `level_changed`. It
+  loads on a thread with a renderer, and in the frame headless (`level_threaded`), where Godot's dummy renderer makes
+  textures without a lock and a loading thread's would collide with the main thread's; a replay on the frame clock
+  loads in the frame too, so no clip frame waits on a load. Without `level_root` the game shows its level itself (a single-level game's play scene instances
   it), and `level` and the signals still follow the verified level.
 - **The views hold.** Views sync only from frames of the level on screen: while a change is predicted but not
   verified, or the new scene still loads, the views keep their last pose and session data and events flow on. A
@@ -318,11 +320,11 @@ The `--replay-*` flags make a replay a clip (`Replay_Clip`): where it starts and
 and its clock. A clip can be cut around an event instead of ticks (`--replay-at`): the replay first steps the recording
 from its start to the step that emits the n-th event of that type (every tick of a recording is final, so every event
 it finds is a confirmed one), keeping the snapshots it passes, then seeks back to the clip's start; a recording made
-again keeps its clip on the same moment. Whose view a clip follows is the slot's holder where the clip starts. On the **frame clock** (`--replay-fps`, what `uni render` uses) the replay no longer runs on the real
+again keeps its clip on the same moment. Whose view a clip follows is the slot's holder where the clip starts (or its first holder after, in a recording from tick 0, where nobody holds a slot until the first step's joins). On the **frame clock** (`--replay-fps`, what `uni render` uses) the replay no longer runs on the real
 clock: every frame of the main thread is 1/fps s of the recording, the main thread waits for the session thread to
 reach that frame's tick, and the views are posed at that moment's alpha. So frame n always shows the same moment,
 whether the frame took a millisecond or a second to draw: with Godot's movie writer at a fixed frame rate the clip is
-frame-exact and two renders are the same bytes. The clock starts on the first frame the views are shown in (a game
+frame-exact, and two renders' pixels match wherever the game draws deterministically (GPU particles may not). The clock starts on the first frame the views are shown in (a game
 whose menu adopts the replay opens its play scene some frames later; the replay holds its first tick until then). A
 clip from a later tick first plays `REPLAY_CLIP_LEAD_S` of the recording before it, so the game's cameras have caught
 up and its views have finished appearing by the clip's first frame, which is the first at or after its tick. Once the

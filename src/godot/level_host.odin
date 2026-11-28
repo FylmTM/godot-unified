@@ -1,7 +1,7 @@
 // The level host (src/godot/README.md, Levels): the active level is state (sim.Active_Level), so each Frame carries the
 // level of its tick and of the newest verified tick, and the main thread follows the verified one: it loads that
-// level's scene on a thread (the scene its .level file was exported from), swaps it in under
-// UnifiedSession.level_root, and syncs the views only from frames of the level on screen.
+// level's scene (the scene its .level file was exported from) on a thread, or in the frame (level_load_threaded), swaps
+// it in under UnifiedSession.level_root, and syncs the views only from frames of the level on screen.
 #+private
 package godot
 
@@ -32,6 +32,7 @@ Level_Host :: struct {
 	scene_id: u64,
 	markers:  gd.Array, // the shown scene's markers (level_markers), once asked for
 	marked:   bool,
+	threaded: Maybe(bool), // UnifiedSession.level_threaded as set (nil: unset: level_threaded's default)
 	// Loads requested and then dropped before they were taken (a new session, another target, the level_root gone):
 	// each is still taken once it ends (level_host_collect). Godot keeps a load nobody took until exit, and reports
 	// it as a leaked ObjectDB instance. It counts the requests of a path, each taken by a get of its own, so a path
@@ -98,7 +99,18 @@ level_host_process :: proc(session: ^Session_Node, frame: ^Frame_Data) -> (hold:
 			gd.emit_signal(session.obj, gd.sn("level_changing"), i64(target.id))
 			if path := level_scene_path(target.id); level_root_of(session).ptr != nil && path != "" {
 				loader := gd.ResourceLoader_singleton()
-				if gd.ResourceLoader_load_threaded_request(loader, path, "PackedScene") == .OK do host.loading = path
+				if level_load_threaded(session, frame) {
+					if gd.ResourceLoader_load_threaded_request(loader, path, "PackedScene") == .OK do host.loading = path
+				} else {
+					// in this frame: swapped in at once, before this frame's views sync
+					loaded := gd.ResourceLoader_load(loader, path, "PackedScene", .CACHE_MODE_REUSE)
+					if loaded.ptr == nil {
+						gd.print_error(
+							fmt.tprintf("unified: the scene of level %d (%s) did not load", target.id, path),
+						)
+					}
+					level_host_advance(session, transmute(gd.Ref(gd.PackedScene))loaded)
+				}
 			}
 		}
 	}
@@ -106,13 +118,29 @@ level_host_process :: proc(session: ^Session_Node, frame: ^Frame_Data) -> (hold:
 	return frame.level != host.shown
 }
 
-// Swaps the target level in once its scene is loaded (at once without a level_root or a scene).
+// Whether the level host loads a level's scene on a thread (the views hold until it is in) rather than in the frame the
+// level changes: UnifiedSession.level_threaded, and never on a replay's frame clock, where a held frame would be a clip
+// frame showing the old level (frame n must show the same moment however long the load takes).
+level_load_threaded :: proc(session: ^Session_Node, frame: ^Frame_Data) -> bool {
+	return level_threaded(session) && frame.replay.fps == 0
+}
+
+// UnifiedSession.level_threaded: as set, else true with a renderer and false headless. Godot's headless (dummy) renderer
+// stores textures without a lock, so a loading thread's textures and the main thread's collide now and then
+// (`Parameter "t" is null`, a texture leaked at exit).
+level_threaded :: proc(session: ^Session_Node) -> bool {
+	if threaded, set := session.level.threaded.?; set do return threaded
+	return gd.DisplayServer_get_name(gd.DisplayServer_singleton()) != "headless"
+}
+
+// Swaps the target level in once its scene is loaded on its thread, or `loaded` (a scene loaded in the frame, taken over
+// and released) at once; at once too without a level_root or a scene.
 @(private = "file")
-level_host_advance :: proc(session: ^Session_Node) {
+level_host_advance :: proc(session: ^Session_Node, loaded: gd.Ref(gd.PackedScene) = {}) {
 	host := &session.level
 	root := level_root_of(session)
-	packed: gd.Ref(gd.PackedScene)
-	if host.loading != "" && root.ptr != nil {
+	packed := loaded
+	if packed.ptr == nil && host.loading != "" && root.ptr != nil {
 		loader := gd.ResourceLoader_singleton()
 		progress := gd.array_new()
 		defer gd.Array_destroy(&progress)

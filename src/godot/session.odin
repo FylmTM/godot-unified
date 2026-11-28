@@ -218,7 +218,14 @@ register_session_class :: proc() {
 	gd.bind_property(class, "level_root", level_root_of, proc(session: ^Session_Node, node: gd.Node) {
 			session.level.root = node
 			session.level.root_id = node.ptr != nil ? gdi.object_get_instance_id(node.ptr) : 0
-		}, .NODE_TYPE, "Node", doc = "Where the active level's scene is instanced (the scene its .level file was exported from): the session loads it on a thread and swaps it in when the verified level changes, freeing the old level's instance and every scene view with it. Null (the default): the game shows its level itself; [member level] and the level signals work all the same.")
+		}, .NODE_TYPE, "Node", doc = "Where the active level's scene is instanced (the scene its .level file was exported from): the session loads it ([member level_threaded]) and swaps it in when the verified level changes, freeing the old level's instance and every scene view with it. Null (the default): the game shows its level itself; [member level] and the level signals work all the same.")
+	gd.bind_property(
+		class,
+		"level_threaded",
+		proc(session: ^Session_Node) -> bool {return level_threaded(session)},
+		proc(session: ^Session_Node, threaded: bool) {session.level.threaded = threaded},
+		doc = "The level's scene loads on a thread, the views holding their last pose until it is in; false: in the frame the verified level changes, which waits for it. Defaults to true with a renderer and false headless: Godot's headless renderer makes textures without a lock, so a loading thread's textures and the main thread's collide now and then. A replay on the frame clock ([code]uni render[/code]) always loads in the frame, so no frame of a clip shows the old level.",
+	)
 	gd.bind_property(
 		class,
 		"devui_visible",

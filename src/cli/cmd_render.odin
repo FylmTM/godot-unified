@@ -26,8 +26,9 @@ RENDER_GIF_WIDTH_MAX :: 960
 RENDER_TIMEOUT :: 1800 * time.Second
 // The line the game prints once the clip's last frame is on screen (src/godot's FRAME_CLOCK_MARKER).
 RENDER_CLIP_MARKER :: "UNIFIED_CLIP "
-// Where a render works, under the game's .out/.
+// Where a render works, under the game's .out/, and the lock file there that keeps a game's renders one at a time.
 RENDER_DIR :: "render"
+RENDER_LOCK :: "render.lock"
 // The names of the PNG frames and audio a directory gets (frame00000000.png, ...: Godot's movie writer's numbering).
 RENDER_FRAME_PREFIX :: "frame"
 RENDER_AUDIO :: "audio.wav"
@@ -37,7 +38,7 @@ Render_Opts :: struct {
 	out:      string `args:"required" hint:"<file>" usage:"what to write, by its extension: .avi (MJPEG video with the game's sound, Godot's movie writer), .gif (animated, encoded by uni), or a directory (ending in / or one that exists): PNG frames and audio.wav"`,
 	from:     string `hint:"<tick|Ns>" usage:"where the clip starts: a tick, or seconds into the recording (4.5s); default its first tick (a later one: the game plays the second before it, cut, so it has settled)"`,
 	to:       string `hint:"<tick|Ns>" usage:"where it ends; default the recording's last tick"`,
-	at:       string `hint:"<Event_Name[#n]>" usage:"instead of --from and --to: the clip is cut around the n-th (default the first) event of that type in the recording, the game's own type as Odin or GDScript names it (Event_Boss_Slam#2, EventBossSlam), so a recording made again keeps its clip on the same moment; the game finds it by replaying the recording first and refuses an event that never occurs or an n past the last (uni headless <game> -- replay --log <inputs.unil> --events lists them)"`,
+	at:       string `hint:"<Event_Name[#n]>" usage:"instead of --from and --to: the clip is cut around the n-th (default the first) event of that type in the recording, the game's own type as Odin or GDScript names it (Event_Boss_Slam#2, EventBossSlam), so a recording made again keeps its clip on the same moment; the game finds it by replaying the recording first and refuses an event that never occurs or an n past the last (uni headless <game> -- replay --log <dir>/inputs.unil --any-build --game <game> --events lists them, plus --snapshot <dir>/snapshot.unis when the folder has one)"`,
 	before:   string `hint:"<Ns|ticks>" usage:"with --at: how long before the event the clip starts (default 2s)"`,
 	after:    string `hint:"<Ns|ticks>" usage:"with --at: how long after it the clip ends (default 3s)"`,
 	fps:      int `hint:"<n>" usage:"frames per second (default 30; a GIF 15, at most 50): the clip is frame-exact at any machine speed"`,
@@ -74,6 +75,7 @@ Render_Report :: struct {
 	fps:        int,
 	from, to:   u32, // the ticks it shows
 	at:         u32, // --at: the event's tick (0: none)
+	first_tick: u32, // the tick its first frame shows (the first at or after `from`)
 	tick_hz:    int,
 	width:      int,
 	height:     int,
@@ -270,6 +272,10 @@ render :: proc(
 	cwd, _ := os.get_working_directory(context.allocator)
 	out := absolute_path(cwd, opts.out)
 	work := absolute_path(cwd, join(selected.dir, ".out", RENDER_DIR))
+	// one render of a game at a time: they share the work folder and the project's override.cfg (with_window), so a
+	// second (a `uni render` beside the godot suite's render step) waits rather than wiping the first's frames
+	lock := lock_acquire(join(selected.dir, ".out", RENDER_LOCK), aprintf("render of %s", selected.name))
+	defer lock_release(lock)
 	remove_tree(work)
 	make_dirs(work)
 	ensure_game(selected)
@@ -296,7 +302,7 @@ render :: proc(
 	clip := panes[0].clip
 	if problem = render_panes_agree(panes); problem != "" do return report, problem
 	report.format, report.frames, report.fps, report.from, report.to = format, clip.frames, fps, clip.from, clip.to
-	report.at, report.tick_hz, report.panes = clip.at, clip.tick_hz, len(panes)
+	report.at, report.first_tick, report.tick_hz, report.panes = clip.at, clip.first_tick, clip.tick_hz, len(panes)
 	switch format {
 	case "avi":
 		movie := join(work, "clip.avi")
@@ -320,7 +326,7 @@ render :: proc(
 					frame := render_pane_frame(panes[0], i)
 					target := join(out, aprintf("%s%08d.png", RENDER_FRAME_PREFIX, i))
 					os.remove(target)
-					if os.rename(frame, target) != nil do return report, aprintf("cannot move %s to %s", frame, target)
+					if !move_file(frame, target) do return report, aprintf("cannot move %s to %s", frame, target)
 					report.bytes += int(file_size(target))
 				}
 			} else {
@@ -453,7 +459,11 @@ render_panes_agree :: proc(panes: []Render_Pane) -> string {
 	first := panes[0].clip
 	for pane, i in panes[1:] {
 		clip := pane.clip
-		if clip.frames != first.frames || clip.from != first.from || clip.to != first.to || clip.at != first.at {
+		if clip.frames != first.frames ||
+		   clip.from != first.from ||
+		   clip.to != first.to ||
+		   clip.at != first.at ||
+		   clip.first_tick != first.first_tick {
 			return aprintf(
 				"the views' clips differ: the first shows ticks %d to %d in %d frames, view %d ticks %d to %d in %d",
 				first.from,
@@ -605,6 +615,7 @@ Render_Clip :: struct {
 	frames:      int,
 	from, to:    u32,
 	at:          u32, // a clip cut around an event (--at): its tick (0: none)
+	first_tick:  u32, // the tick the game showed in the movie frame `movie_frame` (0: none)
 	fps:         int,
 	tick_hz:     int,
 }
@@ -859,8 +870,10 @@ RENDER_CHECK_SIZE :: "480x270"
 
 // The godot suite's `render` step (GODOT_STEP_CHECKS) on the game's first replay regression. The headless binary lists
 // the recording's events (`replay --events`), and an event is picked whose tick no neighbour of its type shares. Then
-// `--at` it, P1's view, to PNG frames: the clip is on that event's tick and as many frames as its ticks at the frame
-// rate, and a GIF of them decodes; then P1's view twice side by side: each half of every frame is the single render's
+// `--at` it, P1's view, to PNG frames: the clip is on that event's tick, its first frame (the movie frame the clip line
+// names) showed the clip's first tick and not the lead's, it has as many frames as its ticks at the frame rate, and a
+// GIF of them is written (its header, frame count and trailer: tests/cli decodes the encoder's output); then P1's view
+// twice side by side: each half of every frame is the single render's
 // frame of that moment (render_views_in_sync: within a tolerance, since a game's GPU particles may draw differently
 // from run to run, and not a frame out of sync). `skipped` says why it didn't run: no replay regression, or no display to open a window on
 // (Linux without DISPLAY or WAYLAND_DISPLAY).
@@ -912,6 +925,18 @@ render_check :: proc(game: Game) -> (ok: bool, skipped: string) {
 		anchor,
 		report.at,
 		at,
+	)
+	// the absolute anchor: the movie frame the clip line names as its first showed the clip's first tick (the first at
+	// or after `from`), not one of the lead's before it
+	per_frame := u32((report.tick_hz + RENDER_CHECK_FPS - 1) / RENDER_CHECK_FPS)
+	expect(
+		game,
+		&ok,
+		report.first_tick >= report.from && report.first_tick <= report.from + per_frame,
+		"the clip's first frame shows tick %d, not one of ticks %d to %d: the frames cut are not the clip's",
+		report.first_tick,
+		report.from,
+		report.from + per_frame,
 	)
 	ticks := int(report.to - report.from)
 	expected := (ticks * RENDER_CHECK_FPS + report.tick_hz - 1) / max(report.tick_hz, 1)
@@ -972,8 +997,9 @@ render_check :: proc(game: Game) -> (ok: bool, skipped: string) {
 	return ok, ""
 }
 
-// The events of the recording in `folder` as its game's headless binary replays it (`replay --events`): [tick, type]
-// in order; false when it printed none.
+// The events of the recording in `folder` as its game's headless binary replays it (`replay --events`, `--game` the
+// game's own name: the variant Godot plays, which a headless binary's default, a stress tuning, may not be): [tick,
+// type] in order; false when it printed none.
 @(private)
 render_check_events :: proc(game: Game, folder: string) -> (events: [][2]json.Value, ok: bool) {
 	binary := ensure_headless(
@@ -981,7 +1007,17 @@ render_check_events :: proc(game: Game, folder: string) -> (events: [][2]json.Va
 		.release,
 	)
 	cmd: [dynamic]string
-	append(&cmd, binary, "replay", "--log", join(folder, REPLAY_INPUTS), "--any-build", "--events")
+	append(
+		&cmd,
+		binary,
+		"replay",
+		"--log",
+		join(folder, REPLAY_INPUTS),
+		"--any-build",
+		"--game",
+		game.name,
+		"--events",
+	)
 	if snapshot := join(folder, "snapshot.unis"); os.is_file(snapshot) do append(&cmd, "--snapshot", snapshot)
 	ran := run_proc({cmd = cmd[:], capture = true, quiet = true, timeout = 300 * time.Second})
 	report := last_json_object(ran.stdout) or_return

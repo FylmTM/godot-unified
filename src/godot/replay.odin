@@ -79,7 +79,7 @@ Replay_Clip :: struct {
 	before:   Replay_Point,
 	after:    Replay_Point,
 	speed:    f32, // its speed at the start (0: 1), within REPLAY_SPEED_MIN and REPLAY_SPEED_MAX
-	player:   int, // follow the player in slot `player - 1` at `from` (0: whoever recorded it, else P1)
+	player:   int, // follow the player in slot `player - 1` at `from`, or its first holder after (0: whoever recorded it, else P1)
 	// The frame clock (> 0): every frame of the main thread is 1/fps s of the recording however long it takes to draw,
 	// and waits for the session thread to reach its tick, so frame n always shows the same moment (a movie written
 	// with Godot's --fixed-fps; `uni render`). The views start moving on the first frame they are shown in.
@@ -373,17 +373,29 @@ replay_open :: proc(driver: ^Driver($G, $View, $MultiView)) -> bool {
 	return true
 }
 
-// Follows the player in slot `player - 1` at the playhead's tick; false with a Failed status when nobody holds it.
+// Follows the player in slot `player - 1` at the playhead's tick, or, when nobody holds it there (a recording from tick
+// 0, whose first step applies the joins), its first holder after it up to the replay's end; the playhead is back where
+// it was. False with a Failed status when nobody holds it until the end.
 @(private)
 replay_follow_slot :: proc(driver: ^Driver($G, $View, $MultiView), player: int) -> bool {
 	replay := driver.replay
-	slots := replay.simulation.state.players.slots[:]
-	holder := player <= len(slots) ? slots[player - 1] : {}
+	from := replay.simulation.tick
+	holder: sim.Player
+	for {
+		slots := replay.simulation.state.players.slots[:]
+		holder = player <= len(slots) ? slots[player - 1] : {}
+		if holder != {} || replay.simulation.tick >= replay.view.end do break
+		replay_forward(driver, publish = false)
+	}
+	if replay.simulation.tick != from {
+		replay_seek(driver, from)
+		replay_seek_run(driver, max(time.Duration))
+	}
 	if holder == {} {
 		post_status(
 			driver,
 			.Failed,
-			fmt.tprintf("replay: nobody holds slot %d at tick %d", player - 1, replay.simulation.tick),
+			fmt.tprintf("replay: nobody holds slot %d from tick %d to %d", player - 1, from, replay.view.end),
 		)
 		return false
 	}
@@ -691,6 +703,7 @@ Frame_Clock :: struct {
 	speed:       f32,
 	movie_frame: int, // Engine.get_process_frames() as frame 0 was drawn: the movie writer's number of it
 	clip_first:  int, // the clip's first frame: the frames before it are the lead (REPLAY_CLIP_LEAD_S), cut
+	first_tick:  u32, // the tick shown in the process frame frame_clock_clip_movie_frame names (0: not yet)
 	alpha:       f32, // where the frame on screen sits between its tick and the one before (handoff's alpha)
 	waited:      int, // frames shown before frame 0 (FRAME_CLOCK_START_FRAMES)
 }
@@ -730,6 +743,24 @@ frame_clock_start :: proc(session: ^Session_Node, frame: ^Frame_Data) {
 		clip_first  = lead,
 		movie_frame = gd.Engine_get_process_frames(gd.Engine_singleton()),
 		alpha       = 1,
+	}
+	frame_clock_shown(session, frame)
+}
+
+// The movie writer's number of the clip's first frame (the frames before it are the lead): what the clip line says, and
+// the process frame whose tick it reports as the first shown (frame_clock_shown), so `uni render` can check the frames
+// it cuts are the clip's.
+@(private)
+frame_clock_clip_movie_frame :: proc(clock: ^Frame_Clock) -> int {
+	return clock.movie_frame + clock.clip_first
+}
+
+// The tick on screen in this process frame, kept when it is the clip's first frame (Frame_Clock.first_tick).
+@(private)
+frame_clock_shown :: proc(session: ^Session_Node, frame: ^Frame_Data) {
+	clock := &session.clock
+	if clock.started && gd.Engine_get_process_frames(gd.Engine_singleton()) == frame_clock_clip_movie_frame(clock) {
+		clock.first_tick = frame.tick
 	}
 }
 
@@ -780,22 +811,24 @@ frame_clock_wait :: proc(session: ^Session_Node, newest: ^Frame_Data, newest_fre
 			fresh = fresh || later_fresh
 		}
 	}
+	frame_clock_shown(session, frame)
 	return frame, fresh
 }
 
-// The clip's last frame was shown: its line (which movie frames are the clip, its lead left out), and the quit of a
-// --quit-at-end run.
+// The clip's last frame was shown: its line (which movie frames are the clip, its lead left out, and the tick its first
+// frame showed), and the quit of a --quit-at-end run.
 @(private)
 frame_clock_end :: proc(session: ^Session_Node, fps: int, tick_hz: u32) {
 	clock := &session.clock
 	fmt.printfln(
-		`%s{{"movie_frame":%d,"frames":%d,"from":%d,"to":%d,"at":%d,"fps":%d,"tick_hz":%d,"speed":%v}}`,
+		`%s{{"movie_frame":%d,"frames":%d,"from":%d,"to":%d,"at":%d,"first_tick":%d,"fps":%d,"tick_hz":%d,"speed":%v}}`,
 		FRAME_CLOCK_MARKER,
-		clock.movie_frame + clock.clip_first,
+		frame_clock_clip_movie_frame(clock),
 		clock.frames - clock.clip_first,
 		clock.clip_from,
 		clock.end,
 		clock.at,
+		clock.first_tick,
 		fps,
 		tick_hz,
 		clock.speed,

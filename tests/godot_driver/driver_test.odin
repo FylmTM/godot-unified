@@ -848,6 +848,31 @@ replay_cuts_around_an_event :: proc(t: ^testing.T) {
 		for godot.api.running() do time.sleep(time.Millisecond)
 		godot.api.wait()
 	}
+	// --replay-player 1 on a recording from tick 0, where nobody holds a slot yet (the first step applies the joins):
+	// it follows the slot's first holder, as following P1 by default does
+	clear(&messages)
+	ok, err = godot.api.start({mode = .Replay, arg = dir, name = "viewer", clip = {player = 1}})
+	if testing.expectf(t, ok, "replay start: %s", err) {
+		frame, shown = replay_wait(WAIT_MS, proc(frame: ^godot.Frame_Data) -> bool {return frame.local_player != 0})
+		testing.expectf(
+			t,
+			shown && frame.slots[0] != 0 && frame.local_player == frame.slots[0],
+			"--replay-player 1 from tick 0 follows slot 0's first holder",
+		)
+		_ = drain(&messages, 20, proc(message: godot.Message) -> bool {return false})
+		for message in messages {
+			testing.expectf(
+				t,
+				!(message.kind == .Status && message.status == .Failed),
+				"--replay-player 1 from tick 0: refused with %q",
+				text(message),
+			)
+		}
+		godot.api.stop()
+		_ = drain(&messages, WAIT_MS, is_result)
+		for godot.api.running() do time.sleep(time.Millisecond)
+		godot.api.wait()
+	}
 
 	refusals := []struct {
 		anchor, want: string,

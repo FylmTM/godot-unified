@@ -4,6 +4,7 @@
 package test_cli
 
 import "core:encoding/endian"
+import "core:os"
 import "core:testing"
 import "unified:cli"
 
@@ -181,7 +182,7 @@ render_reads_its_output_and_the_clip_line :: proc(t: ^testing.T) {
 	testing.expect_value(t, cli.render_format("clip.mp4"), "")
 	output :=
 		"Godot Engine v4.7\nunified: result {}\n" +
-		`UNIFIED_CLIP {"movie_frame":3,"frames":150,"from":12,"to":652,"at":140,"fps":15,"tick_hz":64,"speed":1}` +
+		`UNIFIED_CLIP {"movie_frame":3,"frames":150,"from":12,"to":652,"at":140,"first_tick":17,"fps":15,"tick_hz":64,"speed":1}` +
 		"\n"
 	clip, found := cli.render_clip_line(output)
 	testing.expect(t, found)
@@ -190,6 +191,28 @@ render_reads_its_output_and_the_clip_line :: proc(t: ^testing.T) {
 	testing.expect_value(t, clip.from, 12)
 	testing.expect_value(t, clip.to, 652)
 	testing.expect_value(t, clip.at, 140)
+	testing.expect_value(t, clip.first_tick, 17)
 	_, found = cli.render_clip_line("a game that quit early\n")
 	testing.expect(t, !found)
+}
+
+// A PNG frame moved out of the render's work folder to an --out on another volume, where a rename fails: copied, and
+// the source removed (a rename that works moves it as it is).
+@(test)
+render_moves_a_frame_where_a_rename_fails :: proc(t: ^testing.T) {
+	context.allocator = context.temp_allocator
+	dir, temp_err := os.make_directory_temp("", "unified-move-test-*", context.allocator)
+	testing.expect(t, temp_err == nil)
+	defer os.remove_all(dir)
+	from, to := cli.join(dir, "work", "frame00000012.png"), cli.join(dir, "out", "frame00000000.png")
+	cli.write_text(from, "a frame")
+	cli.write_text(to, "an older render's")
+	other_volume :: proc(from, to: string) -> os.Error {return os.General_Error.Invalid_Path} 	// what MoveFileExW or rename(2) say
+	testing.expect(t, cli.move_file(from, to, other_volume), "moved across volumes")
+	text, read := cli.read_text(to)
+	testing.expect(t, read && text == "a frame", "the frame replaces the older one")
+	testing.expect(t, !os.exists(from), "its source is gone")
+	testing.expect(t, cli.move_file(to, from), "a rename that works")
+	testing.expect(t, os.is_file(from) && !os.exists(to))
+	testing.expect(t, !cli.move_file(cli.join(dir, "none.png"), to, other_volume), "no source: no move")
 }

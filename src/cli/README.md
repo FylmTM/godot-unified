@@ -165,9 +165,9 @@ on PATH, and exits at once without it; any debugger that reads PDBs works there 
 project's own Godot suites, tool scripts, `tool`, `bake`, `drive`, `coop`'s host and joiners, `view-bench`) gets the
 project's own user data directory, `.out/user/` (`user_env`): the game's `user://` (a save, its settings, the LAN
 token: each running copy claims its own) is there, kept between such runs, cleared when the godot suite starts a whole
-run of a game, and with `.out/`. A `drive` instance has its own beside it, `.out/user/<name>/`, so what it saves (a
-session's recording, an F3 note `drive note` makes) is its alone and `feedback --instance <name>` reads it back: an
-agent makes a note and turns it into a replay regression without a person. `run` and `editor` are the developer's own,
+run of a game, and with `.out/`. A `drive` instance has its own apart from it, `.out/drive/<name>/user/`, so what it
+saves (a session's recording, an F3 note `drive note` makes) is its alone, outlives a suite run, and `feedback
+--instance <name>` reads it back: an agent makes a note and turns it into a replay regression without a person. `run` and `editor` are the developer's own,
 with the real one: an agent play-checks with `drive`.
 
 Benchmarks are no suite: `bench` runs each game's standard benchmarks (a row each) and its sessions on the virtual
@@ -184,9 +184,11 @@ the machine draws. Each frame is the same pixels on every render only where the 
 particles may not (two renders of a game with torch flames differ a little there), so the godot suite compares renders
 within a tolerance. The movie writer records from the process's first frame to its last; the game says which frames
 were the clip (its first shown frame of the replay's views to the clip's end), and `render` keeps those: an AVI's
-chunks and index rewritten for them (`avi_trim`), PNG frames renamed from 0 with their audio (`wav_trim`). The size is
-the window size override in the run's `override.cfg`, which the movie writer records at (a game whose stretch mode is
-`viewport`: its viewport's size).
+chunks and index rewritten for them (`avi_trim`), PNG frames moved and numbered from 0 with their audio (`wav_trim`).
+The game also says which tick its clip's first movie frame showed, which the godot suite's render step checks is the
+clip's and not the lead's. The size is the window size override in the run's `override.cfg`, which the movie writer
+records at (a game whose stretch mode is `viewport`: its viewport's size). A game's renders take turns (a lock in its
+`.out/`): they share the work folder and that `override.cfg`.
 
 A clip can be cut around a moment instead of ticks (`--at`): the game finds the n-th event of that type as it replays
 the recording (src/godot/README.md, Replays), so a recording made again, whose ticks moved, keeps its clip on the same

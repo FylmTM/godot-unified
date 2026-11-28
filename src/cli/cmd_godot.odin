@@ -20,7 +20,7 @@ GODOT_STEP_CHECKS :: []string {
 	"every script compiles with warnings as errors and every scene loads; game/tools/validate.gd adds the game's own checks",
 	"game/tools/ui_walk.gd, when the game has one: a walk through its menus and flows with real input events, then its play smoke (a game without menus has none: skipped)",
 	"the game headless under uni drive, as an agent drives it: status, pause, exact steps, a timed press, state, input, held input values, events, ui, find, eval, a note saved and read back by feedback --instance, a script error named by file:line; then, with a display, in a window: a screenshot and a note with one (games with an extension)",
-	"uni render of the game's first replay regression in a window, cut around an event the headless binary lists (--at): PNG frames on its tick, as many as its ticks at the frame rate, a GIF of them that decodes, and P1's view twice side by side whose halves are the single render's frames, within a tolerance (GPU particles) and not a frame out of sync (games with one; skipped with no display, as on CI's Linux)",
+	"uni render of the game's first replay regression in a window, cut around an event the headless binary lists (--at): PNG frames on its tick, the first showing the clip's first tick (not the lead's), as many as its ticks at the frame rate, a GIF of them written (its header, frame count and trailer; the unit tests decode the encoder's output), and P1's view twice side by side whose halves are the single render's frames, within a tolerance (GPU particles) and not a frame out of sync (games with one; skipped with no display, as on CI's Linux)",
 }
 
 // The `session` step's length: 1 s of a 64 Hz game (`test --long`: 4 s).
@@ -114,8 +114,7 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 			if !ok do log("uni: %s %s: skipped (a step before it failed)", game.name, step)
 			return !ok
 		}
-		// a whole run starts from no user data: a drive or tool run's save never reaches its session step (user_env)
-		if len(only) == 0 do remove_tree(user_base(game.dir))
+		if len(only) == 0 do godot_suite_clear(game.dir)
 		// whatever steps run: each starts Godot on the project, which needs a current class cache
 		import_start := time.tick_now()
 		ensure_game(game)
@@ -212,6 +211,13 @@ suite_godot :: proc(games: []Game, opts: Test_Options) -> bool {
 		}
 	}
 	return ok
+}
+
+// What a whole godot suite run of the game in `dir` clears first: the user data checks and tool scripts share
+// (user_env), so a tool run's save never reaches its session step. Never a drive instance's (drive_user_base): an
+// agent's notes and recordings there outlive the run, and the drive step clears its own instances' itself.
+godot_suite_clear :: proc(dir: string) {
+	remove_tree(user_base(dir))
 }
 
 // The godot suite's `prepare` (run beside other suites) and the first part of godot_in_parallel: what every game's
@@ -695,9 +701,9 @@ tool_own_result :: proc(result: json.Value) -> string {
 clear_shader_cache :: proc(game: Game) {
 	remove_tree(join(game.dir, ".godot", "shader_cache"))
 	remove_tree(join(game_user_dir(game.dir), "shader_cache"))
-	// a check's own (user_env), and each drive instance's (drive_user_base: a directory of .out/user/)
+	// a check's own (user_env), and each drive instance's (drive_user_base: .out/drive/<name>/user)
 	remove_tree(join(game_user_dir(game.dir, user_base(game.dir)), "shader_cache"))
-	entries, _ := os.read_all_directory_by_path(user_base(game.dir), context.allocator)
+	entries, _ := os.read_all_directory_by_path(join(game.dir, ".out", "drive"), context.allocator)
 	for entry in entries {
 		if entry.type == .Directory {
 			remove_tree(join(game_user_dir(game.dir, drive_user_base(game.dir, entry.name)), "shader_cache"))

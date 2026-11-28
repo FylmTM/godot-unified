@@ -138,6 +138,10 @@ func _initialize() -> void:
 	var level_root := Node2D.new()
 	world.add_child(level_root)
 	session.level_root = level_root
+	check("headless, a level loads in the frame by default", not session.level_threaded, session.level_threaded)
+	# the threaded load, which a headless session skips by default (Godot's dummy renderer makes textures without a lock):
+	# the toy's level scenes have no texture
+	session.level_threaded = true
 	var level_signals: Array[String] = []
 	session.level_changing.connect(func(to: int) -> void: level_signals.append("changing %d" % to))
 	session.level_changed.connect(func(level: int) -> void: level_signals.append("changed %d" % level))
@@ -387,6 +391,7 @@ func _initialize() -> void:
 	var recording: String = await finish(session)
 	check("session data back to zero when the session ends", toy.bumps == 0 and toy.x == 0.0, [toy.bumps, toy.x])
 	await check_replay_levels(recording, in_cave)
+	await check_levels_in_the_frame(recording, in_cave)
 	await check_unnamed()
 	print("VIEWS TESTS: %d failed" % failed)
 	quit(failed)
@@ -865,6 +870,7 @@ func check_replay_levels(folder: String, in_cave: int) -> void:
 	var level_root := Node2D.new()
 	root.add_child(level_root)
 	session.level_root = level_root
+	session.level_threaded = true  # the threaded load's drops (the toy's level scenes have no texture)
 	root.add_child(session)
 	session.paused = true
 	check("replay the session", session.replay(folder))
@@ -893,6 +899,48 @@ func check_replay_levels(folder: String, in_cave: int) -> void:
 	var arrived := session.level == EnumLevel.MEADOW and session.tick == last and session.level_scene != null
 	check("seeks across the level changes end on the second meadow", arrived,
 		[session.level, session.tick, session.level_scene])
+	session.leave()
+	for i in 50:
+		if not session.running:
+			break
+		await create_timer(0.02).timeout
+	session.queue_free()
+	level_root.queue_free()
+	await process_frame
+
+
+# A level loaded in the frame (UnifiedSession.level_threaded false: headless by default, and always on a replay's frame
+# clock): a seek into the cave and back swaps each level in within the frame that asks for it, before that frame's views
+# sync, so no frame shows the old level.
+func check_levels_in_the_frame(folder: String, in_cave: int) -> void:
+	if folder == "":
+		return
+	var session := UnifiedSession.new()
+	session.view_root = null
+	var level_root := Node2D.new()
+	root.add_child(level_root)
+	session.level_root = level_root
+	session.level_threaded = false
+	root.add_child(session)
+	session.paused = true
+	var frames := {}  # signal -> the process frame it came in
+	session.level_changing.connect(func(to: int) -> void: frames["changing %d" % to] = Engine.get_process_frames())
+	session.level_changed.connect(func(to: int) -> void: frames["changed %d" % to] = Engine.get_process_frames())
+	check("replay the session (levels in the frame)", session.replay(folder))
+	for i in 100:
+		if session.replay_last_tick > 0 and session.level_scene != null:
+			break
+		await create_timer(0.02).timeout
+	session.replay_seek(in_cave)
+	for i in 100:
+		if session.level == EnumLevel.CAVE:
+			break
+		await create_timer(0.02).timeout
+	check("in the frame: the cave's scene is in", session.level == EnumLevel.CAVE and session.level_scene != null \
+		and session.level_scene.name == "Cave" and level_root.get_child_count() >= 1, [session.level, session.level_scene])
+	check("in the frame: each level swapped in within the frame that asked for it", frames.has("changing 1") \
+		and frames.get("changing 0") == frames.get("changed 0") and frames.get("changing 1") == frames.get("changed 1"),
+		frames)
 	session.leave()
 	for i in 50:
 		if not session.running:
