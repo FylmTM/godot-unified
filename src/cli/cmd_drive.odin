@@ -1,7 +1,7 @@
 // `uni drive`: an agent drives a running game through its control socket (src/godot/README.md, The control socket).
 // `start` launches the game with `--control` as a named instance, every other verb is one request to it, and `stop`
 // quits it and judges its log. An instance's record is examples/<game>/.out/drive/<name>.json, its Godot user data
-// (saves, settings, recordings, F3 notes) examples/<game>/.out/user/<name>/ (drive_user_base).
+// (saves, settings, recordings, F3 notes) examples/<game>/.out/drive/<name>/user/ (drive_user_base).
 package cli
 
 import "core:encoding/json"
@@ -87,7 +87,8 @@ drive_details :: proc() -> string {
 		"Input goes through the game's own sampling and commands through the session's queue, so a driven session\n" +
 		"is a session like any other: deterministic, recorded, replayable. A paused session steps exactly; a running\n" +
 		"one moves on its own clock between verbs. An instance's Godot user data (saves, settings, recordings, notes) is\n" +
-		"its own, .out/user/<name>/ in the game, kept from run to run: `uni feedback --instance <name>` reads its notes." \
+		"its own, .out/drive/<name>/user/ in the game, kept from run to run (a godot suite run clears only the checks'\n" +
+		".out/user/ and its own instances'): `uni feedback --instance <name>` reads its notes." \
 	)
 }
 
@@ -258,9 +259,10 @@ drive_dir :: proc(game: Game) -> string {
 }
 
 // Where the drive instance `name` of the game in `game_dir` keeps its Godot user data (user_env_in's home): its own,
-// beside the project's .out/user/ that checks and tool scripts share, so its notes and recordings are its alone.
+// beside its record in .out/drive/ and apart from the project's .out/user/ that checks and tool scripts share (and a
+// whole godot suite run clears: godot_suite_clear), so its notes and recordings are its alone and outlive a suite run.
 drive_user_base :: proc(game_dir, name: string) -> string {
-	return join(user_base(game_dir), name)
+	return join(game_dir, ".out", "drive", name, "user")
 }
 
 // The game's instance records, by name.
@@ -561,6 +563,7 @@ drive_check :: proc(game: Game) -> bool {
 	if instance, ok := drive_find(game, NAME); ok && instance_alive(game, instance) {
 		drive_stop(game, instance) // a run that was cut short left it
 	}
+	remove_tree(drive_user_base(game.dir, NAME)) // the step's own instance starts from no user data
 	started := drive_start(game, {name = NAME, headless = true}, {"--autostart"})
 	if !started.ok {
 		log("uni: %s drive: start: %s", game.name, started.summary)
@@ -717,6 +720,7 @@ drive_check_window :: proc(game: Game) -> bool {
 	if instance, ok := drive_find(game, NAME); ok && instance_alive(game, instance) {
 		drive_stop(game, instance) // a run that was cut short left it
 	}
+	remove_tree(drive_user_base(game.dir, NAME)) // the step's own instance starts from no user data
 	started := drive_start(game, {name = NAME}, {"--autostart"})
 	if !started.ok {
 		log("uni: %s drive (window): start: %s", game.name, started.summary)

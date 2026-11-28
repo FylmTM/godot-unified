@@ -92,7 +92,8 @@ feedback_lists_reads_and_marks_notes_done :: proc(t: ^testing.T) {
 }
 
 // `feedback --instance <name>` reads a drive instance's notes: in the Godot user data `drive start` gave it
-// (.out/user/<name>/ in the game), never the developer's, and each instance its own.
+// (.out/drive/<name>/user/ in the game), never the developer's, and each instance its own; a whole godot suite run's
+// clear of the checks' user data leaves it (godot_suite_clear).
 @(test)
 feedback_dir_of_a_drive_instance :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator // the CLI never frees: it is short-lived
@@ -100,7 +101,7 @@ feedback_dir_of_a_drive_instance :: proc(t: ^testing.T) {
 	testing.expect(t, temp_err == nil)
 	defer os.remove_all(game)
 	cli.write_text(cli.join(game, "project.godot"), "[application]\nconfig/name=\"My Game\"\n")
-	base := cli.join(game, ".out", "user", "1")
+	base := cli.join(game, ".out", "drive", "1", "user")
 	testing.expect_value(t, cli.drive_user_base(game, "1"), base)
 	testing.expect_value(t, cli.feedback_dir(game, "1"), cli.join(cli.game_user_dir(game, base), cli.FEEDBACK_DIR))
 	testing.expect_value(
@@ -111,6 +112,14 @@ feedback_dir_of_a_drive_instance :: proc(t: ^testing.T) {
 	testing.expect(t, cli.feedback_dir(game, "1") != cli.feedback_dir(game, "2"), "each instance its own")
 	testing.expect_value(t, cli.feedback_dir(game, ""), cli.join(cli.game_user_dir(game), cli.FEEDBACK_DIR))
 	testing.expect(t, cli.feedback_dir(game, "") != cli.feedback_dir(game, "1"), "never the developer's")
+	// an agent's note, and the checks' own user data beside it: the suite clears only the latter
+	note := cli.join(cli.feedback_dir(game, "1"), "20261120-090000", "note.txt")
+	cli.write_text(note, "[note]\nkept")
+	checks := cli.join(cli.game_user_dir(game, cli.user_base(game)), "save.dat")
+	cli.write_text(checks, "a check's save")
+	cli.godot_suite_clear(game)
+	testing.expect(t, os.is_file(note), "a drive instance's note outlives a suite run's clear")
+	testing.expect(t, !os.exists(checks), "the suite clears the checks' user data")
 }
 
 @(test)

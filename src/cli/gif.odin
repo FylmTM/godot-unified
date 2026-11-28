@@ -256,6 +256,9 @@ lzw_encode :: proc(indices: []u8, min_code_size: int, dictionary: ^Lzw_Dictionar
 			prefix = int(value)
 		}
 		emit(out, &bits, &bit_count, prefix, code_size)
+		// a decoder adds its entry for that last code and widens as for any other: the end code is read at that width
+		newest += 1
+		if newest >= 1 << uint(code_size) && code_size < GIF_CODE_BITS_MAX do code_size += 1
 	}
 	emit(out, &bits, &bit_count, end_code, code_size)
 	if bit_count > 0 do append(out, u8(bits))

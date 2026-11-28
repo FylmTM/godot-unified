@@ -33,7 +33,7 @@ Feedback_Note :: struct {
 Feedback_List_Opts :: struct {
 	game:     string `args:"pos=0" usage:"the game (default: the only one)"`,
 	done:     bool `usage:"the handled notes (in feedback/done/) instead of the open ones"`,
-	instance: string `hint:"name" usage:"a drive instance's notes (its own user data, .out/user/<name>/ in the game: what uni drive note saved) instead of the developer's"`,
+	instance: string `hint:"name" usage:"a drive instance's notes (its own user data, .out/drive/<name>/user/ in the game: what uni drive note saved) instead of the developer's"`,
 }
 
 @(private)
@@ -56,7 +56,7 @@ feedback_details :: proc() -> string {
 	return(
 		"A dev UI build writes a note when the player presses F3 and sends it, and the watchdog a freeze-<time> folder\n" +
 		"when the session thread stops stepping, both into the game's Godot user data (the developer's own: `run` and\n" +
-		"`editor` use it; a check's is .out/user/ in the game, a drive instance's .out/user/<name>/, which --instance\n" +
+		"`editor` use it; a check's is .out/user/ in the game, a drive instance's .out/drive/<name>/user/, which --instance\n" +
 		"<name> reads: what `uni drive note` saved). A note holds note.txt, screenshot.png, note.json and the session's\n" +
 		"recording (snapshot.unis, inputs.unil); `show` prints the commands that replay it.\n" +
 		"The unified-feedback skill is how an agent handles them." \

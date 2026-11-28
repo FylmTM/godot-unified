@@ -811,16 +811,30 @@ release_versions_keys_and_errors :: proc(t: ^testing.T) {
 	testing.expect_value(t, len(errors), 3)
 }
 
-// A release makes the import cache before the import and the export that count Godot's error lines: a fresh
-// checkout's first import prints them for a theme whose textures are not imported yet (release_step holds
-// release_build to this order).
+// What release_imports_before_it_counts_errors saw release_imports call, in order.
+@(private = "file")
+release_calls: [dynamic]string
+
+// A release makes the import cache (ensure_imported) before the import and the export that count Godot's error lines:
+// a fresh checkout's first import prints them for a theme whose textures are not imported yet.
 @(test)
 release_imports_before_it_counts_errors :: proc(t: ^testing.T) {
 	context.allocator = context.temp_allocator
-	cache, _ := slice.linear_search(cli.RELEASE_STEPS, "import cache")
-	counted, _ := slice.linear_search(cli.RELEASE_STEPS, "import")
-	export, _ := slice.linear_search(cli.RELEASE_STEPS, "export")
-	testing.expect(t, cache >= 0 && cache < counted && counted < export, strings.join(cli.RELEASE_STEPS, ", "))
+	release_calls = make([dynamic]string, context.temp_allocator)
+	target := cli.release_imports(
+		{name = "g", dir = "games/g"},
+		{editor = "godot", version = "1.2.0"},
+		proc(dir: string) -> []string {
+			append(&release_calls, cli.aprintf("ensure_imported %s", dir))
+			return nil
+		},
+		proc(game: cli.Game, export: cli.Release_Export) -> string {
+			append(&release_calls, cli.aprintf("import and export %s %s", game.name, export.version))
+			return "out/g"
+		},
+	)
+	testing.expect_value(t, target, "out/g")
+	testing.expect_value(t, strings.join(release_calls[:], ", "), "ensure_imported games/g, import and export g 1.2.0")
 }
 
 // --json and --verbose are uni's only before a `--`: after it they belong to the game, the script or the mode.

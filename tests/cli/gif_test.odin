@@ -4,6 +4,7 @@
 // to the clip's length. The decoder here is the test's own, written from the GIF89a specification.
 package test_cli
 
+import "base:runtime"
 import "core:math"
 import "core:testing"
 import "unified:cli"
@@ -232,6 +233,40 @@ lzw_streams_decode_to_their_input :: proc(t: ^testing.T) {
 			min_code_size,
 			read.clears,
 		)
+	}
+	// every length of a range: the stream ends with an end code the decoder reads at the width it expects, also where
+	// the last value's code is the one that widens the codes and the stream ends on a byte boundary (each range holds
+	// such a length for its seed; a range far longer takes seconds)
+	Sweep :: struct {
+		min_code_size, from, to: int,
+	}
+	for sweep in ([]Sweep{{2, 1, 1000}, {4, 1, 1000}, {8, 4000, 4400}}) {
+		context.allocator = runtime.heap_allocator() // each stream freed: hundreds of them
+		seed := u32(777 + sweep.min_code_size)
+		values := make([]u8, sweep.to)
+		defer delete(values)
+		for &value in values do value = u8(test_random(&seed) % u32(1 << uint(sweep.min_code_size)))
+		failed := 0
+		for length in sweep.from ..= sweep.to {
+			stream: [dynamic]u8
+			cli.lzw_encode(values[:length], sweep.min_code_size, &dictionary, &stream)
+			read := test_lzw_decode(stream[:], sweep.min_code_size)
+			if !read.ok || string(read.indices[:]) != string(values[:length]) {
+				if failed == 0 {
+					testing.expectf(
+						t,
+						false,
+						"min %d, %d values: no readable end code, or other values",
+						sweep.min_code_size,
+						length,
+					)
+				}
+				failed += 1
+			}
+			delete(stream)
+			delete(read.indices)
+		}
+		testing.expectf(t, failed == 0, "min %d: %d lengths fail", sweep.min_code_size, failed)
 	}
 	// a short stream stays narrow: one clear code, codes one bit past the values
 	stream: [dynamic]u8

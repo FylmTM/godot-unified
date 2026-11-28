@@ -152,10 +152,8 @@ short_commit :: proc(dir: string) -> string {
 	return strings.trim_space(ran.stdout)
 }
 
-// The steps of one game's release, in the order release_build takes them (release_step stops one taken out of it).
-// The import cache is made (ensure_imported, the editor's own import, its output not read) before the import whose
-// error lines fail the release: a fresh checkout's first import loads the project's theme before the textures it
-// names are imported, and says so in ERROR lines.
+// The steps of one game's release, in the order release_build takes them (release_step stops one taken out of it;
+// release_imports has why the import cache comes before the import).
 RELEASE_STEPS :: []string {
 	"game extension (release)",
 	"Godot + export templates",
@@ -179,6 +177,43 @@ release_step :: proc(name: string) -> time.Tick {
 	release_next += 1
 	log("release: == %s", name)
 	return time.tick_now()
+}
+
+// What release_exported needs besides the game: the editor that imports and exports, the version stamped, whether
+// EOS is left out.
+Release_Export :: struct {
+	editor:  string,
+	version: string,
+	no_eos:  bool,
+}
+
+// A release's imports and its export, in order: the import cache made (`ensure`: ensure_imported, the editor's own
+// import, its output not read), then `exported` (release_exported: the import whose error lines fail the release, and
+// the export), whose export folder it returns. A fresh checkout's first import loads the project's theme before the
+// textures it names are imported, and says so in ERROR lines: the cache's import takes them. A test passes its own
+// `ensure` and `exported` to see the order.
+release_imports :: proc(
+	game: Game,
+	export: Release_Export,
+	ensure: proc(dir: string) -> []string = ensure_imported,
+	exported: proc(game: Game, export: Release_Export) -> string = release_exported,
+) -> string {
+	started := time.tick_now()
+	ensure(game.dir) // also mirrors the tool scripts and lists the extension
+	log("release: import cache current in %.1fs", seconds_since(started))
+	return exported(game, export)
+}
+
+// The import whose error lines fail the release, and the export (release_export), with the version stamped for them
+// only and put back right after (a failure on the way puts it back too); the export folder.
+@(private)
+release_exported :: proc(game: Game, export: Release_Export) -> string {
+	stamp_version(game, export.version)
+	if export.no_eos do drop_eos_dependency(game)
+	release_godot(export.editor, game, {"--import"}, "import", 600)
+	target := release_export(export.editor, game)
+	restore_texts()
+	return target
 }
 
 // One game's package; the zip's path.
@@ -229,18 +264,8 @@ release_build :: proc(game: Game, version: string, no_eos: bool, no_devui := fal
 	editor := godot()
 	ensure_templates()
 	log("release: Godot and templates in %.1fs", seconds_since(started))
-	started = release_step("import cache")
-	ensure_imported(game.dir) // also mirrors the tool scripts and lists the extension
-	log("release: import cache current in %.1fs", seconds_since(started))
-	target: string
-	{
-		// stamped for the export only, and put back right after it; a failure on the way puts them back too
-		stamp_version(game, version)
-		if no_eos do drop_eos_dependency(game)
-		release_godot(editor, game, {"--import"}, "import", 600)
-		target = release_export(editor, game)
-		restore_texts()
-	}
+	release_step("import cache")
+	target := release_imports(game, {editor, version, no_eos})
 	check_version(target, version)
 	files: [dynamic]string
 	append(&files, ..libs)
